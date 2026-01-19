@@ -1,17 +1,20 @@
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
 use std::collections::HashMap;
 
 use crate::{
-    applets::create_applet,
+    applets::{AppletHost, AppletHostInit, create_applet},
     config::{AppletConfig, PanelConfig, PanelPosition},
 };
 
-pub struct Panel {}
+pub struct Panel {
+    #[allow(dead_code)]
+    applet_hosts: Vec<Controller<AppletHost>>,
+}
 
 pub struct Init {
     pub config: PanelConfig,
@@ -51,17 +54,19 @@ impl SimpleComponent for Panel {
         hbox.set_hexpand(true);
         root.set_child(Some(&hbox));
 
-        let mut applets = vec![];
+        let mut applet_hosts = vec![];
         for name in &init.config.applets {
             let config = init.applet_configs.get(name);
             tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
             if let Some(instance) = create_applet(config, name) {
-                hbox.append(&instance.widget());
-                applets.push(instance);
+                let host_init = AppletHostInit { applet: instance };
+                let applet_host = AppletHost::builder().launch(host_init).detach();
+                hbox.append(applet_host.widget());
+                applet_hosts.push(applet_host);
             }
         }
 
-        let model = Panel {};
+        let model = Panel { applet_hosts };
         let widgets = view_output!();
         root.present();
         ComponentParts { model, widgets }

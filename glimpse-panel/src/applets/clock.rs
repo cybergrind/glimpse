@@ -1,11 +1,9 @@
 use std::time::Duration;
 
-use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, prelude::*},
-};
+use relm4::gtk::{self, glib, prelude::*};
 use serde::Deserialize;
-use tokio::task::JoinHandle;
+
+use crate::applets::Applet;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClockConfig {
@@ -26,140 +24,61 @@ impl Default for ClockConfig {
 }
 
 pub struct ClockApplet {
-    time: String,
-    format: String,
-    tick_handle: JoinHandle<()>,
+    widget: gtk::Box,
+    popover: gtk::Popover,
+    source_id: Option<glib::SourceId>,
+}
+
+impl Applet for ClockApplet {
+    fn widget(&self) -> gtk::Widget {
+        self.widget.clone().upcast()
+    }
+
+    fn on_left_click(&self) {
+        self.popover.popup();
+    }
+}
+
+impl ClockApplet {
+    pub fn new(config: ClockConfig) -> Self {
+        let time = chrono::Local::now().format(&config.format).to_string();
+        let label = gtk::Label::new(Some(&time));
+        let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        hbox.add_css_class("clock");
+        hbox.append(&label);
+
+        let format = config.format.clone();
+        let label_clone = label.clone();
+
+        let source_id = glib::timeout_add_local(Duration::from_secs(1), move || {
+            let time = chrono::Local::now().format(&format).to_string();
+            label_clone.set_label(&time);
+            glib::ControlFlow::Continue
+        });
+
+        let popover = create_popover(hbox.clone());
+
+        Self {
+            popover,
+            widget: hbox,
+            source_id: Some(source_id),
+        }
+    }
 }
 
 impl Drop for ClockApplet {
     fn drop(&mut self) {
-        self.tick_handle.abort();
+        if let Some(source_id) = self.source_id.take() {
+            source_id.remove();
+        }
     }
 }
 
-#[derive(Debug)]
-pub enum ClockInput {
-    Tick,
-    LeftClick,
-    RightClick,
-    Scroll(f64),
-    Hover(bool),
-}
+fn create_popover(parent: gtk::Box) -> gtk::Popover {
+    let popover = gtk::Popover::new();
+    popover.set_parent(&parent);
 
-#[relm4::component(pub)]
-impl SimpleComponent for ClockApplet {
-    type Init = ClockConfig;
-    type Input = ClockInput;
-    type Output = ();
-
-    view! {
-        gtk::Box {
-            add_css_class: "applet-clock",
-            set_margin_start: 4,
-            set_margin_end: 4,
-            gtk::Label {
-                #[watch]
-                set_label: &model.time,
-            }
-        }
-    }
-
-    fn init(
-        config: Self::Init,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        let tick_handle = relm4::spawn({
-            let sender = sender.clone();
-            async move {
-                loop {
-                    sender.input(ClockInput::Tick);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-            }
-        });
-
-        // Click handler
-        let click = gtk::GestureClick::new();
-        click.set_button(0);
-        click.set_propagation_phase(gtk::PropagationPhase::Capture);
-        click.connect_pressed({
-            let sender = sender.input_sender().clone();
-            move |gesture, _, _, _| {
-                let msg = match gesture.current_button() {
-                    1 => ClockInput::LeftClick,
-                    3 => ClockInput::RightClick,
-                    _ => return,
-                };
-                let _ = sender.send(msg);
-            }
-        });
-        root.add_controller(click);
-
-        // Scroll handler
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        scroll.connect_scroll({
-            let sender = sender.input_sender().clone();
-            move |_, _, dy| {
-                let _ = sender.send(ClockInput::Scroll(dy));
-                gtk::glib::Propagation::Stop
-            }
-        });
-        root.add_controller(scroll);
-
-        // Hover handler
-        let hover = gtk::EventControllerMotion::new();
-        hover.connect_enter({
-            let sender = sender.input_sender().clone();
-            move |_, _, _| {
-                let _ = sender.send(ClockInput::Hover(true));
-            }
-        });
-        hover.connect_leave({
-            let sender = sender.input_sender().clone();
-            move |_| {
-                let _ = sender.send(ClockInput::Hover(false));
-            }
-        });
-        root.add_controller(hover);
-
-        let time = {
-            use std::fmt::Write;
-            let mut buf = String::new();
-            let _ = write!(buf, "{}", chrono::Local::now().format(&config.format));
-            buf
-        };
-        let model = ClockApplet {
-            time,
-            format: config.format,
-            tick_handle,
-        };
-        let widgets = view_output!();
-        ComponentParts { model, widgets }
-    }
-
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
-        match msg {
-            ClockInput::Tick => {
-                use std::fmt::Write;
-                let mut buf = String::new();
-                match write!(buf, "{}", chrono::Local::now().format(&self.format)) {
-                    Ok(_) => self.time = buf,
-                    Err(e) => tracing::error!("invalid clock format '{}': {}", self.format, e),
-                }
-            }
-            ClockInput::LeftClick => {
-                tracing::debug!("clock left click");
-            }
-            ClockInput::RightClick => {
-                tracing::debug!("clock right click");
-            }
-            ClockInput::Scroll(dy) => {
-                tracing::debug!("clock scroll: {}", dy);
-            }
-            ClockInput::Hover(entered) => {
-                tracing::debug!("clock hover: {}", entered);
-            }
-        }
-    }
+    let calendar = gtk::Calendar::new();
+    popover.set_child(Some(&calendar));
+    popover
 }

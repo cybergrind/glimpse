@@ -1,29 +1,21 @@
-use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, prelude::*},
-};
+use relm4::gtk::{self, prelude::*};
 
-pub struct Spacer;
+use crate::applets::Applet;
 
-#[relm4::component(pub)]
-impl SimpleComponent for Spacer {
-    type Init = ();
-    type Input = ();
-    type Output = ();
+pub struct Spacer {
+    widget: gtk::Box,
+}
 
-    view! {
-        gtk::Box {
-            set_hexpand: true,
-        }
+impl Spacer {
+    pub fn new() -> Self {
+        let widget = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        widget.set_hexpand(true);
+        Self { widget }
     }
+}
 
-    fn init(
-        _init: Self::Init,
-        _root: Self::Root,
-        _sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        let model = Spacer;
-        let widgets = view_output!();
-        ComponentParts { model, widgets }
+impl Applet for Spacer {
+    fn widget(&self) -> gtk::Widget {
+        self.widget.clone().upcast()
     }
 }
