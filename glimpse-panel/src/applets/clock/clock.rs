@@ -1,9 +1,12 @@
 use std::time::Duration;
 
-use relm4::gtk::{self, glib, prelude::*};
+use relm4::{
+    Component, ComponentController, Controller,
+    gtk::{self, glib, prelude::*},
+};
 use serde::Deserialize;
 
-use crate::applets::Applet;
+use crate::applets::{Applet, clock::popover};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClockConfig {
@@ -25,7 +28,7 @@ impl Default for ClockConfig {
 
 pub struct ClockApplet {
     widget: gtk::Box,
-    popover: gtk::Popover,
+    popover: Controller<popover::Popover>,
     source_id: Option<glib::SourceId>,
 }
 
@@ -35,7 +38,7 @@ impl Applet for ClockApplet {
     }
 
     fn on_left_click(&self) {
-        self.popover.popup();
+        self.popover.emit(popover::Input::Open);
     }
 }
 
@@ -74,11 +77,9 @@ impl Drop for ClockApplet {
     }
 }
 
-fn create_popover(parent: gtk::Box) -> gtk::Popover {
-    let popover = gtk::Popover::new();
-    popover.set_parent(&parent);
-
-    let calendar = gtk::Calendar::new();
-    popover.set_child(Some(&calendar));
+fn create_popover(parent: gtk::Box) -> Controller<popover::Popover> {
+    let popover = popover::Popover::builder()
+        .launch(popover::Init { parent })
+        .detach();
     popover
 }
