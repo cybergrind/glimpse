@@ -1,16 +1,21 @@
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
-    gtk::prelude::*,
-    gtk::{self},
+    gtk::{self, prelude::*},
 };
 
-use crate::config::{PanelConfig, PanelPosition};
+use std::collections::HashMap;
+
+use crate::{
+    applets::create_applet,
+    config::{AppletConfig, PanelConfig, PanelPosition},
+};
 
 pub struct Panel {}
 
 pub struct Init {
     pub config: PanelConfig,
+    pub applet_configs: HashMap<String, AppletConfig>,
 }
 
 #[derive(Debug)]
@@ -33,11 +38,28 @@ impl SimpleComponent for Panel {
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        tracing::info!(
+            "configuring panel, position {:?}, {} applets",
+            init.config.position,
+            init.config.applets.len()
+        );
+
         Self::setup_layer_shell(&root, &init.config);
         root.add_css_class("panel");
 
         let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        hbox.set_hexpand(true);
         root.set_child(Some(&hbox));
+
+        let mut applets = vec![];
+        for name in &init.config.applets {
+            let config = init.applet_configs.get(name);
+            tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
+            if let Some(instance) = create_applet(config, name) {
+                hbox.append(&instance.widget());
+                applets.push(instance);
+            }
+        }
 
         let model = Panel {};
         let widgets = view_output!();

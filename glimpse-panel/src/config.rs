@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{collections::HashMap, env, fs, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -43,6 +43,16 @@ pub struct PanelConfig {
     pub height: i32,
     #[serde(default)]
     pub margin: Margin,
+
+    #[serde(default)]
+    pub applets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppletConfig {
+    pub extends: String,
+    #[serde(flatten)]
+    pub settings: toml::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,16 +61,21 @@ pub struct Config {
 
     #[serde(default)]
     pub panels: Vec<PanelConfig>,
+
+    #[serde(default)]
+    pub applets: HashMap<String, AppletConfig>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: None,
+            applets: HashMap::new(),
             panels: vec![PanelConfig {
                 height: 36,
                 margin: Margin::default(),
                 position: PanelPosition::Bottom,
+                applets: vec![],
             }],
         }
     }

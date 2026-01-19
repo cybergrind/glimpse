@@ -92,9 +92,9 @@ impl SimpleComponent for App {
 fn setup_panels(config: &Config) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
     for panel_config in &config.panels {
-        tracing::info!("configuring panel");
         let panel_init = panels::Init {
             config: panel_config.clone(),
+            applet_configs: config.applets.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();
         panels.push(panel);
