@@ -17,9 +17,11 @@ impl SimpleComponent for WorldClock {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            add_css_class: "card",
             add_css_class: "world-clock",
 
             gtk::Label {
+                add_css_class: "card-heading",
                 add_css_class: "world-clock-header",
                 set_label: "World Clock",
                 set_xalign: 0.0,
@@ -27,9 +29,12 @@ impl SimpleComponent for WorldClock {
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                add_css_class: "card-body",
                 add_css_class: "world-clock-list",
 
                 gtk::Label {
+                    add_css_class: "body",
+                    add_css_class: "text-muted",
                     add_css_class: "world-clock-empty",
                     set_label: "No locations configured",
                 },

@@ -17,20 +17,25 @@ impl SimpleComponent for Events {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            add_css_class: "card",
+            add_css_class: "activatable",
             add_css_class: "events",
 
             gtk::Label {
-                add_css_class: "events-header",
+                add_css_class: "card-heading",
+                add_css_class: "events-heading",
                 set_label: "Events",
                 set_xalign: 0.0,
             },
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                add_css_class: "card-body",
                 add_css_class: "events-list",
 
                 gtk::Label {
-                    add_css_class: "events-empty",
+                    add_css_class: "body",
+                    add_css_class: "text-muted",
                     set_label: "No events today",
                 },
             },

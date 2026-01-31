@@ -33,6 +33,7 @@ impl SimpleComponent for NowPlaying {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
+            add_css_class: "card",
             add_css_class: "now-playing",
             set_spacing: 12,
 
@@ -49,9 +50,10 @@ impl SimpleComponent for NowPlaying {
                 set_valign: gtk::Align::Center,
 
                 gtk::Label {
+                    add_css_class: "heading",
                     add_css_class: "now-playing-title",
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
-                    set_max_width_chars: 25,
+                    // set_max_width_chars: 25,
                     set_xalign: 0.0,
                     #[watch]
                     set_label: &model.title,
@@ -60,6 +62,7 @@ impl SimpleComponent for NowPlaying {
                 },
 
                 gtk::Label {
+                    add_css_class: "body",
                     add_css_class: "now-playing-artist",
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     set_max_width_chars: 25,

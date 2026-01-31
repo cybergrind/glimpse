@@ -21,6 +21,7 @@ impl SimpleComponent for Notifications {
             set_vexpand: true,
 
             gtk::Label {
+                add_css_class: "heading",
                 add_css_class: "notifications-header",
                 set_label: "Notifications",
                 set_xalign: 0.0,
@@ -35,6 +36,8 @@ impl SimpleComponent for Notifications {
                     add_css_class: "notifications-list",
 
                     gtk::Label {
+                        add_css_class: "body",
+                        add_css_class: "text-muted",
                         add_css_class: "notifications-empty",
                         set_label: "No notifications",
                         set_vexpand: true,

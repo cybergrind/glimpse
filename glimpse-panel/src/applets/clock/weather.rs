@@ -17,18 +17,29 @@ impl SimpleComponent for Weather {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            add_css_class: "card",
             add_css_class: "weather",
 
             gtk::Label {
+                add_css_class: "card-heading",
                 add_css_class: "weather-header",
                 set_label: "Weather",
                 set_xalign: 0.0,
             },
 
-            gtk::Label {
-                add_css_class: "weather-empty",
-                set_label: "No location configured",
-            },
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                add_css_class: "card-body",
+                add_css_class: "events-list",
+
+                gtk::Label {
+                    add_css_class: "body",
+                    add_css_class: "text-muted",
+                    add_css_class: "weather-empty",
+                    set_label: "No location configured",
+                },
+            }
+
         }
     }
 
