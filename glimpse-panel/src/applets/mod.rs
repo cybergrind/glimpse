@@ -5,10 +5,13 @@ mod spacer;
 use relm4::gtk::{self};
 
 use crate::{
-    applets::component::{MouseButton, ScrollDirection},
+    applets::{
+        clock::config::ClockConfig,
+        component::{MouseButton, ScrollDirection},
+    },
     config::AppletConfig,
 };
-use clock::{ClockApplet, ClockConfig};
+use clock::ClockApplet;
 pub use component::{AppletHost, AppletHostInit};
 use spacer::Spacer;
 

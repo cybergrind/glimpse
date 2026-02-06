@@ -1,0 +1,16 @@
+[[panels]]
+position = "bottom"
+applets = ["spacer", "clock"]
+
+[[panels]]
+position = "top"
+applets = ["spacer","clock", "clock_custom", "spacer"]
+
+[applets.clock_custom]
+extends = "clock"
+format = "%a %b %d, %H:%M:%S"
+timezones = [
+    {name= "Minsk", timezone= "Europe/Minsk", format= "%H:%M:%S"},
+    {name= "St. Gallen", timezone= "Europe/Zurich"},
+    {name="Tbilisi", timezone="Asia/Tbilisi"}
+]

@@ -103,9 +103,10 @@ fn setup_panels(config: &Config) -> Vec<Controller<panels::Panel>> {
 }
 
 fn load_css(provider: &CssProvider, path: &PathBuf) {
-    if path.exists() && path.is_file() {
-        provider.load_from_path(path);
-        tracing::info!("loaded css from {}", path.display());
+    let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
+    if resolved.exists() && resolved.is_file() {
+        provider.load_from_path(&resolved);
+        tracing::info!("loaded css from {}", resolved.display());
     }
 }
 
@@ -167,6 +168,27 @@ fn watch_for_config_changes(sender: ComponentSender<App>) {
         if let Err(e) = debouncer.watch(&config_dir, notify::RecursiveMode::NonRecursive) {
             tracing::error!("failed to watch config directory: {}", e);
             return;
+        }
+
+        for name in ["theme.css", "config.toml"] {
+            let path = config_dir.join(name);
+            if !path.is_symlink() {
+                continue;
+            }
+            let Ok(resolved) = path.canonicalize() else {
+                continue;
+            };
+            let Some(parent) = resolved.parent() else {
+                continue;
+            };
+            if parent == config_dir {
+                continue;
+            }
+            if let Err(e) = debouncer.watch(parent, notify::RecursiveMode::NonRecursive) {
+                tracing::warn!("failed to watch symlink target for {}: {}", name, e);
+            } else {
+                tracing::info!("watching symlink target: {}", parent.display());
+            }
         }
 
         std::future::pending::<()>().await;
