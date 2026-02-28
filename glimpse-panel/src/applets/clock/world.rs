@@ -3,9 +3,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::applets::clock::config::TimezoneEntry;
-
-use super::timezone::TimezoneRow;
+use crate::applets::clock::{
+    config::TimezoneEntry,
+    timezone::{TimezoneRow, TimezoneRowInput},
+};
 
 pub struct WorldClock {
     #[allow(dead_code)]
@@ -13,12 +14,14 @@ pub struct WorldClock {
 }
 
 #[derive(Debug)]
-pub enum Input {}
+pub enum WorldClockInput {
+    Tick,
+}
 
 #[relm4::component(pub)]
 impl SimpleComponent for WorldClock {
     type Init = Vec<TimezoneEntry>;
-    type Input = Input;
+    type Input = WorldClockInput;
     type Output = ();
 
     view! {
@@ -64,7 +67,13 @@ impl SimpleComponent for WorldClock {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Input, _sender: ComponentSender<Self>) {
-        match msg {}
+    fn update(&mut self, msg: WorldClockInput, _sender: ComponentSender<Self>) {
+        match msg {
+            WorldClockInput::Tick => {
+                self.rows
+                    .iter_mut()
+                    .for_each(|row| row.emit(TimezoneRowInput::Tick));
+            }
+        }
     }
 }

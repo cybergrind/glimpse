@@ -6,6 +6,7 @@
     --radius: 16px;
     --border-opacity: 15%;
     --card-padding: 12px;
+    --panel-bg: #000000;
     --border: color-mix(in srgb, currentColor var(--border-opacity), transparent);
 }
 
@@ -19,7 +20,8 @@
 
 .card-heading {
     font-weight: 600;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
+    opacity: var(--dim-opacity);
 }
 
 .card-body {}
@@ -30,10 +32,11 @@
     padding: 0 8px;
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: var(--panel-bg);
 }
 
 .popover {
-    padding: 16px;
+    padding: 8px;
 }
 
 .applet {
@@ -50,35 +53,35 @@
 }
 
 .clock-popover {
-    min-width: 600px;
-    min-height: 400px;
-}
-
-.clock-popover>* {
-    padding: 12px;
+    padding: 8px;
     min-width: 300px;
 }
 
-.clock-popover>*:first-child {
-    padding-left: 4pxl
+.clock-popover>*:not(:last-child) {
+    margin-bottom: 12px;
 }
 
-.clock-popover>*>* {
+/*.clock-popover>*:first-child {
+    padding-left: 4pxl*/
+/*}*/
+
+/*.clock-popover>*>* {
     margin-bottom: 16px;
-}
+}*/
 
-.clock-popover-left {}
+/*.clock-popover-left {}*/
 
-.clock-popover-right {
+/*.clock-popover-right {
     min-width: 300px;
     border-left: 1px solid var(--border);
     padding-left: 16px;
-}
+}*/
 
 .date {
-    padding-top: 8px;
-    padding-left: 12px;
-    margin-bottom: 20px;
+    padding-top: 0px;
+    padding-left: 0px;
+    margin-bottom: 16px;
+    opacity: var(--dim-opacity);
 }
 
 .date .date-day-of-week {
@@ -129,7 +132,9 @@
 
 .world-clock-list {}
 
-.world-clock-timezone {}
+.world-clock-list .world-clock-timezone:not(:last-child) {
+    padding-bottom: 4px;
+}
 
 .world-clock-city {}
 
@@ -139,5 +144,7 @@
 }
 
 .world-clock-tz {
+    padding-left: 8px;
+    ;
     font-variant-numeric: tabular-nums;
 }
