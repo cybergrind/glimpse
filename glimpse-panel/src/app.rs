@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gtk4_layer_shell::LayerShell;
 use notify::EventKind;
@@ -8,12 +8,13 @@ use relm4::{
     gtk::{self, CssProvider, gdk::Display, prelude::*},
 };
 
-use crate::{config::Config, panels};
+use crate::{config::Config, panels, providers::dbus::DbusProvider};
 
 pub struct App {
     config: Config,
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
+    dbus: DbusProvider,
 }
 
 #[derive(Debug)]
@@ -62,12 +63,14 @@ impl SimpleComponent for App {
 
         watch_for_config_changes(sender.clone());
 
-        let panels = setup_panels(&config);
+        let dbus = DbusProvider::connect();
+        let panels = setup_panels(&config, dbus.connection.clone());
 
         let model = App {
             panels,
             theme_css,
             config,
+            dbus,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -79,7 +82,7 @@ impl SimpleComponent for App {
                 for panel in self.panels.drain(..) {
                     panel.widget().close();
                 }
-                self.panels = setup_panels(&new_config);
+                self.panels = setup_panels(&new_config, self.dbus.connection.clone());
                 self.config = new_config;
             }
             Input::CssChanged => {
@@ -89,12 +92,13 @@ impl SimpleComponent for App {
     }
 }
 
-fn setup_panels(config: &Config) -> Vec<Controller<panels::Panel>> {
+fn setup_panels(config: &Config, dbus: Arc<zbus::Connection>) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
     for panel_config in &config.panels {
         let panel_init = panels::Init {
             config: panel_config.clone(),
             applet_configs: config.applets.clone(),
+            dbus: dbus.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();
         panels.push(panel);

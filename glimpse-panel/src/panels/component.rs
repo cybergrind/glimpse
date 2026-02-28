@@ -4,7 +4,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     applets::{AppletController, create_applet},
@@ -18,6 +18,7 @@ pub struct Panel {
 
 pub struct Init {
     pub config: PanelConfig,
+    pub dbus: Arc<zbus::Connection>,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
 
@@ -58,7 +59,7 @@ impl SimpleComponent for Panel {
         for name in &init.config.applets {
             let config = init.applet_configs.get(name);
             tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
-            if let Some(applet) = create_applet(config, name) {
+            if let Some(applet) = create_applet(config, name, init.dbus.clone()) {
                 hbox.append(&applet.widget());
                 applets.push(applet);
             }

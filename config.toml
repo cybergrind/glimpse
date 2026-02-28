@@ -4,7 +4,7 @@ applets = ["spacer", "clock"]
 
 [[panels]]
 position = "top"
-applets = ["spacer","clock_custom", "clock", "spacer"]
+applets = ["spacer","clock_custom", "clock", "spacer", "tray"]
 
 [applets.clock_custom]
 extends = "clock"
