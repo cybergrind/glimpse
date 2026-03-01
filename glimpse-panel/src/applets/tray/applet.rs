@@ -2,18 +2,28 @@ use std::collections::HashMap;
 
 use relm4::{
     Component, ComponentParts, ComponentSender,
-    gtk::{self, gdk, glib, prelude::*},
+    gtk::{self, gdk, gio, glib, prelude::*},
 };
 use system_tray::{
-    client::{Client, Event, UpdateEvent},
+    client::{ActivateRequest, Client, Event, UpdateEvent},
     item::{IconPixmap, StatusNotifierItem},
+    menu::{MenuItem, MenuType, TrayMenu},
 };
+use tokio::sync::mpsc;
 
 use crate::applets::tray::TrayConfig;
 
+struct TrayItem {
+    button: gtk::Button,
+    menu: Option<TrayMenu>,
+    menu_path: Option<String>,
+    popover: Option<gtk::PopoverMenu>,
+}
+
 pub struct Tray {
     config: TrayConfig,
-    items: HashMap<String, gtk::Button>,
+    items: HashMap<String, TrayItem>,
+    activate_tx: mpsc::Sender<ActivateRequest>,
 }
 
 pub struct TrayInit {
@@ -25,6 +35,9 @@ pub enum TrayInput {
     ItemAdded(String, Box<StatusNotifierItem>),
     ItemUpdated(String, UpdateEvent),
     ItemRemoved(String),
+    ShowMenu(String),
+    ActivateDefault(String),
+    ActivateItem { address: String, submenu_id: i32 },
 }
 
 #[derive(Debug)]
@@ -54,9 +67,12 @@ impl Component for Tray {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let (activate_tx, mut activate_rx) = mpsc::channel::<ActivateRequest>(8);
+
         let model = Tray {
             config: init.config,
             items: HashMap::new(),
+            activate_tx,
         };
         let widgets = view_output!();
 
@@ -73,15 +89,21 @@ impl Component for Tray {
 
                     let mut rx = client.subscribe();
                     loop {
-                        let Ok(event) = rx.recv().await else { break };
-                        let cmd = match event {
-                            Event::Add(address, item) => TrayCommand::ItemAdded(address, item),
-                            Event::Update(address, event) => {
-                                TrayCommand::ItemUpdated(address, event)
+                        tokio::select! {
+                            Ok(event) = rx.recv() => {
+                                let cmd = match event {
+                                    Event::Add(address, item) => TrayCommand::ItemAdded(address, item),
+                                    Event::Update(address, event) => TrayCommand::ItemUpdated(address, event),
+                                    Event::Remove(address) => TrayCommand::ItemRemoved(address),
+                                };
+                                out.send(cmd).ok();
                             }
-                            Event::Remove(address) => TrayCommand::ItemRemoved(address),
-                        };
-                        out.send(cmd).ok();
+                            Some(req) = activate_rx.recv() => {
+                                if let Err(e) = client.activate(req).await {
+                                    tracing::error!("activate failed: {e}");
+                                }
+                            }
+                        }
                     }
                 })
                 .drop_on_shutdown()
@@ -107,34 +129,98 @@ impl Component for Tray {
         }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             TrayInput::ItemAdded(address, item) => {
                 let btn = make_icon_button(&item, self.config.icon_size);
+
+                let left = gtk::GestureClick::new();
+                left.set_button(1);
+                let left_sender = sender.clone();
+                let left_address = address.clone();
+                left.connect_pressed(move |_, _, _, _| {
+                    left_sender.input(TrayInput::ActivateDefault(left_address.clone()));
+                });
+                btn.add_controller(left);
+
+                let right = gtk::GestureClick::new();
+                right.set_button(3);
+                let right_sender = sender.clone();
+                let right_address = address.clone();
+                right.connect_pressed(move |_, _, _, _| {
+                    right_sender.input(TrayInput::ShowMenu(right_address.clone()));
+                });
+                btn.add_controller(right);
+
                 root.append(&btn);
-                self.items.insert(address, btn);
+                self.items.insert(address, TrayItem {
+                    button: btn,
+                    menu: None,
+                    menu_path: None,
+                    popover: None,
+                });
             }
-            TrayInput::ItemUpdated(address, event) => {
-                if let UpdateEvent::Icon {
-                    icon_name,
-                    icon_pixmap,
-                } = event
-                {
-                    if let Some(btn) = self.items.get(&address) {
-                        if let Some(image) = btn.child().and_downcast::<gtk::Image>() {
-                            update_icon(&image, icon_name.as_deref(), icon_pixmap.as_deref(), self.config.icon_size);
+            TrayInput::ItemUpdated(address, event) => match event {
+                UpdateEvent::Icon { icon_name, icon_pixmap } => {
+                    if let Some(tray_item) = self.items.get(&address) {
+                        if let Some(image) = tray_item.button.child().and_downcast::<gtk::Image>() {
+                            update_icon(
+                                &image,
+                                icon_name.as_deref(),
+                                icon_pixmap.as_deref(),
+                                self.config.icon_size,
+                            );
                         }
                     }
                 }
-            }
-            TrayInput::ItemRemoved(address) => {
-                if let Some(btn) = self.items.remove(&address) {
-                    root.remove(&btn);
+                UpdateEvent::Menu(menu) => {
+                    if let Some(tray_item) = self.items.get_mut(&address) {
+                        let gio_menu = build_gio_menu(&menu.submenus);
+                        let group = gio::SimpleActionGroup::new();
+                        register_actions(&menu.submenus, &address, &group, &sender);
+                        tray_item.button.insert_action_group("tray", Some(&group));
+                        let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
+                        popover.set_parent(&tray_item.button);
+                        tray_item.popover = Some(popover);
+                        tray_item.menu = Some(menu);
+                    }
                 }
+                UpdateEvent::MenuConnect(path) => {
+                    if let Some(tray_item) = self.items.get_mut(&address) {
+                        tray_item.menu_path = Some(path);
+                    }
+                }
+                _ => {}
+            },
+            TrayInput::ItemRemoved(address) => {
+                if let Some(tray_item) = self.items.remove(&address) {
+                    root.remove(&tray_item.button);
+                }
+            }
+            TrayInput::ShowMenu(address) => {
+                if let Some(tray_item) = self.items.get(&address) {
+                    if let Some(popover) = &tray_item.popover {
+                        popover.popup();
+                    }
+                }
+            }
+            TrayInput::ActivateDefault(address) => {
+                self.activate_tx
+                    .try_send(ActivateRequest::Default { address, x: 0, y: 0 })
+                    .ok();
+            }
+            TrayInput::ActivateItem { address, submenu_id } => {
+                let menu_path = self.items.get(&address)
+                    .and_then(|i| i.menu_path.clone())
+                    .unwrap_or_default();
+                self.activate_tx
+                    .try_send(ActivateRequest::MenuItem { address, menu_path, submenu_id })
+                    .ok();
             }
         }
     }
 }
+
 fn make_icon_button(item: &StatusNotifierItem, size: i32) -> gtk::Button {
     let image = gtk::Image::new();
     image.set_pixel_size(size);
@@ -169,7 +255,6 @@ fn update_icon(
             let height = pixmap.height as usize;
             let argb = &pixmap.pixels;
 
-            // ARGB32 network byte order → BGRA (GDK MemoryFormat::B8g8r8a8)
             let mut bgra = vec![0u8; argb.len()];
             for i in (0..argb.len()).step_by(4) {
                 bgra[i] = argb[i + 3]; // B
@@ -193,4 +278,68 @@ fn update_icon(
     }
 
     image.set_icon_name(Some("image-missing-symbolic"));
+}
+
+fn build_gio_menu(items: &[MenuItem]) -> gio::Menu {
+    let menu = gio::Menu::new();
+    let mut section_items = gio::Menu::new();
+
+    for item in items {
+        if !item.visible {
+            continue;
+        }
+        match item.menu_type {
+            MenuType::Separator => {
+                menu.append_section(None, &section_items);
+                section_items = gio::Menu::new();
+            }
+            MenuType::Standard => {
+                let label = clean_label(item.label.as_deref().unwrap_or(""));
+                if !item.submenu.is_empty() {
+                    let submenu = build_gio_menu(&item.submenu);
+                    section_items.append_submenu(Some(&label), &submenu);
+                } else {
+                    let action = format!("tray.item-{}", item.id);
+                    section_items.append(Some(&label), Some(&action));
+                }
+            }
+        }
+    }
+    menu.append_section(None, &section_items);
+    menu
+}
+
+fn clean_label(s: &str) -> String {
+    s.replace("__", "\x00")
+        .replace('_', "")
+        .replace('\x00', "_")
+}
+
+fn register_actions(
+    items: &[MenuItem],
+    address: &str,
+    group: &gio::SimpleActionGroup,
+    sender: &ComponentSender<Tray>,
+) {
+    for item in items {
+        if item.menu_type == MenuType::Separator {
+            continue;
+        }
+        if item.submenu.is_empty() {
+            let action = gio::SimpleAction::new(&format!("item-{}", item.id), None);
+            action.set_enabled(item.enabled);
+            let addr = address.to_string();
+            let id = item.id;
+            let sender2 = sender.clone();
+            action.connect_activate(move |_, _| {
+                sender2.input(TrayInput::ActivateItem {
+                    address: addr.clone(),
+                    submenu_id: id,
+                });
+            });
+            group.add_action(&action);
+        } else {
+            register_actions(&item.submenu, address, group, sender);
+        }
+    }
 }

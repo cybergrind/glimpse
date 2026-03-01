@@ -39,6 +39,23 @@
     padding: 8px;
 }
 
+.menu-popover {
+    padding: 4px 0;
+}
+
+.menu-popover list {
+    background: transparent;
+}
+
+.menu-popover row {
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+
+.menu-popover row:disabled {
+    opacity: 0.4;
+}
+
 .applet {
     transition: background 150ms ease;
     padding: 0 8px;
