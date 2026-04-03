@@ -165,3 +165,26 @@
     ;
     font-variant-numeric: tabular-nums;
 }
+
+.power {}
+
+.power-popover {
+    min-width: 200px;
+    padding: 8px 0;
+}
+
+.power-popover .section-title {
+    font-size: 90%;
+    opacity: var(--dim-opacity);
+    padding: 4px 12px 2px;
+}
+
+.power-popover .profile-row,
+.power-popover .action-row {
+    padding: 4px 12px;
+    border-radius: 0;
+}
+
+.power.low image {
+    color: #e01b24;
+}

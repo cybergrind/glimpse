@@ -6,6 +6,7 @@ use relm4::{
 };
 use system_tray::{
     client::{ActivateRequest, Client, Event, UpdateEvent},
+    data::apply_menu_diffs,
     item::{IconPixmap, StatusNotifierItem},
     menu::{MenuItem, MenuType, TrayMenu},
 };
@@ -15,6 +16,7 @@ use crate::applets::tray::TrayConfig;
 
 struct TrayItem {
     button: gtk::Button,
+    item_is_menu: bool,
     menu: Option<TrayMenu>,
     menu_path: Option<String>,
     popover: Option<gtk::PopoverMenu>,
@@ -36,7 +38,7 @@ pub enum TrayInput {
     ItemUpdated(String, UpdateEvent),
     ItemRemoved(String),
     ShowMenu(String),
-    ActivateDefault(String),
+    ActivateDefault { address: String, x: i32, y: i32 },
     ActivateItem { address: String, submenu_id: i32 },
 }
 
@@ -138,8 +140,12 @@ impl Component for Tray {
                 left.set_button(1);
                 let left_sender = sender.clone();
                 let left_address = address.clone();
-                left.connect_pressed(move |_, _, _, _| {
-                    left_sender.input(TrayInput::ActivateDefault(left_address.clone()));
+                left.connect_pressed(move |_, _, x, y| {
+                    left_sender.input(TrayInput::ActivateDefault {
+                        address: left_address.clone(),
+                        x: x as i32,
+                        y: y as i32,
+                    });
                 });
                 btn.add_controller(left);
 
@@ -153,15 +159,22 @@ impl Component for Tray {
                 btn.add_controller(right);
 
                 root.append(&btn);
-                self.items.insert(address, TrayItem {
-                    button: btn,
-                    menu: None,
-                    menu_path: None,
-                    popover: None,
-                });
+                self.items.insert(
+                    address,
+                    TrayItem {
+                        button: btn,
+                        item_is_menu: item.item_is_menu,
+                        menu: None,
+                        menu_path: item.menu.clone(),
+                        popover: None,
+                    },
+                );
             }
             TrayInput::ItemUpdated(address, event) => match event {
-                UpdateEvent::Icon { icon_name, icon_pixmap } => {
+                UpdateEvent::Icon {
+                    icon_name,
+                    icon_pixmap,
+                } => {
                     if let Some(tray_item) = self.items.get(&address) {
                         if let Some(image) = tray_item.button.child().and_downcast::<gtk::Image>() {
                             update_icon(
@@ -175,14 +188,16 @@ impl Component for Tray {
                 }
                 UpdateEvent::Menu(menu) => {
                     if let Some(tray_item) = self.items.get_mut(&address) {
-                        let gio_menu = build_gio_menu(&menu.submenus);
-                        let group = gio::SimpleActionGroup::new();
-                        register_actions(&menu.submenus, &address, &group, &sender);
-                        tray_item.button.insert_action_group("tray", Some(&group));
-                        let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
-                        popover.set_parent(&tray_item.button);
-                        tray_item.popover = Some(popover);
                         tray_item.menu = Some(menu);
+                        rebuild_popover_menu(tray_item, &address, &sender);
+                    }
+                }
+                UpdateEvent::MenuDiff(menu_diffs) => {
+                    if let Some(tray_item) = self.items.get_mut(&address) {
+                        if let Some(menu) = tray_item.menu.as_mut() {
+                            apply_menu_diffs(menu, &menu_diffs);
+                            rebuild_popover_menu(tray_item, &address, &sender);
+                        }
                     }
                 }
                 UpdateEvent::MenuConnect(path) => {
@@ -204,18 +219,42 @@ impl Component for Tray {
                     }
                 }
             }
-            TrayInput::ActivateDefault(address) => {
+            TrayInput::ActivateDefault { address, x, y } => {
+                if self
+                    .items
+                    .get(&address)
+                    .is_some_and(|tray_item| tray_item.item_is_menu)
+                {
+                    if let Some(popover) = self
+                        .items
+                        .get(&address)
+                        .and_then(|tray_item| tray_item.popover.clone())
+                    {
+                        popover.popup();
+                    }
+                    return;
+                }
+
                 self.activate_tx
-                    .try_send(ActivateRequest::Default { address, x: 0, y: 0 })
+                    .try_send(ActivateRequest::Default { address, x, y })
                     .ok();
             }
-            TrayInput::ActivateItem { address, submenu_id } => {
-                let menu_path = self.items.get(&address)
+            TrayInput::ActivateItem {
+                address,
+                submenu_id,
+            } => {
+                let menu_path = self
+                    .items
+                    .get(&address)
                     .and_then(|i| i.menu_path.clone())
                     .unwrap_or_default();
-                self.activate_tx
-                    .try_send(ActivateRequest::MenuItem { address, menu_path, submenu_id })
-                    .ok();
+                if let Err(e) = self.activate_tx.try_send(ActivateRequest::MenuItem {
+                    address,
+                    menu_path,
+                    submenu_id,
+                }) {
+                    tracing::warn!("failed to queue menu activation request: {e}");
+                }
             }
         }
     }
@@ -315,6 +354,32 @@ fn clean_label(s: &str) -> String {
         .replace('\x00', "_")
 }
 
+fn rebuild_popover_menu(tray_item: &mut TrayItem, address: &str, sender: &ComponentSender<Tray>) {
+    let Some(menu) = tray_item.menu.as_ref() else {
+        return;
+    };
+
+    let was_open = tray_item.popover.as_ref().is_some_and(|p| p.is_visible());
+
+    let gio_menu = build_gio_menu(&menu.submenus);
+    let group = gio::SimpleActionGroup::new();
+    register_actions(&menu.submenus, address, &group, sender);
+    tray_item.button.insert_action_group("tray", Some(&group));
+
+    let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
+    popover.insert_action_group("tray", Some(&group));
+    popover.set_parent(&tray_item.button);
+
+    if let Some(old) = tray_item.popover.replace(popover.clone()) {
+        old.popdown();
+        old.unparent();
+    }
+
+    if was_open {
+        popover.popup();
+    }
+}
+
 fn register_actions(
     items: &[MenuItem],
     address: &str,
@@ -332,6 +397,7 @@ fn register_actions(
             let id = item.id;
             let sender2 = sender.clone();
             action.connect_activate(move |_, _| {
+                tracing::debug!("tray menu action activated: address={addr}, id={id}");
                 sender2.input(TrayInput::ActivateItem {
                     address: addr.clone(),
                     submenu_id: id,

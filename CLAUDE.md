@@ -45,14 +45,13 @@ Config is loaded from (in priority order):
 2. `./panel.toml`
 3. `$XDG_CONFIG_HOME/glimpse/panel.toml`
 
-### CSS Theming
-
-Two CSS files are loaded:
-- **Base CSS** (`panel.base.css`): Default styles, embedded in release builds
-- **Theme CSS** (`panel.theme.css`): User overrides from `./` or `$XDG_CONFIG_HOME/glimpse/`
-
 ### Dev vs Prod Features
 
 The `dev` feature (enabled by default) controls:
 - Base CSS loaded from file vs embedded
 - File watching for base CSS hot-reload
+
+# Important rules
+- always use your built-in tools to read, search, grep, write files. Only use bash as the last resort
+- if i don't allow you a certain actions - do not workaround it.
+- do not write any code unless i ask you - print instead. I want to review, i want to type everything by hand

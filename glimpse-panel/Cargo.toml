@@ -23,4 +23,5 @@ chrono.workspace = true
 chrono-tz.workspace = true
 uuid.workspace = true
 zbus.workspace = true
+futures-util.workspace = true
 system-tray.workspace = true
