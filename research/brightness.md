@@ -156,6 +156,14 @@ All icons above are available in Adwaita icon theme.
 - Contrast control for external monitors (VCP 0x12)
 - Auto-brightness based on ambient light sensor
 
+## Change Detection
+
+**Internal backlight:** inotify watch on `/sys/class/backlight/{device}/actual_brightness` — fires when any program or hardware key changes brightness. Catches brightnessctl, GNOME settings, keyboard brightness keys, everything.
+
+**External monitors (DDC/CI):** No change notification exists. DDC/CI is poll-only — the monitor cannot notify the host of changes. Options: periodic polling (every 5–10s), or only track our own writes and accept staleness.
+
+**Ambient light sensor:** `PropertiesChanged` D-Bus signal from iio-sensor-proxy. Fully reactive.
+
 ## Notes
 
 - brightnessctl can be used as a fallback CLI tool instead of raw sysfs access

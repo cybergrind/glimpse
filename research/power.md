@@ -208,6 +208,18 @@ All icons above are available in Adwaita icon theme.
 - PrepareForSleep/PrepareForShutdown signal handling (for save-state-before-sleep flows)
 - Idle hint tracking
 
+## Change Detection
+
+**Power profiles:** `PropertiesChanged` D-Bus signal on `net.hadess.PowerProfiles`. Fires when active profile changes (including automatic changes due to thermal throttling).
+
+**Sleep/shutdown:** `PrepareForSleep(bool)` and `PrepareForShutdown(bool)` signals on logind. Fires before (true) and after (false) sleep/shutdown — allows saving state before suspend.
+
+**Inhibitors:** No dedicated signal. Must poll `ListInhibitors()` or watch for `PropertiesChanged` on `BlockInhibited`/`DelayInhibited` string properties.
+
+**Session lock:** `Lock` / `Unlock` signals on `org.freedesktop.login1.Session` interface for individual sessions.
+
+**Idle state:** `PropertiesChanged` on `IdleHint` property.
+
 ## Notes
 
 - `interactive: false` skips polkit authentication prompts — daemon should use false and handle permission errors
