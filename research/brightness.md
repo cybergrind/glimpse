@@ -66,8 +66,8 @@ Signals:
 
 ## Methods
 
-- `brightness.set` — set brightness for a display (absolute value or percentage)
-- `brightness.set_relative` — adjust brightness by delta (+/- value or percentage)
+- `brightness.set(display_id: String, value: u32)` — set brightness to absolute value (0 to display max)
+- `brightness.set_relative(display_id: String, delta: i32, is_percentage: bool)` — adjust brightness by delta; positive = brighter, negative = dimmer
 
 ## Types
 

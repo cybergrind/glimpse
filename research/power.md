@@ -85,18 +85,18 @@ Valid profiles:
 
 ## Methods
 
-- `power.set_profile` — switch power profile
-- `power.suspend`
-- `power.hibernate`
-- `power.hybrid_sleep`
-- `power.reboot`
-- `power.poweroff`
-- `power.lock` — lock current session
-- `power.lock_all` — lock all sessions
-- `power.inhibit` — acquire inhibitor lock (returns handle)
-- `power.release_inhibit` — release inhibitor lock
-- `power.schedule_shutdown` — schedule a shutdown/reboot
-- `power.cancel_scheduled_shutdown`
+- `power.set_profile(profile: PowerProfile)` — switch power profile
+- `power.suspend()` — suspend to RAM
+- `power.hibernate()` — suspend to disk
+- `power.hybrid_sleep()` — suspend to both RAM and disk
+- `power.reboot()` — reboot system
+- `power.poweroff()` — shut down system
+- `power.lock()` — lock current session
+- `power.lock_all()` — lock all sessions
+- `power.inhibit(what: Vec<InhibitWhat>, who: String, why: String, mode: InhibitMode) -> u64` — acquire inhibitor lock, returns handle ID
+- `power.release_inhibit(handle: u64)` — release inhibitor lock by handle
+- `power.schedule_shutdown(action: String, time_usec: u64)` — schedule shutdown/reboot; action is "poweroff", "reboot", or "halt"; time is microseconds since UNIX epoch
+- `power.cancel_scheduled_shutdown() -> bool` — cancel scheduled shutdown, returns whether one was cancelled
 
 ## Types
 
