@@ -208,6 +208,11 @@ All icons above are available in Adwaita icon theme.
 - PrepareForSleep/PrepareForShutdown signal handling (for save-state-before-sleep flows)
 - Idle hint tracking
 
+## Crates
+
+- `zbus` (5) — D-Bus client for logind and PowerProfiles
+- `logind-zbus` (0.1) — logind-specific zbus bindings (optional, can use raw zbus)
+
 ## Change Detection
 
 **Power profiles:** `PropertiesChanged` D-Bus signal on `net.hadess.PowerProfiles`. Fires when active profile changes (including automatic changes due to thermal throttling).

@@ -156,6 +156,13 @@ All icons above are available in Adwaita icon theme.
 - Contrast control for external monitors (VCP 0x12)
 - Auto-brightness based on ambient light sensor
 
+## Crates
+
+- `inotify` — watch /sys/class/backlight file changes
+- `nix` — sysfs file read/write, permissions
+- `ddcutil` (0.0.3) — Rust bindings for libddcutil (DDC/CI); alternatively shell out to `ddcutil` CLI
+- `zbus` (5) — D-Bus client for iio-sensor-proxy (ambient light)
+
 ## Change Detection
 
 **Internal backlight:** inotify watch on `/sys/class/backlight/{device}/actual_brightness` — fires when any program or hardware key changes brightness. Catches brightnessctl, GNOME settings, keyboard brightness keys, everything.

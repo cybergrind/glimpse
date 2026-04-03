@@ -317,6 +317,12 @@ else -> audio-volume-overamplified-symbolic
 
 All icons above are available in Adwaita icon theme.
 
+## Crates
+
+- `libpulse-binding` (2.30) — PulseAudio Rust bindings (volume, mute, subscribe, device listing)
+- `pipewire` (0.9) — PipeWire Rust bindings (native API, alternative to PulseAudio compat)
+- `zbus` (5) — D-Bus client for PulseAudio private bus (alternative to libpulse)
+
 ## Change Detection
 
 **PulseAudio D-Bus signals (preferred):** Typed signals on each object — no parsing needed:

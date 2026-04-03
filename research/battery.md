@@ -247,6 +247,11 @@ All icons above are available in Adwaita and Papirus icon themes.
 - Keyboard backlight enumeration
 - Graceful handling of no-battery systems (desktops)
 
+## Crates
+
+- `zbus` (5) — D-Bus client for UPower
+- `upower_dbus` (0.3) — UPower-specific D-Bus bindings (optional, can use raw zbus)
+
 ## Change Detection
 
 **Device properties:** `PropertiesChanged` D-Bus signal on each `org.freedesktop.UPower.Device` object. Fully reactive — fires on any property change (percentage, state, energy rate, etc.).

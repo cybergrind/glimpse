@@ -264,6 +264,15 @@ struct DisplayOutputList {
 
 All icons above are available in Adwaita icon theme.
 
+## Crates
+
+- `niri-ipc` — Niri compositor IPC bindings (typed Rust structs, serde)
+- `hyprland` (0.4) — Hyprland IPC wrapper (async, typed)
+- `wayland-client` — core Wayland client for wlr-output-management protocol
+- `wayland-protocols-wlr` (0.3) — wlr protocol bindings (output management, power management)
+- `edid-rs` — pure-Rust EDID parsing (no_std compatible)
+- `inotify` — watch /sys/class/drm status changes (udev fallback)
+
 ## Change Detection
 
 **Hyprland event socket:** Line-delimited events on `.socket2.sock`:
