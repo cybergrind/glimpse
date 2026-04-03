@@ -54,7 +54,8 @@ message Request {
   oneof payload {
     Subscribe subscribe = 2;
     Unsubscribe unsubscribe = 3;
-    MethodCall method_call = 4;
+    Get get = 4;
+    MethodCall method_call = 5;
   }
 }
 
@@ -64,6 +65,10 @@ message Subscribe {
 
 message Unsubscribe {
   string pattern = 1;
+}
+
+message Get {
+  string topic = 1;  // e.g., "battery.status" — one-shot read, no subscription
 }
 
 message MethodCall {
@@ -77,8 +82,9 @@ message Response {
   oneof payload {
     SubscribeAck subscribe_ack = 2;
     UnsubscribeAck unsubscribe_ack = 3;
-    MethodResult method_result = 4;
-    Event event = 5;
+    GetResult get_result = 4;
+    MethodResult method_result = 5;
+    Event event = 6;
   }
 }
 
@@ -88,6 +94,14 @@ message SubscribeAck {
 }
 
 message UnsubscribeAck {}
+
+message GetResult {
+  string topic = 1;   // The topic that was queried
+  oneof result {
+    bytes data = 2;    // Current state (same format as Event.data)
+    Error error = 3;   // If provider unavailable or topic unknown
+  }
+}
 
 message MethodResult {
   oneof result {
