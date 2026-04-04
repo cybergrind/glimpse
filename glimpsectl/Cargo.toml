@@ -1,0 +1,13 @@
+[package]
+name = "glimpsectl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+glimpse-types = { path = "../glimpse-types" }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "signal", "macros"] }
+serde_json.workspace = true
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+colored_json = "5"

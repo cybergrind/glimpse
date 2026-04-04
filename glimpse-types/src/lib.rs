@@ -1,4 +1,17 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
+
+/// Default socket path: `$GLIMPSED_SOCKET` or `$XDG_RUNTIME_DIR/glimpsed.sock`.
+pub fn socket_path() -> std::io::Result<PathBuf> {
+    if let Ok(path) = std::env::var("GLIMPSED_SOCKET") {
+        return Ok(PathBuf::from(path));
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set")
+    })?;
+    Ok(PathBuf::from(runtime_dir).join("glimpsed.sock"))
+}
 
 /// Client → Daemon request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

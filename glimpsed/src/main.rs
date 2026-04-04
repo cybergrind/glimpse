@@ -4,10 +4,8 @@ mod provider;
 mod providers;
 mod server;
 
-use std::path::PathBuf;
-
 use tokio::net::{UnixListener, UnixStream};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 
 use crate::broker::Broker;
@@ -15,7 +13,7 @@ use crate::broker::Broker;
 /// Try to bind the socket. If it already exists, check whether another instance
 /// is running by attempting to connect. If the connection succeeds, bail. If it
 /// fails (stale socket from a crash), remove and retry.
-async fn bind_socket(path: &PathBuf) -> anyhow::Result<UnixListener> {
+async fn bind_socket(path: &std::path::Path) -> anyhow::Result<UnixListener> {
     match UnixListener::bind(path) {
         Ok(listener) => return Ok(listener),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {}
@@ -34,15 +32,6 @@ async fn bind_socket(path: &PathBuf) -> anyhow::Result<UnixListener> {
     Ok(UnixListener::bind(path)?)
 }
 
-fn socket_path() -> PathBuf {
-    std::env::var("GLIMPSED_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let runtime_dir = std::env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set");
-            PathBuf::from(runtime_dir).join("glimpsed.sock")
-        })
-}
-
 fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
     vec![Box::new(providers::debug::DebugProviderFactory)]
 }
@@ -56,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let path = socket_path();
+    let path = glimpse_types::socket_path()?;
     let listener = bind_socket(&path).await?;
     tracing::info!("listening on {}", path.display());
 

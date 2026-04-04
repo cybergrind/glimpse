@@ -190,6 +190,18 @@ impl Broker {
                 self.stop_unused_providers();
             }
             Request::Get { topic } => {
+                // Built-in inspect topics — served by broker directly.
+                if let Some(data) = self.handle_inspect(&topic) {
+                    self.send_to(
+                        client,
+                        Response::GetResult {
+                            topic,
+                            result: RequestResult::Ok { data },
+                        },
+                    );
+                    return;
+                }
+
                 let provider_name = topic.split('.').next().unwrap_or("").to_owned();
                 let available = self.ensure_provider(&provider_name);
 
@@ -254,6 +266,27 @@ impl Broker {
                     },
                 );
             }
+        }
+    }
+
+    fn handle_inspect(&self, topic: &str) -> Option<serde_json::Value> {
+        use serde_json::json;
+        match topic {
+            "inspect.providers" => {
+                let providers: Vec<_> = self
+                    .providers
+                    .iter()
+                    .map(|(name, entry)| {
+                        json!({
+                            "name": name,
+                            "topics": entry.topics,
+                            "methods": entry.methods,
+                        })
+                    })
+                    .collect();
+                Some(json!(providers))
+            }
+            _ => None,
         }
     }
 
