@@ -1,3 +1,4 @@
+mod battery;
 mod clock;
 mod power;
 mod spacer;
@@ -5,6 +6,7 @@ mod tray;
 
 use std::sync::Arc;
 
+use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, Controller,
     gtk::{self, glib::object::Cast},
@@ -17,6 +19,7 @@ use crate::{
 use spacer::Spacer;
 
 pub enum AppletController {
+    Battery(Controller<battery::Battery>),
     Clock(Controller<Clock>),
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
@@ -26,6 +29,7 @@ pub enum AppletController {
 impl AppletController {
     pub fn widget(&self) -> gtk::Widget {
         match self {
+            AppletController::Battery(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
@@ -38,9 +42,20 @@ pub fn create_applet(
     applet_config: Option<&AppletConfig>,
     name: &str,
     dbus: Arc<zbus::Connection>,
+    client: Option<Arc<Client>>,
 ) -> Option<AppletController> {
     let applet_type = applet_config.map(|c| c.extends.as_str()).unwrap_or(name);
     match applet_type {
+        "battery" => {
+            let client = client.clone()?;
+            let config: battery::BatteryConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = battery::Battery::builder()
+                .launch(battery::BatteryInit { config, client })
+                .detach();
+            Some(AppletController::Battery(applet))
+        }
         "clock" => {
             let config: ClockConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())

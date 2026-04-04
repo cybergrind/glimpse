@@ -1,0 +1,29 @@
+#!/bin/sh
+# Helper script for setting battery charge threshold via polkit.
+# Installed to /usr/lib/glimpse/glimpse-battery-helper
+# Called via pkexec by glimpsed.
+
+set -e
+
+if [ $# -ne 1 ]; then
+    echo "usage: glimpse-battery-helper THRESHOLD" >&2
+    exit 1
+fi
+
+THRESHOLD="$1"
+
+if [ "$THRESHOLD" -lt 1 ] || [ "$THRESHOLD" -gt 100 ] 2>/dev/null; then
+    echo "threshold must be 1-100" >&2
+    exit 1
+fi
+
+for bat in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+    if [ -f "$bat" ]; then
+        echo "$THRESHOLD" > "$bat"
+        echo "set $(dirname "$bat" | xargs basename) threshold to $THRESHOLD"
+        exit 0
+    fi
+done
+
+echo "no battery with charge threshold support found" >&2
+exit 1

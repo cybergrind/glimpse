@@ -25,3 +25,4 @@ uuid.workspace = true
 zbus.workspace = true
 futures-util.workspace = true
 system-tray.workspace = true
+glimpse-client = { path = "../glimpse-client" }

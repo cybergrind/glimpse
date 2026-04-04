@@ -8,6 +8,8 @@ use relm4::{
     gtk::{self, CssProvider, gdk::Display, prelude::*},
 };
 
+use glimpse_client::Client;
+
 use crate::{config::Config, panels, providers::dbus::DbusProvider};
 
 pub struct App {
@@ -15,6 +17,7 @@ pub struct App {
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
     dbus: DbusProvider,
+    client: Option<Arc<Client>>,
 }
 
 #[derive(Debug)]
@@ -64,13 +67,23 @@ impl SimpleComponent for App {
         watch_for_config_changes(sender.clone());
 
         let dbus = DbusProvider::connect();
-        let panels = setup_panels(&config, dbus.connection.clone());
+
+        let client = match tokio::runtime::Handle::current().block_on(Client::connect()) {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                tracing::warn!("glimpsed not available: {e}");
+                None
+            }
+        };
+
+        let panels = setup_panels(&config, dbus.connection.clone(), client.clone());
 
         let model = App {
             panels,
             theme_css,
             config,
             dbus,
+            client,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -82,7 +95,8 @@ impl SimpleComponent for App {
                 for panel in self.panels.drain(..) {
                     panel.widget().close();
                 }
-                self.panels = setup_panels(&new_config, self.dbus.connection.clone());
+                self.panels =
+                    setup_panels(&new_config, self.dbus.connection.clone(), self.client.clone());
                 self.config = new_config;
             }
             Input::CssChanged => {
@@ -92,13 +106,18 @@ impl SimpleComponent for App {
     }
 }
 
-fn setup_panels(config: &Config, dbus: Arc<zbus::Connection>) -> Vec<Controller<panels::Panel>> {
+fn setup_panels(
+    config: &Config,
+    dbus: Arc<zbus::Connection>,
+    client: Option<Arc<Client>>,
+) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
     for panel_config in &config.panels {
         let panel_init = panels::Init {
             config: panel_config.clone(),
             applet_configs: config.applets.clone(),
             dbus: dbus.clone(),
+            client: client.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();
         panels.push(panel);

@@ -4,7 +4,7 @@ applets = ["spacer", "clock"]
 
 [[panels]]
 position = "top"
-applets = ["spacer","clock_custom", "clock", "power", "spacer", "tray"]
+applets = ["spacer","clock_custom", "clock", "battery", "battery_icon_only", "spacer", "tray"]
 
 [applets.clock_custom]
 extends = "clock"
@@ -14,3 +14,10 @@ timezones = [
     {name= "St. Gallen", timezone= "Europe/Zurich"},
     {name="Tbilisi", timezone="Asia/Tbilisi"}
 ]
+
+[applets.battery_icon_only]
+extends = "battery"
+label_on_battery = ""
+label_on_ac = ""
+tooltip_on_battery = ""
+tooltip_on_ac = ""

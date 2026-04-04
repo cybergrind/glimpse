@@ -1,0 +1,12 @@
+[Unit]
+Description=Glimpse system service daemon
+After=dbus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpsed
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

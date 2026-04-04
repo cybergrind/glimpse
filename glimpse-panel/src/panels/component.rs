@@ -6,6 +6,8 @@ use relm4::{
 
 use std::{collections::HashMap, sync::Arc};
 
+use glimpse_client::Client;
+
 use crate::{
     applets::{AppletController, create_applet},
     config::{AppletConfig, PanelConfig, PanelPosition},
@@ -19,6 +21,7 @@ pub struct Panel {
 pub struct Init {
     pub config: PanelConfig,
     pub dbus: Arc<zbus::Connection>,
+    pub client: Option<Arc<Client>>,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
 
@@ -59,7 +62,9 @@ impl SimpleComponent for Panel {
         for name in &init.config.applets {
             let config = init.applet_configs.get(name);
             tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
-            if let Some(applet) = create_applet(config, name, init.dbus.clone()) {
+            if let Some(applet) =
+                create_applet(config, name, init.dbus.clone(), init.client.clone())
+            {
                 hbox.append(&applet.widget());
                 applets.push(applet);
             }

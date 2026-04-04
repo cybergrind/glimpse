@@ -12,7 +12,7 @@ use crate::providers::dbus_props::DbusPropertyGroup;
 
 const NAME: &str = "battery";
 const TOPICS: &[&str] = &["battery.status", "battery.devices"];
-const METHODS: &[&str] = &[];
+const METHODS: &[&str] = &["battery.set_charge_threshold", "battery.get_charge_threshold"];
 
 #[derive(Debug, Clone, Serialize, Default)]
 struct BatteryStatus {
@@ -27,6 +27,8 @@ struct BatteryStatus {
     time_to_full: i64,
     energy_rate: f64,
     capacity: f64,
+    /// Charge end threshold (0 = not supported). Read from sysfs.
+    charge_threshold: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -215,6 +217,7 @@ impl BatteryProvider {
             time_to_full: ttf,
             energy_rate: rate,
             capacity: cap,
+            charge_threshold: read_charge_threshold(),
         };
     }
 
@@ -228,10 +231,76 @@ impl BatteryProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { reply, .. } => {
-                let _ = reply.send(Err(anyhow::anyhow!("battery has no methods")));
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
+                let result = match method.as_str() {
+                    "battery.get_charge_threshold" => {
+                        let val = read_charge_threshold();
+                        if val > 0 {
+                            Ok(json!({"threshold": val, "supported": true}))
+                        } else {
+                            Ok(json!({"threshold": 0, "supported": false}))
+                        }
+                    }
+                    "battery.set_charge_threshold" => {
+                        let threshold = params["threshold"].as_u64().unwrap_or(0) as u32;
+                        if threshold == 0 || threshold > 100 {
+                            Err(anyhow::anyhow!("threshold must be 1-100"))
+                        } else {
+                            write_charge_threshold(threshold)
+                                .map(|()| json!({"threshold": threshold}))
+                        }
+                    }
+                    _ => Err(anyhow::anyhow!("unknown method: {method}")),
+                };
+                let _ = reply.send(result);
             }
         }
+    }
+}
+
+/// Find the sysfs path for charge_control_end_threshold.
+fn threshold_path() -> Option<std::path::PathBuf> {
+    let dir = std::fs::read_dir("/sys/class/power_supply/").ok()?;
+    for entry in dir.flatten() {
+        let path = entry.path().join("charge_control_end_threshold");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn read_charge_threshold() -> u32 {
+    threshold_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+fn write_charge_threshold(value: u32) -> anyhow::Result<()> {
+    // Try direct write first (works if udev rule grants permission).
+    if let Some(path) = threshold_path() {
+        if std::fs::write(&path, value.to_string()).is_ok() {
+            return Ok(());
+        }
+    }
+
+    // Fall back to pkexec with polkit helper.
+    let output = std::process::Command::new("pkexec")
+        .arg("/usr/lib/glimpse/glimpse-battery-helper")
+        .arg(value.to_string())
+        .output()
+        .map_err(|e| anyhow::anyhow!("failed to run pkexec: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(anyhow::anyhow!("failed to set threshold: {}", stderr.trim()))
     }
 }
 
