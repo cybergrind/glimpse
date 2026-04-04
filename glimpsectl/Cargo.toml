@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 glimpse-types = { path = "../glimpse-types" }
+glimpse-client = { path = "../glimpse-client" }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "signal", "macros"] }
 serde_json.workspace = true
 anyhow = "1"

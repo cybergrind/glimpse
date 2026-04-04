@@ -1,29 +1,18 @@
-use glimpse_types::{Request, RequestResult, Response};
+use glimpse_client::Client;
 
-use crate::connection::Connection;
 use crate::format::format_json;
 
 pub async fn cmd_get(topic: String, color: bool, pretty: bool) -> anyhow::Result<()> {
-    let mut conn = Connection::connect().await?;
-    conn.send(&Request::Get { topic }).await?;
+    let client = Client::connect().await?;
+    let data = client.get(&topic).await;
 
-    let Some(resp) = conn.recv().await? else {
-        anyhow::bail!("connection closed");
-    };
-
-    match resp {
-        Response::GetResult { result, .. } => match result {
-            RequestResult::Ok { data } => {
-                println!("{}", format_json(&data, color, pretty));
-            }
-            RequestResult::Error { code, message } => {
-                eprintln!("error {code}: {message}");
-                std::process::exit(1);
-            }
-        },
-        other => {
-            let value = serde_json::to_value(&other)?;
+    match data {
+        Ok(value) => {
             println!("{}", format_json(&value, color, pretty));
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
         }
     }
 
@@ -35,54 +24,50 @@ pub async fn cmd_subscribe(
     color: bool,
     pretty: bool,
 ) -> anyhow::Result<()> {
-    let mut conn = Connection::connect().await?;
+    let client = Client::connect().await?;
+    let mut subs = Vec::new();
 
     for pattern in &patterns {
-        conn.send(&Request::Subscribe {
-            pattern: pattern.clone(),
-        })
-        .await?;
-    }
-
-    loop {
-        let Some(resp) = conn.recv().await? else {
-            eprintln!("daemon disconnected");
-            std::process::exit(1);
-        };
-
-        match &resp {
-            Response::Event { topic, data } => {
-                if pretty || color {
-                    eprintln!("\x1b[2m{topic}\x1b[0m");
-                    println!("{}", format_json(data, color, pretty));
-                } else {
-                    let value = serde_json::to_value(&resp)?;
-                    println!("{}", format_json(&value, false, false));
-                }
+        match client.subscribe(pattern).await {
+            Ok(sub) => {
+                eprintln!("subscribed to {pattern}");
+                subs.push(sub);
             }
-            Response::SubscribeAck {
-                pattern,
-                available,
-                error,
-            } => {
-                if *available {
-                    eprintln!("subscribed to {pattern}");
-                } else {
-                    eprintln!(
-                        "subscribe failed for {pattern}: {}",
-                        error.as_deref().unwrap_or("unknown")
-                    );
-                }
-            }
-            Response::ProviderUnavailable { provider, error } => {
-                eprintln!("provider {provider} unavailable: {error}");
-            }
-            other => {
-                let value = serde_json::to_value(other)?;
-                println!("{}", format_json(&value, color, pretty));
+            Err(e) => {
+                eprintln!("subscribe failed for {pattern}: {e}");
             }
         }
     }
+
+    if subs.is_empty() {
+        anyhow::bail!("no active subscriptions");
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    for mut sub in subs {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = sub.next().await {
+                if tx.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    drop(tx);
+
+    while let Some((topic, data)) = rx.recv().await {
+        if pretty || color {
+            eprintln!("\x1b[2m{topic}\x1b[0m");
+            println!("{}", format_json(&data, color, pretty));
+        } else {
+            let value = serde_json::json!({"topic": topic, "data": data});
+            println!("{}", format_json(&value, false, false));
+        }
+    }
+
+    eprintln!("daemon disconnected");
+    std::process::exit(1);
 }
 
 pub async fn cmd_inspect(
@@ -90,26 +75,8 @@ pub async fn cmd_inspect(
     topics_only: bool,
     methods_only: bool,
 ) -> anyhow::Result<()> {
-    let mut conn = Connection::connect().await?;
-    conn.send(&Request::Get {
-        topic: "inspect.providers".into(),
-    })
-    .await?;
-
-    let Some(resp) = conn.recv().await? else {
-        anyhow::bail!("connection closed");
-    };
-
-    let data = match resp {
-        Response::GetResult { result, .. } => match result {
-            RequestResult::Ok { data } => data,
-            RequestResult::Error { code, message } => {
-                eprintln!("error {code}: {message}");
-                std::process::exit(1);
-            }
-        },
-        _ => anyhow::bail!("unexpected response"),
-    };
+    let client = Client::connect().await?;
+    let data = client.get("inspect.providers").await?;
 
     let Some(providers) = data.as_array() else {
         anyhow::bail!("unexpected response format");
@@ -166,26 +133,16 @@ pub async fn cmd_call(
     color: bool,
     pretty: bool,
 ) -> anyhow::Result<()> {
-    let mut conn = Connection::connect().await?;
-    conn.send(&Request::Call { method, params }).await?;
+    let client = Client::connect().await?;
+    let data = client.call(&method, params).await;
 
-    let Some(resp) = conn.recv().await? else {
-        anyhow::bail!("connection closed");
-    };
-
-    match resp {
-        Response::CallResult { result, .. } => match result {
-            RequestResult::Ok { data } => {
-                println!("{}", format_json(&data, color, pretty));
-            }
-            RequestResult::Error { code, message } => {
-                eprintln!("error {code}: {message}");
-                std::process::exit(1);
-            }
-        },
-        other => {
-            let value = serde_json::to_value(&other)?;
+    match data {
+        Ok(value) => {
             println!("{}", format_json(&value, color, pretty));
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
         }
     }
 

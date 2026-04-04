@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use glimpse_types::{Request, RequestResult, Response};
+use glimpse_types::{Request, RequestBody, RequestResult, Response, ResponseBody};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -39,9 +39,14 @@ pub enum BrokerMsg {
     },
 }
 
+struct ClientSub {
+    pattern: Pattern,
+    request_id: u64,
+}
+
 struct Client {
     tx: mpsc::Sender<Response>,
-    subscriptions: HashSet<Pattern>,
+    subscriptions: Vec<ClientSub>,
 }
 
 struct ProviderEntry {
@@ -62,7 +67,6 @@ pub struct Broker {
     tx: mpsc::Sender<BrokerMsg>,
     clients: HashMap<ClientId, Client>,
     providers: HashMap<&'static str, ProviderEntry>,
-    /// method name → provider name (index built at init)
     method_index: HashMap<&'static str, &'static str>,
 }
 
@@ -108,7 +112,7 @@ impl Broker {
                         id,
                         Client {
                             tx,
-                            subscriptions: HashSet::new(),
+                            subscriptions: Vec::new(),
                         },
                     );
                 }
@@ -138,21 +142,25 @@ impl Broker {
     }
 
     async fn handle_request(&mut self, client: ClientId, request: Request) {
-        match request {
-            Request::Subscribe { pattern } => {
+        let req_id = request.id;
+        match request.body {
+            RequestBody::Subscribe { pattern } => {
                 let pat = Pattern::parse(&pattern);
                 let provider_name = pat.provider_name().unwrap_or("");
                 let available = self.ensure_provider(provider_name);
 
                 self.send_to(
                     client,
-                    Response::SubscribeAck {
-                        pattern: pattern.clone(),
-                        available,
-                        error: if available {
-                            None
-                        } else {
-                            Some(format!("provider '{provider_name}' not found"))
+                    Response {
+                        id: req_id,
+                        body: ResponseBody::SubscribeAck {
+                            pattern: pattern.clone(),
+                            available,
+                            error: if available {
+                                None
+                            } else {
+                                Some(format!("provider '{provider_name}' not found"))
+                            },
                         },
                     },
                 );
@@ -166,9 +174,12 @@ impl Broker {
                                 {
                                     self.send_to(
                                         client,
-                                        Response::Event {
-                                            topic: topic.to_owned(),
-                                            data,
+                                        Response {
+                                            id: req_id,
+                                            body: ResponseBody::Event {
+                                                topic: topic.to_owned(),
+                                                data,
+                                            },
                                         },
                                     );
                                 }
@@ -178,25 +189,36 @@ impl Broker {
                 }
 
                 if let Some(c) = self.clients.get_mut(&client) {
-                    c.subscriptions.insert(pat);
+                    c.subscriptions.push(ClientSub {
+                        pattern: pat,
+                        request_id: req_id,
+                    });
                 }
             }
-            Request::Unsubscribe { pattern } => {
+            RequestBody::Unsubscribe { pattern } => {
                 let pat = Pattern::parse(&pattern);
                 if let Some(c) = self.clients.get_mut(&client) {
-                    c.subscriptions.remove(&pat);
+                    c.subscriptions.retain(|s| s.pattern != pat);
                 }
-                self.send_to(client, Response::UnsubscribeAck { pattern });
+                self.send_to(
+                    client,
+                    Response {
+                        id: req_id,
+                        body: ResponseBody::UnsubscribeAck { pattern },
+                    },
+                );
                 self.stop_unused_providers();
             }
-            Request::Get { topic } => {
-                // Built-in inspect topics — served by broker directly.
+            RequestBody::Get { topic } => {
                 if let Some(data) = self.handle_inspect(&topic) {
                     self.send_to(
                         client,
-                        Response::GetResult {
-                            topic,
-                            result: RequestResult::Ok { data },
+                        Response {
+                            id: req_id,
+                            body: ResponseBody::GetResult {
+                                topic,
+                                result: RequestResult::Ok { data },
+                            },
                         },
                     );
                     return;
@@ -208,11 +230,14 @@ impl Broker {
                 if !available {
                     self.send_to(
                         client,
-                        Response::GetResult {
-                            topic,
-                            result: RequestResult::Error {
-                                code: 1,
-                                message: format!("provider '{provider_name}' not found"),
+                        Response {
+                            id: req_id,
+                            body: ResponseBody::GetResult {
+                                topic,
+                                result: RequestResult::Error {
+                                    code: 1,
+                                    message: format!("provider '{provider_name}' not found"),
+                                },
                             },
                         },
                     );
@@ -222,28 +247,34 @@ impl Broker {
                 let data = self.request_snapshot(&provider_name, &topic).await;
                 self.send_to(
                     client,
-                    Response::GetResult {
-                        topic,
-                        result: match data {
-                            Some(d) => RequestResult::Ok { data: d },
-                            None => RequestResult::Error {
-                                code: 2,
-                                message: "unknown topic".into(),
+                    Response {
+                        id: req_id,
+                        body: ResponseBody::GetResult {
+                            topic,
+                            result: match data {
+                                Some(d) => RequestResult::Ok { data: d },
+                                None => RequestResult::Error {
+                                    code: 2,
+                                    message: "unknown topic".into(),
+                                },
                             },
                         },
                     },
                 );
             }
-            Request::Call { method, params } => {
+            RequestBody::Call { method, params } => {
                 let provider_name = self.method_index.get(method.as_str()).copied();
                 let Some(name) = provider_name else {
                     self.send_to(
                         client,
-                        Response::CallResult {
-                            method,
-                            result: RequestResult::Error {
-                                code: 3,
-                                message: "unknown method".into(),
+                        Response {
+                            id: req_id,
+                            body: ResponseBody::CallResult {
+                                method,
+                                result: RequestResult::Error {
+                                    code: 3,
+                                    message: "unknown method".into(),
+                                },
                             },
                         },
                     );
@@ -254,13 +285,16 @@ impl Broker {
                 let result = self.request_call(name, &method, params).await;
                 self.send_to(
                     client,
-                    Response::CallResult {
-                        method,
-                        result: match result {
-                            Ok(data) => RequestResult::Ok { data },
-                            Err(e) => RequestResult::Error {
-                                code: 5,
-                                message: e.to_string(),
+                    Response {
+                        id: req_id,
+                        body: ResponseBody::CallResult {
+                            method,
+                            result: match result {
+                                Ok(data) => RequestResult::Ok { data },
+                                Err(e) => RequestResult::Error {
+                                    code: 5,
+                                    message: e.to_string(),
+                                },
                             },
                         },
                     },
@@ -292,14 +326,20 @@ impl Broker {
 
     fn route_event(&self, topic: &str, data: serde_json::Value) {
         for (id, client) in &self.clients {
-            if client.subscriptions.iter().any(|p| p.matches(topic)) {
-                self.send_to(
-                    *id,
-                    Response::Event {
-                        topic: topic.to_owned(),
-                        data: data.clone(),
-                    },
-                );
+            for sub in &client.subscriptions {
+                if sub.pattern.matches(topic) {
+                    self.send_to(
+                        *id,
+                        Response {
+                            id: sub.request_id,
+                            body: ResponseBody::Event {
+                                topic: topic.to_owned(),
+                                data: data.clone(),
+                            },
+                        },
+                    );
+                    break; // one event per client even if multiple patterns match
+                }
             }
         }
     }
@@ -314,18 +354,20 @@ impl Broker {
 
     fn notify_subscribers(&self, provider_name: &str, error: &str) {
         for (id, client) in &self.clients {
-            let matches = client
-                .subscriptions
-                .iter()
-                .any(|p| p.provider_name() == Some(provider_name));
-            if matches {
-                self.send_to(
-                    *id,
-                    Response::ProviderUnavailable {
-                        provider: provider_name.to_owned(),
-                        error: error.to_owned(),
-                    },
-                );
+            for sub in &client.subscriptions {
+                if sub.pattern.provider_name() == Some(provider_name) {
+                    self.send_to(
+                        *id,
+                        Response {
+                            id: sub.request_id,
+                            body: ResponseBody::ProviderUnavailable {
+                                provider: provider_name.to_owned(),
+                                error: error.to_owned(),
+                            },
+                        },
+                    );
+                    break;
+                }
             }
         }
     }
@@ -415,7 +457,6 @@ impl Broker {
                 .await;
         });
 
-        // Safe to unwrap — we checked `name` exists above.
         let entry = self.providers.get_mut(name).unwrap();
         entry.handle = Some(ProviderHandle {
             cancel,
@@ -430,7 +471,7 @@ impl Broker {
         let in_use: HashSet<&str> = self
             .clients
             .values()
-            .flat_map(|c| c.subscriptions.iter().filter_map(|p| p.provider_name()))
+            .flat_map(|c| c.subscriptions.iter().filter_map(|s| s.pattern.provider_name()))
             .collect();
 
         for (name, entry) in &mut self.providers {
@@ -455,15 +496,9 @@ mod tests {
     struct TestProvider;
 
     impl Provider for TestProvider {
-        fn name(&self) -> &'static str {
-            "test"
-        }
-        fn topics(&self) -> &'static [&'static str] {
-            &["test.value"]
-        }
-        fn methods(&self) -> &'static [&'static str] {
-            &["test.echo"]
-        }
+        fn name(&self) -> &'static str { "test" }
+        fn topics(&self) -> &'static [&'static str] { &["test.value"] }
+        fn methods(&self) -> &'static [&'static str] { &["test.echo"] }
         fn run(
             &mut self,
             events: mpsc::Sender<ProviderEvent>,
@@ -488,10 +523,10 @@ mod tests {
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
                             counter += 1;
-                            let _ = events.send(ProviderEvent {
+                            if events.send(ProviderEvent {
                                 topic: "test.value".into(),
                                 data: json!(counter),
-                            }).await;
+                            }).await.is_err() { break; }
                         }
                     }
                 }
@@ -501,35 +536,20 @@ mod tests {
     }
 
     struct TestFactory;
-
     impl ProviderFactory for TestFactory {
-        fn name(&self) -> &'static str {
-            "test"
-        }
-        fn topics(&self) -> &'static [&'static str] {
-            &["test.value"]
-        }
-        fn methods(&self) -> &'static [&'static str] {
-            &["test.echo"]
-        }
-        fn create(&self) -> Box<dyn Provider> {
-            Box::new(TestProvider)
-        }
+        fn name(&self) -> &'static str { "test" }
+        fn topics(&self) -> &'static [&'static str] { &["test.value"] }
+        fn methods(&self) -> &'static [&'static str] { &["test.echo"] }
+        fn create(&self) -> Box<dyn Provider> { Box::new(TestProvider) }
     }
 
     fn test_broker() -> (mpsc::Sender<BrokerMsg>, mpsc::Receiver<Response>) {
         let (broker, broker_tx) = Broker::new(vec![Box::new(TestFactory)]);
         tokio::spawn(broker.run());
         let (client_tx, client_rx) = mpsc::channel(16);
-        let broker_tx2 = broker_tx.clone();
+        let tx2 = broker_tx.clone();
         tokio::spawn(async move {
-            broker_tx2
-                .send(BrokerMsg::ClientConnected {
-                    id: 1,
-                    tx: client_tx,
-                })
-                .await
-                .unwrap();
+            tx2.send(BrokerMsg::ClientConnected { id: 1, tx: client_tx }).await.unwrap();
         });
         (broker_tx, client_rx)
     }
@@ -541,27 +561,17 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
+            request: Request { id: 10, body: RequestBody::Subscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
 
         let resp = rx.recv().await.unwrap();
-        assert!(matches!(
-            resp,
-            Response::SubscribeAck {
-                available: true,
-                ..
-            }
-        ));
+        assert!(matches!(resp.body, ResponseBody::SubscribeAck { available: true, .. }));
+        assert_eq!(resp.id, 10);
 
         let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-            .await
-            .expect("timed out")
-            .unwrap();
-        assert!(matches!(resp, Response::Event { .. }));
+            .await.expect("timed out").unwrap();
+        assert!(matches!(resp.body, ResponseBody::Event { .. }));
+        assert_eq!(resp.id, 10);
     }
 
     #[tokio::test]
@@ -571,20 +581,12 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
-
-        let _ = rx.recv().await; // ack
+            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
+        let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        tx.send(BrokerMsg::ClientDisconnected { id: 1 })
-            .await
-            .unwrap();
-
+        tx.send(BrokerMsg::ClientDisconnected { id: 1 }).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
@@ -595,21 +597,12 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "nonexistent.**".into(),
-            },
-        })
-        .await
-        .unwrap();
+            request: Request { id: 5, body: RequestBody::Subscribe { pattern: "nonexistent.**".into() } },
+        }).await.unwrap();
 
         let resp = rx.recv().await.unwrap();
-        assert!(matches!(
-            resp,
-            Response::SubscribeAck {
-                available: false,
-                ..
-            }
-        ));
+        assert!(matches!(resp.body, ResponseBody::SubscribeAck { available: false, .. }));
+        assert_eq!(resp.id, 5);
     }
 
     #[tokio::test]
@@ -619,33 +612,22 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
-
-        // Drain ack + snapshot.
+            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         while rx.try_recv().is_ok() {}
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Unsubscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
+            request: Request { id: 2, body: RequestBody::Unsubscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await
-                .expect("timed out")
-                .unwrap();
-            if matches!(resp, Response::UnsubscribeAck { .. }) {
+                .await.expect("timed out").unwrap();
+            if matches!(resp.body, ResponseBody::UnsubscribeAck { .. }) {
+                assert_eq!(resp.id, 2);
                 break;
             }
         }
@@ -656,39 +638,23 @@ mod tests {
         let (tx, mut rx) = test_broker();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-        // Subscribe first to start the provider.
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
-        let _ = rx.recv().await; // ack
+            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
+        let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Get {
-                topic: "test.value".into(),
-            },
-        })
-        .await
-        .unwrap();
+            request: Request { id: 99, body: RequestBody::Get { topic: "test.value".into() } },
+        }).await.unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await
-                .expect("timed out")
-                .unwrap();
-            if matches!(
-                resp,
-                Response::GetResult {
-                    result: RequestResult::Ok { .. },
-                    ..
-                }
-            ) {
+                .await.expect("timed out").unwrap();
+            if matches!(resp.body, ResponseBody::GetResult { .. }) {
+                assert_eq!(resp.id, 99);
                 break;
             }
         }
@@ -699,34 +665,23 @@ mod tests {
         let (tx, mut rx) = test_broker();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-        // Subscribe to start provider.
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Subscribe {
-                pattern: "test.**".into(),
-            },
-        })
-        .await
-        .unwrap();
-        let _ = rx.recv().await; // ack
+            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
+        }).await.unwrap();
+        let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request::Call {
-                method: "test.echo".into(),
-                params: json!({"hello": "world"}),
-            },
-        })
-        .await
-        .unwrap();
+            request: Request { id: 42, body: RequestBody::Call { method: "test.echo".into(), params: json!({"hello": "world"}) } },
+        }).await.unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await
-                .expect("timed out")
-                .unwrap();
-            if let Response::CallResult { result, .. } = &resp {
+                .await.expect("timed out").unwrap();
+            if let ResponseBody::CallResult { result, .. } = &resp.body {
+                assert_eq!(resp.id, 42);
                 if let RequestResult::Ok { data } = result {
                     assert_eq!(*data, json!({"hello": "world"}));
                 }

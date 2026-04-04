@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["glimpse-panel", "glimpse-types", "glimpsed", "glimpsectl"]
+members = ["glimpse-panel", "glimpse-types", "glimpsed", "glimpsectl", "glimpse-client"]
 
 [workspace.package]
 version = "0.1.0"
