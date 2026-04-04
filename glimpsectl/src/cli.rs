@@ -1,4 +1,4 @@
-use glimpse_client::Client;
+use glimpse_client::{Client, SubscriptionEvent};
 
 use crate::format::format_json;
 
@@ -43,7 +43,7 @@ pub async fn cmd_subscribe(
         anyhow::bail!("no active subscriptions");
     }
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<SubscriptionEvent>(64);
     for mut sub in subs {
         let tx = tx.clone();
         tokio::spawn(async move {
@@ -56,14 +56,9 @@ pub async fn cmd_subscribe(
     }
     drop(tx);
 
-    while let Some((topic, data)) = rx.recv().await {
-        if pretty || color {
-            eprintln!("\x1b[2m{topic}\x1b[0m");
-            println!("{}", format_json(&data, color, pretty));
-        } else {
-            let value = serde_json::json!({"topic": topic, "data": data});
-            println!("{}", format_json(&value, false, false));
-        }
+    while let Some(event) = rx.recv().await {
+        let value = serde_json::json!({"topic": event.topic, "ts": event.ts, "data": event.data});
+        println!("{}", format_json(&value, color, pretty));
     }
 
     eprintln!("daemon disconnected");

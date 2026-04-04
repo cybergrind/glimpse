@@ -33,7 +33,10 @@ async fn bind_socket(path: &std::path::Path) -> anyhow::Result<UnixListener> {
 }
 
 fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
-    vec![Box::new(providers::debug::DebugProviderFactory)]
+    vec![
+        Box::new(providers::debug::DebugProviderFactory),
+        Box::new(providers::battery::BatteryProviderFactory),
+    ]
 }
 
 #[tokio::main]

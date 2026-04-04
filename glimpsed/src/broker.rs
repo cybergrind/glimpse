@@ -178,6 +178,7 @@ impl Broker {
                                             id: req_id,
                                             body: ResponseBody::Event {
                                                 topic: topic.to_owned(),
+                                                ts: glimpse_types::now_ms(),
                                                 data,
                                             },
                                         },
@@ -334,6 +335,7 @@ impl Broker {
                             id: sub.request_id,
                             body: ResponseBody::Event {
                                 topic: topic.to_owned(),
+                                ts: glimpse_types::now_ms(),
                                 data: data.clone(),
                             },
                         },

@@ -18,6 +18,13 @@ pub struct Client {
     _reader: tokio::task::JoinHandle<()>,
 }
 
+/// An event received from a subscription.
+pub struct SubscriptionEvent {
+    pub topic: String,
+    pub ts: u64,
+    pub data: serde_json::Value,
+}
+
 /// A stream of events from a subscription.
 pub struct Subscription {
     rx: mpsc::UnboundedReceiver<Response>,
@@ -25,11 +32,13 @@ pub struct Subscription {
 
 impl Subscription {
     /// Receive the next event. Returns `None` when the subscription ends.
-    pub async fn next(&mut self) -> Option<(String, serde_json::Value)> {
+    pub async fn next(&mut self) -> Option<SubscriptionEvent> {
         loop {
             let resp = self.rx.recv().await?;
             match resp.body {
-                ResponseBody::Event { topic, data } => return Some((topic, data)),
+                ResponseBody::Event { topic, ts, data } => {
+                    return Some(SubscriptionEvent { topic, ts, data })
+                }
                 ResponseBody::ProviderUnavailable { provider, error } => {
                     tracing::warn!("provider {provider} unavailable: {error}");
                     return None;

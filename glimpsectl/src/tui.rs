@@ -1,6 +1,6 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use futures_util::StreamExt;
-use glimpse_client::Client;
+use glimpse_client::{Client, SubscriptionEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -35,8 +35,8 @@ struct App {
     focus: Focus,
     should_quit: bool,
     client: Client,
-    event_rx: mpsc::Receiver<(String, serde_json::Value)>,
-    event_tx: mpsc::Sender<(String, serde_json::Value)>,
+    event_rx: mpsc::Receiver<SubscriptionEvent>,
+    event_tx: mpsc::Sender<SubscriptionEvent>,
     history: Vec<String>,
     history_pos: Option<usize>,
     picker: Option<Picker>,
@@ -252,8 +252,8 @@ pub async fn run_tui() -> anyhow::Result<()> {
                     handle_key(&mut app, key).await;
                 }
             }
-            Some((topic, data)) = app.event_rx.recv() => {
-                app.push_in(format!("[{topic}] {}", format_value(&data)));
+            Some(event) = app.event_rx.recv() => {
+                app.push_in(format!("[{}] {}", event.topic, format_value(&event.data)));
             }
         }
 
@@ -392,9 +392,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
     let total = app.messages.len();
 
-    let start = if total <= height {
-        0
-    } else if app.selected < height / 2 {
+    let start = if total <= height || app.selected < height / 2 {
         0
     } else if app.selected + height / 2 >= total {
         total - height

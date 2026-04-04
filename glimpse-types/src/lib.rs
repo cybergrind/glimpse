@@ -74,10 +74,20 @@ pub enum ResponseBody {
     /// Live event from a subscription.
     Event {
         topic: String,
+        /// Milliseconds since Unix epoch.
+        ts: u64,
         data: serde_json::Value,
     },
     /// A provider became unavailable.
     ProviderUnavailable { provider: String, error: String },
+}
+
+/// Current time in milliseconds since Unix epoch.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Success or error payload for Get and Call responses.
@@ -190,10 +200,11 @@ mod tests {
                 id: 2,
                 body: ResponseBody::Event {
                     topic: "battery.status".into(),
+                    ts: 1700000000000,
                     data: json!({"percentage": 85}),
                 },
             },
-            json!({"id": 2, "type": "event", "data": {"topic": "battery.status", "data": {"percentage": 85}}}),
+            json!({"id": 2, "type": "event", "data": {"topic": "battery.status", "ts": 1700000000000u64, "data": {"percentage": 85}}}),
         );
     }
 
@@ -281,6 +292,7 @@ mod tests {
             id: 1,
             body: ResponseBody::Event {
                 topic: "test".into(),
+                ts: 0,
                 data: json!({"text": "line1\nline2"}),
             },
         };
