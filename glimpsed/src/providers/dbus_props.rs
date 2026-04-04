@@ -48,7 +48,17 @@ impl DbusPropertyGroup {
         self.proxy.call(method, args).await
     }
 
-    /// Stream property change notifications. Each item is the set of changed property names.
+    /// Call a method with no return value.
+    pub async fn call_void<B>(&self, method: &str, args: &B) -> zbus::Result<()>
+    where
+        B: serde::Serialize + zbus::zvariant::DynamicType + Sync,
+    {
+        self.proxy.call::<_, _, ()>(method, args).await
+    }
+
+    /// Stream property change notifications. Yields changed property names on each signal.
+    /// After receiving, call `get()` to read the fresh values — zbus `get_property` does
+    /// a live D-Bus call (not cached).
     pub async fn stream_changes(
         &self,
     ) -> zbus::Result<impl futures_util::Stream<Item = Vec<String>>> {
@@ -71,5 +81,27 @@ impl DbusPropertyGroup {
                 })
                 .unwrap_or_default()
         }))
+    }
+
+    /// Read a property via an explicit org.freedesktop.DBus.Properties.Get call,
+    /// bypassing any proxy cache.
+    pub async fn get_uncached<T: TryFrom<OwnedValue>>(&self, name: &str) -> Option<T> {
+        let conn = self.proxy.connection();
+        let props = zbus::fdo::PropertiesProxy::builder(conn)
+            .destination(self.proxy.destination().to_owned())
+            .ok()?
+            .path(self.proxy.path().to_owned())
+            .ok()?
+            .build()
+            .await
+            .ok()?;
+        let value = props
+            .get(
+                self.proxy.interface().to_owned(),
+                name,
+            )
+            .await
+            .ok()?;
+        T::try_from(value).ok()
     }
 }

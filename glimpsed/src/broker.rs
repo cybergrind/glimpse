@@ -386,7 +386,11 @@ impl Broker {
             })
             .await
             .ok()?;
-        reply_rx.await.ok()?
+        // Timeout prevents blocking the broker if the provider is still initializing.
+        tokio::time::timeout(std::time::Duration::from_secs(5), reply_rx)
+            .await
+            .ok()?
+            .ok()?
     }
 
     async fn request_call(
@@ -413,8 +417,9 @@ impl Broker {
             })
             .await
             .map_err(|_| anyhow::anyhow!("provider not responding"))?;
-        reply_rx
+        tokio::time::timeout(std::time::Duration::from_secs(5), reply_rx)
             .await
+            .map_err(|_| anyhow::anyhow!("provider call timed out"))?
             .map_err(|_| anyhow::anyhow!("provider dropped reply"))?
     }
 
@@ -480,8 +485,8 @@ impl Broker {
             if !in_use.contains(name) {
                 if let Some(handle) = entry.handle.take() {
                     handle.cancel.cancel();
-                    handle.task.abort();
-                    tracing::info!(provider = name, "stopped (no subscribers)");
+                    // Don't abort — let the task observe the token and exit cleanly,
+                    // which sends ProviderStopped back to the broker.
                 }
             }
         }

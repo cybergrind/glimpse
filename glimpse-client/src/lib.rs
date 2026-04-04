@@ -15,6 +15,8 @@ pub struct Client {
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Response>>>>,
     /// Active subscriptions: request_id → event sender
     subscriptions: Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<Response>>>>,
+    /// Pattern → subscription request_id, for unsubscribe cleanup
+    sub_patterns: Arc<Mutex<HashMap<String, u64>>>,
     _reader: tokio::task::JoinHandle<()>,
 }
 
@@ -91,6 +93,7 @@ impl Client {
             next_id: AtomicU64::new(1),
             pending,
             subscriptions,
+            sub_patterns: Arc::new(Mutex::new(HashMap::new())),
             _reader: reader,
         })
     }
@@ -118,6 +121,10 @@ impl Client {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::unbounded_channel();
         self.subscriptions.lock().await.insert(id, tx);
+        self.sub_patterns
+            .lock()
+            .await
+            .insert(pattern.to_owned(), id);
 
         self.send(Request {
             id,
@@ -132,6 +139,11 @@ impl Client {
 
     /// Unsubscribe from a topic pattern.
     pub async fn unsubscribe(&self, pattern: &str) -> anyhow::Result<()> {
+        // Clean up local subscription state.
+        if let Some(id) = self.sub_patterns.lock().await.remove(pattern) {
+            self.subscriptions.lock().await.remove(&id);
+        }
+
         let resp = self
             .request(RequestBody::Unsubscribe {
                 pattern: pattern.into(),

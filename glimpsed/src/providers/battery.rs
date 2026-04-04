@@ -126,8 +126,9 @@ impl Provider for BatteryProvider {
             // Read initial state (snapshot is served by broker on subscribe).
             self.read_state(&bat, on_battery).await;
 
-            // Stream property changes.
-            let mut changes = bat.stream_changes().await?;
+            // Stream property changes from both device and UPower.
+            let mut bat_changes = bat.stream_changes().await?;
+            let mut upower_changes = upower.stream_changes().await?;
 
             loop {
                 tokio::select! {
@@ -136,9 +137,18 @@ impl Provider for BatteryProvider {
                         let Some(req) = req else { break };
                         self.handle_request(req);
                     }
-                    change = changes.next() => {
-                        let Some(_changed) = change else { break };
-                        let on_battery: bool = upower.get("OnBattery").await.unwrap_or(self.status.on_battery);
+                    change = bat_changes.next() => {
+                        let Some(_) = change else { break };
+                        let on_battery: bool = upower.get_uncached("OnBattery").await.unwrap_or(self.status.on_battery);
+                        self.read_state(&bat, on_battery).await;
+                        if events.send(ProviderEvent {
+                            topic: "battery.status".into(),
+                            data: serde_json::to_value(&self.status)?,
+                        }).await.is_err() { break; }
+                    }
+                    change = upower_changes.next() => {
+                        let Some(_) = change else { break };
+                        let on_battery: bool = upower.get_uncached("OnBattery").await.unwrap_or(self.status.on_battery);
                         self.read_state(&bat, on_battery).await;
                         if events.send(ProviderEvent {
                             topic: "battery.status".into(),
@@ -181,21 +191,21 @@ fn state_str(s: u32) -> &'static str {
 
 impl BatteryProvider {
     async fn read_state(&mut self, bat: &DbusPropertyGroup, on_battery: bool) {
-        let model: String = bat.get("Model").await.unwrap_or_default();
-        let pct: f64 = bat.get("Percentage").await.unwrap_or(0.0);
-        let state_u32: u32 = bat.get("State").await.unwrap_or(0);
+        let model: String = bat.get_uncached("Model").await.unwrap_or_default();
+        let pct: f64 = bat.get_uncached("Percentage").await.unwrap_or(0.0);
+        let state_u32: u32 = bat.get_uncached("State").await.unwrap_or(0);
         let icon: String = bat
-            .get("IconName")
+            .get_uncached("IconName")
             .await
             .unwrap_or_else(|| "battery-missing-symbolic".into());
-        let tte: i64 = bat.get("TimeToEmpty").await.unwrap_or(0);
-        let ttf: i64 = bat.get("TimeToFull").await.unwrap_or(0);
-        let rate: f64 = bat.get("EnergyRate").await.unwrap_or(0.0);
-        let cap: f64 = bat.get("Capacity").await.unwrap_or(100.0);
+        let tte: i64 = bat.get_uncached("TimeToEmpty").await.unwrap_or(0);
+        let ttf: i64 = bat.get_uncached("TimeToFull").await.unwrap_or(0);
+        let rate: f64 = bat.get_uncached("EnergyRate").await.unwrap_or(0.0);
+        let cap: f64 = bat.get_uncached("Capacity").await.unwrap_or(100.0);
 
         self.status = BatteryStatus {
             present: true,
-            device_type: device_type_str(bat.get::<u32>("Type").await.unwrap_or(0)),
+            device_type: device_type_str(bat.get_uncached::<u32>("Type").await.unwrap_or(0)),
             model,
             percentage: pct as u8,
             state: state_str(state_u32),
