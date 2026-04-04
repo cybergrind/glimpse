@@ -1,6 +1,7 @@
 mod broker;
 mod pattern;
 mod provider;
+mod providers;
 mod server;
 
 use std::path::PathBuf;
@@ -43,9 +44,7 @@ fn socket_path() -> PathBuf {
 }
 
 fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
-    vec![
-        // Providers will be added here as they are implemented.
-    ]
+    vec![Box::new(providers::debug::DebugProviderFactory)]
 }
 
 #[tokio::main]
