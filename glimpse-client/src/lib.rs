@@ -121,6 +121,19 @@ impl Client {
         Ok(Subscription { rx })
     }
 
+    /// Unsubscribe from a topic pattern.
+    pub async fn unsubscribe(&self, pattern: &str) -> anyhow::Result<()> {
+        let resp = self
+            .request(RequestBody::Unsubscribe {
+                pattern: pattern.into(),
+            })
+            .await?;
+        match resp.body {
+            ResponseBody::UnsubscribeAck { .. } => Ok(()),
+            _ => anyhow::bail!("unexpected response"),
+        }
+    }
+
     /// Call a provider method.
     pub async fn call(
         &self,

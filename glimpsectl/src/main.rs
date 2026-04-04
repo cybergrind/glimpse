@@ -1,5 +1,7 @@
 mod cli;
 mod format;
+mod picker;
+mod tui;
 
 use clap::{Parser, Subcommand};
 
@@ -40,6 +42,8 @@ enum Command {
         #[arg(default_value = "{}")]
         params: String,
     },
+    /// Interactive TUI mode
+    Tui,
     /// List registered providers
     Inspect {
         /// Filter by provider name (can be repeated)
@@ -71,6 +75,9 @@ async fn main() -> anyhow::Result<()> {
             let params: serde_json::Value = serde_json::from_str(&params)
                 .map_err(|e| anyhow::anyhow!("invalid JSON params: {e}\nhint: use single quotes: glimpsectl call {method} '{{\"key\": \"value\"}}'" ))?;
             cli::cmd_call(method, params, color, pretty).await?;
+        }
+        Command::Tui => {
+            tui::run_tui().await?;
         }
         Command::Inspect {
             providers,

@@ -12,3 +12,7 @@ serde_json.workspace = true
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 colored_json = "5"
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures-util.workspace = true
+nucleo-matcher = "0.3"
