@@ -5,7 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+glimpse-types = { path = "../glimpse-types" }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "signal", "macros"] }
+serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow = "1"
