@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
 use chrono::Local;
-use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{
@@ -24,7 +21,6 @@ pub struct Clock {
 
 pub struct ClockInit {
     pub config: ClockConfig,
-    pub client: Option<Arc<Client>>,
 }
 
 #[derive(Debug)]
@@ -83,39 +79,16 @@ impl Component for Clock {
         };
         let widgets = view_output!();
 
-        if let Some(client) = init.client {
-            // Use daemon clock.tick for ticking.
-            sender.command(move |out, shutdown| {
-                shutdown
-                    .register(async move {
-                        let mut sub = match client.subscribe("clock.tick").await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                tracing::warn!("clock: daemon subscribe failed: {e}, using local timer");
-                                local_timer(out).await;
-                                return;
-                            }
-                        };
-                        while sub.next().await.is_some() {
-                            out.send(CommandOutput::Tick).ok();
-                        }
-                        // Daemon disconnected — fall back to local timer.
-                        tracing::warn!("clock: daemon disconnected, using local timer");
-                        local_timer(out).await;
-                    })
-                    .drop_on_shutdown()
-            });
-        } else {
-            // No daemon — local timer.
-            sender.command(|out, shutdown| {
-                out.send(CommandOutput::Tick).ok();
-                shutdown
-                    .register(async move {
-                        local_timer(out).await;
-                    })
-                    .drop_on_shutdown()
-            });
-        }
+        // Clock always uses a local timer — it only needs chrono::Local::now()
+        // to format the time string. No daemon dependency needed.
+        sender.command(|out, shutdown| {
+            out.send(CommandOutput::Tick).ok();
+            shutdown
+                .register(async move {
+                    local_timer(out).await;
+                })
+                .drop_on_shutdown()
+        });
 
         ComponentParts { model, widgets }
     }

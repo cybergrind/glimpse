@@ -36,8 +36,8 @@ fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
     vec![
         Box::new(providers::debug::DebugProviderFactory),
         Box::new(providers::battery::BatteryProviderFactory),
-        Box::new(providers::clock::ClockProviderFactory),
         Box::new(providers::power::PowerProviderFactory),
+        Box::new(providers::tray::TrayProviderFactory),
     ]
 }
 
@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,system_tray=warn")),
         )
         .init();
 

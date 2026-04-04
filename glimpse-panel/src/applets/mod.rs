@@ -61,10 +61,7 @@ pub fn create_applet(
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = Clock::builder()
-                .launch(ClockInit {
-                    config,
-                    client: client.clone(),
-                })
+                .launch(ClockInit { config })
                 .detach();
             Some(AppletController::Clock(applet))
         }
@@ -81,11 +78,12 @@ pub fn create_applet(
             Some(AppletController::Power(applet))
         }
         "tray" => {
+            let client = client.clone()?;
             let config: tray::TrayConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = tray::Tray::builder()
-                .launch(tray::TrayInit { config })
+                .launch(tray::TrayInit { config, client })
                 .detach();
             Some(AppletController::Tray(applet))
         }
