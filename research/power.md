@@ -195,19 +195,6 @@ Power profiles:
 
 All icons above are available in Adwaita icon theme.
 
-## Features
-
-- Power actions: suspend, hibernate, hybrid sleep, suspend-then-hibernate, reboot, poweroff, halt
-- Capability queries per action (yes/no/challenge/na)
-- Power profile switching (power-saver, balanced, performance)
-- Performance degradation/inhibition reason reporting
-- Inhibitor lock management (acquire, release, list)
-- Session locking (single session, all sessions)
-- Scheduled shutdown with cancel support
-- Reboot to firmware/UEFI setup
-- PrepareForSleep/PrepareForShutdown signal handling (for save-state-before-sleep flows)
-- Idle hint tracking
-
 ## Crates
 
 - `zbus` (5) — D-Bus client for logind and PowerProfiles
@@ -224,6 +211,19 @@ All icons above are available in Adwaita icon theme.
 **Session lock:** `Lock` / `Unlock` signals on `org.freedesktop.login1.Session` interface for individual sessions.
 
 **Idle state:** `PropertiesChanged` on `IdleHint` property.
+
+## Features
+
+- Power actions: suspend, hibernate, hybrid sleep, suspend-then-hibernate, reboot, poweroff, halt
+- Capability queries per action (yes/no/challenge/na)
+- Power profile switching (power-saver, balanced, performance)
+- Performance degradation/inhibition reason reporting
+- Inhibitor lock management (acquire, release, list)
+- Session locking (single session, all sessions)
+- Scheduled shutdown with cancel support
+- Reboot to firmware/UEFI setup
+- PrepareForSleep/PrepareForShutdown signal handling (for save-state-before-sleep flows)
+- Idle hint tracking
 
 ## Notes
 

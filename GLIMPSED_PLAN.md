@@ -2,22 +2,87 @@
 
 ## Overview
 
-A background daemon (`glimpsed`) that provides system services over a Unix socket using protobuf for the protocol. Features:
+A background daemon (`glimpsed`) that provides system services over a Unix socket using JSON for the protocol. Features:
 - **Event streaming**: Clients subscribe to topics, receive real-time updates
 - **Lazy connections**: Only connect to data sources (D-Bus, etc.) when clients are subscribed
 - **Deduplication**: Multiple clients subscribing to the same topic share one upstream connection
-- **Method calls**: Request-response pattern for one-off data retrieval
+- **Method calls**: Request-response pattern for one-off actions
+- **One-shot reads**: Get current state without subscribing
 
 ## Decisions
 
+- **Protocol**: NDJSON (newline-delimited JSON) over Unix socket
 - **Socket**: `$XDG_RUNTIME_DIR/glimpsed.sock`
+- **Serialization**: serde with adjacently tagged enums
 - **Client library**: Yes, `glimpse-client` crate
+- **Provider dispatch**: Trait objects (`Box<dyn Provider>`)
 - **Error handling**: Acknowledge subscription with error status, then auto-send updates when source becomes available
 - **Topic granularity**: Fine-grained with wildcard support (e.g., `bluetooth.devices`, `bluetooth.*`)
+- **Auto-cleanup**: All subscriptions removed on client disconnect
 
 ---
 
-## Proposed Architecture
+## Protocol
+
+### Framing
+
+Newline-delimited JSON. One JSON object per line, `\n` as delimiter.
+
+Debuggable with: `echo '{"type":"get","data":{"topic":"battery.status"}}' | socat - UNIX:$XDG_RUNTIME_DIR/glimpsed.sock`
+
+### Messages
+
+```rust
+/// Client → Daemon
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+enum Request {
+    Get { topic: String },
+    Subscribe { pattern: String },
+    Unsubscribe { pattern: String },
+    Call { method: String, params: serde_json::Value },
+}
+
+/// Daemon → Client
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+enum Response {
+    GetResult { topic: String, #[serde(flatten)] result: RequestResult },
+    SubscribeAck { pattern: String, available: bool, error: Option<String> },
+    UnsubscribeAck { pattern: String },
+    CallResult { method: String, #[serde(flatten)] result: RequestResult },
+    Event { topic: String, data: serde_json::Value },
+    ProviderUnavailable { provider: String, error: String },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum RequestResult {
+    Ok { data: serde_json::Value },
+    Error { code: u32, message: String },
+}
+```
+
+### Wire examples
+
+```json
+{"type":"subscribe","data":{"pattern":"battery.**"}}
+{"type":"subscribe_ack","data":{"pattern":"battery.**","available":true}}
+{"type":"event","data":{"topic":"battery.status","data":{"percentage":85,"state":"discharging"}}}
+{"type":"get","data":{"topic":"audio.default_output"}}
+{"type":"get_result","data":{"topic":"audio.default_output","status":"ok","data":{"id":48,"volume":0.75}}}
+{"type":"call","data":{"method":"audio.set_volume","params":{"node_id":48,"volume":0.5}}}
+{"type":"call_result","data":{"method":"audio.set_volume","status":"ok","data":null}}
+```
+
+### Wildcard patterns
+
+- `*` matches a single segment: `bluetooth.*` matches `bluetooth.devices` but not `bluetooth.device.AA:BB:CC`
+- `**` matches any number of segments: `bluetooth.**` matches everything under `bluetooth`
+
+---
+
+## Architecture
 
 ### Crate Structure
 
@@ -25,290 +90,110 @@ A background daemon (`glimpsed`) that provides system services over a Unix socke
 glimpse/
 ├── glimpsed/              # Daemon binary
 │   ├── src/
-│   │   ├── main.rs        # Entry point, socket server
-│   │   ├── server.rs      # Unix socket server, client handling
-│   │   ├── broker.rs      # Subscription management, deduplication
+│   │   ├── main.rs        # Entry point, signal handling, socket bind
+│   │   ├── server.rs      # Unix socket accept loop, per-client tasks
+│   │   ├── broker.rs      # Subscription management, event routing
+│   │   ├── pattern.rs     # Wildcard pattern matching
 │   │   └── providers/     # Data source implementations
-│   │       ├── mod.rs
-│   │       ├── bluetooth.rs
-│   │       └── network.rs
+│   │       ├── mod.rs     # Provider trait, factory, registry
+│   │       ├── dbus_props.rs # DbusPropertyGroup helper
+│   │       ├── debug.rs   # Test provider
+│   │       └── ...        # 32 provider modules
 │   └── Cargo.toml
-├── glimpse-proto/         # Shared protobuf definitions
-│   ├── proto/
-│   │   └── glimpse.proto
-│   ├── src/lib.rs
+├── glimpse-types/         # Shared JSON message types
+│   ├── src/lib.rs         # Request, Response, provider-specific types
 │   └── Cargo.toml
-└── glimpse-client/        # Rust client library
+└── glimpse-client/        # Async Rust client library
+    ├── src/lib.rs         # connect, subscribe->Stream, get, call
+    └── Cargo.toml
 ```
 
-### Core Components
-
-#### 1. Protocol (protobuf)
-
-```protobuf
-// glimpse.proto
-
-// Client -> Daemon
-message Request {
-  uint64 id = 1;
-  oneof payload {
-    Subscribe subscribe = 2;
-    Unsubscribe unsubscribe = 3;
-    Get get = 4;
-    MethodCall method_call = 5;
-  }
-}
-
-message Subscribe {
-  string pattern = 1;  // e.g., "bluetooth.devices", "bluetooth.*", "network.**"
-}
-
-message Unsubscribe {
-  string pattern = 1;
-}
-
-message Get {
-  string topic = 1;  // e.g., "battery.status" — one-shot read, no subscription
-}
-
-message MethodCall {
-  string method = 1;  // e.g., "bluetooth.connect"
-  bytes params = 2;   // Method-specific protobuf message
-}
-
-// Daemon -> Client
-message Response {
-  uint64 request_id = 1;
-  oneof payload {
-    SubscribeAck subscribe_ack = 2;
-    UnsubscribeAck unsubscribe_ack = 3;
-    GetResult get_result = 4;
-    MethodResult method_result = 5;
-    Event event = 6;
-  }
-}
-
-message SubscribeAck {
-  bool available = 1;       // Is the provider currently available?
-  string error_message = 2; // If not available, why (empty if available)
-}
-
-message UnsubscribeAck {}
-
-message GetResult {
-  string topic = 1;   // The topic that was queried
-  oneof result {
-    bytes data = 2;    // Current state (same format as Event.data)
-    Error error = 3;   // If provider unavailable or topic unknown
-  }
-}
-
-message MethodResult {
-  oneof result {
-    bytes data = 1;
-    Error error = 2;
-  }
-}
-
-message Event {
-  string topic = 1;   // Actual topic that fired (not the pattern)
-  bytes data = 2;     // Topic-specific protobuf message
-}
-
-message Error {
-  uint32 code = 1;
-  string message = 2;
-}
-```
-
-**Wildcard patterns:**
-- `*` matches a single segment: `bluetooth.*` matches `bluetooth.devices` but not `bluetooth.device.AA:BB:CC`
-- `**` matches any number of segments: `bluetooth.**` matches everything under `bluetooth`
-
-#### 2. Subscription Broker
-
-The broker manages:
-- Client subscriptions (client_id -> set of patterns)
-- Pattern matching for event routing
-- Provider lifecycle (start/stop based on subscriber count)
+### Provider Trait
 
 ```rust
-struct Broker {
-    // Client's active subscription patterns
-    subscriptions: HashMap<ClientId, HashSet<Pattern>>,
-    // Which providers are currently running
-    active_providers: HashMap<ProviderName, ProviderHandle>,
-    // Provider registry
-    providers: HashMap<ProviderName, Box<dyn ProviderFactory>>,
-}
-
-impl Broker {
-    fn subscribe(&mut self, client: ClientId, pattern: Pattern) -> SubscribeAck {
-        self.subscriptions.entry(client).or_default().insert(pattern.clone());
-        
-        // Determine which provider(s) this pattern requires
-        let provider_name = pattern.provider_name(); // e.g., "bluetooth" from "bluetooth.*"
-        
-        // Start provider if not running
-        if !self.active_providers.contains_key(&provider_name) {
-            match self.start_provider(&provider_name) {
-                Ok(handle) => {
-                    self.active_providers.insert(provider_name, handle);
-                    SubscribeAck { available: true, error_message: String::new() }
-                }
-                Err(e) => {
-                    // Provider unavailable, but subscription is registered
-                    // Will receive events when provider becomes available
-                    SubscribeAck { available: false, error_message: e.to_string() }
-                }
-            }
-        } else {
-            SubscribeAck { available: true, error_message: String::new() }
-        }
-    }
-    
-    fn route_event(&self, topic: &str, data: &[u8]) -> Vec<ClientId> {
-        // Find all clients whose patterns match this topic
-        self.subscriptions.iter()
-            .filter(|(_, patterns)| patterns.iter().any(|p| p.matches(topic)))
-            .map(|(client, _)| *client)
-            .collect()
-    }
-    
-    fn unsubscribe(&mut self, client: ClientId, pattern: &Pattern) {
-        if let Some(patterns) = self.subscriptions.get_mut(&client) {
-            patterns.remove(pattern);
-        }
-        self.maybe_stop_unused_providers();
-    }
-    
-    fn client_disconnected(&mut self, client: ClientId) {
-        self.subscriptions.remove(&client);
-        self.maybe_stop_unused_providers();
-    }
-    
-    fn maybe_stop_unused_providers(&mut self) {
-        // Stop providers that no longer have any matching subscriptions
-    }
-}
-```
-
-#### 3. Provider Trait
-
-```rust
-#[async_trait]
-trait Provider: Send + Sync {
-    /// Provider name (e.g., "bluetooth", "network")
+trait Provider: Send + 'static {
     fn name(&self) -> &'static str;
-    
-    /// List of topics this provider can emit
-    fn topics(&self) -> &[&'static str];
-    
-    /// Start collecting data, send events through the channel
-    async fn run(&mut self, events: mpsc::Sender<ProviderEvent>) -> Result<()>;
-    
-    /// Handle method calls (called concurrently with run)
-    async fn call(&self, method: &str, params: &[u8]) -> Result<Vec<u8>>;
+    fn topics(&self) -> &'static [&'static str];
+    fn methods(&self) -> &'static [&'static str];
+    async fn run(&mut self, tx: mpsc::Sender<ProviderEvent>, cancel: CancellationToken) -> Result<()>;
+    async fn snapshot(&self, topic: &str) -> Option<serde_json::Value>;
+    async fn handle_call(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value>;
 }
 
 struct ProviderEvent {
-    topic: String,      // e.g., "bluetooth.device.AA:BB:CC"
-    data: Vec<u8>,      // Protobuf-encoded payload
+    topic: String,
+    data: serde_json::Value,
 }
 ```
 
-#### 4. Socket Server
+### Provider Factory
 
-- Accept connections on Unix socket
-- Length-prefixed protobuf messages (4-byte big-endian length + message)
-- Each client gets a task for reading and a channel for writing
-- Graceful shutdown handling
-
-### Message Framing
-
+```rust
+trait ProviderFactory: Send + Sync + 'static {
+    fn name(&self) -> &'static str;
+    fn topics(&self) -> &'static [&'static str];
+    fn methods(&self) -> &'static [&'static str];
+    fn create(&self) -> Box<dyn Provider>;
+}
 ```
-+----------------+------------------+
-| Length (4 bytes, big-endian)     |
-+----------------+------------------+
-| Protobuf Message (Length bytes)  |
-+----------------------------------+
+
+### Broker
+
+Single task, no locks — all mutations via mpsc channel:
+
+```rust
+enum BrokerMsg {
+    ClientConnected { id: ClientId, tx: mpsc::Sender<Response> },
+    ClientDisconnected { id: ClientId },
+    Request { client: ClientId, request: Request },
+    ProviderEvent { topic: String, data: serde_json::Value },
+    ProviderStopped { name: &'static str, error: Option<String> },
+}
 ```
+
+Lazy lifecycle: start provider on first matching subscribe, stop when last subscriber leaves (with grace period).
+
+### Server
+
+Per-client: reader task (BufReader::read_line → parse JSON → broker channel) + writer task (serialize JSON → write line → flush).
+
+Auto-cleanup: when socket EOF/error detected, send `ClientDisconnected` to broker → all subscriptions removed.
 
 ### Dependencies
 
 ```toml
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "signal"] }
-prost = "0.13"           # Protobuf runtime
-prost-types = "0.13"     # Well-known types
-zbus = "5"               # D-Bus for system services
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zbus = "5"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-
-[build-dependencies]
-prost-build = "0.13"     # Protobuf code generation
+tokio-util = "0.7"  # CancellationToken
+anyhow = "1"
 ```
 
 ---
 
-## Implementation Plan
+## Implementation Phases
 
-### Phase 1: Proto crate (`glimpse-proto`)
-1. Create crate with `proto/glimpse.proto`
-2. Set up `prost-build` in `build.rs`
-3. Export generated types from `lib.rs`
+### Phase 1: Types crate (`glimpse-types`)
+1. Create crate with Request, Response, RequestResult types
+2. Shared between daemon and client
 
 ### Phase 2: Daemon crate (`glimpsed`)
-4. Create crate structure:
-   - `main.rs` - entry point, signal handling
-   - `server.rs` - Unix socket accept loop, client tasks
-   - `broker.rs` - subscription management, event routing
-   - `pattern.rs` - wildcard pattern matching
-   - `providers/mod.rs` - provider trait and registry
-5. Implement message framing (length-prefixed protobuf)
-6. Implement pattern matching (`*` and `**` wildcards)
-7. Implement broker with lazy provider lifecycle
-8. Add a stub provider for testing (e.g., `debug` provider that emits periodic events)
+3. main.rs — entry point, signal handling, socket bind
+4. server.rs — accept loop, per-client reader/writer tasks
+5. broker.rs — subscription management, event routing, provider lifecycle
+6. pattern.rs — wildcard pattern matching
+7. providers/mod.rs — Provider trait, ProviderFactory, registry
+8. providers/debug.rs — test provider emitting periodic events
 
 ### Phase 3: Client library (`glimpse-client`)
-9. Create crate with async client API:
-   - `Client::connect()` 
-   - `client.subscribe(pattern)` -> `Stream<Event>`
-   - `client.call(method, params)` -> `Result<Response>`
-   - Auto-reconnect handling
+9. connect, subscribe → Stream, get, call, auto-reconnect
 
-### Phase 4: Additional Providers (future)
-- Implement real providers as needed (bluetooth, network, etc.)
-
----
-
-## Files to Create
-
-```
-glimpse/
-├── Cargo.toml                    # Add workspace members
-├── glimpse-proto/
-│   ├── Cargo.toml
-│   ├── build.rs
-│   ├── proto/
-│   │   └── glimpse.proto
-│   └── src/
-│       └── lib.rs
-├── glimpsed/
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs
-│       ├── server.rs
-│       ├── broker.rs
-│       ├── pattern.rs
-│       └── providers/
-│           ├── mod.rs
-│           └── debug.rs
-└── glimpse-client/
-    ├── Cargo.toml
-    └── src/
-        └── lib.rs
-```
+### Phase 4: Real providers
+10. Implement providers one at a time (battery, power, audio, ...)
 
 ---
 
@@ -316,8 +201,7 @@ glimpse/
 
 1. `cargo build --workspace`
 2. Start daemon: `cargo run -p glimpsed`
-3. Write a simple test binary in `glimpse-client/examples/` that:
-   - Connects to the socket
-   - Subscribes to `debug.*`
-   - Prints received events
-   - Unsubscribes and disconnects
+3. Test with socat:
+   - `echo '{"type":"get","data":{"topic":"debug.counter"}}' | socat - UNIX:$XDG_RUNTIME_DIR/glimpsed.sock`
+   - `echo '{"type":"subscribe","data":{"pattern":"debug.*"}}' | socat - UNIX:$XDG_RUNTIME_DIR/glimpsed.sock` (prints ack + events)
+4. Multiple clients: two socat sessions, both subscribe, both receive events

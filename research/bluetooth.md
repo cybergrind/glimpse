@@ -290,3 +290,4 @@ No polling needed — BlueZ is fully signal-driven.
 - Audio profile switching (A2DP ↔ HFP) is handled at the PulseAudio/PipeWire card level, not directly through BlueZ
 - `Trusted = true` allows a device to auto-connect when in range — important for headphones and keyboards
 - RSSI is only available during active discovery scanning
+- Peripheral device batteries (headsets, mice, keyboards) are also reported by the battery provider via UPower — consider cross-referencing to avoid duplicate data

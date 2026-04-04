@@ -371,3 +371,4 @@ Usage: `pactl subscribe` outputs one line per event, indefinitely. Works with bo
 - Bluetooth profile switching requires the card ID, not the sink ID
 - `pactl --format json` requires `LC_NUMERIC=C` for reliable float parsing in some locales
 - pw-dump gives the full PipeWire graph but is heavyweight; prefer wpctl/pactl for targeted queries
+- Active recording streams (source-outputs) feed into the privacy provider for microphone-in-use indicators

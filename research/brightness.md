@@ -141,21 +141,6 @@ struct SetBrightnessRelativeRequest {
 
 All icons above are available in Adwaita icon theme.
 
-## Features
-
-- Internal backlight control via /sys/class/backlight
-- External monitor brightness via ddcutil (DDC/CI, VCP code 0x10)
-- Ambient light sensor integration (iio-sensor-proxy)
-- Per-display brightness tracking and control
-- Absolute and relative brightness adjustment
-- Display power state control (on/off via bl_power)
-- Backlight type detection and priority (firmware > platform > raw)
-- Smooth brightness transitions (step-by-step to avoid flicker)
-- Minimum brightness floor to prevent black screen
-- Per-display brightness profiles
-- Contrast control for external monitors (VCP 0x12)
-- Auto-brightness based on ambient light sensor
-
 ## Crates
 
 - `inotify` — watch /sys/class/backlight file changes
@@ -170,6 +155,21 @@ All icons above are available in Adwaita icon theme.
 **External monitors (DDC/CI):** No change notification exists. DDC/CI is poll-only — the monitor cannot notify the host of changes. Options: periodic polling (every 5–10s), or only track our own writes and accept staleness.
 
 **Ambient light sensor:** `PropertiesChanged` D-Bus signal from iio-sensor-proxy. Fully reactive.
+
+## Features
+
+- Internal backlight control via /sys/class/backlight
+- External monitor brightness via ddcutil (DDC/CI, VCP code 0x10)
+- Ambient light sensor integration (iio-sensor-proxy)
+- Per-display brightness tracking and control
+- Absolute and relative brightness adjustment
+- Display power state control (on/off via bl_power)
+- Backlight type detection and priority (firmware > platform > raw)
+- Smooth brightness transitions (step-by-step to avoid flicker)
+- Minimum brightness floor to prevent black screen
+- Per-display brightness profiles
+- Contrast control for external monitors (VCP 0x12)
+- Auto-brightness based on ambient light sensor
 
 ## Notes
 

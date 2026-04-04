@@ -348,3 +348,4 @@ All icons above are available in Adwaita icon theme.
 - `AddAndActivateConnection` both saves and connects in one call — preferred for new networks
 - Signal strength poll interval should be 1–2 seconds for responsive UI
 - NetworkManager may not be installed on all systems — provider should handle absence
+- Shares NetworkManager D-Bus service with the network provider — coordinate to avoid duplicate D-Bus connections
