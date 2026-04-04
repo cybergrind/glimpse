@@ -34,8 +34,9 @@ async fn bind_socket(path: &std::path::Path) -> anyhow::Result<UnixListener> {
 
 fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
     vec![
-        Box::new(providers::debug::DebugProviderFactory),
+        Box::new(providers::audio::AudioProviderFactory),
         Box::new(providers::battery::BatteryProviderFactory),
+        Box::new(providers::debug::DebugProviderFactory),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::tray::TrayProviderFactory),
     ]
