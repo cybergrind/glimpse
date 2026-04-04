@@ -60,7 +60,12 @@ pub fn create_applet(
             let config: ClockConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
-            let applet = Clock::builder().launch(ClockInit { config }).detach();
+            let applet = Clock::builder()
+                .launch(ClockInit {
+                    config,
+                    client: client.clone(),
+                })
+                .detach();
             Some(AppletController::Clock(applet))
         }
         "power" => {
