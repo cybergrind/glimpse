@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use glimpse_client::Client;
 use relm4::{
-    Component, ComponentParts, ComponentSender,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
 
 use super::config::BatteryConfig;
+use super::popover::{BatteryPopover, BatteryPopoverInit, BatteryPopoverInput};
 
 pub struct Battery {
     config: BatteryConfig,
@@ -14,6 +15,7 @@ pub struct Battery {
     label: String,
     tooltip: String,
     visible: bool,
+    popover: Controller<BatteryPopover>,
 }
 
 pub struct BatteryInit {
@@ -24,6 +26,8 @@ pub struct BatteryInit {
 #[derive(Debug)]
 pub enum BatteryInput {
     Update(serde_json::Value),
+    ProfilesUpdate(serde_json::Value),
+    TogglePopover,
     Unavailable,
 }
 
@@ -42,6 +46,13 @@ impl Component for Battery {
             set_visible: model.visible,
             #[watch]
             set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
+
+            add_controller = gtk::GestureClick {
+                set_button: 1,
+                connect_pressed[sender] => move |_, _, _, _| {
+                    sender.input(BatteryInput::TogglePopover);
+                }
+            },
 
             gtk::Image {
                 #[watch]
@@ -66,28 +77,52 @@ impl Component for Battery {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let popover = BatteryPopover::builder()
+            .launch(BatteryPopoverInit {
+                parent: root.clone(),
+                client: init.client.clone(),
+                settings_command: init.config.settings_command.clone(),
+            })
+            .detach();
+
         let model = Battery {
             config: init.config,
             icon_name: "battery-missing-symbolic".into(),
             label: String::new(),
             tooltip: String::new(),
             visible: false,
+            popover,
         };
 
         let client = init.client;
         sender.command(move |cmd_tx, shutdown| {
             shutdown
                 .register(async move {
-                    let mut sub = match client.subscribe("battery.status").await {
+                    let mut bat_sub = match client.subscribe("battery.status").await {
                         Ok(s) => s,
                         Err(e) => {
-                            tracing::error!("failed to subscribe to battery.status: {e}");
+                            tracing::error!("battery: subscribe failed: {e}");
                             let _ = cmd_tx.send(BatteryInput::Unavailable);
                             return;
                         }
                     };
-                    while let Some(event) = sub.next().await {
-                        let _ = cmd_tx.send(BatteryInput::Update(event.data));
+                    let mut profile_sub = client.subscribe("power.profiles").await.ok();
+
+                    loop {
+                        tokio::select! {
+                            Some(ev) = bat_sub.next() => {
+                                let _ = cmd_tx.send(BatteryInput::Update(ev.data));
+                            }
+                            Some(ev) = async {
+                                match &mut profile_sub {
+                                    Some(s) => s.next().await,
+                                    None => std::future::pending().await,
+                                }
+                            } => {
+                                let _ = cmd_tx.send(BatteryInput::ProfilesUpdate(ev.data));
+                            }
+                            else => break,
+                        }
                     }
                     let _ = cmd_tx.send(BatteryInput::Unavailable);
                 })
@@ -124,12 +159,7 @@ impl Component for Battery {
                 self.visible = present;
 
                 let vars = FormatVars {
-                    percentage,
-                    state,
-                    energy_rate,
-                    capacity,
-                    time_to_empty,
-                    time_to_full,
+                    percentage, state, energy_rate, capacity, time_to_empty, time_to_full,
                 };
 
                 let (label_fmt, tooltip_fmt) = if on_battery {
@@ -140,6 +170,14 @@ impl Component for Battery {
 
                 self.label = format_template(label_fmt, &vars);
                 self.tooltip = format_template(tooltip_fmt, &vars);
+
+                self.popover.emit(BatteryPopoverInput::UpdateStatus(data));
+            }
+            BatteryInput::ProfilesUpdate(data) => {
+                self.popover.emit(BatteryPopoverInput::UpdateProfiles(data));
+            }
+            BatteryInput::TogglePopover => {
+                self.popover.emit(BatteryPopoverInput::Toggle);
             }
             BatteryInput::Unavailable => {
                 self.visible = false;
@@ -158,26 +196,15 @@ struct FormatVars<'a> {
 }
 
 fn format_template(template: &str, vars: &FormatVars) -> String {
-    if template.is_empty() {
-        return String::new();
-    }
+    if template.is_empty() { return String::new(); }
 
     let time_left = match vars.state {
-        "discharging" if vars.time_to_empty > 0 => {
-            format!("{} remaining", format_duration(vars.time_to_empty))
-        }
-        "charging" if vars.time_to_full > 0 => {
-            format!("{} until full", format_duration(vars.time_to_full))
-        }
+        "discharging" if vars.time_to_empty > 0 => format!("{} remaining", format_duration(vars.time_to_empty)),
+        "charging" if vars.time_to_full > 0 => format!("{} until full", format_duration(vars.time_to_full)),
         "fully-charged" => "fully charged".into(),
         _ => String::new(),
     };
-
-    let power = if vars.energy_rate > 0.0 {
-        format!("{:.1}W", vars.energy_rate)
-    } else {
-        String::new()
-    };
+    let power = if vars.energy_rate > 0.0 { format!("{:.1}W", vars.energy_rate) } else { String::new() };
 
     template
         .replace("{percentage}", &vars.percentage.to_string())
@@ -192,9 +219,6 @@ fn format_template(template: &str, vars: &FormatVars) -> String {
 fn format_duration(seconds: i64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
-    if hours > 0 {
-        format!("{hours}h {minutes:02}m")
-    } else {
-        format!("{minutes}m")
-    }
+    if hours > 0 { format!("{hours}h {minutes:02}m") }
+    else { format!("{minutes}m") }
 }

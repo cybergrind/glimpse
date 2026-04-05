@@ -8,6 +8,9 @@
     --card-padding: 12px;
     --panel-bg: #000000;
     --border: color-mix(in srgb, currentColor var(--border-opacity), transparent);
+    --popover-padding: 16px;
+    --popover-section-spacing: 12px;
+    --dim-opacity: 0.5;
 }
 
 .text-muted {
@@ -70,12 +73,12 @@
 }
 
 .clock-popover {
-    padding: 8px;
+    padding: var(--popover-padding);
     min-width: 300px;
 }
 
 .clock-popover>*:not(:last-child) {
-    margin-bottom: 12px;
+    margin-bottom: var(--popover-section-spacing);
 }
 
 /*.clock-popover>*:first-child {
@@ -166,11 +169,88 @@
     font-variant-numeric: tabular-nums;
 }
 
+.battery-popover {
+    min-width: 340px;
+    max-width: 340px;
+}
+
+.battery-popover contents > box {
+    margin: var(--popover-padding);
+}
+
+.battery-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.battery-popover .battery-status-row {
+    margin-bottom: 10px;
+}
+
+.battery-popover .battery-pct {
+    font-size: 24px;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+}
+
+.battery-popover .battery-progress {
+    margin-bottom: 8px;
+}
+
+.battery-popover .battery-state-text {
+    font-size: 13px;
+    opacity: 0.7;
+    margin-bottom: 2px;
+}
+
+.battery-popover .detail-row {
+    padding: 4px 0;
+}
+
+.battery-popover .detail-key {
+    opacity: 0.5;
+}
+
+.battery-popover .detail-val {
+    font-variant-numeric: tabular-nums;
+}
+
+.battery-popover .profile-list {
+    margin-top: 6px;
+}
+
+.battery-popover .profile-btn {
+    padding: 4px 6px;
+    font-weight: normal;
+}
+
+.battery-popover .profile-btn label {
+    font-weight: normal;
+}
+
+.battery-popover .profile-icon {
+    opacity: 0.6;
+}
+
+.battery-popover .profile-check {
+    opacity: 0.5;
+}
+
+.battery-popover .settings-btn {
+    margin-top: 6px;
+    padding: 4px 6px;
+    font-weight: normal;
+}
+
+.battery-popover .settings-btn label {
+    font-weight: normal;
+}
+
 .power {}
 
 .power-popover {
     min-width: 200px;
-    padding: 8px 0;
+    padding: var(--popover-padding) 0;
 }
 
 .power-popover .section-title {
@@ -204,13 +284,13 @@
     max-width: 400px;
 }
 
-.audio-popover>box {
-    margin: 16px;
+.audio-popover contents > box {
+    margin: var(--popover-padding);
 }
 
 .audio-popover separator {
-    margin-top: 10px;
-    margin-bottom: 10px;
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
 }
 
 .audio-popover .volume-row {

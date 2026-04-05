@@ -13,6 +13,7 @@ pub struct BatteryConfig {
     pub tooltip_on_battery: String,
     /// Tooltip when on AC.
     pub tooltip_on_ac: String,
+    pub settings_command: String,
 }
 
 impl Default for BatteryConfig {
@@ -23,6 +24,7 @@ impl Default for BatteryConfig {
             label_on_ac: String::new(),
             tooltip_on_battery: "{percentage}% {state}, {time_left}".into(),
             tooltip_on_ac: "{percentage}% {state}".into(),
+            settings_command: String::new(),
         }
     }
 }
