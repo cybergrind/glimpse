@@ -138,8 +138,6 @@ impl Component for Bluetooth {
                     "Bluetooth off".into()
                 } else if connected_count > 0 {
                     format!("{connected_count} device{} connected", if connected_count > 1 { "s" } else { "" })
-                } else if discovering {
-                    "Scanning...".into()
                 } else {
                     "Bluetooth".into()
                 };

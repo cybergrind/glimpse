@@ -48,7 +48,6 @@ pub struct BluetoothPopover {
     rows: HashMap<String, DeviceRow>,
     updating_power: Rc<Cell<bool>>,
     powered: bool,
-    discovering: bool,
     connected_count: u32,
 }
 
@@ -223,13 +222,29 @@ impl SimpleComponent for BluetoothPopover {
 
         root.set_child(Some(&vbox));
 
+        // Auto-scan on popover open, stop on close.
+        let s = sender.clone();
+        root.connect_show(move |_| {
+            s.input(BluetoothPopoverInput::ScanStarted);
+        });
+        let c = init.client.clone();
+        let btn_ref = scan_btn.clone();
+        let lbl_ref = scan_lbl.clone();
+        root.connect_closed(move |_| {
+            if !btn_ref.is_sensitive() {
+                spawn_call(&c, "bluetooth.stop_discovery", serde_json::json!({}));
+                btn_ref.set_sensitive(true);
+                lbl_ref.set_label("Scan for devices");
+            }
+        });
+
         let model = BluetoothPopover {
             popover: root.clone(), client: init.client,
             hero_icon, subtitle, power_switch,
             device_box, empty_label,
             scan_btn, scan_label: scan_lbl,
             rows: HashMap::new(),
-            updating_power, powered: false, discovering: false, connected_count: 0,
+            updating_power, powered: false, connected_count: 0,
         };
 
         ComponentParts { model, widgets: () }
@@ -243,9 +258,11 @@ impl SimpleComponent for BluetoothPopover {
             }
             BluetoothPopoverInput::UpdateStatus { powered, discovering } => {
                 self.powered = powered;
-                // Don't override local scanning state while scan button is active.
-                if self.scan_btn.is_sensitive() {
-                    self.discovering = discovering;
+
+                // If daemon says discovery stopped, reset scan button.
+                if !discovering && !self.scan_btn.is_sensitive() {
+                    self.scan_btn.set_sensitive(true);
+                    self.scan_label.set_label("Scan for devices");
                 }
 
                 if self.power_switch.is_active() != powered {
@@ -312,7 +329,6 @@ impl SimpleComponent for BluetoothPopover {
                 self.update_subtitle();
             }
             BluetoothPopoverInput::ScanStarted => {
-                self.discovering = true;
                 self.scan_btn.set_sensitive(false);
                 self.scan_label.set_label("Scanning…");
                 spawn_call(&self.client, "bluetooth.start_discovery", serde_json::json!({}));
@@ -320,9 +336,11 @@ impl SimpleComponent for BluetoothPopover {
                 let btn = self.scan_btn.clone();
                 let label = self.scan_label.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_secs(10), move || {
-                    spawn_call(&client, "bluetooth.stop_discovery", serde_json::json!({}));
-                    btn.set_sensitive(true);
-                    label.set_label("Scan for devices");
+                    if !btn.is_sensitive() {
+                        spawn_call(&client, "bluetooth.stop_discovery", serde_json::json!({}));
+                        btn.set_sensitive(true);
+                        label.set_label("Scan for devices");
+                    }
                 });
                 self.update_subtitle();
             }
@@ -334,12 +352,10 @@ impl BluetoothPopover {
     fn update_subtitle(&self) {
         let text = if !self.powered {
             "Off".into()
-        } else if self.discovering {
-            "Scanning…".into()
         } else if self.connected_count > 0 {
             format!("On · {} connected", self.connected_count)
         } else {
-            "On · No devices".into()
+            "On".into()
         };
         self.subtitle.set_label(&text);
     }
