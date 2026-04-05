@@ -2,7 +2,7 @@
 
 **Source:** Open-Meteo HTTP API (free, no API key), geolocation provider for coordinates
 
-**What it does:** Fetches current weather, hourly forecast (4h), and daily forecast (10d) with weather condition codes and icons.
+**What it does:** Fetches current weather, hourly forecast, and daily forecast with weather condition codes and icons.
 
 ## System Interface
 
@@ -10,9 +10,15 @@
 
 Base URL: `https://api.open-meteo.com/v1/forecast`
 
-Example request:
+Request:
 ```
-GET /v1/forecast?latitude=52.52&longitude=13.41&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum&timezone=auto&forecast_hours=4&forecast_days=10
+GET /v1/forecast?latitude=47.42&longitude=9.37
+  &current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,
+           wind_speed_10m,wind_direction_10m,surface_pressure,uv_index,is_day
+  &hourly=temperature_2m,weather_code,is_day
+  &daily=weather_code,temperature_2m_max,temperature_2m_min
+  &forecast_days=10
+  &timezone=auto
 ```
 
 Response (JSON):
@@ -26,23 +32,21 @@ Response (JSON):
     "weather_code": 3,
     "wind_speed_10m": 12.5,
     "wind_direction_10m": 225,
-    "surface_pressure": 1013.2
+    "surface_pressure": 1013.2,
+    "uv_index": 4.5,
+    "is_day": 1
   },
   "hourly": {
     "time": ["2026-04-04T12:00", "2026-04-04T13:00", ...],
     "temperature_2m": [15.3, 16.1, ...],
     "weather_code": [3, 2, ...],
-    "precipitation_probability": [10, 20, ...]
+    "is_day": [1, 1, ...]
   },
   "daily": {
     "time": ["2026-04-04", "2026-04-05", ...],
     "weather_code": [3, 61, ...],
     "temperature_2m_max": [18.5, 15.2, ...],
-    "temperature_2m_min": [8.3, 7.1, ...],
-    "sunrise": ["2026-04-04T06:15", ...],
-    "sunset": ["2026-04-04T19:45", ...],
-    "uv_index_max": [4.5, 3.2, ...],
-    "precipitation_sum": [0.0, 5.2, ...]
+    "temperature_2m_min": [8.3, 7.1, ...]
   }
 }
 ```
@@ -64,126 +68,74 @@ Response (JSON):
 
 ## Topics
 
-- `weather.current` — current conditions
-- `weather.forecast_hourly` — next 4 hours
-- `weather.forecast_daily` — next 10 days
+- `weather.current` — current conditions + stats
+- `weather.hourly` — next 24h (panel displays 6: now + next 5)
+- `weather.forecast` — 10-day daily forecast
 - `weather.location` — location used for forecast
 
 ## Methods
 
-- `weather.refresh()` — force fetch new data
-- `weather.set_location(latitude: f64, longitude: f64, city: Option<String>)` — override location
-- `weather.set_units(temperature: TempUnit, wind: WindUnit)` — set display units
+- `weather.refresh` — force re-fetch
+
+## Location Resolution
+
+Priority:
+1. Config: `latitude`/`longitude` in panel.toml
+2. GeoClue D-Bus (`org.freedesktop.GeoClue2`) — automatic
+3. Fallback: IP-based via `https://ipapi.co/json/`
 
 ## Types
 
 ```rust
-/// Temperature unit
-enum TempUnit {
-    Celsius,
-    Fahrenheit,
-}
-
-/// Wind speed unit
-enum WindUnit {
-    Kmh,
-    Mph,
-    Ms,
-    Knots,
-}
-
-/// WMO weather condition
-enum WeatherCondition {
-    ClearSky,
-    MainlyClear,
-    PartlyCloudy,
-    Overcast,
-    Fog,
-    Drizzle { intensity: Intensity },
-    FreezingDrizzle { intensity: Intensity },
-    Rain { intensity: Intensity },
-    FreezingRain { intensity: Intensity },
-    Snow { intensity: Intensity },
-    SnowGrains,
-    RainShowers { intensity: Intensity },
-    SnowShowers { intensity: Intensity },
-    Thunderstorm,
-    ThunderstormHail { intensity: Intensity },
-}
-
-enum Intensity {
-    Slight,
-    Moderate,
-    Heavy,
-}
-
-/// Current weather, emitted on `weather.current`
 struct WeatherCurrent {
-    /// Temperature in configured units
     temperature: f64,
-    /// "Feels like" temperature
     apparent_temperature: f64,
-    /// Relative humidity 0–100
     humidity: u8,
-    /// WMO weather code
     weather_code: u32,
-    condition: WeatherCondition,
-    /// Icon name for current condition
-    icon: String,
-    /// Wind speed in configured units
-    wind_speed: f64,
-    /// Wind direction in degrees (0=N, 90=E, 180=S, 270=W)
-    wind_direction: u16,
-    /// Surface pressure in hPa
-    pressure: f64,
-    /// Observation time
+    condition: String,       // "Clear sky", "Partly cloudy", etc.
+    icon: String,            // Adwaita symbolic icon name
+    wind_speed: f64,         // km/h
+    wind_direction: u16,     // degrees (0=N, 90=E, 180=S, 270=W)
+    wind_direction_label: String, // "N", "NE", "NW", etc.
+    pressure: f64,           // hPa
+    uv_index: f64,
+    is_day: bool,
     time: String,
 }
 
-/// Hourly forecast entry
 struct WeatherHourly {
-    time: String,
+    time: String,            // "13:00"
     temperature: f64,
     weather_code: u32,
-    condition: WeatherCondition,
+    condition: String,
     icon: String,
-    /// Precipitation probability 0–100
-    precipitation_probability: u8,
+    is_day: bool,
 }
 
-/// Daily forecast entry
 struct WeatherDaily {
-    date: String,
+    date: String,            // "2026-04-05"
+    day_name: String,        // "Mon", "Tue", etc.
     weather_code: u32,
-    condition: WeatherCondition,
+    condition: String,
     icon: String,
     temperature_max: f64,
     temperature_min: f64,
-    sunrise: String,
-    sunset: String,
-    uv_index_max: f64,
-    /// Total precipitation in mm
-    precipitation_sum: f64,
 }
 
-/// Weather location, emitted on `weather.location`
 struct WeatherLocation {
     latitude: f64,
     longitude: f64,
-    city: Option<String>,
-    /// Whether using geolocation auto-detect or manual override
-    is_manual: bool,
+    city: String,
 }
 ```
 
 ## Icons
 
-WMO code to freedesktop icon mapping:
+WMO code → Adwaita icon:
 
-Day icons:
+Day:
 - 0 → `weather-clear-symbolic`
-- 1 → `weather-few-clouds-symbolic`
-- 2 → `weather-few-clouds-symbolic`
+- 1, 2 → `weather-few-clouds-symbolic`
 - 3 → `weather-overcast-symbolic`
 - 45, 48 → `weather-fog-symbolic`
 - 51–57 → `weather-showers-scattered-symbolic`
@@ -193,43 +145,78 @@ Day icons:
 - 85–86 → `weather-snow-symbolic`
 - 95–99 → `weather-storm-symbolic`
 
-Night variants (use between sunset and sunrise):
+Night (is_day=false):
 - 0 → `weather-clear-night-symbolic`
 - 1, 2 → `weather-few-clouds-night-symbolic`
+- All others same as day
 
-All icons above are available in Adwaita icon theme.
+## Panel Applet
+
+```
+(☀️) 22°
+```
+
+Config:
+```toml
+[applets.weather]
+extends = "weather"
+latitude = 47.42
+longitude = 9.37
+city_name = "St. Gallen"
+units = "celsius"              # celsius | fahrenheit
+label_format = "{temp}°"       # {temp}, {condition}, {feels_like}
+refresh_interval = 1800        # seconds (30min)
+```
+
+## Popover Layout
+
+```
+┌──────────────────────────────────────────┐
+│  (☀️ 32px)  Weather                      │
+│  St. Gallen · Partly Cloudy · 22°        │  ← hero
+├──────────────────────────────────────────┤
+│  Now   13h   14h   15h   16h   17h       │  ← 4h forecast
+│   ☀️    🌤    🌤    ⛅    ⛅    🌧       │     (current + next 5h)
+│  22°   21°   20°   19°   18°   17°       │
+├──────────────────────────────────────────┤
+│  Feels like  24°        Humidity  65%    │  ← stats (2-column)
+│  Wind  12 km/h NW       UV Index  5     │
+│  Pressure  1013 hPa                      │
+├──────────────────────────────────────────┤
+│  Mon    ☀️   18° / 26°                    │  ← 10-day forecast
+│  Tue    🌤   16° / 23°                    │
+│  Wed    🌧   14° / 19°                    │
+│  Thu    ⛅   15° / 22°                    │
+│  Fri    ☀️   17° / 25°                    │
+│  Sat    🌤   16° / 24°                    │
+│  Sun    🌧   13° / 18°                    │
+│  Mon    ☀️   17° / 25°                    │
+│  Tue    🌤   15° / 23°                    │
+│  Wed    ⛅   14° / 21°                    │
+└──────────────────────────────────────────┘
+```
+
+## File Structure
+
+```
+glimpsed/src/providers/weather.rs    — provider
+glimpse-panel/src/applets/weather/
+  applet.rs                          — panel icon + temp
+  popover.rs                         — hero + hourly + stats + daily
+  config.rs                          — settings
+  mod.rs
+```
 
 ## Crates
 
-- `reqwest` — HTTP client (already in workspace)
-- `serde` / `serde_json` — JSON parsing (already in workspace)
-
-## Change Detection
-
-**Timer-driven:** Fetch new data every 15–30 minutes. No push notifications from weather APIs.
-
-**Location change:** Re-fetch when geolocation provider reports a new position.
-
-## Features
-
-- Current conditions: temperature, feels-like, humidity, wind, pressure, weather code
-- Hourly forecast (next 4 hours) with precipitation probability
-- 10-day daily forecast with min/max temp, sunrise/sunset, UV index, precipitation
-- WMO weather code to condition and icon mapping
-- Day/night icon variants based on sunrise/sunset
-- Configurable units (Celsius/Fahrenheit, km/h / mph / m/s / knots)
-- Auto-location from geolocation provider
-- Manual location override with city name
-- Configurable fetch interval and cache TTL
-- Multiple saved locations (future)
-- Severe weather alerts (future: Open-Meteo alerts API)
-- Air quality index (future: Open-Meteo air quality API)
+- `reqwest` — HTTP client (blocking=false, json feature)
+- `serde` / `serde_json` — JSON parsing
 
 ## Notes
 
-- Open-Meteo is free and requires no API key — ideal for open-source projects
-- Cache responses to avoid excessive API calls — respect rate limits
-- Use `timezone=auto` parameter to get times in local timezone
-- WMO weather codes are standard and used by most weather APIs
-- Night icons should be used between sunset and sunrise times from the daily forecast
-- Location comes from the geolocation provider — subscribe to `geolocation.position` for updates
+- Open-Meteo is free, no API key — ideal for open source
+- Use `timezone=auto` for local times
+- Cache responses, refresh every 30min
+- Night icons between sunset and sunrise (use `is_day` field)
+- Provider runs a timer loop, not event-driven
+- Location from config is simplest; GeoClue integration is future work

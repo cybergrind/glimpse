@@ -4,7 +4,7 @@
 
 [[panels]]
 position = "top"
-applets = ["spacer","clock_custom", "spacer", "tray", "bluetooth", "audio", "battery"]
+applets = ["spacer","clock_custom", "weather", "spacer", "tray", "bluetooth", "audio", "battery"]
 
 [applets.clock_custom]
 extends = "clock"
@@ -14,6 +14,12 @@ timezones = [
     {name= "St. Gallen", timezone= "Europe/Zurich"},
     {name="Tbilisi", timezone="Asia/Tbilisi"}
 ]
+
+[applets.weather]
+extends = "weather"
+latitude = 47.42
+longitude = 9.37
+city_name = "Warsaw, PL"
 
 # [applets.audio]
 # extends = "audio"

@@ -62,9 +62,10 @@
 .applet {
     transition: background 150ms ease;
     padding: 0 8px;
+    border-radius: 4px;
 }
 
-.applet.clickable:hover {
+.applet:hover {
     background-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -460,4 +461,120 @@
 
 .audio-popover .settings-btn label {
     font-weight: normal;
+}
+
+/* weather */
+
+.weather {}
+
+.weather-label {
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover {
+    min-width: 340px;
+    max-width: 340px;
+}
+
+.weather-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.weather-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.weather-popover .weather-hero {
+    margin-bottom: 2px;
+}
+
+.weather-popover .weather-hero-temp {
+    font-size: 24px;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-hero-row2 {
+    margin-bottom: 4px;
+}
+
+.weather-popover .weather-hero-condition {
+    font-size: 13px;
+    opacity: var(--dim-opacity);
+}
+
+.weather-popover .weather-hero-hilo {
+    font-size: 13px;
+    opacity: var(--dim-opacity);
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-hourly {
+    padding: 6px 0;
+}
+
+.weather-popover .weather-hourly-col {
+    padding: 4px 2px;
+}
+
+.weather-popover .weather-hourly-time {
+    font-size: 11px;
+    opacity: var(--dim-opacity);
+}
+
+.weather-popover .weather-hourly-temp {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-stats {
+    padding: 2px 0;
+}
+
+.weather-popover .weather-stat-tile {
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.weather-popover .weather-stat-key {
+    font-size: 11px;
+    opacity: var(--dim-opacity);
+}
+
+.weather-popover .weather-stat-val {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-forecast-row {
+    padding: 4px 0;
+}
+
+.weather-popover .weather-forecast-today .weather-forecast-day {
+    font-weight: 600;
+}
+
+.weather-popover .weather-forecast-day {
+    font-size: 13px;
+}
+
+.weather-popover .weather-forecast-lo {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    opacity: var(--dim-opacity);
+}
+
+.weather-popover .weather-forecast-hi {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-forecast-cond {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
 }

@@ -18,3 +18,4 @@ futures-util.workspace = true
 tokio-util = "0.7"
 system-tray.workspace = true
 png = "0.18"
+reqwest.workspace = true

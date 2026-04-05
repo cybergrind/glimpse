@@ -5,6 +5,7 @@ mod clock;
 mod power;
 mod spacer;
 mod tray;
+mod weather;
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ pub enum AppletController {
     Clock(Controller<Clock>),
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
+    Weather(Controller<weather::Weather>),
     Spacer(Controller<Spacer>),
 }
 
@@ -39,6 +41,7 @@ impl AppletController {
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
+            AppletController::Weather(c) => c.widget().clone().upcast(),
             AppletController::Spacer(c) => c.widget().clone().upcast(),
         }
     }
@@ -115,6 +118,16 @@ pub fn create_applet(
                 .launch(tray::TrayInit { config, client })
                 .detach();
             Some(AppletController::Tray(applet))
+        }
+        "weather" => {
+            let client = client.clone()?;
+            let config: weather::WeatherConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = weather::Weather::builder()
+                .launch(weather::WeatherInit { config, client })
+                .detach();
+            Some(AppletController::Weather(applet))
         }
         "spacer" => Some(AppletController::Spacer(
             Spacer::builder().launch(()).detach(),
