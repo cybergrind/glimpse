@@ -17,6 +17,7 @@ pub struct Audio {
     tooltip: String,
     volume: u32,
     muted: bool,
+    mic_muted: bool,
     outputs: Vec<AudioOutput>,
     popover: Controller<Popover>,
 }
@@ -92,6 +93,14 @@ impl Component for Audio {
                 set_visible: model.config.show_icon,
             },
 
+            gtk::Image {
+                set_icon_name: Some("microphone-sensitivity-muted-symbolic"),
+                set_pixel_size: 16,
+                add_css_class: "mic-muted-indicator",
+                #[watch]
+                set_visible: model.mic_muted,
+            },
+
             gtk::Label {
                 #[watch]
                 set_label: &model.label,
@@ -123,6 +132,7 @@ impl Component for Audio {
             tooltip: String::new(),
             volume: 0,
             muted: false,
+            mic_muted: false,
             outputs: Vec::new(),
             popover,
         };
@@ -237,6 +247,10 @@ impl Component for Audio {
                 self.popover.emit(PopoverInput::UpdateOutputs(outputs));
             }
             AudioMsg::InputsUpdate(inputs) => {
+                self.mic_muted = inputs.iter()
+                    .find(|i| i.is_default)
+                    .map(|i| i.muted)
+                    .unwrap_or(false);
                 self.popover.emit(PopoverInput::UpdateInputs(inputs));
             }
             AudioMsg::StreamsUpdate(streams) => {

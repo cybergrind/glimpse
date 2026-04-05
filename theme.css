@@ -191,65 +191,113 @@
 
 .audio {}
 
+.audio .mic-muted-indicator {
+    color: @warning_color;
+}
+
 .audio-label {
     font-variant-numeric: tabular-nums;
 }
 
 .audio-popover {
-    min-width: 300px;
-    max-width: 300px;
+    min-width: 400px;
+    max-width: 400px;
 }
 
-.audio-popover > box {
-    margin: 12px;
+.audio-popover>box {
+    margin: 16px;
 }
 
 .audio-popover separator {
-    margin-top: 8px;
-    margin-bottom: 8px;
+    margin-top: 10px;
+    margin-bottom: 10px;
 }
 
 .audio-popover .volume-row {
     margin-bottom: 4px;
 }
 
-.audio-popover .device-header button {
-    /* flat button styling from GTK */
+.audio-popover .mute-btn {
+    opacity: 0.7;
+}
+
+.audio-popover .mute-btn:hover {
+    opacity: 1;
+}
+
+.audio-popover .device-header {
+    font-weight: normal;
+}
+
+.audio-popover .device-btn {
+    padding: 4px 6px;
+    font-weight: normal;
+}
+
+.audio-popover .device-btn label {
+    font-weight: normal;
+}
+
+.audio-popover .device-prefix {
+    opacity: 0.5;
+}
+
+.audio-popover .chevron {
+    font-size: 120%;
+    opacity: 0.4;
+    min-width: 16px;
 }
 
 .audio-popover .device-list {
     margin-left: 24px;
     margin-top: 4px;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
 
 .audio-popover .device-list button {
-    margin-top: 2px;
-    margin-bottom: 2px;
+    font-weight: normal;
+    padding: 4px 8px;
 }
 
-.audio-popover .chevron {
-    font-size: 120%;
+.audio-popover .device-list button label {
+    font-weight: normal;
+}
+
+.audio-popover .device-icon {
+    opacity: 0.6;
+}
+
+.audio-popover .device-check {
     opacity: 0.5;
-    min-width: 16px;
 }
 
-.audio-popover .device-list image {
-    opacity: 0.7;
-}
-
-.audio-popover .streams-list {
-    margin-left: 24px;
+.audio-popover .apps-box {
+    margin-left: 16px;
     margin-top: 4px;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
 
 .audio-popover .stream-row {
-    margin-left: 4px;
+    margin-bottom: 6px;
 }
 
-.audio-popover .section-title {
-    font-size: 90%;
-    opacity: var(--dim-opacity);
-    padding: 4px 12px 2px;
+.audio-popover .stream-name {
+    opacity: 0.7;
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.audio-popover .stream-divider {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    opacity: 0.3;
+}
+
+.audio-popover .settings-btn {
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.audio-popover .settings-btn label {
+    font-weight: normal;
 }
