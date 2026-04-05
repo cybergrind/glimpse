@@ -53,9 +53,8 @@ impl Provider for PowerProvider {
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
+            tracing::info!("power: starting");
             let conn = zbus::Connection::system().await?;
-
-            // Read power actions from logind.
             let logind = DbusPropertyGroup::new(
                 &conn,
                 "org.freedesktop.login1",
@@ -82,9 +81,14 @@ impl Provider for PowerProvider {
 
             if let Ok(ref pp) = profiles_proxy {
                 self.read_profiles(pp).await;
+                tracing::info!(
+                    active = %self.profiles.active,
+                    available = ?self.profiles.available,
+                    "power: profiles loaded"
+                );
+            } else {
+                tracing::warn!("power: power-profiles-daemon not available");
             }
-
-            // Stream profile changes if available.
             let mut profile_changes = match &profiles_proxy {
                 Ok(pp) => Some(pp.stream_changes().await?),
                 Err(_) => None,
@@ -164,6 +168,7 @@ impl PowerProvider {
                 let result = match method.as_str() {
                     "power.set_profile" => {
                         let profile = params.as_str().or_else(|| params["profile"].as_str());
+                        tracing::info!("setting power profile to {}", profile.unwrap_or("?"));
                         match (profile, profiles_proxy) {
                             (Some(p), Some(pp)) => pp
                                 .set("ActiveProfile", p.to_owned())
@@ -174,17 +179,33 @@ impl PowerProvider {
                             (_, None) => Err(anyhow::anyhow!("power profiles not available")),
                         }
                     }
-                    "power.suspend" => logind_action(logind, "Suspend").await,
-                    "power.hibernate" => logind_action(logind, "Hibernate").await,
-                    "power.reboot" => logind_action(logind, "Reboot").await,
-                    "power.poweroff" => logind_action(logind, "PowerOff").await,
+                    "power.suspend" => {
+                        tracing::info!("suspending system");
+                        logind_action(logind, "Suspend").await
+                    }
+                    "power.hibernate" => {
+                        tracing::info!("hibernating system");
+                        logind_action(logind, "Hibernate").await
+                    }
+                    "power.reboot" => {
+                        tracing::info!("rebooting system");
+                        logind_action(logind, "Reboot").await
+                    }
+                    "power.poweroff" => {
+                        tracing::info!("powering off system");
+                        logind_action(logind, "PowerOff").await
+                    }
                     "power.lock" => {
+                        tracing::info!("locking session");
                         logind.call_void("LockSessions", &()).await
                             .map(|()| json!(null))
                             .map_err(|e| anyhow::anyhow!("{e}"))
                     }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
                 };
+                if let Err(ref e) = result {
+                    tracing::warn!(method = %method, error = %e, "power: call failed");
+                }
                 let _ = reply.send(result);
             }
         }

@@ -11,7 +11,12 @@ use tokio_util::sync::CancellationToken;
 use crate::provider::{Provider, ProviderEvent, ProviderFactory, ProviderRequest};
 
 const NAME: &str = "audio";
-const TOPICS: &[&str] = &["audio.status", "audio.outputs", "audio.inputs", "audio.streams"];
+const TOPICS: &[&str] = &[
+    "audio.status",
+    "audio.outputs",
+    "audio.inputs",
+    "audio.streams",
+];
 const METHODS: &[&str] = &[
     "audio.set_volume",
     "audio.set_mute",
@@ -68,9 +73,15 @@ struct AudioProvider {
 }
 
 impl Provider for AudioProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -79,18 +90,27 @@ impl Provider for AudioProvider {
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
-            // Initial read (snapshot is served by broker, but emit for early subscribers).
+            tracing::info!("audio: starting");
             self.refresh().await;
+            tracing::info!(
+                outputs = self.outputs.len(),
+                inputs = self.inputs.len(),
+                streams = self.streams.len(),
+                default = %self.status.default_output,
+                "audio: initial state"
+            );
             self.emit_all(&events).await;
 
-            // Start pactl subscribe for live changes.
             let mut subscribe = Command::new("pactl")
                 .arg("subscribe")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()?;
 
-            let stdout = subscribe.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+            let stdout = subscribe
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
             let mut lines = BufReader::new(stdout).lines();
 
             loop {
@@ -114,6 +134,7 @@ impl Provider for AudioProvider {
                 }
             }
 
+            tracing::info!("audio: stopping");
             let _ = subscribe.kill().await;
             Ok(())
         })
@@ -129,12 +150,17 @@ fn should_refresh(line: &str) -> bool {
 
 impl AudioProvider {
     async fn refresh(&mut self) {
-        let default_output = pactl_get("get-default-sink").await;
-        let default_input = pactl_get("get-default-source").await;
+        let (default_output, default_input, outputs_json, inputs_json, streams_json) = tokio::join!(
+            pactl_get("get-default-sink"),
+            pactl_get("get-default-source"),
+            pactl_json(&["list", "sinks"]),
+            pactl_json(&["list", "sources"]),
+            pactl_json(&["list", "sink-inputs"]),
+        );
 
-        self.outputs = parse_outputs(&default_output).await;
-        self.inputs = parse_inputs(&default_input).await;
-        self.streams = parse_streams().await;
+        self.outputs = build_outputs(&default_output, &outputs_json);
+        self.inputs = build_inputs(&default_input, &inputs_json);
+        self.streams = build_streams(&streams_json);
 
         let default = self.outputs.iter().find(|o| o.is_default);
         self.status = AudioStatus {
@@ -150,22 +176,30 @@ impl AudioProvider {
     }
 
     async fn emit_all(&self, events: &mpsc::Sender<ProviderEvent>) {
-        let _ = events.send(ProviderEvent {
-            topic: "audio.status".into(),
-            data: serde_json::to_value(&self.status).unwrap_or_default(),
-        }).await;
-        let _ = events.send(ProviderEvent {
-            topic: "audio.outputs".into(),
-            data: serde_json::to_value(&self.outputs).unwrap_or_default(),
-        }).await;
-        let _ = events.send(ProviderEvent {
-            topic: "audio.inputs".into(),
-            data: serde_json::to_value(&self.inputs).unwrap_or_default(),
-        }).await;
-        let _ = events.send(ProviderEvent {
-            topic: "audio.streams".into(),
-            data: serde_json::to_value(&self.streams).unwrap_or_default(),
-        }).await;
+        let _ = events
+            .send(ProviderEvent {
+                topic: "audio.status".into(),
+                data: serde_json::to_value(&self.status).unwrap_or_default(),
+            })
+            .await;
+        let _ = events
+            .send(ProviderEvent {
+                topic: "audio.outputs".into(),
+                data: serde_json::to_value(&self.outputs).unwrap_or_default(),
+            })
+            .await;
+        let _ = events
+            .send(ProviderEvent {
+                topic: "audio.inputs".into(),
+                data: serde_json::to_value(&self.inputs).unwrap_or_default(),
+            })
+            .await;
+        let _ = events
+            .send(ProviderEvent {
+                topic: "audio.streams".into(),
+                data: serde_json::to_value(&self.streams).unwrap_or_default(),
+            })
+            .await;
     }
 
     async fn handle_request(&mut self, req: ProviderRequest) {
@@ -180,14 +214,46 @@ impl AudioProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { method, params, reply } => {
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
                 let result = match method.as_str() {
-                    "audio.set_volume" => cmd_set_volume(&params).await,
-                    "audio.set_mute" => cmd_set_mute(&params).await,
-                    "audio.set_default_output" => cmd_set_default(&params, "set-default-sink").await,
-                    "audio.set_default_input" => cmd_set_default(&params, "set-default-source").await,
+                    "audio.set_volume" => {
+                        tracing::info!(
+                            "setting volume to {}% on {}",
+                            params["volume"],
+                            params["target"].as_str().unwrap_or("default")
+                        );
+                        cmd_set_volume(&params).await
+                    }
+                    "audio.set_mute" => {
+                        tracing::info!(
+                            "toggling mute on {}",
+                            params["target"].as_str().unwrap_or("default")
+                        );
+                        cmd_set_mute(&params).await
+                    }
+                    "audio.set_default_output" => {
+                        tracing::info!(
+                            "setting default output to {}",
+                            params["name"].as_str().unwrap_or("?")
+                        );
+                        cmd_set_default(&params, "set-default-sink").await
+                    }
+                    "audio.set_default_input" => {
+                        tracing::info!(
+                            "setting default input to {}",
+                            params["name"].as_str().unwrap_or("?")
+                        );
+                        cmd_set_default(&params, "set-default-source").await
+                    }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
                 };
+                if let Err(ref e) = result {
+                    tracing::warn!(method = %method, error = %e, "audio: call failed");
+                }
                 let _ = reply.send(result);
             }
         }
@@ -279,9 +345,10 @@ fn parse_volume_percent(vol: &serde_json::Value) -> u32 {
         .unwrap_or(0)
 }
 
-async fn parse_outputs(default_name: &str) -> Vec<AudioOutput> {
-    let data = pactl_json(&["list", "sinks"]).await;
-    let Some(arr) = data.as_array() else { return vec![] };
+fn build_outputs(default_name: &str, data: &serde_json::Value) -> Vec<AudioOutput> {
+    let Some(arr) = data.as_array() else {
+        return vec![];
+    };
     arr.iter()
         .map(|s| {
             let name = s["name"].as_str().unwrap_or("").to_owned();
@@ -300,14 +367,12 @@ async fn parse_outputs(default_name: &str) -> Vec<AudioOutput> {
         .collect()
 }
 
-async fn parse_inputs(default_name: &str) -> Vec<AudioInput> {
-    let data = pactl_json(&["list", "sources"]).await;
-    let Some(arr) = data.as_array() else { return vec![] };
+fn build_inputs(default_name: &str, data: &serde_json::Value) -> Vec<AudioInput> {
+    let Some(arr) = data.as_array() else {
+        return vec![];
+    };
     arr.iter()
-        .filter(|s| {
-            // Filter out monitor sources (they echo output audio).
-            !s["name"].as_str().unwrap_or("").contains(".monitor")
-        })
+        .filter(|s| !s["name"].as_str().unwrap_or("").contains(".monitor"))
         .map(|s| {
             let name = s["name"].as_str().unwrap_or("").to_owned();
             AudioInput {
@@ -322,9 +387,10 @@ async fn parse_inputs(default_name: &str) -> Vec<AudioInput> {
         .collect()
 }
 
-async fn parse_streams() -> Vec<AudioStream> {
-    let data = pactl_json(&["list", "sink-inputs"]).await;
-    let Some(arr) = data.as_array() else { return vec![] };
+fn build_streams(data: &serde_json::Value) -> Vec<AudioStream> {
+    let Some(arr) = data.as_array() else {
+        return vec![];
+    };
     arr.iter()
         .map(|s| {
             let props = &s["properties"];
@@ -339,10 +405,7 @@ async fn parse_streams() -> Vec<AudioStream> {
                     .as_str()
                     .unwrap_or("")
                     .to_owned(),
-                media_name: props["media.name"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_owned(),
+                media_name: props["media.name"].as_str().unwrap_or("").to_owned(),
                 volume: parse_volume_percent(&s["volume"]),
                 muted: s["mute"].as_bool().unwrap_or(false),
             }
@@ -352,7 +415,9 @@ async fn parse_streams() -> Vec<AudioStream> {
 
 async fn cmd_set_volume(params: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let target = params["target"].as_str().unwrap_or("@DEFAULT_SINK@");
-    let volume = params["volume"].as_u64().ok_or_else(|| anyhow::anyhow!("missing 'volume'"))?;
+    let volume = params["volume"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("missing 'volume'"))?;
     let cmd = if target.parse::<u64>().is_ok() {
         "set-sink-input-volume"
     } else if target.contains("source") || target.contains("@DEFAULT_SOURCE@") {
@@ -420,9 +485,15 @@ async fn cmd_set_default(
 pub struct AudioProviderFactory;
 
 impl ProviderFactory for AudioProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
     fn create(&self) -> Box<dyn Provider> {
         Box::new(AudioProvider {
             status: AudioStatus {

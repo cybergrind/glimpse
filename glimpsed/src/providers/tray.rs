@@ -58,8 +58,28 @@ impl Provider for TrayProvider {
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
-            let client = Client::new().await
-                .map_err(|e| anyhow::anyhow!("failed to create tray client: {e}"))?;
+            tracing::info!("tray: starting");
+            let client = {
+                let mut attempts = 0u32;
+                loop {
+                    match Client::new().await {
+                        Ok(c) => break c,
+                        Err(e) => {
+                            attempts += 1;
+                            if attempts >= 10 {
+                                return Err(anyhow::anyhow!("failed to create tray client after {attempts} attempts: {e}"));
+                            }
+                            let delay = std::time::Duration::from_secs(2u64.pow(attempts.min(4)));
+                            tracing::warn!(attempt = attempts, "tray client init failed: {e}, retrying in {delay:?}");
+                            tokio::select! {
+                                _ = cancel.cancelled() => return Ok(()),
+                                _ = tokio::time::sleep(delay) => {}
+                            }
+                        }
+                    }
+                }
+            };
+            tracing::info!("tray: client connected");
             let mut rx = client.subscribe();
             self.client = Some(client);
 
@@ -92,6 +112,7 @@ impl TrayProvider {
     fn handle_tray_event(&mut self, event: Event) -> bool {
         match event {
             Event::Add(address, item) => {
+                tracing::info!(address = %address, title = ?item.title, "tray: item added");
                 self.items.insert(address.clone(), item_to_data(&address, &item));
                 true
             }
@@ -121,6 +142,7 @@ impl TrayProvider {
                 true
             }
             Event::Remove(address) => {
+                tracing::info!(address = %address, "tray: item removed");
                 self.items.remove(&address);
                 self.menus.remove(&address);
                 true
@@ -142,7 +164,16 @@ impl TrayProvider {
             }
             ProviderRequest::Call { method, params, reply } => {
                 let result = match method.as_str() {
-                    "tray.activate" | "tray.secondary_activate" | "tray.activate_menu_item" => {
+                    "tray.activate" => {
+                        tracing::info!("activating tray item {}", params["address"].as_str().unwrap_or("?"));
+                        self.activate(&method, &params).await
+                    }
+                    "tray.secondary_activate" => {
+                        tracing::info!("secondary-activating tray item {}", params["address"].as_str().unwrap_or("?"));
+                        self.activate(&method, &params).await
+                    }
+                    "tray.activate_menu_item" => {
+                        tracing::info!("activating menu item {} on {}", params["submenu_id"], params["address"].as_str().unwrap_or("?"));
                         self.activate(&method, &params).await
                     }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),

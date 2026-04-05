@@ -165,35 +165,54 @@ impl Broker {
                     },
                 );
 
+                // Register subscription first so events from emit_all are routed.
+                if let Some(c) = self.clients.get_mut(&client) {
+                    c.subscriptions.push(ClientSub {
+                        pattern: pat.clone(),
+                        request_id: req_id,
+                    });
+                }
+
+                // Request snapshots in the background — don't block the broker.
                 if available {
                     if let Some(entry) = self.providers.get(provider_name) {
-                        for &topic in entry.topics {
-                            if pat.matches(topic) {
-                                if let Some(data) =
-                                    self.request_snapshot(provider_name, topic).await
-                                {
-                                    self.send_to(
-                                        client,
-                                        Response {
-                                            id: req_id,
-                                            body: ResponseBody::Event {
+                        let topics: Vec<&'static str> = entry.topics
+                            .iter()
+                            .filter(|t| pat.matches(t))
+                            .copied()
+                            .collect();
+                        if !topics.is_empty() {
+                            if let Some(handle) = &entry.handle {
+                                let request_tx = handle.requests.clone();
+                                let client_tx = self.clients.get(&client)
+                                    .map(|c| c.tx.clone());
+                                if let Some(client_tx) = client_tx {
+                                    tokio::spawn(async move {
+                                        for topic in topics {
+                                            let (reply_tx, reply_rx) = oneshot::channel();
+                                            if request_tx.send(ProviderRequest::Snapshot {
                                                 topic: topic.to_owned(),
-                                                ts: glimpse_types::now_ms(),
-                                                data,
-                                            },
-                                        },
-                                    );
+                                                reply: reply_tx,
+                                            }).await.is_err() { break; }
+                                            let data = tokio::time::timeout(
+                                                std::time::Duration::from_secs(5), reply_rx,
+                                            ).await.ok().and_then(|r| r.ok()).flatten();
+                                            if let Some(data) = data {
+                                                let _ = client_tx.send(Response {
+                                                    id: req_id,
+                                                    body: ResponseBody::Event {
+                                                        topic: topic.to_owned(),
+                                                        ts: glimpse_types::now_ms(),
+                                                        data,
+                                                    },
+                                                }).await;
+                                            }
+                                        }
+                                    });
                                 }
                             }
                         }
                     }
-                }
-
-                if let Some(c) = self.clients.get_mut(&client) {
-                    c.subscriptions.push(ClientSub {
-                        pattern: pat,
-                        request_id: req_id,
-                    });
                 }
             }
             RequestBody::Unsubscribe { pattern } => {

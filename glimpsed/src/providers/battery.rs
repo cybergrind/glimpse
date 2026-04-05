@@ -58,6 +58,7 @@ impl Provider for BatteryProvider {
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
+            tracing::info!("battery: starting");
             let conn = zbus::Connection::system().await?;
 
             let upower = DbusPropertyGroup::new(
@@ -70,8 +71,8 @@ impl Provider for BatteryProvider {
 
             let on_battery: bool = upower.get("OnBattery").await.unwrap_or(false);
 
-            // Enumerate all devices and find the primary battery.
             let device_paths: Vec<OwnedObjectPath> = upower.call("EnumerateDevices", &()).await?;
+            tracing::info!(devices = device_paths.len(), on_battery, "battery: enumerating UPower devices");
             let mut battery_path: Option<String> = None;
             self.devices.clear();
 
@@ -98,6 +99,7 @@ impl Provider for BatteryProvider {
             }
 
             let Some(bat_path) = battery_path else {
+                tracing::warn!("battery: no battery found");
                 self.status = BatteryStatus::default();
                 let _ = events
                     .send(ProviderEvent {
@@ -105,7 +107,6 @@ impl Provider for BatteryProvider {
                         data: json!({"present": false}),
                     })
                     .await;
-                // No battery — just handle requests until cancelled.
                 loop {
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
@@ -125,8 +126,14 @@ impl Provider for BatteryProvider {
             )
             .await?;
 
-            // Read initial state (snapshot is served by broker on subscribe).
             self.read_state(&bat, on_battery).await;
+            tracing::info!(
+                battery = %bat_path,
+                percentage = self.status.percentage,
+                state = self.status.state,
+                model = %self.status.model,
+                "battery: initial state"
+            );
 
             // Stream property changes from both device and UPower.
             let mut bat_changes = bat.stream_changes().await?;
@@ -238,6 +245,7 @@ impl BatteryProvider {
             } => {
                 let result = match method.as_str() {
                     "battery.get_charge_threshold" => {
+                        tracing::info!("reading charge threshold");
                         let val = read_charge_threshold();
                         if val > 0 {
                             Ok(json!({"threshold": val, "supported": true}))
@@ -247,6 +255,7 @@ impl BatteryProvider {
                     }
                     "battery.set_charge_threshold" => {
                         let threshold = params["threshold"].as_u64().unwrap_or(0) as u32;
+                        tracing::info!("setting charge threshold to {}%", threshold);
                         if threshold == 0 || threshold > 100 {
                             Err(anyhow::anyhow!("threshold must be 1-100"))
                         } else {
