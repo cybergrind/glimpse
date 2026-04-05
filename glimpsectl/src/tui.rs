@@ -13,6 +13,8 @@ use crate::picker::{self, Picker};
 struct Message {
     direction: Direction,
     text: String,
+    /// Pre-rendered lines for display.
+    lines: Vec<Line<'static>>,
 }
 
 #[derive(Clone, Copy)]
@@ -48,17 +50,21 @@ impl App {
     }
 
     fn push_out(&mut self, text: String) {
+        let lines = format_message_lines(&text, Direction::Out);
         self.messages.push(Message {
             direction: Direction::Out,
             text,
+            lines,
         });
         self.select_last();
     }
 
     fn push_in(&mut self, text: String) {
+        let lines = format_message_lines(&text, Direction::In);
         self.messages.push(Message {
             direction: Direction::In,
             text,
+            lines,
         });
         self.select_last();
     }
@@ -390,35 +396,40 @@ fn draw(f: &mut Frame, app: &App) {
 
 fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
-    let total = app.messages.len();
 
-    let start = if total <= height || app.selected < height / 2 {
+    // Collect all rendered lines with message index.
+    let mut all_lines: Vec<(usize, Line<'static>)> = Vec::new();
+    for (msg_idx, msg) in app.messages.iter().enumerate() {
+        for line in &msg.lines {
+            all_lines.push((msg_idx, line.clone()));
+        }
+    }
+
+    let total = all_lines.len();
+
+    // Find first line of selected message.
+    let selected_line = all_lines
+        .iter()
+        .position(|(idx, _)| *idx == app.selected)
+        .unwrap_or(0);
+
+    let start = if total <= height || selected_line < height / 2 {
         0
-    } else if app.selected + height / 2 >= total {
-        total - height
+    } else if selected_line + height / 2 >= total {
+        total.saturating_sub(height)
     } else {
-        app.selected - height / 2
+        selected_line - height / 2
     };
 
-    let items: Vec<ListItem> = app.messages[start..]
+    let visible: Vec<Line<'static>> = all_lines[start..]
         .iter()
-        .enumerate()
         .take(height)
-        .map(|(i, msg)| {
-            let global_idx = start + i;
-            let (arrow, color) = match msg.direction {
-                Direction::Out => ("→ ", Color::Cyan),
-                Direction::In => ("← ", Color::Green),
-            };
-            let mut style = Style::default();
-            if global_idx == app.selected && app.focus == Focus::Messages {
-                style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+        .map(|(msg_idx, line)| {
+            if *msg_idx == app.selected && app.focus == Focus::Messages {
+                line.clone().patch_style(Style::default().bg(Color::DarkGray))
+            } else {
+                line.clone()
             }
-            ListItem::new(Line::from(vec![
-                Span::styled(arrow, Style::default().fg(color)),
-                Span::raw(&msg.text),
-            ]))
-            .style(style)
         })
         .collect();
 
@@ -431,8 +442,113 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
         .title(" Messages ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color));
-    let list = List::new(items).block(block);
-    f.render_widget(list, area);
+    let paragraph = Paragraph::new(visible).block(block);
+    f.render_widget(paragraph, area);
+}
+
+/// Format a message into colored ratatui Lines.
+fn format_message_lines(text: &str, direction: Direction) -> Vec<Line<'static>> {
+    let (arrow, arrow_color) = match direction {
+        Direction::Out => ("→ ", Color::Cyan),
+        Direction::In => ("← ", Color::Green),
+    };
+
+    // Try to parse as JSON for pretty formatting.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+        let pretty = serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.to_owned());
+        let mut lines = Vec::new();
+        for (i, line) in pretty.lines().enumerate() {
+            let prefix = if i == 0 {
+                Span::styled(arrow.to_owned(), Style::default().fg(arrow_color))
+            } else {
+                Span::raw("  ") // indent continuation
+            };
+            let spans = colorize_json_line(line);
+            let mut all_spans = vec![prefix];
+            all_spans.extend(spans);
+            lines.push(Line::from(all_spans));
+        }
+        lines
+    } else {
+        // Plain text.
+        vec![Line::from(vec![
+            Span::styled(arrow.to_owned(), Style::default().fg(arrow_color)),
+            Span::raw(text.to_owned()),
+        ])]
+    }
+}
+
+/// Colorize a single line of pretty-printed JSON.
+fn colorize_json_line(line: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+
+    if !indent.is_empty() {
+        spans.push(Span::raw(indent.to_owned()));
+    }
+
+    let mut pos = 0;
+
+    while pos < trimmed.len() {
+        let ch = trimmed.as_bytes()[pos];
+        match ch {
+            b'"' => {
+                // Find closing quote.
+                let rest = &trimmed[pos + 1..];
+                let end = rest
+                    .find('"')
+                    .map(|i| pos + 2 + i)
+                    .unwrap_or(trimmed.len());
+                let s = &trimmed[pos..end];
+                // Check if this is a key (followed by ':').
+                let after = trimmed[end..].trim_start();
+                let color = if after.starts_with(':') {
+                    Color::Blue
+                } else {
+                    Color::Green
+                };
+                spans.push(Span::styled(s.to_owned(), Style::default().fg(color)));
+                pos = end;
+            }
+            b'0'..=b'9' | b'-' => {
+                let end = trimmed[pos..]
+                    .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-' && c != 'e' && c != 'E' && c != '+')
+                    .map(|i| pos + i)
+                    .unwrap_or(trimmed.len());
+                spans.push(Span::styled(
+                    trimmed[pos..end].to_owned(),
+                    Style::default().fg(Color::Yellow),
+                ));
+                pos = end;
+            }
+            b't' | b'f' if trimmed[pos..].starts_with("true") || trimmed[pos..].starts_with("false") => {
+                let word_len = if trimmed[pos..].starts_with("true") { 4 } else { 5 };
+                spans.push(Span::styled(
+                    trimmed[pos..pos + word_len].to_owned(),
+                    Style::default().fg(Color::Magenta),
+                ));
+                pos += word_len;
+            }
+            b'n' if trimmed[pos..].starts_with("null") => {
+                spans.push(Span::styled(
+                    "null".to_owned(),
+                    Style::default().fg(Color::DarkGray),
+                ));
+                pos += 4;
+            }
+            _ => {
+                // Punctuation: {, }, [, ], :, ,
+                spans.push(Span::styled(
+                    (ch as char).to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ));
+                pos += 1;
+            }
+        }
+    }
+
+    spans
 }
 
 fn draw_input(f: &mut Frame, app: &App, area: Rect) {

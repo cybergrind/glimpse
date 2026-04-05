@@ -4,7 +4,7 @@ applets = ["spacer", "clock"]
 
 [[panels]]
 position = "top"
-applets = ["spacer","clock_custom", "clock", "battery", "battery_icon_only", "spacer", "tray" ]
+applets = ["spacer","clock_custom", "clock", "audio", "battery", "spacer", "tray"]
 
 [applets.clock_custom]
 extends = "clock"
@@ -15,9 +15,18 @@ timezones = [
     {name="Tbilisi", timezone="Asia/Tbilisi"}
 ]
 
-[applets.battery_icon_only]
-extends = "battery"
-label_on_battery = ""
-label_on_ac = ""
-tooltip_on_battery = ""
-tooltip_on_ac = ""
+# [applets.audio]
+# extends = "audio"
+# show_icon = true                       # show volume icon
+# label_format = "{volume} {device}"                      # empty = no label. Keys: {volume}, {device}
+# tooltip_format = "{device} — {volume}%" # empty = no tooltip
+# scroll_step = 5                        # volume change per scroll step (%)
+# max_volume = 100                       # 100 = no overamplification, 150 = allow
+# settings_command = "pavucontrol"       # empty = hide settings button
+
+# [applets.battery_icon_only]
+# extends = "battery"
+# label_on_battery = ""
+# label_on_ac = ""
+# tooltip_on_battery = ""
+# tooltip_on_ac = ""

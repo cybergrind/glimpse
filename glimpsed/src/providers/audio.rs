@@ -79,8 +79,9 @@ impl Provider for AudioProvider {
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
-            // Initial read.
+            // Initial read (snapshot is served by broker, but emit for early subscribers).
             self.refresh().await;
+            self.emit_all(&events).await;
 
             // Start pactl subscribe for live changes.
             let mut subscribe = Command::new("pactl")
@@ -193,6 +194,40 @@ impl AudioProvider {
     }
 }
 
+/// Map pactl device.icon_name + device.form_factor to Adwaita symbolic icons.
+fn resolve_device_icon(raw_icon: &str, form_factor: &str) -> String {
+    // First try form_factor — most specific.
+    let icon = match form_factor {
+        "headset" => "audio-headset-symbolic",
+        "headphone" | "headphones" => "audio-headphones-symbolic",
+        "speaker" => "audio-speakers-symbolic",
+        "handset" | "phone" => "phone-symbolic",
+        "webcam" => "camera-web-symbolic",
+        "microphone" => "audio-input-microphone-symbolic",
+        _ => "",
+    };
+    if !icon.is_empty() {
+        return icon.to_owned();
+    }
+
+    // Fall back to raw icon name mapping.
+    if raw_icon.contains("headset") {
+        "audio-headset-symbolic".to_owned()
+    } else if raw_icon.contains("headphone") {
+        "audio-headphones-symbolic".to_owned()
+    } else if raw_icon.contains("hdmi") || raw_icon.contains("video") {
+        "video-display-symbolic".to_owned()
+    } else if raw_icon.contains("bluetooth") {
+        "bluetooth-active-symbolic".to_owned()
+    } else if raw_icon.contains("card") || raw_icon.contains("analog") {
+        "audio-speakers-symbolic".to_owned()
+    } else if raw_icon.contains("microphone") || raw_icon.contains("input") {
+        "audio-input-microphone-symbolic".to_owned()
+    } else {
+        "audio-speakers-symbolic".to_owned()
+    }
+}
+
 fn volume_icon(volume: u32, muted: bool) -> &'static str {
     if muted {
         "audio-volume-muted-symbolic"
@@ -225,6 +260,7 @@ async fn pactl_json(args: &[&str]) -> serde_json::Value {
         .args(["--format", "json"])
         .args(args)
         .env("LC_NUMERIC", "C")
+        .stderr(Stdio::null())
         .output()
         .await
         .ok();
@@ -249,16 +285,15 @@ async fn parse_outputs(default_name: &str) -> Vec<AudioOutput> {
     arr.iter()
         .map(|s| {
             let name = s["name"].as_str().unwrap_or("").to_owned();
+            let raw_icon = s["properties"]["device.icon_name"].as_str().unwrap_or("");
+            let form_factor = s["properties"]["device.form_factor"].as_str().unwrap_or("");
             AudioOutput {
                 index: s["index"].as_u64().unwrap_or(0),
                 description: s["description"].as_str().unwrap_or("").to_owned(),
                 volume: parse_volume_percent(&s["volume"]),
                 muted: s["mute"].as_bool().unwrap_or(false),
                 is_default: name == default_name,
-                icon_name: s["properties"]["device.icon_name"]
-                    .as_str()
-                    .unwrap_or("audio-speakers-symbolic")
-                    .to_owned(),
+                icon_name: resolve_device_icon(raw_icon, form_factor),
                 name,
             }
         })
@@ -318,34 +353,48 @@ async fn parse_streams() -> Vec<AudioStream> {
 async fn cmd_set_volume(params: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let target = params["target"].as_str().unwrap_or("@DEFAULT_SINK@");
     let volume = params["volume"].as_u64().ok_or_else(|| anyhow::anyhow!("missing 'volume'"))?;
+    let cmd = if target.parse::<u64>().is_ok() {
+        "set-sink-input-volume"
+    } else if target.contains("source") || target.contains("@DEFAULT_SOURCE@") {
+        "set-source-volume"
+    } else {
+        "set-sink-volume"
+    };
     let status = Command::new("pactl")
-        .args(["set-sink-volume", target, &format!("{volume}%")])
+        .args([cmd, target, &format!("{volume}%")])
+        .stderr(Stdio::null())
         .status()
         .await?;
     if status.success() {
         Ok(json!(null))
     } else {
-        Err(anyhow::anyhow!("pactl failed"))
+        Err(anyhow::anyhow!("pactl {cmd} failed"))
     }
 }
 
 async fn cmd_set_mute(params: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let target = params["target"].as_str().unwrap_or("@DEFAULT_SINK@");
-    let mute = if params["muted"].as_bool().unwrap_or(false) { "1" } else { "0" };
-    // Detect if target is a sink or source by checking if it contains "input" or "source"
-    let cmd = if target.contains("source") || target.contains("input") {
+    let mute = match params.get("muted") {
+        Some(serde_json::Value::Bool(true)) => "1",
+        Some(serde_json::Value::Bool(false)) => "0",
+        _ => "toggle",
+    };
+    let cmd = if target.parse::<u64>().is_ok() {
+        "set-sink-input-mute"
+    } else if target.contains("source") || target.contains("@DEFAULT_SOURCE@") {
         "set-source-mute"
     } else {
         "set-sink-mute"
     };
     let status = Command::new("pactl")
         .args([cmd, target, mute])
+        .stderr(Stdio::null())
         .status()
         .await?;
     if status.success() {
         Ok(json!(null))
     } else {
-        Err(anyhow::anyhow!("pactl failed"))
+        Err(anyhow::anyhow!("pactl {cmd} failed"))
     }
 }
 
@@ -358,6 +407,7 @@ async fn cmd_set_default(
         .ok_or_else(|| anyhow::anyhow!("missing 'name'"))?;
     let status = Command::new("pactl")
         .args([pactl_cmd, name])
+        .stderr(Stdio::null())
         .status()
         .await?;
     if status.success() {

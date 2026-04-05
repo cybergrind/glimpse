@@ -188,3 +188,68 @@
 .power.low image {
     color: #e01b24;
 }
+
+.audio {}
+
+.audio-label {
+    font-variant-numeric: tabular-nums;
+}
+
+.audio-popover {
+    min-width: 300px;
+    max-width: 300px;
+}
+
+.audio-popover > box {
+    margin: 12px;
+}
+
+.audio-popover separator {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.audio-popover .volume-row {
+    margin-bottom: 4px;
+}
+
+.audio-popover .device-header button {
+    /* flat button styling from GTK */
+}
+
+.audio-popover .device-list {
+    margin-left: 24px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.audio-popover .device-list button {
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.audio-popover .chevron {
+    font-size: 120%;
+    opacity: 0.5;
+    min-width: 16px;
+}
+
+.audio-popover .device-list image {
+    opacity: 0.7;
+}
+
+.audio-popover .streams-list {
+    margin-left: 24px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.audio-popover .stream-row {
+    margin-left: 4px;
+}
+
+.audio-popover .section-title {
+    font-size: 90%;
+    opacity: var(--dim-opacity);
+    padding: 4px 12px 2px;
+}

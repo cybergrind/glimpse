@@ -1,3 +1,4 @@
+mod audio;
 mod battery;
 mod clock;
 mod power;
@@ -19,6 +20,7 @@ use crate::{
 use spacer::Spacer;
 
 pub enum AppletController {
+    Audio(Controller<audio::Audio>),
     Battery(Controller<battery::Battery>),
     Clock(Controller<Clock>),
     Power(Controller<power::Power>),
@@ -29,6 +31,7 @@ pub enum AppletController {
 impl AppletController {
     pub fn widget(&self) -> gtk::Widget {
         match self {
+            AppletController::Audio(c) => c.widget().clone().upcast(),
             AppletController::Battery(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
@@ -44,8 +47,21 @@ pub fn create_applet(
     dbus: Arc<zbus::Connection>,
     client: Option<Arc<Client>>,
 ) -> Option<AppletController> {
-    let applet_type = applet_config.map(|c| c.extends.as_str()).unwrap_or(name);
+    let applet_type = applet_config
+        .map(|c| c.extends.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(name);
     match applet_type {
+        "audio" => {
+            let client = client.clone()?;
+            let config: audio::AudioConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = audio::Audio::builder()
+                .launch(audio::AudioInit { config, client })
+                .detach();
+            Some(AppletController::Audio(applet))
+        }
         "battery" => {
             let client = client.clone()?;
             let config: battery::BatteryConfig = applet_config
