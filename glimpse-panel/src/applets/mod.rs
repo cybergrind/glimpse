@@ -1,5 +1,6 @@
 mod audio;
 mod battery;
+mod bluetooth;
 mod clock;
 mod power;
 mod spacer;
@@ -22,6 +23,7 @@ use spacer::Spacer;
 pub enum AppletController {
     Audio(Controller<audio::Audio>),
     Battery(Controller<battery::Battery>),
+    Bluetooth(Controller<bluetooth::Bluetooth>),
     Clock(Controller<Clock>),
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
@@ -33,6 +35,7 @@ impl AppletController {
         match self {
             AppletController::Audio(c) => c.widget().clone().upcast(),
             AppletController::Battery(c) => c.widget().clone().upcast(),
+            AppletController::Bluetooth(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
@@ -61,6 +64,16 @@ pub fn create_applet(
                 .launch(audio::AudioInit { config, client })
                 .detach();
             Some(AppletController::Audio(applet))
+        }
+        "bluetooth" => {
+            let client = client.clone()?;
+            let config: bluetooth::BluetoothConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = bluetooth::Bluetooth::builder()
+                .launch(bluetooth::BluetoothInit { config, client })
+                .detach();
+            Some(AppletController::Bluetooth(applet))
         }
         "battery" => {
             let client = client.clone()?;

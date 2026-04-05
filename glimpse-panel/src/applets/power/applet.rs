@@ -161,6 +161,7 @@ impl Component for Power {
                         }
                     };
 
+                    tracing::info!("power applet: starting monitors");
                     let (inner_tx, mut inner_rx) = mpsc::channel::<PowerCommand>(16);
                     tokio::spawn(monitor_battery(inner_tx.clone()));
                     tokio::spawn(monitor_profiles(inner_tx));
@@ -200,6 +201,7 @@ impl Component for Power {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             PowerInput::BatteryUpdate { percentage, charging, icon_name } => {
+                tracing::info!(percentage, charging, icon = %icon_name, "power applet: battery update");
                 self.state.percentage = percentage;
                 self.state.charging = charging;
                 self.state.icon_name = icon_name;
@@ -210,6 +212,7 @@ impl Component for Power {
                 }
             }
             PowerInput::ProfilesUpdate { profiles, active } => {
+                tracing::info!(active = %active, profiles = ?profiles, "power applet: profiles update");
                 self.state.profiles = profiles.clone();
                 self.state.active_profile = active.clone();
                 self.popover.emit(PowerPopoverInput::Update { profiles, active });
@@ -239,6 +242,7 @@ impl Component for Power {
                 sender.input(PowerInput::SetProfile(self.state.profiles[next].clone()));
             }
             PowerInput::SetProfile(profile) => {
+                tracing::info!(profile = %profile, "power applet: set profile");
                 self.state.active_profile = profile.clone();
                 self.popover.emit(PowerPopoverInput::Update {
                     profiles: self.state.profiles.clone(),

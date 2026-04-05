@@ -141,7 +141,7 @@ impl Component for Audio {
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    // Subscribe to all audio topics.
+                    tracing::info!("audio applet: subscribing");
                     let mut status_sub = match client.subscribe("audio.status").await {
                         Ok(s) => s,
                         Err(e) => {
@@ -213,6 +213,7 @@ impl Component for Audio {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             AudioMsg::StatusUpdate(data) => {
+                tracing::info!(volume = %data["volume"], muted = %data["muted"], "audio applet: status update");
                 self.volume = data["volume"].as_u64().unwrap_or(0) as u32;
                 self.muted = data["muted"].as_bool().unwrap_or(false);
                 self.icon_name = data["icon_name"]
@@ -241,13 +242,21 @@ impl Component for Audio {
                         .trim_end_matches([' ', ',', '-', '—'])
                         .to_owned()
                 };
+
+                self.popover.emit(PopoverInput::UpdateStatus {
+                    icon: self.icon_name.clone(),
+                    description: device.to_owned(),
+                    volume: self.volume,
+                    muted: self.muted,
+                });
             }
             AudioMsg::OutputsUpdate(outputs) => {
                 self.outputs = outputs.clone();
                 self.popover.emit(PopoverInput::UpdateOutputs(outputs));
             }
             AudioMsg::InputsUpdate(inputs) => {
-                self.mic_muted = inputs.iter()
+                self.mic_muted = inputs
+                    .iter()
                     .find(|i| i.is_default)
                     .map(|i| i.muted)
                     .unwrap_or(false);
@@ -264,10 +273,7 @@ impl Component for Audio {
                 let client = self.client.clone();
                 glib::spawn_future_local(async move {
                     let _ = client
-                        .call(
-                            "audio.set_volume",
-                            serde_json::json!({"volume": new_vol}),
-                        )
+                        .call("audio.set_volume", serde_json::json!({"volume": new_vol}))
                         .await;
                 });
             }
@@ -276,11 +282,7 @@ impl Component for Audio {
                 if self.outputs.len() < 2 {
                     return;
                 }
-                let current_idx = self
-                    .outputs
-                    .iter()
-                    .position(|o| o.is_default)
-                    .unwrap_or(0);
+                let current_idx = self.outputs.iter().position(|o| o.is_default).unwrap_or(0);
                 let next_idx = if dy > 0.0 {
                     (current_idx + 1) % self.outputs.len()
                 } else {
@@ -303,12 +305,12 @@ impl Component for Audio {
             AudioMsg::ToggleMute => {
                 let client = self.client.clone();
                 glib::spawn_future_local(async move {
-                    let _ = client
-                        .call("audio.set_mute", serde_json::json!({}))
-                        .await;
+                    let _ = client.call("audio.set_mute", serde_json::json!({})).await;
                 });
             }
-            AudioMsg::Unavailable => {}
+            AudioMsg::Unavailable => {
+                tracing::warn!("audio applet: daemon unavailable");
+            }
         }
     }
 }

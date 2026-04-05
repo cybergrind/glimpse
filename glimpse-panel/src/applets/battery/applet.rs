@@ -98,6 +98,7 @@ impl Component for Battery {
         sender.command(move |cmd_tx, shutdown| {
             shutdown
                 .register(async move {
+                    tracing::info!("battery applet: subscribing");
                     let mut bat_sub = match client.subscribe("battery.status").await {
                         Ok(s) => s,
                         Err(e) => {
@@ -145,6 +146,7 @@ impl Component for Battery {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             BatteryInput::Update(data) => {
+                tracing::info!(pct = %data["percentage"], state = %data["state"], "battery applet: update");
                 let percentage = data["percentage"].as_u64().unwrap_or(0).min(100) as u8;
                 let state = data["state"].as_str().unwrap_or("unknown");
                 let icon_name = data["icon_name"].as_str().unwrap_or("battery-missing-symbolic");
@@ -180,6 +182,7 @@ impl Component for Battery {
                 self.popover.emit(BatteryPopoverInput::Toggle);
             }
             BatteryInput::Unavailable => {
+                tracing::warn!("battery applet: daemon unavailable");
                 self.visible = false;
             }
         }

@@ -302,23 +302,52 @@ impl Broker {
                 };
 
                 self.ensure_provider(name);
-                let result = self.request_call(name, &method, params).await;
-                self.send_to(
-                    client,
-                    Response {
-                        id: req_id,
-                        body: ResponseBody::CallResult {
-                            method,
-                            result: match result {
-                                Ok(data) => RequestResult::Ok { data },
-                                Err(e) => RequestResult::Error {
+                let entry = self.providers.get(name);
+                let request_tx = entry.and_then(|e| e.handle.as_ref()).map(|h| h.requests.clone());
+                let client_tx = self.clients.get(&client).map(|c| c.tx.clone());
+
+                if let (Some(request_tx), Some(client_tx)) = (request_tx, client_tx) {
+                    tokio::spawn(async move {
+                        let (reply_tx, reply_rx) = oneshot::channel();
+                        let send_ok = request_tx.send(ProviderRequest::Call {
+                            method: method.clone(),
+                            params,
+                            reply: reply_tx,
+                        }).await.is_ok();
+
+                        let result = if send_ok {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(30), reply_rx
+                            ).await {
+                                Ok(Ok(Ok(data))) => RequestResult::Ok { data },
+                                Ok(Ok(Err(e))) => RequestResult::Error { code: 5, message: e.to_string() },
+                                Ok(Err(_)) => RequestResult::Error { code: 5, message: "provider dropped reply".into() },
+                                Err(_) => RequestResult::Error { code: 5, message: "provider call timed out".into() },
+                            }
+                        } else {
+                            RequestResult::Error { code: 5, message: "provider not responding".into() }
+                        };
+
+                        let _ = client_tx.send(Response {
+                            id: req_id,
+                            body: ResponseBody::CallResult { method, result },
+                        }).await;
+                    });
+                } else {
+                    self.send_to(
+                        client,
+                        Response {
+                            id: req_id,
+                            body: ResponseBody::CallResult {
+                                method,
+                                result: RequestResult::Error {
                                     code: 5,
-                                    message: e.to_string(),
+                                    message: "provider not running".into(),
                                 },
                             },
                         },
-                    },
-                );
+                    );
+                }
             }
         }
     }
@@ -410,36 +439,6 @@ impl Broker {
             .await
             .ok()?
             .ok()?
-    }
-
-    async fn request_call(
-        &self,
-        provider: &str,
-        method: &str,
-        params: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
-        let entry = self
-            .providers
-            .get(provider)
-            .ok_or_else(|| anyhow::anyhow!("provider not found"))?;
-        let handle = entry
-            .handle
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("provider not running"))?;
-        let (reply_tx, reply_rx) = oneshot::channel();
-        handle
-            .requests
-            .send(ProviderRequest::Call {
-                method: method.to_owned(),
-                params,
-                reply: reply_tx,
-            })
-            .await
-            .map_err(|_| anyhow::anyhow!("provider not responding"))?;
-        tokio::time::timeout(std::time::Duration::from_secs(5), reply_rx)
-            .await
-            .map_err(|_| anyhow::anyhow!("provider call timed out"))?
-            .map_err(|_| anyhow::anyhow!("provider dropped reply"))?
     }
 
     fn ensure_provider(&mut self, name: &str) -> bool {

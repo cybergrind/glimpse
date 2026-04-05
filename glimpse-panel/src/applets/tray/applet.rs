@@ -95,6 +95,7 @@ impl Component for Tray {
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
+                    tracing::info!("tray applet: subscribing");
                     let mut sub = match client.subscribe("tray.items").await {
                         Ok(s) => s,
                         Err(e) => {
@@ -128,6 +129,7 @@ impl Component for Tray {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             TrayInput::Update(new_items) => {
+                tracing::info!(items = new_items.len(), "tray applet: update");
                 let new_addresses: HashMap<&str, &TrayItemData> =
                     new_items.iter().map(|i| (i.address.as_str(), i)).collect();
 
@@ -228,7 +230,9 @@ impl Component for Tray {
                     }
                 }
             }
-            TrayInput::Unavailable => {}
+            TrayInput::Unavailable => {
+                tracing::warn!("tray applet: daemon unavailable");
+            }
         }
     }
 }

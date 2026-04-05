@@ -46,6 +46,7 @@ struct BluetoothDevice {
     address: String,
     name: String,
     icon: String,
+    device_type: String,
     paired: bool,
     connected: bool,
     trusted: bool,
@@ -111,7 +112,7 @@ impl Provider for BluetoothProvider {
 
             // Debounce: coalesce rapid PropertiesChanged signals.
             let mut dirty = false;
-            let debounce = tokio::time::sleep(std::time::Duration::from_millis(500));
+            let debounce = tokio::time::sleep(std::time::Duration::from_secs(86400));
             tokio::pin!(debounce);
 
             loop {
@@ -245,7 +246,14 @@ impl BluetoothProvider {
                 let get_str = |key: &str| -> String {
                     props
                         .get(key)
-                        .and_then(|v| String::try_from(v.clone()).ok())
+                        .map(|v| {
+                            String::try_from(v.clone())
+                                .or_else(|_| {
+                                    zbus::zvariant::ObjectPath::try_from(v.clone())
+                                        .map(|p| p.to_string())
+                                })
+                                .unwrap_or_default()
+                        })
                         .unwrap_or_default()
                 };
                 let get_bool = |key: &str| -> bool {
@@ -271,8 +279,18 @@ impl BluetoothProvider {
                     .get("RSSI")
                     .and_then(|v| i16::try_from(v.clone()).ok());
 
+                let class: u32 = props
+                    .get("Class")
+                    .and_then(|v| u32::try_from(v.clone()).ok())
+                    .unwrap_or(0);
+                let appearance: u16 = props
+                    .get("Appearance")
+                    .and_then(|v| u16::try_from(v.clone()).ok())
+                    .unwrap_or(0);
+
                 let adapter = get_str("Adapter");
-                let icon_name = resolve_bt_icon(&icon, paired, connected);
+                let device_type = resolve_device_type(appearance, class, &icon);
+                let icon_name = resolve_bt_icon(&device_type, connected);
 
                 if !address.is_empty() {
                     self.devices.insert(
@@ -285,6 +303,7 @@ impl BluetoothProvider {
                                 name
                             },
                             icon: icon_name,
+                            device_type,
                             paired,
                             connected,
                             trusted,
@@ -416,6 +435,9 @@ impl BluetoothProvider {
                             },
                             Err(e) => Err(anyhow::anyhow!("{e}")),
                         };
+                        if let Err(ref e) = result {
+                            tracing::warn!(error = %e, "bluetooth: forget failed");
+                        }
                         let _ = reply.send(result);
                         return;
                     }
@@ -523,7 +545,7 @@ impl BluetoothProvider {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         proxy
-            .call::<_, ()>(method, &())
+            .call_void(method, &())
             .await
             .map(|()| json!(null))
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -534,23 +556,195 @@ fn device_path(adapter_path: &str, address: &str) -> String {
     format!("{}/dev_{}", adapter_path, address.replace(':', "_"))
 }
 
-fn resolve_bt_icon(icon_hint: &str, _paired: bool, connected: bool) -> String {
-    let base = match icon_hint {
-        "audio-headphones" => "audio-headphones-symbolic",
-        "audio-headset" => "audio-headset-symbolic",
-        "audio-speakers" | "audio-card" => "audio-speakers-symbolic",
-        "input-keyboard" => "input-keyboard-symbolic",
-        "input-mouse" => "input-mouse-symbolic",
-        "input-tablet" => "input-tablet-symbolic",
-        "input-gaming" => "input-gaming-symbolic",
-        "phone" => "phone-symbolic",
-        "computer" => "computer-symbolic",
-        "video-display" => "video-display-symbolic",
-        _ if icon_hint.contains("headphone") => "audio-headphones-symbolic",
-        _ if icon_hint.contains("headset") => "audio-headset-symbolic",
-        _ if icon_hint.contains("keyboard") => "input-keyboard-symbolic",
-        _ if icon_hint.contains("mouse") => "input-mouse-symbolic",
-        _ if icon_hint.contains("phone") => "phone-symbolic",
+/// Resolve device type from BR/EDR Class → BLE Appearance → BlueZ Icon fallback.
+fn resolve_device_type(appearance: u16, class: u32, icon_hint: &str) -> String {
+    // 1. BR/EDR Class of Device (major = bits 12-8, minor = bits 7-2).
+    if class != 0 {
+        if let Some(t) = type_from_class(class) {
+            return t.to_owned();
+        }
+    }
+
+    // 2. BLE Appearance (category = bits 15-6, sub = bits 5-0).
+    if appearance != 0 {
+        if let Some(t) = type_from_appearance(appearance) {
+            return t.to_owned();
+        }
+    }
+
+    // 3. Fallback: BlueZ Icon property.
+    match icon_hint {
+        "audio-headphones" => "Headphones",
+        "audio-headset" => "Headset",
+        "audio-speakers" | "audio-card" => "Speaker",
+        "input-keyboard" => "Keyboard",
+        "input-mouse" => "Mouse",
+        "input-tablet" => "Tablet",
+        "input-gaming" => "Controller",
+        "phone" => "Phone",
+        "computer" => "Computer",
+        "video-display" => "Display",
+        _ => "Device",
+    }
+    .to_owned()
+}
+
+fn type_from_class(class: u32) -> Option<&'static str> {
+    let major = (class >> 8) & 0x1F;
+    let minor = (class >> 2) & 0x3F;
+    match major {
+        1 => Some(match minor {
+            1 => "Desktop",
+            2 => "Server",
+            3 => "Laptop",
+            4 => "Handheld",
+            5 => "PDA",
+            6 => "Wearable Computer",
+            7 => "Tablet",
+            _ => "Computer",
+        }),
+        2 => Some(match minor {
+            1 => "Phone",
+            2 => "Phone",
+            3 => "Smartphone",
+            _ => "Phone",
+        }),
+        3 => Some("Network"),
+        4 => Some(match minor {
+            1 => "Headset",
+            2 => "Hands-free",
+            4 => "Microphone",
+            5 => "Speaker",
+            6 => "Headphones",
+            7 => "Portable Audio",
+            8 => "Car Audio",
+            9 => "Set-top Box",
+            10 => "HiFi Audio",
+            11 => "VCR",
+            12 => "Video Camera",
+            13 => "Camcorder",
+            14 => "Video Monitor",
+            15 => "Display Speaker",
+            16 => "Video Conferencing",
+            18 => "Gaming",
+            _ => "Audio/Video",
+        }),
+        5 => {
+            // Bits 5-4 of minor: keyboard/pointing flags.
+            // Bits 3-0 of minor: device sub-type.
+            let periph_type = (minor >> 4) & 0x03;
+            let periph_sub = minor & 0x0F;
+            Some(match periph_type {
+                1 => "Keyboard",
+                2 => "Mouse",
+                3 => "Keyboard", // combo
+                _ => match periph_sub {
+                    1 => "Joystick",
+                    2 => "Gamepad",
+                    3 => "Remote",
+                    4 => "Sensing Device",
+                    5 => "Tablet",
+                    6 => "Card Reader",
+                    7 => "Digital Pen",
+                    8 => "Barcode Scanner",
+                    _ => "Peripheral",
+                },
+            })
+        }
+        6 => Some("Imaging"),
+        7 => Some(match minor {
+            1 => "Watch",
+            2 => "Pager",
+            3 => "Jacket",
+            4 => "Helmet",
+            5 => "Glasses",
+            _ => "Wearable",
+        }),
+        8 => Some("Toy"),
+        9 => Some("Health"),
+        _ => None,
+    }
+}
+
+fn type_from_appearance(appearance: u16) -> Option<&'static str> {
+    let category = appearance >> 6;
+    let sub = appearance & 0x3F;
+    match category {
+        1 => Some("Phone"),
+        2 => Some("Computer"),
+        3 => Some("Watch"),
+        4 => Some("Clock"),
+        5 => Some("Display"),
+        6 => Some("Remote"),
+        7 => Some("Glasses"),
+        8 => Some("Tag"),
+        9 => Some("Keyring"),
+        10 => Some("Media Player"),
+        11 => Some("Barcode Scanner"),
+        12 => Some("Thermometer"),
+        13 => Some("Heart Rate Sensor"),
+        14 => Some("Blood Pressure"),
+        15 => Some(match sub {
+            1 => "Keyboard",
+            2 => "Mouse",
+            3 => "Joystick",
+            4 => "Gamepad",
+            5 => "Tablet",
+            6 => "Card Reader",
+            7 => "Digital Pen",
+            8 => "Barcode Scanner",
+            9 => "Touchpad",
+            10 => "Presentation Remote",
+            _ => "Peripheral",
+        }),
+        16 => Some("Glucose Meter"),
+        17 => Some("Fitness Tracker"),
+        18 => Some("Cycling Sensor"),
+        21 => Some("Sensor"),
+        22 => Some("Light"),
+        33 => Some(match sub {
+            1 => "Speaker",
+            2 => "Soundbar",
+            _ => "Speaker",
+        }),
+        34 => Some("Audio Source"),
+        37 => Some(match sub {
+            1 => "Earbud",
+            2 => "Headset",
+            3 => "Headphones",
+            _ => "Headphones",
+        }),
+        41 => Some("Hearing Aid"),
+        42 => Some("Gaming"),
+        _ => None,
+    }
+}
+
+/// Derive icon from device type string.
+fn resolve_bt_icon(device_type: &str, connected: bool) -> String {
+    let icon = match device_type {
+        "Headphones" | "Earbud" => "audio-headphones-symbolic",
+        "Headset" | "Hands-free" => "audio-headset-symbolic",
+        "Speaker" | "Soundbar" | "HiFi Audio" | "Portable Audio" | "Car Audio" | "Audio/Video"
+        | "Display Speaker" | "Audio Source" => "audio-speakers-symbolic",
+        "Microphone" => "audio-input-microphone-symbolic",
+        "Keyboard" => "input-keyboard-symbolic",
+        "Mouse" | "Touchpad" => "input-mouse-symbolic",
+        "Tablet" => "input-tablet-symbolic",
+        "Joystick" | "Gamepad" | "Gaming" | "Controller" => "input-gaming-symbolic",
+        "Remote" | "Presentation Remote" | "Media Player" => "multimedia-player-symbolic",
+        "Phone" | "Smartphone" => "phone-symbolic",
+        "Computer" | "Desktop" | "Server" | "Laptop" | "Handheld" | "PDA" => "computer-symbolic",
+        "Display" | "Video Monitor" | "Video Conferencing" => "video-display-symbolic",
+        "Watch" | "Wearable" | "Wearable Computer" | "Glasses" | "Jacket" | "Helmet" => {
+            "watch-symbolic"
+        }
+        "Video Camera" | "Camcorder" => "camera-video-symbolic",
+        "Imaging" => "printer-symbolic",
+        "Tag" | "Keyring" => "tag-symbolic",
+        "Hearing Aid" => "audio-headphones-symbolic",
+        "Health" | "Heart Rate Sensor" | "Blood Pressure" | "Thermometer" | "Glucose Meter"
+        | "Fitness Tracker" => "heart-symbolic",
         _ => {
             if connected {
                 "bluetooth-active-symbolic"
@@ -559,7 +753,7 @@ fn resolve_bt_icon(icon_hint: &str, _paired: bool, connected: bool) -> String {
             }
         }
     };
-    base.to_owned()
+    icon.to_owned()
 }
 
 pub struct BluetoothProviderFactory;

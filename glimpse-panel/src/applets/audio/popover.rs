@@ -41,6 +41,8 @@ pub struct Popover {
     popover: gtk::Popover,
     config: AudioConfig,
     client: Arc<Client>,
+    hero_icon: gtk::Image,
+    hero_subtitle: gtk::Label,
     output_scale: gtk::Scale,
     output_mute_btn: gtk::Button,
     input_scale: gtk::Scale,
@@ -65,6 +67,7 @@ pub struct PopoverInit {
 #[derive(Debug)]
 pub enum PopoverInput {
     Toggle,
+    UpdateStatus { icon: String, description: String, volume: u32, muted: bool },
     UpdateOutputs(Vec<AudioOutput>),
     UpdateInputs(Vec<AudioInput>),
     UpdateStreams(Vec<AudioStream>),
@@ -95,6 +98,30 @@ impl SimpleComponent for Popover {
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
         vbox.set_hexpand(false);
         vbox.set_overflow(gtk::Overflow::Hidden);
+
+        // === Hero: icon + title/subtitle ===
+        let hero = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        hero.add_css_class("audio-hero");
+
+        let hero_icon = gtk::Image::from_icon_name("audio-volume-high-symbolic");
+        hero_icon.set_pixel_size(32);
+        hero.append(&hero_icon);
+
+        let title_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        title_box.set_hexpand(true);
+        title_box.set_valign(gtk::Align::Center);
+        let title = gtk::Label::new(Some("Audio"));
+        title.set_halign(gtk::Align::Start);
+        title.add_css_class("audio-hero-title");
+        title_box.append(&title);
+        let hero_subtitle = gtk::Label::new(None);
+        hero_subtitle.set_halign(gtk::Align::Start);
+        hero_subtitle.add_css_class("audio-hero-subtitle");
+        title_box.append(&hero_subtitle);
+        hero.append(&title_box);
+
+        vbox.append(&hero);
+        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
         // === Output slider: [mute icon] [slider] ===
         let output_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -163,6 +190,7 @@ impl SimpleComponent for Popover {
 
         let model = Popover {
             popover: root.clone(), config: init.config, client: init.client,
+            hero_icon, hero_subtitle,
             output_scale, output_mute_btn, input_scale, input_mute_btn,
             output_device_label, output_device_chevron, output_devices_box,
             input_device_label, input_device_chevron, input_devices_box,
@@ -178,15 +206,28 @@ impl SimpleComponent for Popover {
                 if self.popover.is_visible() { self.popover.popdown(); }
                 else { self.popover.popup(); }
             }
+            PopoverInput::UpdateStatus { icon, description, volume, muted } => {
+                self.hero_icon.set_icon_name(Some(&icon));
+                let label = if muted {
+                    format!("{description} — muted")
+                } else {
+                    format!("{description} — {volume}%")
+                };
+                self.hero_subtitle.set_label(&label);
+            }
             PopoverInput::UpdateOutputs(outputs) => {
                 if let Some(d) = outputs.iter().find(|o| o.is_default) {
                     if !is_being_dragged(&self.output_scale) {
                         self.output_scale.set_value(d.volume as f64);
                     }
-                    self.output_mute_btn.set_icon_name(
-                        if d.muted { "audio-volume-muted-symbolic" }
-                        else { "audio-volume-high-symbolic" }
-                    );
+                    let icon = if d.muted { "audio-volume-muted-symbolic" }
+                        else if d.volume == 0 { "audio-volume-muted-symbolic" }
+                        else if d.volume < 33 { "audio-volume-low-symbolic" }
+                        else if d.volume < 66 { "audio-volume-medium-symbolic" }
+                        else { "audio-volume-high-symbolic" };
+                    self.output_mute_btn.set_icon_name(icon);
+                    self.hero_icon.set_icon_name(Some(icon));
+                    self.hero_subtitle.set_label(&format!("{} — {}%", d.description, d.volume));
                     self.output_mute_btn.set_tooltip_text(Some(
                         &format!("{} — {}%", d.description, d.volume)
                     ));

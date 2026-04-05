@@ -33,7 +33,7 @@
     font-family: "Adwaita Sans", system-ui, sans-serif;
     font-size: 13px;
     padding: 0 8px;
-    border-radius: 12px;
+    border-radius: 0;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     background: var(--panel-bg);
 }
@@ -174,7 +174,7 @@
     max-width: 340px;
 }
 
-.battery-popover contents > box {
+.battery-popover contents>box {
     margin: var(--popover-padding);
 }
 
@@ -246,6 +246,72 @@
     font-weight: normal;
 }
 
+.bluetooth-popover {
+    min-width: 360px;
+    max-width: 360px;
+}
+
+.bluetooth-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.bluetooth-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.bluetooth-popover .bt-hero {
+    margin-bottom: 4px;
+}
+
+.bluetooth-popover .bt-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.bluetooth-popover .bt-subtitle {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+}
+
+.bluetooth-popover .bt-empty {
+    font-size: 12px;
+    opacity: 0.4;
+    padding: 4px 0;
+}
+
+.bluetooth-popover .bt-device-btn {
+    padding: 4px 6px;
+    font-weight: normal;
+}
+
+.bluetooth-popover .bt-device-btn label {
+    font-weight: normal;
+}
+
+.bluetooth-popover .bt-device-icon {
+    opacity: 0.6;
+}
+
+.bluetooth-popover .bt-device-icon-active {
+    color: var(--accent-bg);
+}
+
+.bluetooth-popover .bt-battery {
+    opacity: 0.5;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.bluetooth-popover .settings-btn {
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.bluetooth-popover .settings-btn label {
+    font-weight: normal;
+}
+
 .power {}
 
 .power-popover {
@@ -280,17 +346,31 @@
 }
 
 .audio-popover {
-    min-width: 400px;
-    max-width: 400px;
+    min-width: 420px;
+    max-width: 420px;
 }
 
-.audio-popover contents > box {
+.audio-popover contents>box {
     margin: var(--popover-padding);
 }
 
 .audio-popover separator {
     margin-top: var(--popover-section-spacing);
     margin-bottom: var(--popover-section-spacing);
+}
+
+.audio-popover .audio-hero {
+    margin-bottom: 4px;
+}
+
+.audio-popover .audio-hero-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.audio-popover .audio-hero-subtitle {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
 }
 
 .audio-popover .volume-row {
