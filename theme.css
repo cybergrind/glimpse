@@ -384,8 +384,15 @@
 }
 
 @keyframes net-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
 }
 
 .net-connecting {
@@ -571,7 +578,7 @@
     max-width: 240px;
 }
 
-.session-popover contents > box {
+.session-popover contents>box {
     margin: var(--popover-padding);
 }
 
@@ -617,8 +624,8 @@
 }
 
 .weather-popover {
-    min-width: 340px;
-    max-width: 340px;
+    min-width: 400px;
+    max-width: 400px;
 }
 
 .weather-popover contents>box {
@@ -727,19 +734,22 @@
 /* notifications */
 
 .notification-badge {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 700;
-    min-width: 14px;
-    min-height: 14px;
-    padding: 0 3px;
-    border-radius: 7px;
-    background: #e01b24;
-    color: #ffffff;
+    min-width: 12px;
+    min-height: 12px;
+    padding: 0 2px;
+    margin-left: -8px;
+    margin-top: -6px;
+    border-radius: 6px;
+    background: var(--accent-bg);
+    color: var(--on-accent);
 }
 
 .notifications-popover {
-    min-width: 380px;
-    max-width: 380px;
+    min-width: 540px;
+    max-width: 540px;
+    min-height: 600px;
 }
 
 .notifications-popover contents>box {
@@ -766,24 +776,34 @@
 }
 
 .notifications-popover .notif-empty {
-    font-size: 12px;
+    font-size: 13px;
     opacity: 0.4;
-    padding: 16px 0;
+    padding: 24px 0;
 }
 
 .notifications-popover .notif-list {
     padding: 4px 0;
 }
 
+/* GNOME-style notification card */
 .notifications-popover .notif-card {
-    padding: 8px;
+    padding: 12px;
+    margin: 2px 0;
+    border-radius: 12px;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    transition: background 150ms ease, opacity 200ms ease;
+}
+
+.notifications-popover .notif-card:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .notifications-popover .notif-stack-btn,
 .notifications-popover .notif-row-btn {
     padding: 0;
     font-weight: normal;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    border-radius: 12px;
 }
 
 .notifications-popover .notif-stack-btn label,
@@ -791,20 +811,77 @@
     font-weight: normal;
 }
 
+/* GNOME-style notification group */
+.notifications-popover .notif-group {
+    margin-bottom: 4px;
+    border-radius: 12px;
+    background: color-mix(in srgb, currentColor 3%, transparent);
+    padding: 4px;
+}
+
+.notifications-popover .notif-group .notif-card {
+    background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.notifications-popover .notif-group-header-btn {
+    padding: 4px 8px;
+    font-weight: normal;
+    border-radius: 8px;
+}
+
+.notifications-popover .notif-group-header-btn label {
+    font-weight: normal;
+}
+
+.notifications-popover .notif-group-cards {
+    padding: 0 2px;
+}
+
+/* Stack peek effect: offset cards behind top card */
+.notifications-popover .notif-stack-depth {
+    margin: -4px 6px 0 6px;
+    min-height: 6px;
+    border-radius: 0 0 10px 10px;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.notifications-popover .notif-stack-depth-2 {
+    margin: -2px 12px 0 12px;
+    min-height: 4px;
+    border-radius: 0 0 8px 8px;
+    background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.notifications-popover .notif-expand-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border-radius: 50%;
+    opacity: 0.5;
+}
+
+.notifications-popover .notif-expand-btn:hover {
+    opacity: 1;
+}
+
 .notifications-popover .notif-app-name {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    opacity: var(--dim-opacity);
+    opacity: 0.7;
+}
+
+.notifications-popover .notif-icon {
+    opacity: 0.7;
 }
 
 .notifications-popover .notif-summary {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .notifications-popover .notif-body {
-    font-size: 12px;
-    opacity: var(--dim-opacity);
+    font-size: 13px;
+    opacity: 0.7;
 }
 
 .notifications-popover .notif-time {
@@ -814,47 +891,31 @@
 }
 
 .notifications-popover .notif-dismiss {
-    min-width: 20px;
-    min-height: 20px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 0;
-    opacity: 0.4;
+    opacity: 0.3;
+    border-radius: 50%;
 }
 
 .notifications-popover .notif-dismiss:hover {
     opacity: 1;
+    background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .notifications-popover .notif-actions {
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
 .notifications-popover .notif-action-btn {
-    font-size: 12px;
-    padding: 2px 8px;
+    font-size: 13px;
+    padding: 4px 12px;
     font-weight: normal;
+    border-radius: 8px;
 }
 
 .notifications-popover .notif-action-btn label {
     font-weight: normal;
-}
-
-.notifications-popover .notif-group-header {
-    font-size: 12px;
-    font-weight: 600;
-    opacity: var(--dim-opacity);
-    padding: 4px 0;
-}
-
-.notifications-popover .notif-stack-depth {
-    margin: 0 6px;
-    border-bottom: 1px solid var(--border);
-    opacity: 0.5;
-}
-
-.notifications-popover .notif-stack-depth-2 {
-    margin: 0 12px;
-    border-bottom: 1px solid var(--border);
-    opacity: 0.3;
 }
 
 .notifications-popover .settings-btn {
@@ -864,4 +925,89 @@
 
 .notifications-popover .settings-btn label {
     font-weight: normal;
+}
+
+/* notification popup (toast overlay) — GNOME banner style */
+
+.notification-popup {
+    min-width: 500px;
+    background: transparent;
+}
+
+.popup-card-list {
+    padding: 8px;
+}
+
+.popup-card {
+    padding: 16px;
+    border-radius: 16px;
+    background: var(--view-bg);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+    margin-bottom: 8px;
+    transition: opacity 200ms ease, margin 200ms ease;
+}
+
+.popup-card:hover {
+    background: color-mix(in srgb, var(--view-bg) 95%, white);
+}
+
+.popup-card-critical {
+    border-left: 4px solid #e01b24;
+}
+
+.popup-card-icon {
+    opacity: 0.8;
+}
+
+.popup-card-app {
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.6;
+}
+
+.popup-card-summary {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.popup-card-body {
+    font-size: 14px;
+    opacity: 0.7;
+    margin-top: 2px;
+}
+
+.popup-dismiss {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    opacity: 0.3;
+    border-radius: 50%;
+}
+
+.popup-dismiss:hover {
+    opacity: 1;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.popup-actions {
+    margin-top: 8px;
+}
+
+.popup-action-btn {
+    font-size: 13px;
+    padding: 4px 12px;
+    font-weight: normal;
+    border-radius: 8px;
+}
+
+.popup-action-btn label {
+    font-weight: normal;
+}
+
+.popup-overflow {
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.6;
+    padding: 8px;
+    text-align: center;
 }

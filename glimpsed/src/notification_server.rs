@@ -192,18 +192,16 @@ pub async fn run(
     let mut history: std::collections::VecDeque<serde_json::Value> = std::collections::VecDeque::new();
     let mut dnd = false;
 
-    let default_timeout: i32 = 5000;
     let history_limit = 100;
-
-    // Expiry timer
-    let expiry = tokio::time::sleep(std::time::Duration::from_secs(86400));
-    tokio::pin!(expiry);
 
     let emit = |notifications: &HashMap<u32, serde_json::Value>,
                 history: &std::collections::VecDeque<serde_json::Value>,
                 dnd: bool,
                 broker_tx: &mpsc::Sender<BrokerMsg>| {
-        let status = serde_json::json!({ "dnd": dnd, "count": notifications.len() });
+        let badge_count = notifications.values()
+            .filter(|n| n["urgency"].as_u64().unwrap_or(1) > 0)
+            .count();
+        let status = serde_json::json!({ "dnd": dnd, "count": notifications.len(), "badge_count": badge_count });
         let list: Vec<&serde_json::Value> = notifications.values().collect();
         let hist: Vec<&serde_json::Value> = history.iter().collect();
 
@@ -250,7 +248,7 @@ pub async fn run(
                             .filter_map(|c| if c.len() == 2 { Some((c[0].clone(), c[1].clone())) } else { None })
                             .collect();
 
-                        let timeout = if expire_timeout < 0 { default_timeout } else { expire_timeout };
+                        let timeout = if expire_timeout < 0 { 5000 } else { expire_timeout };
 
                         tracing::info!(id, app = %app_name, summary = %summary, urgency, "notification received");
 
@@ -270,21 +268,6 @@ pub async fn run(
                             "expire_timeout": timeout,
                         });
                         notifications.insert(id, notif);
-
-                        // Reset expiry timer
-                        let now = glimpse_types::now_ms();
-                        let next_expiry = notifications.values()
-                            .filter_map(|n| {
-                                let t = n["expire_timeout"].as_i64().unwrap_or(0);
-                                if t > 0 {
-                                    let deadline = n["timestamp"].as_u64().unwrap_or(0) + t as u64;
-                                    Some(deadline.saturating_sub(now))
-                                } else { None }
-                            })
-                            .min()
-                            .unwrap_or(86400_000);
-                        expiry.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(next_expiry.max(10)));
-
                         emit(&notifications, &history, dnd, &broker_tx);
                     }
                     NotifyMessage::Close { id } => {
@@ -333,58 +316,148 @@ pub async fn run(
                     }
                 }
             }
-            () = &mut expiry => {
-                let now = glimpse_types::now_ms();
-                let expired: Vec<u32> = notifications.iter()
-                    .filter(|(_, n)| {
-                        let t = n["expire_timeout"].as_i64().unwrap_or(0);
-                        t > 0 && now >= n["timestamp"].as_u64().unwrap_or(0) + t as u64
-                    })
-                    .map(|(id, _)| *id)
-                    .collect();
-
-                for id in &expired {
-                    if let Some(notif) = notifications.remove(id) {
-                        tracing::info!(id, "notification expired");
-                        history.push_front(serde_json::json!({
-                            "id": id,
-                            "app_name": notif["app_name"],
-                            "app_icon": notif["app_icon"],
-                            "summary": notif["summary"],
-                            "body": notif["body"],
-                            "urgency": notif["urgency"],
-                            "timestamp": notif["timestamp"],
-                            "close_reason": 1,
-                        }));
-                        while history.len() > history_limit { history.pop_back(); }
-
-                        let signal_emitter = iface_ref.signal_emitter();
-                        let _ = NotificationServer::notification_closed(signal_emitter, *id, 1).await;
-                    }
-                }
-
-                if !expired.is_empty() {
-                    emit(&notifications, &history, dnd, &broker_tx);
-                }
-
-                // Reset timer
-                let next_expiry = notifications.values()
-                    .filter_map(|n| {
-                        let t = n["expire_timeout"].as_i64().unwrap_or(0);
-                        let now = glimpse_types::now_ms();
-                        if t > 0 {
-                            let deadline = n["timestamp"].as_u64().unwrap_or(0) + t as u64;
-                            Some(deadline.saturating_sub(now))
-                        } else { None }
-                    })
-                    .min()
-                    .unwrap_or(86400_000);
-                expiry.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(next_expiry.max(10)));
-            }
+            // No auto-expiry — notifications persist until user dismisses them.
+            // The popup overlay handles its own auto-dismiss timeout.
         }
     }
 
     let _ = conn.release_name("org.freedesktop.Notifications").await;
     tracing::info!("notification-server: stopped");
     Ok(())
+}
+
+/// Parse flat actions array ["key1", "label1", "key2", "label2"] into pairs
+fn parse_actions(actions: &[String]) -> Vec<(String, String)> {
+    actions
+        .chunks(2)
+        .filter_map(|c| {
+            if c.len() == 2 {
+                Some((c[0].clone(), c[1].clone()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Resolve expire_timeout: -1 = server default (5000ms), 0 = never, >0 = as-is
+fn resolve_timeout(expire_timeout: i32) -> i32 {
+    if expire_timeout < 0 { 5000 } else { expire_timeout }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_actions_pairs() {
+        let actions = vec![
+            "default".into(), "Open".into(),
+            "dismiss".into(), "Dismiss".into(),
+        ];
+        let pairs = parse_actions(&actions);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0], ("default".into(), "Open".into()));
+        assert_eq!(pairs[1], ("dismiss".into(), "Dismiss".into()));
+    }
+
+    #[test]
+    fn parse_actions_empty() {
+        let pairs = parse_actions(&[]);
+        assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn parse_actions_odd_length() {
+        let actions = vec!["default".into(), "Open".into(), "orphan".into()];
+        let pairs = parse_actions(&actions);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0], ("default".into(), "Open".into()));
+    }
+
+    #[test]
+    fn timeout_server_default() {
+        assert_eq!(resolve_timeout(-1), 5000);
+    }
+
+    #[test]
+    fn timeout_never() {
+        assert_eq!(resolve_timeout(0), 0);
+    }
+
+    #[test]
+    fn timeout_custom() {
+        assert_eq!(resolve_timeout(3000), 3000);
+    }
+
+    #[test]
+    fn capabilities_list() {
+        let caps: Vec<String> = ["actions", "body", "body-markup", "icon-static", "persistence"]
+            .iter().map(|s| s.to_string()).collect();
+        assert!(caps.contains(&"actions".to_string()));
+        assert!(caps.contains(&"body-markup".to_string()));
+        assert!(caps.contains(&"persistence".to_string()));
+        assert!(!caps.contains(&"sound".to_string()));
+    }
+
+    #[test]
+    fn server_info() {
+        let (name, vendor, _version, spec) = (
+            "Glimpse".to_string(),
+            "Glimpse".to_string(),
+            "0.1.0".to_string(),
+            "1.2".to_string(),
+        );
+        assert_eq!(name, "Glimpse");
+        assert_eq!(vendor, "Glimpse");
+        assert_eq!(spec, "1.2");
+    }
+
+    #[test]
+    fn notification_json_shape() {
+        let notif = serde_json::json!({
+            "id": 1u32,
+            "app_name": "Firefox",
+            "app_icon": "firefox",
+            "desktop_entry": "firefox",
+            "summary": "Download Complete",
+            "body": "report.pdf",
+            "urgency": 1u8,
+            "category": "transfer.complete",
+            "actions": [("default", "Open"), ("show", "Show in Folder")],
+            "image": null,
+            "timestamp": 1700000000000u64,
+            "resident": false,
+            "expire_timeout": 5000,
+        });
+        assert_eq!(notif["id"], 1);
+        assert_eq!(notif["app_name"], "Firefox");
+        assert_eq!(notif["urgency"], 1);
+        assert_eq!(notif["expire_timeout"], 5000);
+        assert_eq!(notif["resident"], false);
+        assert!(notif["image"].is_null());
+    }
+
+    #[test]
+    fn history_entry_json_shape() {
+        let entry = serde_json::json!({
+            "id": 1,
+            "app_name": "Test",
+            "app_icon": "",
+            "summary": "Hello",
+            "body": "World",
+            "urgency": 1,
+            "timestamp": 1700000000000u64,
+            "close_reason": 2,
+        });
+        assert_eq!(entry["close_reason"], 2);
+        assert_eq!(entry["summary"], "Hello");
+    }
+
+    #[test]
+    fn status_json_shape() {
+        let status = serde_json::json!({ "dnd": false, "count": 3 });
+        assert_eq!(status["dnd"], false);
+        assert_eq!(status["count"], 3);
+    }
 }

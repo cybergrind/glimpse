@@ -132,6 +132,134 @@ impl NotificationsProvider {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_metadata() {
+        assert_eq!(NAME, "notifications");
+        assert_eq!(TOPICS.len(), 3);
+        assert!(TOPICS.contains(&"notifications.status"));
+        assert!(TOPICS.contains(&"notifications.list"));
+        assert!(TOPICS.contains(&"notifications.history"));
+        assert_eq!(METHODS.len(), 5);
+        assert!(METHODS.contains(&"notifications.dismiss"));
+        assert!(METHODS.contains(&"notifications.dismiss_all"));
+        assert!(METHODS.contains(&"notifications.invoke_action"));
+        assert!(METHODS.contains(&"notifications.set_dnd"));
+        assert!(METHODS.contains(&"notifications.clear_history"));
+    }
+
+    #[tokio::test]
+    async fn factory_creates_provider() {
+        let (tx, _rx) = mpsc::channel(1);
+        let factory = NotificationsProviderFactory { server_tx: tx };
+        assert_eq!(factory.name(), "notifications");
+        assert_eq!(factory.topics().len(), 3);
+        assert_eq!(factory.methods().len(), 5);
+        let provider = factory.create();
+        assert_eq!(provider.name(), "notifications");
+    }
+
+    #[tokio::test]
+    async fn snapshot_returns_none() {
+        // Provider doesn't hold state — snapshots should return None
+        let (tx, _rx) = mpsc::channel(1);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        provider.handle_request(ProviderRequest::Snapshot {
+            topic: "notifications.status".into(),
+            reply: reply_tx,
+        }).await;
+        assert!(reply_rx.await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn dismiss_forwards_to_server() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        // Spawn handler (it will block waiting for server reply)
+        let handle = tokio::spawn(async move {
+            provider.handle_request(ProviderRequest::Call {
+                method: "notifications.dismiss".into(),
+                params: serde_json::json!({"id": 42}),
+                reply: reply_tx,
+            }).await;
+        });
+
+        // Receive the forwarded message and respond
+        let msg = rx.recv().await.unwrap();
+        match msg {
+            NotifyMessage::Dismiss { id, reply } => {
+                assert_eq!(id, 42);
+                let _ = reply.send(Ok(serde_json::json!(null)));
+            }
+            _ => panic!("expected Dismiss"),
+        }
+
+        handle.await.unwrap();
+        assert!(reply_rx.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn set_dnd_forwards_to_server() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        let handle = tokio::spawn(async move {
+            provider.handle_request(ProviderRequest::Call {
+                method: "notifications.set_dnd".into(),
+                params: serde_json::json!({"enabled": true}),
+                reply: reply_tx,
+            }).await;
+        });
+
+        let msg = rx.recv().await.unwrap();
+        match msg {
+            NotifyMessage::SetDnd { enabled, reply } => {
+                assert!(enabled);
+                let _ = reply.send(Ok(serde_json::json!(null)));
+            }
+            _ => panic!("expected SetDnd"),
+        }
+
+        handle.await.unwrap();
+        assert!(reply_rx.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn missing_params_returns_error() {
+        let (tx, _rx) = mpsc::channel(16);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        provider.handle_request(ProviderRequest::Call {
+            method: "notifications.dismiss".into(),
+            params: serde_json::json!({}), // missing "id"
+            reply: reply_tx,
+        }).await;
+        let result = reply_rx.await.unwrap();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn unknown_method_returns_error() {
+        let (tx, _rx) = mpsc::channel(16);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        provider.handle_request(ProviderRequest::Call {
+            method: "notifications.nonexistent".into(),
+            params: serde_json::json!({}),
+            reply: reply_tx,
+        }).await;
+        let result = reply_rx.await.unwrap();
+        assert!(result.is_err());
+    }
+}
+
 pub struct NotificationsProviderFactory {
     pub server_tx: mpsc::Sender<NotifyMessage>,
 }

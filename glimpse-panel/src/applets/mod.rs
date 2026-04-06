@@ -66,6 +66,7 @@ pub fn create_applet(
         .map(|c| c.extends.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or(name);
+    tracing::debug!(name, applet_type, "creating applet");
     match applet_type {
         "audio" => {
             let client = client.clone()?;
