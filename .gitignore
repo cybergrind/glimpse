@@ -11,3 +11,4 @@ Cargo.lock
 docs/superpowers/
 .playwright-mcp
 mockups/
+.worktrees/
