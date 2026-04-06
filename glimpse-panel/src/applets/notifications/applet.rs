@@ -76,10 +76,12 @@ impl Component for Notifications {
                     add_css_class: "notification-badge",
                 }
             } else {
-                gtk::Box {
+                gtk::DrawingArea {
                     #[watch]
                     set_visible: model.badge_visible,
                     set_valign: gtk::Align::Center,
+                    set_content_width: 6,
+                    set_content_height: 6,
                     add_css_class: "notification-dot",
                 }
             },
