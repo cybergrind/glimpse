@@ -747,6 +747,10 @@
 }
 
 .notification-dot {
+    font-size: 0;
+    min-width: 6px;
+    min-height: 6px;
+    padding: 0;
     margin-left: -4px;
     border-radius: 3px;
     background: var(--accent-bg);
