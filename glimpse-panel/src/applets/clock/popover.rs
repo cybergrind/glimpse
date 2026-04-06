@@ -4,10 +4,11 @@ use relm4::{
 };
 use std::sync::Arc;
 
+use chrono::{Local, NaiveDate};
 use glimpse_client::Client;
 
-use super::calendar::Calendar;
-use super::date::Date;
+use super::calendar::{Calendar, CalendarInit, Input as CalendarInput, Output as CalendarOutput};
+use super::date::{Date, Input as DateInput};
 use super::events::{Events, EventsInit, EventsInput};
 use super::world::WorldClock;
 use crate::applets::clock::{config::TimezoneEntry, world::WorldClockInput};
@@ -22,6 +23,8 @@ pub struct Popover {
     world_clock: Option<Controller<WorldClock>>,
     #[allow(dead_code)]
     events: Controller<Events>,
+    selected_date: NaiveDate,
+    follow_today: bool,
 }
 
 pub struct PopoverInit {
@@ -34,6 +37,7 @@ pub struct PopoverInit {
 pub enum PopoverInput {
     Toggle,
     Tick,
+    SetSelectedDate(NaiveDate),
 }
 
 #[relm4::component(pub)]
@@ -49,10 +53,12 @@ impl SimpleComponent for Popover {
     fn init(
         init: Self::Init,
         root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let selected_date = Local::now().date_naive();
+        root.add_css_class("clock-popover");
+
         let container = gtk::Box::new(gtk::Orientation::Horizontal, 20);
-        container.add_css_class("clock-popover");
         container.add_css_class("clock-popover-layout");
 
         let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -64,7 +70,14 @@ impl SimpleComponent for Popover {
         let date = Date::builder().launch(()).detach();
         left.append(date.widget());
 
-        let calendar = Calendar::builder().launch(()).detach();
+        let calendar = Calendar::builder()
+            .launch(CalendarInit {
+                client: init.client.clone(),
+                selected_date,
+            })
+            .forward(sender.input_sender(), |msg| match msg {
+                CalendarOutput::SelectedDate(date) => PopoverInput::SetSelectedDate(date),
+            });
         left.append(calendar.widget());
 
         let world_clock = if init.timezones.is_empty() {
@@ -78,6 +91,7 @@ impl SimpleComponent for Popover {
         let events = Events::builder()
             .launch(EventsInit {
                 client: init.client,
+                selected_date,
             })
             .detach();
         right.append(events.widget());
@@ -94,6 +108,8 @@ impl SimpleComponent for Popover {
             calendar,
             world_clock,
             events,
+            selected_date,
+            follow_today: true,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -109,10 +125,23 @@ impl SimpleComponent for Popover {
                 }
             }
             PopoverInput::Tick => {
+                let today = Local::now().date_naive();
+                if self.follow_today && self.selected_date != today {
+                    self.selected_date = today;
+                    self.date.emit(DateInput::SetDate(today));
+                    self.calendar.emit(CalendarInput::SetDate(today));
+                    self.events.emit(EventsInput::SetDate(today));
+                }
                 if let Some(ref wc) = self.world_clock {
                     wc.emit(WorldClockInput::Tick);
                 }
                 self.events.emit(EventsInput::Tick);
+            }
+            PopoverInput::SetSelectedDate(date) => {
+                self.selected_date = date;
+                self.follow_today = date == Local::now().date_naive();
+                self.date.emit(DateInput::SetDate(date));
+                self.events.emit(EventsInput::SetDate(date));
             }
         }
     }

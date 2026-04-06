@@ -99,10 +99,12 @@ pub enum RequestResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CalendarToday {
+pub struct CalendarDay {
     pub date: String,
     pub events: Vec<CalendarEvent>,
 }
+
+pub type CalendarToday = CalendarDay;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalendarEvent {
@@ -114,6 +116,18 @@ pub struct CalendarEvent {
     pub description: Option<String>,
     pub calendar_name: String,
     pub calendar_color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarMonth {
+    pub month: String,
+    pub days: Vec<CalendarMonthDay>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarMonthDay {
+    pub date: String,
+    pub colors: Vec<String>,
 }
 
 #[cfg(test)]
@@ -180,6 +194,44 @@ mod tests {
         );
 
         let deserialized: CalendarToday = serde_json::from_value(serialized).unwrap();
+        assert_eq!(deserialized, payload);
+    }
+
+    #[test]
+    fn calendar_month_roundtrip() {
+        let payload = CalendarMonth {
+            month: "2026-04".into(),
+            days: vec![
+                CalendarMonthDay {
+                    date: "2026-04-06".into(),
+                    colors: vec!["#f4b45d".into(), "#68a3ff".into()],
+                },
+                CalendarMonthDay {
+                    date: "2026-04-07".into(),
+                    colors: vec!["#e15d7a".into()],
+                },
+            ],
+        };
+
+        let serialized = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "month": "2026-04",
+                "days": [
+                    {
+                        "date": "2026-04-06",
+                        "colors": ["#f4b45d", "#68a3ff"]
+                    },
+                    {
+                        "date": "2026-04-07",
+                        "colors": ["#e15d7a"]
+                    }
+                ]
+            })
+        );
+
+        let deserialized: CalendarMonth = serde_json::from_value(serialized).unwrap();
         assert_eq!(deserialized, payload);
     }
 

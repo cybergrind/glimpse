@@ -29,6 +29,12 @@
 
 .card-body {}
 
+.section-title {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+    margin-bottom: 8px;
+}
+
 .panel {
     font-family: "Adwaita Sans", system-ui, sans-serif;
     font-size: 13px;
@@ -74,8 +80,11 @@
 }
 
 .clock-popover {
-    padding: var(--popover-padding);
     min-width: 620px;
+}
+
+.clock-popover contents>box {
+    padding: var(--popover-padding);
 }
 
 .clock-popover-left {
@@ -107,37 +116,74 @@
     font-weight: 600;
 }
 
-.calendar calendar {
-    border: 0;
-    border-image-width: 0;
-    background-color: transparent;
+.calendar-header {
+    margin-bottom: 8px;
 }
 
-
-.calendar calendar header {
-    border: 0;
+.calendar-nav {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    border-radius: 999px;
 }
 
-.calendar .day-name {
-    font-size: 90%;
+.calendar-month-label {
+    font-weight: 500;
 }
 
-.calendar .day-number {
-    min-width: 30px;
-    min-height: 30px;
-    border-radius: 4px;
-    background-color: transparent;
+.calendar-weekdays {
+    margin-bottom: 6px;
 }
 
-.calendar .today {
-    color: var(--on-accent);
+.calendar-weekday {
+    font-size: 12px;
+    font-weight: 400;
+    opacity: var(--dim-opacity);
+}
+
+.calendar-day {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 4px 0 3px;
+    border-radius: 6px;
+    background: transparent;
+}
+
+.calendar-day.other-month {
+    opacity: 0.35;
+}
+
+.calendar-day.today {
+    color: var(--accent-bg);
+    box-shadow: inset 0 0 0 1px var(--accent-bg);
+}
+
+.calendar-day.selected {
     background-color: var(--accent-bg);
-    border: 0;
+    color: var(--on-accent);
+    box-shadow: none;
 }
 
-.events .events-header {
-    font-weight: 600;
-    margin-bottom: 10px;
+.calendar-day.today.selected {
+    background-color: var(--accent-bg);
+    color: var(--on-accent);
+    box-shadow: inset 0 0 0 1px var(--accent-bg);
+}
+
+.calendar-day-number {
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    font-size: 13px;
+}
+
+.calendar-day.selected .calendar-day-number {
+    font-weight: 500;
+}
+
+.calendar-day-dots {
+    font-size: 10px;
+    min-height: 10px;
+    margin-top: 1px;
 }
 
 .events-list {
@@ -150,6 +196,7 @@
 
 .event-title {
     font-weight: 600;
+    font-size: 14px;
 }
 
 .event-time {

@@ -1,12 +1,19 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDate};
 use glimpse_types::CalendarEvent;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
+#[derive(Debug, Clone)]
+pub struct EventRowInit {
+    pub event: CalendarEvent,
+    pub selected_date: NaiveDate,
+}
+
 pub struct EventRow {
     event: CalendarEvent,
+    selected_date: NaiveDate,
     timing_label: String,
 }
 
@@ -17,7 +24,7 @@ pub enum EventRowInput {
 
 #[relm4::component(pub)]
 impl SimpleComponent for EventRow {
-    type Init = CalendarEvent;
+    type Init = EventRowInit;
     type Input = EventRowInput;
     type Output = ();
 
@@ -46,12 +53,13 @@ impl SimpleComponent for EventRow {
     }
 
     fn init(
-        event: Self::Init,
+        init: Self::Init,
         _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let mut model = EventRow {
-            event,
+            event: init.event,
+            selected_date: init.selected_date,
             timing_label: String::new(),
         };
         model.refresh_label();
@@ -73,7 +81,7 @@ impl EventRow {
             self.timing_label.clear();
             return;
         };
-        self.timing_label = format_timing_line(start, end, Local::now());
+        self.timing_label = format_timing_line(start, end, self.selected_date, Local::now());
     }
 }
 
@@ -86,8 +94,17 @@ fn event_times(event: &CalendarEvent) -> Option<(DateTime<Local>, DateTime<Local
 pub fn format_timing_line(
     start: DateTime<Local>,
     end: DateTime<Local>,
+    selected_date: NaiveDate,
     now: DateTime<Local>,
 ) -> String {
+    if is_all_day_event(start, end) {
+        return "All day".into();
+    }
+
+    if selected_date != now.date_naive() {
+        return format!("{} · {}", start.format("%H:%M"), format_duration(start, end));
+    }
+
     if now >= start && now < end {
         return format!("now · ends {}", end.format("%H:%M"));
     }
@@ -104,4 +121,10 @@ pub fn format_timing_line(
 
 fn format_duration(start: DateTime<Local>, end: DateTime<Local>) -> String {
     format!("{} min", (end - start).num_minutes())
+}
+
+fn is_all_day_event(start: DateTime<Local>, end: DateTime<Local>) -> bool {
+    start.time() == chrono::NaiveTime::MIN
+        && end.time() == chrono::NaiveTime::MIN
+        && (end - start).num_days() >= 1
 }
