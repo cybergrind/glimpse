@@ -75,28 +75,22 @@
 
 .clock-popover {
     padding: var(--popover-padding);
-    min-width: 300px;
+    min-width: 620px;
 }
 
-.clock-popover>*:not(:last-child) {
+.clock-popover-left {
+    padding-right: 18px;
+    margin-right: 18px;
+    border-right: 1px solid var(--border);
+}
+
+.clock-popover-left>*:not(:last-child) {
     margin-bottom: var(--popover-section-spacing);
 }
 
-/*.clock-popover>*:first-child {
-    padding-left: 4pxl*/
-/*}*/
-
-/*.clock-popover>*>* {
-    margin-bottom: 16px;
-}*/
-
-/*.clock-popover-left {}*/
-
-/*.clock-popover-right {
-    min-width: 300px;
-    border-left: 1px solid var(--border);
-    padding-left: 16px;
-}*/
+.clock-popover-right {
+    min-width: 250px;
+}
 
 .date {
     padding-top: 0px;
@@ -143,6 +137,27 @@
 
 .events .events-header {
     font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.events-list {
+    margin-bottom: 0;
+}
+
+.event-row:not(:last-child) {
+    margin-bottom: 12px;
+}
+
+.event-title {
+    font-weight: 600;
+}
+
+.event-time {
+    font-variant-numeric: tabular-nums;
+}
+
+.events-empty {
+    font-weight: 500;
 }
 
 /* world clock */

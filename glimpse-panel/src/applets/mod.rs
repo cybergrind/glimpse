@@ -123,7 +123,10 @@ pub fn create_applet(
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = Clock::builder()
-                .launch(ClockInit { config })
+                .launch(ClockInit {
+                    config,
+                    client: client.clone(),
+                })
                 .detach();
             Some(AppletController::Clock(applet))
         }

@@ -42,6 +42,7 @@ fn register_providers(
         Box::new(providers::audio::AudioProviderFactory),
         Box::new(providers::battery::BatteryProviderFactory),
         Box::new(providers::bluetooth::BluetoothProviderFactory),
+        Box::new(providers::calendar::CalendarProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
         Box::new(providers::network::NetworkProviderFactory),
         Box::new(providers::notifications::NotificationsProviderFactory { server_tx: notify_tx }),

@@ -1,4 +1,5 @@
 use chrono::Local;
+use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{
@@ -6,6 +7,7 @@ use relm4::{
         prelude::{GestureSingleExt, OrientableExt, WidgetExt},
     },
 };
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::applets::clock::{
@@ -21,6 +23,7 @@ pub struct Clock {
 
 pub struct ClockInit {
     pub config: ClockConfig,
+    pub client: Option<Arc<Client>>,
 }
 
 #[derive(Debug)]
@@ -69,6 +72,7 @@ impl Component for Clock {
             .launch(PopoverInit {
                 parent: root.clone(),
                 timezones: init.config.timezones.clone(),
+                client: init.client,
             })
             .detach();
 

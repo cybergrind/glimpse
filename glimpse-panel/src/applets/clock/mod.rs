@@ -2,6 +2,8 @@ mod applet;
 mod calendar;
 mod config;
 mod date;
+mod event_row;
+mod events;
 mod popover;
 mod timezone;
 mod world;
