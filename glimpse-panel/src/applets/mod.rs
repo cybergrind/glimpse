@@ -3,6 +3,7 @@ mod battery;
 mod bluetooth;
 mod clock;
 mod power;
+mod session;
 mod spacer;
 mod tray;
 mod weather;
@@ -29,6 +30,7 @@ pub enum AppletController {
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
     Weather(Controller<weather::Weather>),
+    Session(Controller<session::Session>),
     Spacer(Controller<Spacer>),
 }
 
@@ -42,6 +44,7 @@ impl AppletController {
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
             AppletController::Weather(c) => c.widget().clone().upcast(),
+            AppletController::Session(c) => c.widget().clone().upcast(),
             AppletController::Spacer(c) => c.widget().clone().upcast(),
         }
     }
@@ -128,6 +131,16 @@ pub fn create_applet(
                 .launch(weather::WeatherInit { config, client })
                 .detach();
             Some(AppletController::Weather(applet))
+        }
+        "session" => {
+            let client = client.clone()?;
+            let config: session::SessionConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = session::Session::builder()
+                .launch(session::SessionInit { config, client })
+                .detach();
+            Some(AppletController::Session(applet))
         }
         "spacer" => Some(AppletController::Spacer(
             Spacer::builder().launch(()).detach(),

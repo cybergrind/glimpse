@@ -41,6 +41,7 @@ impl Component for Battery {
     view! {
         gtk::Box {
             set_spacing: 4,
+            add_css_class: "applet",
             add_css_class: "battery",
             #[watch]
             set_visible: model.visible,
@@ -149,7 +150,9 @@ impl Component for Battery {
                 tracing::info!(pct = %data["percentage"], state = %data["state"], "battery applet: update");
                 let percentage = data["percentage"].as_u64().unwrap_or(0).min(100) as u8;
                 let state = data["state"].as_str().unwrap_or("unknown");
-                let icon_name = data["icon_name"].as_str().unwrap_or("battery-missing-symbolic");
+                let icon_name = data["icon_name"]
+                    .as_str()
+                    .unwrap_or("battery-missing-symbolic");
                 let present = data["present"].as_bool().unwrap_or(false);
                 let on_battery = data["on_battery"].as_bool().unwrap_or(false);
                 let energy_rate = data["energy_rate"].as_f64().unwrap_or(0.0);
@@ -161,11 +164,19 @@ impl Component for Battery {
                 self.visible = present;
 
                 let vars = FormatVars {
-                    percentage, state, energy_rate, capacity, time_to_empty, time_to_full,
+                    percentage,
+                    state,
+                    energy_rate,
+                    capacity,
+                    time_to_empty,
+                    time_to_full,
                 };
 
                 let (label_fmt, tooltip_fmt) = if on_battery {
-                    (&self.config.label_on_battery, &self.config.tooltip_on_battery)
+                    (
+                        &self.config.label_on_battery,
+                        &self.config.tooltip_on_battery,
+                    )
                 } else {
                     (&self.config.label_on_ac, &self.config.tooltip_on_ac)
                 };
@@ -199,15 +210,25 @@ struct FormatVars<'a> {
 }
 
 fn format_template(template: &str, vars: &FormatVars) -> String {
-    if template.is_empty() { return String::new(); }
+    if template.is_empty() {
+        return String::new();
+    }
 
     let time_left = match vars.state {
-        "discharging" if vars.time_to_empty > 0 => format!("{} remaining", format_duration(vars.time_to_empty)),
-        "charging" if vars.time_to_full > 0 => format!("{} until full", format_duration(vars.time_to_full)),
+        "discharging" if vars.time_to_empty > 0 => {
+            format!("{} remaining", format_duration(vars.time_to_empty))
+        }
+        "charging" if vars.time_to_full > 0 => {
+            format!("{} until full", format_duration(vars.time_to_full))
+        }
         "fully-charged" => "fully charged".into(),
         _ => String::new(),
     };
-    let power = if vars.energy_rate > 0.0 { format!("{:.1}W", vars.energy_rate) } else { String::new() };
+    let power = if vars.energy_rate > 0.0 {
+        format!("{:.1}W", vars.energy_rate)
+    } else {
+        String::new()
+    };
 
     template
         .replace("{percentage}", &vars.percentage.to_string())
@@ -222,6 +243,9 @@ fn format_template(template: &str, vars: &FormatVars) -> String {
 fn format_duration(seconds: i64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
-    if hours > 0 { format!("{hours}h {minutes:02}m") }
-    else { format!("{minutes}m") }
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else {
+        format!("{minutes}m")
+    }
 }
