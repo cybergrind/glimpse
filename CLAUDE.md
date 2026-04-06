@@ -14,29 +14,45 @@ cargo build --release --no-default-features
 # Check compilation
 cargo check
 
+# Run the daemon
+RUST_LOG=info cargo run -p glimpsed
+
 # Run the panel (from glimpse-panel directory for CSS loading)
-cd glimpse-panel && cargo run
+cd glimpse-panel && RUST_LOG=info cargo run
+
+# Test with CLI
+cargo run -p glimpsectl -- sub bluetooth.status
+cargo run -p glimpsectl -- call bluetooth.set_powered '{"powered": true}'
+cargo run -p glimpsectl -- inspect
 ```
 
 ## Architecture
 
-Glimpse is a Wayland status panel built with GTK4/libadwaita using the relm4 framework.
+Glimpse is a Wayland status panel ecosystem:
 
-### Workspace Structure
+- `glimpsed/` - System service daemon, provides centralized access to Linux desktop services over Unix socket (NDJSON protocol)
+- `glimpse-panel/` - GTK4/relm4 Wayland panel that consumes daemon services
+- `glimpse-types/` - Shared protocol types (Request/Response with id-based correlation)
+- `glimpse-client/` - Async Rust client library for connecting to the daemon
+- `glimpsectl/` - CLI/TUI debug tool
 
-- `glimpse-panel/` - Main panel application
+### Daemon (glimpsed)
 
-### glimpse-panel
+- `src/main.rs` - Entry point, registers providers, binds Unix socket
+- `src/broker.rs` - Single-task message broker, no locks. Routes events to subscribers, manages provider lifecycle
+- `src/server.rs` - Per-client NDJSON reader/writer
+- `src/provider.rs` - Provider/ProviderFactory traits
+- `src/providers/` - System service providers (audio, battery, bluetooth, power, tray, weather)
+- `src/providers/dbus_props.rs` - D-Bus property helper (get/set/call/stream_changes)
 
-A layer-shell panel that anchors to the bottom edge of the screen.
+### Panel (glimpse-panel)
 
 - `src/main.rs` - Entry point, initializes tracing and runs the relm4 app
-- `src/app.rs` - Main `App` component using relm4's `SimpleComponent`. Handles:
-  - Layer shell setup (bottom-anchored, exclusive zone)
-  - CSS provider management (base + theme)
-  - File watching for hot-reload of config and CSS
+- `src/app.rs` - Main `App` component. Layer shell setup, CSS management, file watching
 - `src/config.rs` - TOML config loading from multiple paths
+- `src/applets/` - Panel applets (audio, battery, bluetooth, clock, power, session, tray, weather)
 - `panel.base.css` - Default styles (embedded in prod, file-loaded in dev)
+- `theme.css` - Theme styles with CSS variables
 
 ### Configuration
 
@@ -51,7 +67,102 @@ The `dev` feature (enabled by default) controls:
 - Base CSS loaded from file vs embedded
 - File watching for base CSS hot-reload
 
+## Provider Development
+
+### Key patterns
+
+- Provider trait: `run()` returns `Pin<Box<dyn Future>>` for object safety
+- Communication: `ProviderRequest` (Snapshot/Call) via oneshot channels to running provider tasks
+- Events flow: provider → `mpsc::Sender<ProviderEvent>` → broker → clients
+- Broker spawns snapshot and call requests as background tasks (never await inline — blocks all clients)
+- Use `call_void` for D-Bus methods with no arguments, NOT `call::<_, ()>(method, &())` (wrong signature)
+- D-Bus object paths (`o` type) need separate handling from strings (`s` type) — `String::try_from` fails on object paths
+- Debounce with `tokio::time::sleep(Duration::from_secs(86400))` + reset, not short initial duration
+- Parallel init with `tokio::join!` for independent async calls
+- Human-readable `tracing::info!` for every method call: `"connecting to {address}"` not `method=%method`
+- Require params explicitly: `let Some(val) = params["key"].as_bool()` not `unwrap_or(false)`
+
+### D-Bus helpers
+
+`DbusPropertyGroup` wraps a zbus proxy:
+- `get` / `get_uncached` — read properties (uncached bypasses proxy cache after PropertiesChanged)
+- `set` — write property
+- `call` / `call_void` — method calls (call_void for no-return methods)
+- `stream_changes` — stream PropertiesChanged signals
+
+## Applet Development
+
+### Key patterns
+
+- Use `glib::spawn_future_local` for async calls from GTK signal handlers (NOT `tokio::spawn`)
+- Persistent widget maps (`HashMap<key, WidgetRow>`) instead of clear+rebuild — preserves context menus, scroll position
+- Click handlers capture state at creation time — use `Rc<Cell<bool>>` for mutable state read at click time
+- Slider throttling: 100ms window with `Rc<Cell<Instant>>` to prevent ghosting
+- Check `scale.state_flags().contains(ACTIVE)` before updating slider values to prevent snap-back
+- Hero pattern: 32px icon + title + subtitle, consistent across all popover applets
+- Box spacing is a widget property, not CSS — keep spacing values in Rust code
+- GTK4 Switch: use `connect_state_set` with `Propagation::Stop`, guard with `Rc<Cell<bool>>` when updating programmatically
+- PopoverMenu for right-click: GIO SimpleActionGroup + PopoverMenu from model
+- Don't track external state (like BlueZ discovery) in UI — use local timers for button state
+
+### CSS conventions
+
+- All styles in `theme.css`, not hardcoded in Rust
+- CSS variables: `--popover-padding`, `--popover-section-spacing`, `--dim-opacity`, `--accent-bg`
+- Popover structure: `.foo-popover contents > box { margin: var(--popover-padding) }`
+- Button text: always `font-weight: normal` on both button and label
+- Tabular numbers: `font-variant-numeric: tabular-nums` for all numeric displays
+
 # Important rules
 - always use your built-in tools to read, search, grep, write files. Only use bash as the last resort
 - if i don't allow you a certain actions - do not workaround it.
 - do not write any code unless i ask you - print instead. I want to review, i want to type everything by hand
+- make sure you don't hardcode styles in rust code, use theme.css for that
+
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->
