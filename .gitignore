@@ -10,3 +10,4 @@ Cargo.lock
 .codex
 docs/superpowers/
 .playwright-mcp
+mockups/
