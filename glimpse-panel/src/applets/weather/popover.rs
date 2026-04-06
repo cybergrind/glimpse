@@ -36,10 +36,14 @@ impl SimpleComponent for WeatherPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, _sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -104,8 +108,13 @@ impl SimpleComponent for WeatherPopover {
 
         let model = WeatherPopover {
             popover: root.clone(),
-            hero_icon, hero_temp, hero_condition, hero_location,
-            hourly_box, stats_box, forecast_box,
+            hero_icon,
+            hero_temp,
+            hero_condition,
+            hero_location,
+            hourly_box,
+            stats_box,
+            forecast_box,
         };
 
         ComponentParts { model, widgets: () }
@@ -114,8 +123,11 @@ impl SimpleComponent for WeatherPopover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             WeatherPopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
             WeatherPopoverInput::UpdateCurrent(data) => {
                 let temp = data.temperature;
@@ -138,14 +150,20 @@ impl SimpleComponent for WeatherPopover {
                 row1.set_homogeneous(true);
                 row1.append(&build_stat_tile("Feels like", &format!("{feels:.0}°")));
                 row1.append(&build_stat_tile("Humidity", &format!("{humidity}%")));
-                row1.append(&build_stat_tile("Wind", &format!("{wind:.0} km/h {wind_dir}")));
+                row1.append(&build_stat_tile(
+                    "Wind",
+                    &format!("{wind:.0} km/h {wind_dir}"),
+                ));
                 self.stats_box.append(&row1);
 
                 let row2 = gtk::Box::new(gtk::Orientation::Horizontal, 8);
                 row2.set_homogeneous(true);
                 row2.append(&build_stat_tile("UV Index", &format!("{uv:.0}")));
                 row2.append(&build_stat_tile("Pressure", &format!("{pressure:.0} hPa")));
-                row2.append(&build_stat_tile("Precipitation", &format!("{precip:.1} mm")));
+                row2.append(&build_stat_tile(
+                    "Precipitation",
+                    &format!("{precip:.1} mm"),
+                ));
                 self.stats_box.append(&row2);
             }
             WeatherPopoverInput::UpdateLocation(location) => {
@@ -169,7 +187,9 @@ impl SimpleComponent for WeatherPopover {
 }
 
 fn clear_box(container: &gtk::Box) {
-    while let Some(child) = container.first_child() { container.remove(&child); }
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
 }
 
 fn hero_summary(current: &WeatherCurrent) -> String {
@@ -277,9 +297,7 @@ fn build_forecast_row(entry: &WeatherDaily) -> gtk::Box {
 mod tests {
     use relm4::gtk;
 
-    use super::{
-        hero_location_constraints, hero_summary, WeatherCurrent,
-    };
+    use super::{WeatherCurrent, hero_location_constraints, hero_summary};
 
     #[test]
     fn hero_summary_formats_condition_and_feels_like_only() {
