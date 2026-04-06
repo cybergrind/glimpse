@@ -43,7 +43,6 @@ fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
         Box::new(providers::network::NetworkProviderFactory),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::tray::TrayProviderFactory),
-        Box::new(providers::weather::WeatherProviderFactory),
     ]
 }
 

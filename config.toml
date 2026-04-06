@@ -17,9 +17,8 @@ timezones = [
 
 [applets.weather]
 extends = "weather"
-latitude = 47.42
-longitude = 9.37
-city_name = "Warsaw, PL"
+city_name = "Warsaw"
+geolocate = false
 
 [applets.network]
 extends = "network"

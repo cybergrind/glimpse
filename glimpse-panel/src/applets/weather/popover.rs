@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
 };
+
+use super::applet::{WeatherCurrent, WeatherDaily, WeatherHourly, WeatherLocation};
 
 pub struct WeatherPopover {
     popover: gtk::Popover,
@@ -19,16 +18,15 @@ pub struct WeatherPopover {
 
 pub struct WeatherPopoverInit {
     pub parent: gtk::Box,
-    pub client: Arc<Client>,
 }
 
 #[derive(Debug)]
 pub enum WeatherPopoverInput {
     Toggle,
-    UpdateCurrent(serde_json::Value),
-    UpdateHourly(serde_json::Value),
-    UpdateForecast(serde_json::Value),
-    UpdateLocation(serde_json::Value),
+    UpdateCurrent(WeatherCurrent),
+    UpdateHourly(Vec<WeatherHourly>),
+    UpdateForecast(Vec<WeatherDaily>),
+    UpdateLocation(WeatherLocation),
 }
 
 impl SimpleComponent for WeatherPopover {
@@ -121,16 +119,16 @@ impl SimpleComponent for WeatherPopover {
                 else { self.popover.popup(); }
             }
             WeatherPopoverInput::UpdateCurrent(data) => {
-                let temp = data["temperature"].as_f64().unwrap_or(0.0);
-                let condition = data["condition"].as_str().unwrap_or("");
-                let icon = data["icon"].as_str().unwrap_or("weather-overcast-symbolic");
-                let feels = data["apparent_temperature"].as_f64().unwrap_or(0.0);
-                let humidity = data["humidity"].as_u64().unwrap_or(0);
-                let wind = data["wind_speed"].as_f64().unwrap_or(0.0);
-                let wind_dir = data["wind_direction_label"].as_str().unwrap_or("");
-                let uv = data["uv_index"].as_f64().unwrap_or(0.0);
-                let pressure = data["pressure"].as_f64().unwrap_or(0.0);
-                let precip = data["precipitation"].as_f64().unwrap_or(0.0);
+                let temp = data.temperature;
+                let condition = data.condition.as_str();
+                let icon = data.icon.as_str();
+                let feels = data.apparent_temperature;
+                let humidity = data.humidity;
+                let wind = data.wind_speed;
+                let wind_dir = data.wind_direction_label.as_str();
+                let uv = data.uv_index;
+                let pressure = data.pressure;
+                let precip = data.precipitation;
 
                 self.hero_icon.set_icon_name(Some(icon));
                 self.hero_temp.set_label(&format!("{temp:.0}°"));
@@ -152,25 +150,23 @@ impl SimpleComponent for WeatherPopover {
                 row2.append(&build_stat_tile("Precipitation", &format!("{precip:.1} mm")));
                 self.stats_box.append(&row2);
             }
-            WeatherPopoverInput::UpdateLocation(_) => {}
+            WeatherPopoverInput::UpdateLocation(_location) => {}
             WeatherPopoverInput::UpdateHourly(data) => {
                 clear_box(&self.hourly_box);
-                let Some(arr) = data.as_array() else { return };
-                for entry in arr.iter().take(5) {
+                for entry in data.iter().take(5) {
                     self.hourly_box.append(&build_hourly_col(entry));
                 }
             }
             WeatherPopoverInput::UpdateForecast(data) => {
                 clear_box(&self.forecast_box);
-                let Some(arr) = data.as_array() else { return };
 
-                if let Some(today) = arr.iter().find(|e| e["is_today"].as_bool().unwrap_or(false)) {
-                    let lo = today["temperature_min"].as_f64().unwrap_or(0.0);
-                    let hi = today["temperature_max"].as_f64().unwrap_or(0.0);
+                if let Some(today) = data.iter().find(|e| e.is_today) {
+                    let lo = today.temperature_min;
+                    let hi = today.temperature_max;
                     self.hero_hilo.set_label(&format!("{lo:.0}° / {hi:.0}°"));
                 }
 
-                for entry in arr {
+                for entry in &data {
                     self.forecast_box.append(&build_forecast_row(entry));
                 }
             }
@@ -199,66 +195,59 @@ fn build_stat_tile(label: &str, value: &str) -> gtk::Box {
     tile
 }
 
-fn build_hourly_col(entry: &serde_json::Value) -> gtk::Box {
+fn build_hourly_col(entry: &WeatherHourly) -> gtk::Box {
     let col = gtk::Box::new(gtk::Orientation::Vertical, 4);
     col.add_css_class("weather-hourly-col");
 
-    let time = gtk::Label::new(Some(entry["time"].as_str().unwrap_or("")));
+    let time = gtk::Label::new(Some(&entry.time));
     time.add_css_class("weather-hourly-time");
     col.append(&time);
 
-    let icon = gtk::Image::from_icon_name(entry["icon"].as_str().unwrap_or("weather-overcast-symbolic"));
+    let icon = gtk::Image::from_icon_name(&entry.icon);
     icon.set_pixel_size(24);
     col.append(&icon);
 
-    let temp = entry["temperature"].as_f64().unwrap_or(0.0);
-    let temp_label = gtk::Label::new(Some(&format!("{temp:.0}°")));
+    let temp_label = gtk::Label::new(Some(&format!("{:.0}°", entry.temperature)));
     temp_label.add_css_class("weather-hourly-temp");
     col.append(&temp_label);
 
     col
 }
 
-fn build_forecast_row(entry: &serde_json::Value) -> gtk::Box {
+fn build_forecast_row(entry: &WeatherDaily) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     row.add_css_class("weather-forecast-row");
 
-    let is_today = entry["is_today"].as_bool().unwrap_or(false);
-    if is_today {
+    if entry.is_today {
         row.add_css_class("weather-forecast-today");
     }
 
-    let day_name = entry["day_name"].as_str().unwrap_or("");
-    let day = gtk::Label::new(Some(day_name));
+    let day = gtk::Label::new(Some(&entry.day_name));
     day.set_width_chars(5);
     day.set_halign(gtk::Align::Start);
     day.add_css_class("weather-forecast-day");
     row.append(&day);
 
-    let icon = gtk::Image::from_icon_name(entry["icon"].as_str().unwrap_or("weather-overcast-symbolic"));
+    let icon = gtk::Image::from_icon_name(&entry.icon);
     icon.set_pixel_size(16);
     row.append(&icon);
 
-    let lo = entry["temperature_min"].as_f64().unwrap_or(0.0);
-    let lo_label = gtk::Label::new(Some(&format!("{lo:.0}°")));
+    let lo_label = gtk::Label::new(Some(&format!("{:.0}°", entry.temperature_min)));
     lo_label.set_width_chars(4);
     lo_label.set_halign(gtk::Align::End);
     lo_label.add_css_class("weather-forecast-lo");
     row.append(&lo_label);
 
-    let hi = entry["temperature_max"].as_f64().unwrap_or(0.0);
-    let hi_label = gtk::Label::new(Some(&format!("{hi:.0}°")));
+    let hi_label = gtk::Label::new(Some(&format!("{:.0}°", entry.temperature_max)));
     hi_label.set_width_chars(4);
     hi_label.set_halign(gtk::Align::End);
     hi_label.add_css_class("weather-forecast-hi");
     row.append(&hi_label);
 
-    let precip = entry["precipitation_sum"].as_f64().unwrap_or(0.0);
-    let condition = entry["condition"].as_str().unwrap_or("");
-    let detail = if precip > 0.0 {
-        format!("{condition} · {precip:.0}mm")
+    let detail = if entry.precipitation_sum > 0.0 {
+        format!("{} · {:.0}mm", entry.condition, entry.precipitation_sum)
     } else {
-        condition.to_owned()
+        entry.condition.clone()
     };
     let cond_label = gtk::Label::new(Some(&detail));
     cond_label.set_hexpand(true);

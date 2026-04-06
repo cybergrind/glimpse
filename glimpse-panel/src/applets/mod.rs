@@ -136,12 +136,11 @@ pub fn create_applet(
             Some(AppletController::Tray(applet))
         }
         "weather" => {
-            let client = client.clone()?;
             let config: weather::WeatherConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = weather::Weather::builder()
-                .launch(weather::WeatherInit { config, client })
+                .launch(config)
                 .detach();
             Some(AppletController::Weather(applet))
         }
