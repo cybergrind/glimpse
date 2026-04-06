@@ -70,6 +70,7 @@ impl Component for Notifications {
                 set_label: &model.badge_count.to_string(),
                 #[watch]
                 set_visible: model.badge_visible,
+                set_valign: gtk::Align::Start,
                 add_css_class: "notification-badge",
             },
         }
