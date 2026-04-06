@@ -24,6 +24,10 @@ geolocate = false
 extends = "network"
 settings_command = "nm-connection-editor"
 
+[applets.notifications]
+extends = "notifications"
+badge_style = "count"      # "dot" = accent dot, "count" = number (max 9+), "" = no badge
+
 # [applets.audio]
 # extends = "audio"
 # show_icon = true                       # show volume icon

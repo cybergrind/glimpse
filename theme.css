@@ -734,16 +734,18 @@
 /* notifications */
 
 .notification-badge {
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 700;
-    min-width: 14px;
-    min-height: 14px;
-    padding: 0 2px;
-    margin-left: -6px;
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    margin-top: 6px;
+    margin-left: -2px;
     margin-bottom: 6px;
-    border-radius: 7px;
+    border-radius: 50%;
     background: var(--accent-bg);
     color: var(--on-accent);
+    font-variant-numeric: tabular-nums;
 }
 
 .notification-dot {
@@ -751,7 +753,7 @@
     min-width: 6px;
     min-height: 6px;
     padding: 0;
-    margin-left: -4px;
+    margin-left: 0px;
     border-radius: 3px;
     background: var(--accent-bg);
 }
