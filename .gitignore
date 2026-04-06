@@ -9,3 +9,4 @@ Cargo.lock
 .beads-credential-key
 .codex
 docs/superpowers/
+.playwright-mcp

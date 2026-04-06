@@ -723,3 +723,145 @@
     font-size: 12px;
     opacity: var(--dim-opacity);
 }
+
+/* notifications */
+
+.notification-badge {
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    min-height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: #e01b24;
+    color: #ffffff;
+}
+
+.notifications-popover {
+    min-width: 380px;
+    max-width: 380px;
+}
+
+.notifications-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.notifications-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.notifications-popover .notif-hero {
+    margin-bottom: 4px;
+}
+
+.notifications-popover .notif-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.notifications-popover .notif-subtitle {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+}
+
+.notifications-popover .notif-empty {
+    font-size: 12px;
+    opacity: 0.4;
+    padding: 16px 0;
+}
+
+.notifications-popover .notif-list {
+    padding: 4px 0;
+}
+
+.notifications-popover .notif-card {
+    padding: 8px;
+}
+
+.notifications-popover .notif-stack-btn,
+.notifications-popover .notif-row-btn {
+    padding: 0;
+    font-weight: normal;
+    margin-bottom: 4px;
+}
+
+.notifications-popover .notif-stack-btn label,
+.notifications-popover .notif-row-btn label {
+    font-weight: normal;
+}
+
+.notifications-popover .notif-app-name {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: var(--dim-opacity);
+}
+
+.notifications-popover .notif-summary {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.notifications-popover .notif-body {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+}
+
+.notifications-popover .notif-time {
+    font-size: 11px;
+    opacity: 0.4;
+    font-variant-numeric: tabular-nums;
+}
+
+.notifications-popover .notif-dismiss {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    opacity: 0.4;
+}
+
+.notifications-popover .notif-dismiss:hover {
+    opacity: 1;
+}
+
+.notifications-popover .notif-actions {
+    margin-top: 4px;
+}
+
+.notifications-popover .notif-action-btn {
+    font-size: 12px;
+    padding: 2px 8px;
+    font-weight: normal;
+}
+
+.notifications-popover .notif-action-btn label {
+    font-weight: normal;
+}
+
+.notifications-popover .notif-group-header {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: var(--dim-opacity);
+    padding: 4px 0;
+}
+
+.notifications-popover .notif-stack-depth {
+    margin: 0 6px;
+    border-bottom: 1px solid var(--border);
+    opacity: 0.5;
+}
+
+.notifications-popover .notif-stack-depth-2 {
+    margin: 0 12px;
+    border-bottom: 1px solid var(--border);
+    opacity: 0.3;
+}
+
+.notifications-popover .settings-btn {
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.notifications-popover .settings-btn label {
+    font-weight: normal;
+}

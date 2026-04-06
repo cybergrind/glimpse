@@ -3,6 +3,7 @@ mod battery;
 mod bluetooth;
 mod clock;
 mod network;
+mod notifications;
 mod power;
 mod session;
 mod spacer;
@@ -29,6 +30,7 @@ pub enum AppletController {
     Bluetooth(Controller<bluetooth::Bluetooth>),
     Clock(Controller<Clock>),
     Network(Controller<network::Network>),
+    Notifications(Controller<notifications::Notifications>),
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
     Weather(Controller<weather::Weather>),
@@ -44,6 +46,7 @@ impl AppletController {
             AppletController::Bluetooth(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Network(c) => c.widget().clone().upcast(),
+            AppletController::Notifications(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
             AppletController::Weather(c) => c.widget().clone().upcast(),
@@ -93,6 +96,16 @@ pub fn create_applet(
                 .launch(network::NetworkInit { config, client })
                 .detach();
             Some(AppletController::Network(applet))
+        }
+        "notifications" => {
+            let client = client.clone()?;
+            let config: notifications::NotificationsConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = notifications::Notifications::builder()
+                .launch(notifications::NotificationsInit { config, client })
+                .detach();
+            Some(AppletController::Notifications(applet))
         }
         "battery" => {
             let client = client.clone()?;
