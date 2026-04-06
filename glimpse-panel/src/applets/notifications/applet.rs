@@ -66,17 +66,22 @@ impl Component for Notifications {
                 set_pixel_size: 16,
             },
 
-            gtk::Label {
-                #[watch]
-                set_label: &model.badge_label,
-                #[watch]
-                set_visible: model.badge_visible,
-                #[watch]
-                set_css_classes: if model.badge_style == "count" {
-                    &["notification-badge"]
-                } else {
-                    &["notification-dot"]
-                },
+            if model.badge_style == "count" {
+                gtk::Label {
+                    #[watch]
+                    set_label: &model.badge_label,
+                    #[watch]
+                    set_visible: model.badge_visible,
+                    set_valign: gtk::Align::Center,
+                    add_css_class: "notification-badge",
+                }
+            } else {
+                gtk::Box {
+                    #[watch]
+                    set_visible: model.badge_visible,
+                    set_valign: gtk::Align::Center,
+                    add_css_class: "notification-dot",
+                }
             },
         }
     }
