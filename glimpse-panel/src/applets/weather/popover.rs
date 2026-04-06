@@ -62,9 +62,7 @@ impl SimpleComponent for WeatherPopover {
         hero_row1.append(&hero_temp);
 
         let hero_location = gtk::Label::new(None);
-        hero_location.set_halign(gtk::Align::End);
-        hero_location.set_hexpand(true);
-        hero_location.add_css_class("weather-hero-location");
+        configure_hero_location_label(&hero_location);
         hero_row1.append(&hero_location);
 
         vbox.append(&hero_row1);
@@ -181,6 +179,19 @@ fn hero_summary(current: &WeatherCurrent) -> String {
     )
 }
 
+fn configure_hero_location_label(label: &gtk::Label) {
+    let (max_width_chars, ellipsize_mode) = hero_location_constraints();
+    label.set_halign(gtk::Align::End);
+    label.set_hexpand(true);
+    label.set_ellipsize(ellipsize_mode);
+    label.set_max_width_chars(max_width_chars);
+    label.add_css_class("weather-hero-location");
+}
+
+fn hero_location_constraints() -> (i32, gtk::pango::EllipsizeMode) {
+    (24, gtk::pango::EllipsizeMode::End)
+}
+
 fn build_stat_tile(label: &str, value: &str) -> gtk::Box {
     let tile = gtk::Box::new(gtk::Orientation::Vertical, 2);
     tile.add_css_class("weather-stat-tile");
@@ -264,7 +275,11 @@ fn build_forecast_row(entry: &WeatherDaily) -> gtk::Box {
 
 #[cfg(test)]
 mod tests {
-    use super::{hero_summary, WeatherCurrent};
+    use relm4::gtk;
+
+    use super::{
+        hero_location_constraints, hero_summary, WeatherCurrent,
+    };
 
     #[test]
     fn hero_summary_formats_condition_and_feels_like_only() {
@@ -279,5 +294,13 @@ mod tests {
         assert_eq!(summary, "Overcast · Feels like 9°");
         assert!(!summary.contains("High"));
         assert!(!summary.contains("Low"));
+    }
+
+    #[test]
+    fn hero_location_constraints_limit_width_and_ellipsis() {
+        let (max_width_chars, ellipsize_mode) = hero_location_constraints();
+
+        assert_eq!(max_width_chars, 24);
+        assert_eq!(ellipsize_mode, gtk::pango::EllipsizeMode::End);
     }
 }
