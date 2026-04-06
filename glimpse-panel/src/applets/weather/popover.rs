@@ -10,7 +10,7 @@ pub struct WeatherPopover {
     hero_icon: gtk::Image,
     hero_temp: gtk::Label,
     hero_condition: gtk::Label,
-    hero_hilo: gtk::Label,
+    hero_location: gtk::Label,
     hourly_box: gtk::Box,
     stats_box: gtk::Box,
     forecast_box: gtk::Box,
@@ -61,6 +61,12 @@ impl SimpleComponent for WeatherPopover {
         hero_temp.add_css_class("weather-hero-temp");
         hero_row1.append(&hero_temp);
 
+        let hero_location = gtk::Label::new(None);
+        hero_location.set_halign(gtk::Align::End);
+        hero_location.set_hexpand(true);
+        hero_location.add_css_class("weather-hero-location");
+        hero_row1.append(&hero_location);
+
         vbox.append(&hero_row1);
 
         let hero_row2 = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -71,11 +77,6 @@ impl SimpleComponent for WeatherPopover {
         hero_condition.set_hexpand(true);
         hero_condition.add_css_class("weather-hero-condition");
         hero_row2.append(&hero_condition);
-
-        let hero_hilo = gtk::Label::new(None);
-        hero_hilo.set_halign(gtk::Align::End);
-        hero_hilo.add_css_class("weather-hero-hilo");
-        hero_row2.append(&hero_hilo);
 
         vbox.append(&hero_row2);
 
@@ -105,7 +106,7 @@ impl SimpleComponent for WeatherPopover {
 
         let model = WeatherPopover {
             popover: root.clone(),
-            hero_icon, hero_temp, hero_condition, hero_hilo,
+            hero_icon, hero_temp, hero_condition, hero_location,
             hourly_box, stats_box, forecast_box,
         };
 
@@ -120,7 +121,6 @@ impl SimpleComponent for WeatherPopover {
             }
             WeatherPopoverInput::UpdateCurrent(data) => {
                 let temp = data.temperature;
-                let condition = data.condition.as_str();
                 let icon = data.icon.as_str();
                 let feels = data.apparent_temperature;
                 let humidity = data.humidity;
@@ -132,7 +132,7 @@ impl SimpleComponent for WeatherPopover {
 
                 self.hero_icon.set_icon_name(Some(icon));
                 self.hero_temp.set_label(&format!("{temp:.0}°"));
-                self.hero_condition.set_label(condition);
+                self.hero_condition.set_label(&hero_summary(&data));
 
                 clear_box(&self.stats_box);
 
@@ -150,7 +150,9 @@ impl SimpleComponent for WeatherPopover {
                 row2.append(&build_stat_tile("Precipitation", &format!("{precip:.1} mm")));
                 self.stats_box.append(&row2);
             }
-            WeatherPopoverInput::UpdateLocation(_location) => {}
+            WeatherPopoverInput::UpdateLocation(location) => {
+                self.hero_location.set_label(&location.city);
+            }
             WeatherPopoverInput::UpdateHourly(data) => {
                 clear_box(&self.hourly_box);
                 for entry in data.iter().take(5) {
@@ -159,12 +161,6 @@ impl SimpleComponent for WeatherPopover {
             }
             WeatherPopoverInput::UpdateForecast(data) => {
                 clear_box(&self.forecast_box);
-
-                if let Some(today) = data.iter().find(|e| e.is_today) {
-                    let lo = today.temperature_min;
-                    let hi = today.temperature_max;
-                    self.hero_hilo.set_label(&format!("{lo:.0}° / {hi:.0}°"));
-                }
 
                 for entry in &data {
                     self.forecast_box.append(&build_forecast_row(entry));
@@ -176,6 +172,13 @@ impl SimpleComponent for WeatherPopover {
 
 fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() { container.remove(&child); }
+}
+
+fn hero_summary(current: &WeatherCurrent) -> String {
+    format!(
+        "{} · Feels like {:.0}°",
+        current.condition, current.apparent_temperature
+    )
 }
 
 fn build_stat_tile(label: &str, value: &str) -> gtk::Box {
@@ -257,4 +260,24 @@ fn build_forecast_row(entry: &WeatherDaily) -> gtk::Box {
     row.append(&cond_label);
 
     row
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hero_summary, WeatherCurrent};
+
+    #[test]
+    fn hero_summary_formats_condition_and_feels_like_only() {
+        let current = WeatherCurrent {
+            condition: "Overcast".into(),
+            apparent_temperature: 9.0,
+            ..WeatherCurrent::default()
+        };
+
+        let summary = hero_summary(&current);
+
+        assert_eq!(summary, "Overcast · Feels like 9°");
+        assert!(!summary.contains("High"));
+        assert!(!summary.contains("Low"));
+    }
 }
