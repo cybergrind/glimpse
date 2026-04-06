@@ -13,8 +13,9 @@ use super::popup::NotificationPopup;
 
 pub struct Notifications {
     icon_name: String,
-    badge_count: u32,
+    badge_label: String,
     badge_visible: bool,
+    badge_style: String, // "count", "dot", ""
     tooltip: String,
     dnd: bool,
     initialized: bool,
@@ -67,11 +68,15 @@ impl Component for Notifications {
 
             gtk::Label {
                 #[watch]
-                set_label: &model.badge_count.to_string(),
+                set_label: &model.badge_label,
                 #[watch]
                 set_visible: model.badge_visible,
-                set_valign: gtk::Align::Start,
-                add_css_class: "notification-badge",
+                #[watch]
+                set_css_classes: if model.badge_style == "count" {
+                    &["notification-badge"]
+                } else {
+                    &["notification-dot"]
+                },
             },
         }
     }
@@ -95,8 +100,9 @@ impl Component for Notifications {
 
         let model = Notifications {
             icon_name: "preferences-system-notifications-symbolic".into(),
-            badge_count: 0,
+            badge_label: String::new(),
             badge_visible: false,
+            badge_style: init.config.badge_style.clone(),
             tooltip: "Notifications".into(),
             dnd: false,
             initialized: false,
@@ -163,8 +169,12 @@ impl Component for Notifications {
                     "preferences-system-notifications-symbolic"
                 }.into();
 
-                self.badge_count = badge_count;
-                self.badge_visible = badge_count > 0;
+                self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
+                self.badge_label = match self.badge_style.as_str() {
+                    "count" => if badge_count > 9 { "9+".into() } else { badge_count.to_string() },
+                    "dot" => String::new(),
+                    _ => String::new(),
+                };
 
                 self.tooltip = if dnd {
                     "Do Not Disturb".into()

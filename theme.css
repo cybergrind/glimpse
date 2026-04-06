@@ -736,14 +736,26 @@
 .notification-badge {
     font-size: 8px;
     font-weight: 700;
-    min-width: 12px;
-    min-height: 12px;
+    min-width: 14px;
+    min-height: 14px;
     padding: 0 2px;
-    margin-left: -8px;
-    margin-top: -6px;
-    border-radius: 6px;
+    margin-left: -6px;
+    margin-bottom: 6px;
+    border-radius: 7px;
     background: var(--accent-bg);
     color: var(--on-accent);
+}
+
+.notification-dot {
+    min-width: 6px;
+    min-height: 6px;
+    max-width: 6px;
+    max-height: 6px;
+    padding: 0;
+    margin-left: -4px;
+    margin-bottom: 8px;
+    border-radius: 3px;
+    background: var(--accent-bg);
 }
 
 .notifications-popover {
