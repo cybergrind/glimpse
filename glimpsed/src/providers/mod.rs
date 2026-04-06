@@ -4,5 +4,6 @@ pub mod bluetooth;
 pub mod dbus_props;
 pub mod debug;
 pub mod network;
+pub mod notifications;
 pub mod power;
 pub mod tray;
