@@ -75,6 +75,33 @@
     background-color: rgba(255, 255, 255, 0.08);
 }
 
+.exec-status-item {
+    padding: 0;
+}
+
+.exec-status-label {
+    font-variant-numeric: tabular-nums;
+}
+
+.exec-popover contents > box {
+    margin: var(--popover-padding);
+    min-width: 260px;
+}
+
+.exec-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.exec-hero-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.exec-hero-subtitle {
+    opacity: var(--dim-opacity);
+}
+
 .clock {
     font-weight: 600;
 }

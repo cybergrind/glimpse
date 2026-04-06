@@ -2,6 +2,7 @@ mod audio;
 mod battery;
 mod bluetooth;
 mod clock;
+mod exec;
 mod network;
 mod notifications;
 mod power;
@@ -19,7 +20,10 @@ use relm4::{
 };
 
 use crate::{
-    applets::clock::{Clock, ClockConfig, ClockInit},
+    applets::{
+        clock::{Clock, ClockConfig, ClockInit},
+        exec::{Exec, ExecConfig, ExecInit},
+    },
     config::AppletConfig,
 };
 use spacer::Spacer;
@@ -29,6 +33,7 @@ pub enum AppletController {
     Battery(Controller<battery::Battery>),
     Bluetooth(Controller<bluetooth::Bluetooth>),
     Clock(Controller<Clock>),
+    Exec(Controller<exec::Exec>),
     Network(Controller<network::Network>),
     Notifications(Controller<notifications::Notifications>),
     Power(Controller<power::Power>),
@@ -45,6 +50,7 @@ impl AppletController {
             AppletController::Battery(c) => c.widget().clone().upcast(),
             AppletController::Bluetooth(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
+            AppletController::Exec(c) => c.widget().clone().upcast(),
             AppletController::Network(c) => c.widget().clone().upcast(),
             AppletController::Notifications(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
@@ -97,6 +103,22 @@ pub fn create_applet(
                 .launch(network::NetworkInit { config, client })
                 .detach();
             Some(AppletController::Network(applet))
+        }
+        "exec" => {
+            let config: ExecConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            if config.command.is_empty() {
+                tracing::error!(name, "exec applet requires a non-empty command");
+                return None;
+            }
+            let applet = Exec::builder()
+                .launch(ExecInit {
+                    name: name.to_string(),
+                    config,
+                })
+                .detach();
+            Some(AppletController::Exec(applet))
         }
         "notifications" => {
             let client = client.clone()?;
