@@ -18,7 +18,7 @@ pub struct Notifications {
     badge_style: String, // "count", "dot", ""
     tooltip: String,
     dnd: bool,
-    initialized: bool,
+    started_at: u64,
     popover: Controller<NotificationsPopover>,
     popup: Rc<RefCell<NotificationPopup>>,
     seen_ids: std::collections::HashSet<u32>,
@@ -107,7 +107,10 @@ impl Component for Notifications {
             badge_style: init.config.badge_style.clone(),
             tooltip: "Notifications".into(),
             dnd: false,
-            initialized: false,
+            started_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
             popover,
             popup,
             seen_ids: std::collections::HashSet::new(),
@@ -190,38 +193,37 @@ impl Component for Notifications {
             }
             NotificationsMsg::ListUpdate(data) => {
                 if let Some(arr) = data.as_array() {
-                    if !self.initialized {
-                        // First update — mark all existing as seen, no popups
-                        for notif_val in arr {
-                            if let Some(id) = notif_val["id"].as_u64() {
-                                self.seen_ids.insert(id as u32);
-                            }
-                        }
-                        self.initialized = true;
-                    } else {
-                        // Subsequent updates — show popups for new notifications
-                        for notif_val in arr {
-                            if let Some(id) = notif_val["id"].as_u64() {
-                                let id = id as u32;
-                                if !self.seen_ids.contains(&id) {
-                                    self.seen_ids.insert(id);
-                                    let urgency = notif_val["urgency"].as_u64().unwrap_or(1) as u8;
-                                    if !self.dnd || urgency == 2 {
-                                        if let Ok(notif) = serde_json::from_value::<NotifData>(notif_val.clone()) {
-                                            self.popup.borrow_mut().show(&notif);
-                                        }
+                    // Filter: only notifications received after panel started
+                    let fresh: Vec<serde_json::Value> = arr.iter()
+                        .filter(|n| n["timestamp"].as_u64().unwrap_or(0) >= self.started_at)
+                        .cloned()
+                        .collect();
+
+                    // Show popups for unseen notifications
+                    for notif_val in &fresh {
+                        if let Some(id) = notif_val["id"].as_u64() {
+                            let id = id as u32;
+                            if !self.seen_ids.contains(&id) {
+                                self.seen_ids.insert(id);
+                                let urgency = notif_val["urgency"].as_u64().unwrap_or(1) as u8;
+                                if !self.dnd || urgency == 2 {
+                                    if let Ok(notif) = serde_json::from_value::<NotifData>(notif_val.clone()) {
+                                        self.popup.borrow_mut().show(&notif);
                                     }
                                 }
                             }
                         }
                     }
-                    // Clean up seen_ids for dismissed notifications
-                    let current_ids: std::collections::HashSet<u32> = arr.iter()
+
+                    // Clean up seen_ids
+                    let current_ids: std::collections::HashSet<u32> = fresh.iter()
                         .filter_map(|n| n["id"].as_u64().map(|id| id as u32))
                         .collect();
                     self.seen_ids.retain(|id| current_ids.contains(id));
+
+                    // Forward only fresh notifications to popover
+                    self.popover.emit(NotificationsPopoverInput::UpdateList(serde_json::Value::Array(fresh)));
                 }
-                self.popover.emit(NotificationsPopoverInput::UpdateList(data));
             }
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);
