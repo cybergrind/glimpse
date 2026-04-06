@@ -38,6 +38,7 @@ fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
         Box::new(providers::battery::BatteryProviderFactory),
         Box::new(providers::bluetooth::BluetoothProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
+        Box::new(providers::network::NetworkProviderFactory),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::tray::TrayProviderFactory),
         Box::new(providers::weather::WeatherProviderFactory),
