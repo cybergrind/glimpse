@@ -474,10 +474,24 @@ fn apply_icon_style(icon: &gtk::Image, connected: bool) {
 }
 
 fn apply_tooltip(btn: &gtk::Button, dev: &BtDevice) {
-    let tooltip = if dev.connected { "Disconnect" }
-        else if dev.paired { "Connect" }
-        else { "Pair" };
-    btn.set_tooltip_text(Some(tooltip));
+    let mut parts = Vec::new();
+    if !dev.device_type.is_empty() && dev.device_type != "Device" {
+        parts.push(dev.device_type.clone());
+    }
+    if let Some(pct) = dev.battery {
+        parts.push(format!("{pct}%"));
+    }
+    if dev.connected {
+        parts.push("Connected".into());
+    } else if dev.paired {
+        parts.push("Paired".into());
+    }
+    let tooltip = if parts.is_empty() {
+        dev.name.clone()
+    } else {
+        parts.join(" \u{b7} ")
+    };
+    btn.set_tooltip_text(Some(&tooltip));
 }
 
 fn apply_battery(label: &gtk::Label, battery: Option<u8>) {
