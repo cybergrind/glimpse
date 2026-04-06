@@ -312,6 +312,99 @@
     font-weight: normal;
 }
 
+/* network */
+
+.network-popover {
+    min-width: 360px;
+    max-width: 360px;
+}
+
+.network-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.network-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.network-popover .net-hero {
+    margin-bottom: 4px;
+}
+
+.network-popover .net-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.network-popover .net-subtitle {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+}
+
+.network-popover .net-section-header {
+    padding: 4px 0;
+}
+
+.network-popover .net-section-title {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.network-popover .net-empty {
+    font-size: 12px;
+    opacity: 0.4;
+    padding: 4px 0;
+}
+
+.network-popover .net-ap-btn,
+.network-popover .net-device-btn,
+.network-popover .net-vpn-btn {
+    padding: 4px 6px;
+    font-weight: normal;
+}
+
+.network-popover .net-ap-btn label,
+.network-popover .net-device-btn label,
+.network-popover .net-vpn-btn label {
+    font-weight: normal;
+}
+
+.network-popover .net-ap-icon,
+.network-popover .net-lock-icon {
+    opacity: 0.6;
+}
+
+.network-popover .net-ap-icon-active {
+    color: var(--accent-bg);
+}
+
+.network-popover .net-dim {
+    opacity: 0.5;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.network-popover .net-password-box {
+    padding: 4px 6px;
+    margin-top: 4px;
+}
+
+.network-popover .net-password-error {
+    color: #e01b24;
+    font-size: 12px;
+    padding: 2px 6px;
+}
+
+.network-popover .settings-btn {
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.network-popover .settings-btn label {
+    font-weight: normal;
+}
+
 .power {}
 
 .power-popover {

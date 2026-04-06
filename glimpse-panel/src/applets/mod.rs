@@ -2,6 +2,7 @@ mod audio;
 mod battery;
 mod bluetooth;
 mod clock;
+mod network;
 mod power;
 mod session;
 mod spacer;
@@ -27,6 +28,7 @@ pub enum AppletController {
     Battery(Controller<battery::Battery>),
     Bluetooth(Controller<bluetooth::Bluetooth>),
     Clock(Controller<Clock>),
+    Network(Controller<network::Network>),
     Power(Controller<power::Power>),
     Tray(Controller<tray::Tray>),
     Weather(Controller<weather::Weather>),
@@ -41,6 +43,7 @@ impl AppletController {
             AppletController::Battery(c) => c.widget().clone().upcast(),
             AppletController::Bluetooth(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
+            AppletController::Network(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
             AppletController::Weather(c) => c.widget().clone().upcast(),
@@ -80,6 +83,16 @@ pub fn create_applet(
                 .launch(bluetooth::BluetoothInit { config, client })
                 .detach();
             Some(AppletController::Bluetooth(applet))
+        }
+        "network" => {
+            let client = client.clone()?;
+            let config: network::NetworkConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = network::Network::builder()
+                .launch(network::NetworkInit { config, client })
+                .detach();
+            Some(AppletController::Network(applet))
         }
         "battery" => {
             let client = client.clone()?;

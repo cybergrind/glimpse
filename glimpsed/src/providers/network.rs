@@ -620,8 +620,11 @@ impl NetworkProvider {
         }
 
         self.access_points = best_aps.into_values().collect();
-        self.access_points
-            .sort_by(|a, b| b.strength.cmp(&a.strength));
+        self.access_points.sort_by(|a, b| {
+            b.connected
+                .cmp(&a.connected)
+                .then(b.strength.cmp(&a.strength))
+        });
     }
 
     async fn get_saved_wifi(
