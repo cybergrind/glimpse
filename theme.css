@@ -667,7 +667,7 @@
 }
 
 .weather-popover .weather-hourly-col {
-    padding: 4px 2px;
+    padding: 6px 2px;
 }
 
 .weather-popover .weather-hourly-time {
@@ -685,25 +685,32 @@
     padding: 2px 0;
 }
 
-.weather-popover .weather-stat-tile {
-    padding: 6px 8px;
-    border-radius: 8px;
-    background: color-mix(in srgb, currentColor 6%, transparent);
+.weather-popover .weather-detail-row {
+    margin-bottom: 4px;
 }
 
-.weather-popover .weather-stat-key {
+.weather-popover .weather-detail-row:last-child {
+    margin-bottom: 0;
+}
+
+.weather-popover .weather-detail-pair {
+    padding: 4px 10px;
+}
+
+.weather-popover .weather-detail-key {
     font-size: 11px;
     opacity: var(--dim-opacity);
+    letter-spacing: 0.02em;
 }
 
-.weather-popover .weather-stat-val {
+.weather-popover .weather-detail-val {
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
 
 .weather-popover .weather-forecast-row {
-    padding: 4px 0;
+    padding: 6px 0;
 }
 
 .weather-popover .weather-forecast-today .weather-forecast-day {
@@ -714,16 +721,10 @@
     font-size: 13px;
 }
 
-.weather-popover .weather-forecast-lo {
+.weather-popover .weather-forecast-temps {
     font-size: 13px;
     font-variant-numeric: tabular-nums;
-    opacity: var(--dim-opacity);
-}
-
-.weather-popover .weather-forecast-hi {
-    font-size: 13px;
     font-weight: 600;
-    font-variant-numeric: tabular-nums;
 }
 
 .weather-popover .weather-forecast-cond {

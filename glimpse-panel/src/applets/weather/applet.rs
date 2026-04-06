@@ -48,6 +48,8 @@ pub(crate) struct WeatherDaily {
     pub temperature_max: f64,
     pub temperature_min: f64,
     pub precipitation_sum: f64,
+    pub sunrise: String,
+    pub sunset: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
@@ -130,6 +132,8 @@ impl Component for Weather {
         let popover = WeatherPopover::builder()
             .launch(WeatherPopoverInit {
                 parent: root.clone(),
+                hourly_slots: init.hourly_slots,
+                forecast_days: init.forecast_days,
             })
             .detach();
 
@@ -159,7 +163,15 @@ impl Component for Weather {
                     };
                     tracing::info!(lat = latitude, lon = longitude, city = %city, "weather applet: resolved location");
                     loop {
-                        match fetch_weather_snapshot(&http, latitude, longitude, &city).await {
+                        match fetch_weather_snapshot(
+                            &http,
+                            latitude,
+                            longitude,
+                            &city,
+                            config.hourly_slots,
+                        )
+                        .await
+                        {
                             Ok(snapshot) => {
                                 let _ = out.send(WeatherMsg::CurrentUpdate(snapshot.current));
                                 let _ = out.send(WeatherMsg::HourlyUpdate(snapshot.hourly));
@@ -343,6 +355,7 @@ async fn fetch_weather_snapshot(
     latitude: f64,
     longitude: f64,
     city: &str,
+    hourly_slots: usize,
 ) -> Result<WeatherSnapshot, String> {
     let response = http
         .get(FORECAST_API_BASE)
@@ -356,7 +369,8 @@ async fn fetch_weather_snapshot(
             ("hourly", "temperature_2m,weather_code,is_day".to_string()),
             (
                 "daily",
-                "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum".to_string(),
+                "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset"
+                    .to_string(),
             ),
             ("forecast_days", "10".to_string()),
             ("timezone", "auto".to_string()),
@@ -378,7 +392,7 @@ async fn fetch_weather_snapshot(
     })?;
 
     let current = parse_current(&data["current"]);
-    let hourly = parse_hourly(&data["hourly"]);
+    let hourly = parse_hourly(&data["hourly"], hourly_slots);
     let forecast = parse_daily(&data["daily"]);
     let location = WeatherLocation {
         latitude,
@@ -416,7 +430,7 @@ fn parse_current(c: &serde_json::Value) -> WeatherCurrent {
     }
 }
 
-fn parse_hourly(h: &serde_json::Value) -> Vec<WeatherHourly> {
+fn parse_hourly(h: &serde_json::Value, slot_count: usize) -> Vec<WeatherHourly> {
     let mut hourly = Vec::new();
     let times = h["time"].as_array();
     let temps = h["temperature_2m"].as_array();
@@ -434,7 +448,9 @@ fn parse_hourly(h: &serde_json::Value) -> Vec<WeatherHourly> {
         .position(|t| t.as_str().unwrap_or("") >= current_hour.as_str())
         .unwrap_or(0);
 
-    for &offset in &[1, 3, 6, 9, 12] {
+    let count = slot_count.min(8);
+
+    for offset in 1..=count {
         let i = start + offset;
         if i >= times.len() {
             break;
@@ -467,6 +483,8 @@ fn parse_daily(d: &serde_json::Value) -> Vec<WeatherDaily> {
     let maxs = d["temperature_2m_max"].as_array();
     let mins = d["temperature_2m_min"].as_array();
     let precips = d["precipitation_sum"].as_array();
+    let sunrises = d["sunrise"].as_array();
+    let sunsets = d["sunset"].as_array();
 
     let (Some(dates), Some(codes), Some(maxs), Some(mins)) = (dates, codes, maxs, mins) else {
         return forecast;
@@ -489,6 +507,16 @@ fn parse_daily(d: &serde_json::Value) -> Vec<WeatherDaily> {
             .and_then(|a| a.get(i))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
+        let sunrise = sunrises
+            .and_then(|a| a.get(i))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned();
+        let sunset = sunsets
+            .and_then(|a| a.get(i))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned();
 
         forecast.push(WeatherDaily {
             date: date.to_owned(),
@@ -500,6 +528,8 @@ fn parse_daily(d: &serde_json::Value) -> Vec<WeatherDaily> {
             temperature_max: maxs[i].as_f64().unwrap_or(0.0),
             temperature_min: mins[i].as_f64().unwrap_or(0.0),
             precipitation_sum,
+            sunrise,
+            sunset,
         });
     }
 
@@ -652,13 +682,15 @@ mod tests {
             "temperature_2m": [20.0, 21.0, 22.0],
             "weather_code": [1, 2, 3],
             "is_day": [1, 1, 1]
-        }));
+        }), 5);
         let forecast = parse_daily(&serde_json::json!({
             "time": ["2099-01-01"],
             "weather_code": [3],
             "temperature_2m_max": [23.0],
             "temperature_2m_min": [14.0],
-            "precipitation_sum": [1.5]
+            "precipitation_sum": [1.5],
+            "sunrise": ["2099-01-01T06:12"],
+            "sunset": ["2099-01-01T19:48"]
         }));
 
         let snapshot = WeatherSnapshot {
@@ -674,5 +706,47 @@ mod tests {
 
         assert_eq!(snapshot.current.temperature, 20.4);
         assert_eq!(snapshot.location.city, "Warsaw, PL");
+    }
+
+    #[test]
+    fn parse_hourly_returns_five_future_slots() {
+        let data = serde_json::json!({
+            "time": [
+                "2099-01-01T10:00",
+                "2099-01-01T11:00",
+                "2099-01-01T12:00",
+                "2099-01-01T13:00",
+                "2099-01-01T14:00",
+                "2099-01-01T15:00",
+                "2099-01-01T16:00"
+            ],
+            "temperature_2m": [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
+            "weather_code": [0, 1, 2, 3, 61, 63, 80],
+            "is_day": [1, 1, 1, 1, 1, 1, 1]
+        });
+
+        let hourly = parse_hourly(&data, 5);
+
+        assert_eq!(hourly.len(), 5);
+    }
+
+    #[test]
+    fn parse_daily_preserves_today_sunrise_and_sunset() {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let data = serde_json::json!({
+            "time": [today],
+            "weather_code": [3],
+            "temperature_2m_max": [14.0],
+            "temperature_2m_min": [8.0],
+            "precipitation_sum": [1.5],
+            "sunrise": [format!("{}T06:12", today)],
+            "sunset": [format!("{}T19:48", today)]
+        });
+
+        let forecast = parse_daily(&data);
+
+        assert_eq!(forecast.len(), 1);
+        assert_eq!(forecast[0].sunrise, format!("{}T06:12", today));
+        assert_eq!(forecast[0].sunset, format!("{}T19:48", today));
     }
 }

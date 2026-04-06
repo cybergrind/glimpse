@@ -13,7 +13,7 @@
 
 Priority:
 1. `city_name` from panel config
-2. Optional IP-based fallback when `use_ip_location_when_city_unset = true`
+2. Optional IP-based fallback when `geolocate = true`
 3. Otherwise do nothing
 
 Flow:
@@ -49,7 +49,7 @@ GET /v1/forecast?latitude=52.2298&longitude=21.0118
   &current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,
            wind_speed_10m,wind_direction_10m,surface_pressure,uv_index,is_day,precipitation
   &hourly=temperature_2m,weather_code,is_day
-  &daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum
+  &daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset
   &forecast_days=10
   &timezone=auto
 ```
@@ -60,7 +60,9 @@ GET /v1/forecast?latitude=52.2298&longitude=21.0118
 [applets.weather]
 extends = "weather"
 city_name = "Warsaw, PL"
-use_ip_location_when_city_unset = false
+geolocate = false
+hourly_slots = 5
+forecast_days = 5
 label_format = "{temp}°"
 tooltip_format = "{condition} · {temp}°"
 refresh_interval = 1800
@@ -71,7 +73,7 @@ refresh_interval = 1800
 ```text
 glimpse-panel/src/applets/weather/
   applet.rs   — config resolution, geocoding, forecast fetch, parsing, refresh loop
-  popover.rs  — hero + hourly + stats + daily
+  popover.rs  — compact hero + 4 future hours + 8-item details + optional forecast list
   config.rs   — applet settings
   mod.rs
 ```
@@ -81,4 +83,6 @@ glimpse-panel/src/applets/weather/
 - Open-Meteo is free and requires no API key
 - `timezone=auto` keeps hourly/daily output aligned with the resolved location
 - IP geolocation is optional and intentionally disabled by default
-- The applet preserves the previous UI structure by translating HTTP responses into the same internal weather shape the popover expects
+- The popover shows a configurable future strip via `hourly_slots`, default `5`, starting at `+1h`
+- The details section is an 8-item key/value grid with stronger value emphasis and sunrise/sunset formatting
+- The forecast section starts from tomorrow, keeps precipitation hints in-row, and is controlled by `forecast_days` in the range `0..=10`

@@ -19,6 +19,8 @@ timezones = [
 extends = "weather"
 city_name = "Warsaw"
 geolocate = false
+hourly_slots = 5
+forecast_days = 5
 
 [applets.network]
 extends = "network"

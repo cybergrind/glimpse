@@ -7,22 +7,31 @@ use super::applet::{WeatherCurrent, WeatherDaily, WeatherHourly, WeatherLocation
 
 pub struct WeatherPopover {
     popover: gtk::Popover,
+    hourly_slots: usize,
+    forecast_days: usize,
     hero_icon: gtk::Image,
     hero_temp: gtk::Label,
     hero_condition: gtk::Label,
     hero_location: gtk::Label,
     hourly_box: gtk::Box,
     stats_box: gtk::Box,
+    forecast_section: gtk::Box,
+    forecast_toggle_chevron: gtk::Label,
     forecast_box: gtk::Box,
+    current: Option<WeatherCurrent>,
+    today: Option<WeatherDaily>,
 }
 
 pub struct WeatherPopoverInit {
     pub parent: gtk::Box,
+    pub hourly_slots: usize,
+    pub forecast_days: usize,
 }
 
 #[derive(Debug)]
 pub enum WeatherPopoverInput {
     Toggle,
+    ToggleForecastSection,
     UpdateCurrent(WeatherCurrent),
     UpdateHourly(Vec<WeatherHourly>),
     UpdateForecast(Vec<WeatherDaily>),
@@ -93,28 +102,65 @@ impl SimpleComponent for WeatherPopover {
         vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
         // === Stats grid ===
-        let stats_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let stats_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         stats_box.add_css_class("weather-stats");
         vbox.append(&stats_box);
 
         vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        // === 10-day forecast ===
+        // === Forecast ===
+        let forecast_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        forecast_section.add_css_class("weather-forecast-section");
+        forecast_section.set_visible(false);
+
+        let forecast_toggle = gtk::Button::new();
+        forecast_toggle.add_css_class("flat");
+        forecast_toggle.add_css_class("device-btn");
+
+        let forecast_toggle_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        forecast_toggle_row.add_css_class("device-header");
+
+        let forecast_toggle_label = gtk::Label::new(Some("Forecast"));
+        forecast_toggle_label.set_halign(gtk::Align::Start);
+        forecast_toggle_label.set_hexpand(true);
+        forecast_toggle_row.append(&forecast_toggle_label);
+
+        let forecast_toggle_chevron = gtk::Label::new(Some("›"));
+        forecast_toggle_chevron.add_css_class("chevron");
+        forecast_toggle_row.append(&forecast_toggle_chevron);
+
+        forecast_toggle.set_child(Some(&forecast_toggle_row));
+        forecast_toggle.connect_clicked({
+            let sender = _sender.clone();
+            move |_| sender.input(WeatherPopoverInput::ToggleForecastSection)
+        });
+        forecast_section.append(&forecast_toggle);
+
         let forecast_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         forecast_box.add_css_class("weather-forecast");
-        vbox.append(&forecast_box);
+        forecast_box.set_visible(false);
+        forecast_box.add_css_class("device-list");
+        forecast_section.append(&forecast_box);
+
+        vbox.append(&forecast_section);
 
         root.set_child(Some(&vbox));
 
         let model = WeatherPopover {
             popover: root.clone(),
+            hourly_slots: init.hourly_slots,
+            forecast_days: init.forecast_days,
             hero_icon,
             hero_temp,
             hero_condition,
             hero_location,
             hourly_box,
             stats_box,
+            forecast_section,
+            forecast_toggle_chevron,
             forecast_box,
+            current: None,
+            today: None,
         };
 
         ComponentParts { model, widgets: () }
@@ -126,59 +172,53 @@ impl SimpleComponent for WeatherPopover {
                 if self.popover.is_visible() {
                     self.popover.popdown();
                 } else {
+                    set_forecast_expanded(&self.forecast_box, &self.forecast_toggle_chevron, false);
                     self.popover.popup();
                 }
+            }
+            WeatherPopoverInput::ToggleForecastSection => {
+                let expanded = !self.forecast_box.is_visible();
+                set_forecast_expanded(&self.forecast_box, &self.forecast_toggle_chevron, expanded);
             }
             WeatherPopoverInput::UpdateCurrent(data) => {
                 let temp = data.temperature;
                 let icon = data.icon.as_str();
-                let feels = data.apparent_temperature;
-                let humidity = data.humidity;
-                let wind = data.wind_speed;
-                let wind_dir = data.wind_direction_label.as_str();
-                let uv = data.uv_index;
-                let pressure = data.pressure;
-                let precip = data.precipitation;
 
                 self.hero_icon.set_icon_name(Some(icon));
                 self.hero_temp.set_label(&format!("{temp:.0}°"));
                 self.hero_condition.set_label(&hero_summary(&data));
-
-                clear_box(&self.stats_box);
-
-                let row1 = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                row1.set_homogeneous(true);
-                row1.append(&build_stat_tile("Feels like", &format!("{feels:.0}°")));
-                row1.append(&build_stat_tile("Humidity", &format!("{humidity}%")));
-                row1.append(&build_stat_tile(
-                    "Wind",
-                    &format!("{wind:.0} km/h {wind_dir}"),
-                ));
-                self.stats_box.append(&row1);
-
-                let row2 = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                row2.set_homogeneous(true);
-                row2.append(&build_stat_tile("UV Index", &format!("{uv:.0}")));
-                row2.append(&build_stat_tile("Pressure", &format!("{pressure:.0} hPa")));
-                row2.append(&build_stat_tile(
-                    "Precipitation",
-                    &format!("{precip:.1} mm"),
-                ));
-                self.stats_box.append(&row2);
+                self.current = Some(data);
+                rebuild_details_box(&self.stats_box, self.current.as_ref(), self.today.as_ref());
             }
             WeatherPopoverInput::UpdateLocation(location) => {
                 self.hero_location.set_label(&location.city);
             }
             WeatherPopoverInput::UpdateHourly(data) => {
                 clear_box(&self.hourly_box);
-                for entry in data.iter().take(5) {
+                let count = visible_hourly_slots(self.hourly_slots, data.len());
+                self.hourly_box.set_visible(count > 0);
+                for entry in data.iter().take(count) {
                     self.hourly_box.append(&build_hourly_col(entry));
                 }
             }
             WeatherPopoverInput::UpdateForecast(data) => {
+                self.today = data
+                    .iter()
+                    .find(|entry| entry.is_today)
+                    .cloned()
+                    .or_else(|| data.first().cloned());
+                rebuild_details_box(&self.stats_box, self.current.as_ref(), self.today.as_ref());
+
                 clear_box(&self.forecast_box);
 
-                for entry in &data {
+                let future: Vec<_> = data.iter().filter(|entry| !entry.is_today).collect();
+                let count = visible_forecast_rows(self.forecast_days, future.len());
+                self.forecast_section.set_visible(count > 0);
+                if count == 0 {
+                    return;
+                }
+
+                for entry in future.into_iter().take(count) {
                     self.forecast_box.append(&build_forecast_row(entry));
                 }
             }
@@ -189,6 +229,43 @@ impl SimpleComponent for WeatherPopover {
 fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
+    }
+}
+
+fn set_forecast_expanded(container: &gtk::Box, chevron: &gtk::Label, expanded: bool) {
+    container.set_visible(expanded);
+    chevron.set_label(if expanded { "⌄" } else { "›" });
+}
+
+fn rebuild_details_box(
+    container: &gtk::Box,
+    current: Option<&WeatherCurrent>,
+    today: Option<&WeatherDaily>,
+) {
+    clear_box(container);
+
+    let Some(current) = current else {
+        return;
+    };
+
+    let sun = today.and_then(|day| {
+        if day.sunrise.is_empty() || day.sunset.is_empty() {
+            None
+        } else {
+            Some((day.sunrise.as_str(), day.sunset.as_str()))
+        }
+    });
+
+    for row in build_details_rows(current, today, sun).chunks(2) {
+        let detail_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        detail_row.set_homogeneous(true);
+        detail_row.add_css_class("weather-detail-row");
+
+        for (label, value) in row {
+            detail_row.append(&build_detail_pair(label, value));
+        }
+
+        container.append(&detail_row);
     }
 }
 
@@ -212,21 +289,73 @@ fn hero_location_constraints() -> (i32, gtk::pango::EllipsizeMode) {
     (24, gtk::pango::EllipsizeMode::End)
 }
 
-fn build_stat_tile(label: &str, value: &str) -> gtk::Box {
-    let tile = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    tile.add_css_class("weather-stat-tile");
+fn build_details_rows(
+    current: &WeatherCurrent,
+    today: Option<&WeatherDaily>,
+    sun: Option<(&str, &str)>,
+) -> Vec<(String, String)> {
+    let (high, low) = today
+        .map(|day| {
+            (
+                format!("{:.0}°", day.temperature_max),
+                format!("{:.0}°", day.temperature_min),
+            )
+        })
+        .unwrap_or_else(|| ("—".into(), "—".into()));
+    let (sunrise, sunset) = sun.unwrap_or(("—", "—"));
+    let wind = if current.wind_direction_label.is_empty() {
+        format!("{:.0} km/h", current.wind_speed)
+    } else {
+        format!("{:.0} km/h {}", current.wind_speed, current.wind_direction_label)
+    };
+
+    vec![
+        ("High".into(), high),
+        ("Low".into(), low),
+        ("Humidity".into(), format!("{}%", current.humidity)),
+        ("Wind".into(), wind),
+        ("Rain".into(), format!("{:.1} mm", current.precipitation)),
+        ("Pressure".into(), format!("{:.0} hPa", current.pressure)),
+        ("UV index".into(), format!("{:.0}", current.uv_index)),
+        (
+            "Sun".into(),
+            format!(
+                "{} / {}",
+                display_time_or_dash(sunrise),
+                display_time_or_dash(sunset)
+            ),
+        ),
+    ]
+}
+
+fn display_time_or_dash(value: &str) -> &str {
+    value.rsplit('T').next().filter(|part| !part.is_empty()).unwrap_or("—")
+}
+
+fn visible_forecast_rows(configured: usize, available: usize) -> usize {
+    configured.min(10).min(available)
+}
+
+fn visible_hourly_slots(configured: usize, available: usize) -> usize {
+    configured.min(8).min(available)
+}
+
+fn build_detail_pair(label: &str, value: &str) -> gtk::Box {
+    let pair = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    pair.add_css_class("weather-detail-pair");
 
     let key = gtk::Label::new(Some(label));
     key.set_halign(gtk::Align::Start);
-    key.add_css_class("weather-stat-key");
-    tile.append(&key);
+    key.add_css_class("weather-detail-key");
+    pair.append(&key);
 
     let val = gtk::Label::new(Some(value));
     val.set_halign(gtk::Align::Start);
-    val.add_css_class("weather-stat-val");
-    tile.append(&val);
+    val.set_xalign(0.0);
+    val.add_css_class("weather-detail-val");
+    pair.append(&val);
 
-    tile
+    pair
 }
 
 fn build_hourly_col(entry: &WeatherHourly) -> gtk::Box {
@@ -262,42 +391,47 @@ fn build_forecast_row(entry: &WeatherDaily) -> gtk::Box {
     day.add_css_class("weather-forecast-day");
     row.append(&day);
 
-    let icon = gtk::Image::from_icon_name(&entry.icon);
-    icon.set_pixel_size(16);
-    row.append(&icon);
+    let temps = gtk::Label::new(Some(&format!(
+        "{:.0}° / {:.0}°",
+        entry.temperature_min, entry.temperature_max
+    )));
+    temps.set_width_chars(10);
+    temps.set_halign(gtk::Align::Start);
+    temps.set_xalign(0.0);
+    temps.add_css_class("weather-forecast-temps");
+    row.append(&temps);
 
-    let lo_label = gtk::Label::new(Some(&format!("{:.0}°", entry.temperature_min)));
-    lo_label.set_width_chars(4);
-    lo_label.set_halign(gtk::Align::End);
-    lo_label.add_css_class("weather-forecast-lo");
-    row.append(&lo_label);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
 
-    let hi_label = gtk::Label::new(Some(&format!("{:.0}°", entry.temperature_max)));
-    hi_label.set_width_chars(4);
-    hi_label.set_halign(gtk::Align::End);
-    hi_label.add_css_class("weather-forecast-hi");
-    row.append(&hi_label);
-
-    let detail = if entry.precipitation_sum > 0.0 {
-        format!("{} · {:.0}mm", entry.condition, entry.precipitation_sum)
-    } else {
-        entry.condition.clone()
-    };
+    let detail = forecast_detail(entry);
     let cond_label = gtk::Label::new(Some(&detail));
-    cond_label.set_hexpand(true);
     cond_label.set_halign(gtk::Align::End);
+    cond_label.set_xalign(1.0);
     cond_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     cond_label.add_css_class("weather-forecast-cond");
     row.append(&cond_label);
 
+    let icon = gtk::Image::from_icon_name(&entry.icon);
+    icon.set_pixel_size(16);
+    row.append(&icon);
+
     row
+}
+
+fn forecast_detail(entry: &WeatherDaily) -> String {
+    entry.condition.clone()
 }
 
 #[cfg(test)]
 mod tests {
     use relm4::gtk;
 
-    use super::{WeatherCurrent, hero_location_constraints, hero_summary};
+    use super::{
+        build_details_rows, display_time_or_dash, forecast_detail, hero_location_constraints,
+        hero_summary, visible_forecast_rows, visible_hourly_slots, WeatherCurrent, WeatherDaily,
+    };
 
     #[test]
     fn hero_summary_formats_condition_and_feels_like_only() {
@@ -320,5 +454,94 @@ mod tests {
 
         assert_eq!(max_width_chars, 24);
         assert_eq!(ellipsize_mode, gtk::pango::EllipsizeMode::End);
+    }
+
+    #[test]
+    fn build_details_rows_returns_eight_items() {
+        let current = WeatherCurrent {
+            humidity: 82,
+            wind_speed: 18.0,
+            wind_direction_label: "NW".into(),
+            pressure: 1008.0,
+            precipitation: 1.2,
+            uv_index: 1.0,
+            ..WeatherCurrent::default()
+        };
+        let today = WeatherDaily {
+            temperature_min: 8.0,
+            temperature_max: 14.0,
+            ..WeatherDaily::default()
+        };
+
+        let rows = build_details_rows(&current, Some(&today), None);
+
+        assert_eq!(rows.len(), 8);
+        assert_eq!(rows[0], ("High".into(), "14°".into()));
+        assert_eq!(rows[1], ("Low".into(), "8°".into()));
+    }
+
+    #[test]
+    fn build_details_rows_uses_sunrise_and_sunset_when_available() {
+        let current = WeatherCurrent {
+            humidity: 82,
+            wind_speed: 18.0,
+            wind_direction_label: "NW".into(),
+            pressure: 1008.0,
+            precipitation: 1.2,
+            uv_index: 1.0,
+            ..WeatherCurrent::default()
+        };
+        let today = WeatherDaily {
+            temperature_min: 8.0,
+            temperature_max: 14.0,
+            sunrise: "2099-01-01T06:12".into(),
+            sunset: "2099-01-01T19:48".into(),
+            ..WeatherDaily::default()
+        };
+
+        let rows = build_details_rows(
+            &current,
+            Some(&today),
+            Some((today.sunrise.as_str(), today.sunset.as_str())),
+        );
+
+        assert_eq!(rows[7], ("Sun".into(), "06:12 / 19:48".into()));
+    }
+
+    #[test]
+    fn display_time_or_dash_extracts_clock_time() {
+        assert_eq!(display_time_or_dash("2099-01-01T06:12"), "06:12");
+        assert_eq!(display_time_or_dash(""), "—");
+    }
+
+    #[test]
+    fn visible_forecast_rows_clamps_to_zero_through_ten() {
+        assert_eq!(visible_forecast_rows(0, 8), 0);
+        assert_eq!(visible_forecast_rows(5, 8), 5);
+        assert_eq!(visible_forecast_rows(12, 8), 8);
+    }
+
+    #[test]
+    fn visible_hourly_slots_clamps_to_zero_through_eight() {
+        assert_eq!(visible_hourly_slots(0, 6), 0);
+        assert_eq!(visible_hourly_slots(5, 6), 5);
+        assert_eq!(visible_hourly_slots(12, 6), 6);
+    }
+
+    #[test]
+    fn forecast_detail_includes_precipitation_hint_when_present() {
+        let rainy = WeatherDaily {
+            condition: "Rain".into(),
+            precipitation_sum: 3.2,
+            ..WeatherDaily::default()
+        };
+        let dry = WeatherDaily {
+            condition: "Cloudy".into(),
+            precipitation_sum: 0.0,
+            ..WeatherDaily::default()
+        };
+
+        assert_eq!(forecast_detail(&rainy), "Rain");
+        assert_eq!(forecast_detail(&dry), "Cloudy");
     }
 }
