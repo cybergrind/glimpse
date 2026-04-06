@@ -27,3 +27,4 @@ futures-util.workspace = true
 system-tray.workspace = true
 reqwest.workspace = true
 glimpse-client = { path = "../glimpse-client" }
+glimpse_types = { package = "glimpse-types", path = "../glimpse-types" }

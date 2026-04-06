@@ -2,9 +2,13 @@ use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
+use std::sync::Arc;
+
+use glimpse_client::Client;
 
 use super::calendar::Calendar;
 use super::date::Date;
+use super::events::{Events, EventsInit, EventsInput};
 use super::world::WorldClock;
 use crate::applets::clock::{config::TimezoneEntry, world::WorldClockInput};
 
@@ -16,11 +20,14 @@ pub struct Popover {
     calendar: Controller<Calendar>,
     #[allow(dead_code)]
     world_clock: Option<Controller<WorldClock>>,
+    #[allow(dead_code)]
+    events: Controller<Events>,
 }
 
 pub struct PopoverInit {
     pub parent: gtk::Box,
     pub timezones: Vec<TimezoneEntry>,
+    pub client: Option<Arc<Client>>,
 }
 
 #[derive(Debug)]
@@ -44,22 +51,39 @@ impl SimpleComponent for Popover {
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let container = gtk::Box::new(gtk::Orientation::Horizontal, 20);
         container.add_css_class("clock-popover");
+        container.add_css_class("clock-popover-layout");
+
+        let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        left.add_css_class("clock-popover-left");
+
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        right.add_css_class("clock-popover-right");
 
         let date = Date::builder().launch(()).detach();
-        container.append(date.widget());
+        left.append(date.widget());
 
         let calendar = Calendar::builder().launch(()).detach();
-        container.append(calendar.widget());
+        left.append(calendar.widget());
 
         let world_clock = if init.timezones.is_empty() {
             None
         } else {
             let wc = WorldClock::builder().launch(init.timezones).detach();
-            container.append(wc.widget());
+            left.append(wc.widget());
             Some(wc)
         };
+
+        let events = Events::builder()
+            .launch(EventsInit {
+                client: init.client,
+            })
+            .detach();
+        right.append(events.widget());
+
+        container.append(&left);
+        container.append(&right);
 
         root.set_parent(&init.parent);
         root.set_child(Some(&container));
@@ -69,6 +93,7 @@ impl SimpleComponent for Popover {
             date,
             calendar,
             world_clock,
+            events,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -87,6 +112,7 @@ impl SimpleComponent for Popover {
                 if let Some(ref wc) = self.world_clock {
                     wc.emit(WorldClockInput::Tick);
                 }
+                self.events.emit(EventsInput::Tick);
             }
         }
     }

@@ -98,10 +98,90 @@ pub enum RequestResult {
     Error { code: u32, message: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarToday {
+    pub date: String,
+    pub events: Vec<CalendarEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarEvent {
+    pub id: String,
+    pub title: String,
+    pub start: String,
+    pub end: String,
+    pub location: Option<String>,
+    pub description: Option<String>,
+    pub calendar_name: String,
+    pub calendar_color: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn calendar_today_roundtrip() {
+        let payload = CalendarToday {
+            date: "2026-04-06".into(),
+            events: vec![
+                CalendarEvent {
+                    id: "google:evt_123".into(),
+                    title: "Design sync".into(),
+                    start: "2026-04-06T16:05:00+02:00".into(),
+                    end: "2026-04-06T16:35:00+02:00".into(),
+                    location: Some("Studio call".into()),
+                    description: Some("Review popover layout".into()),
+                    calendar_name: "Work".into(),
+                    calendar_color: Some("#f4b45d".into()),
+                },
+                CalendarEvent {
+                    id: "google:evt_124".into(),
+                    title: "Release review".into(),
+                    start: "2026-04-06T17:30:00+02:00".into(),
+                    end: "2026-04-06T18:15:00+02:00".into(),
+                    location: None,
+                    description: None,
+                    calendar_name: "Core".into(),
+                    calendar_color: Some("#68a3ff".into()),
+                },
+            ],
+        };
+
+        let serialized = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "date": "2026-04-06",
+                "events": [
+                    {
+                        "id": "google:evt_123",
+                        "title": "Design sync",
+                        "start": "2026-04-06T16:05:00+02:00",
+                        "end": "2026-04-06T16:35:00+02:00",
+                        "location": "Studio call",
+                        "description": "Review popover layout",
+                        "calendar_name": "Work",
+                        "calendar_color": "#f4b45d"
+                    },
+                    {
+                        "id": "google:evt_124",
+                        "title": "Release review",
+                        "start": "2026-04-06T17:30:00+02:00",
+                        "end": "2026-04-06T18:15:00+02:00",
+                        "location": null,
+                        "description": null,
+                        "calendar_name": "Core",
+                        "calendar_color": "#68a3ff"
+                    }
+                ]
+            })
+        );
+
+        let deserialized: CalendarToday = serde_json::from_value(serialized).unwrap();
+        assert_eq!(deserialized, payload);
+    }
 
     fn roundtrip_request(req: &Request, expected_json: serde_json::Value) {
         let serialized = serde_json::to_value(req).unwrap();
