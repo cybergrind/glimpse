@@ -375,8 +375,21 @@
     opacity: 0.6;
 }
 
+.network-popover .net-lock-icon {
+    margin-right: 8px;
+}
+
 .network-popover .net-ap-icon-active {
     color: var(--accent-bg);
+}
+
+@keyframes net-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.net-connecting {
+    animation: net-pulse 1.5s ease-in-out infinite;
 }
 
 .network-popover .net-dim {
@@ -385,16 +398,6 @@
     font-variant-numeric: tabular-nums;
 }
 
-.network-popover .net-password-box {
-    padding: 4px 6px;
-    margin-top: 4px;
-}
-
-.network-popover .net-password-error {
-    color: #e01b24;
-    font-size: 12px;
-    padding: 2px 6px;
-}
 
 .network-popover .settings-btn {
     margin-top: 4px;

@@ -204,23 +204,50 @@ impl Provider for NetworkProvider {
                 connectivity = %self.status.connectivity,
                 devices = self.devices.len(),
                 connections = self.connections.len(),
+                aps = self.access_points.len(),
                 "network: initial scan"
             );
             self.emit_all(&events).await;
 
-            let props_rule = "type='signal',sender='org.freedesktop.NetworkManager',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'";
-            let state_rule = "type='signal',sender='org.freedesktop.NetworkManager',member='StateChanged'";
-            for rule in [props_rule, state_rule] {
-                conn.call_method(
-                    Some("org.freedesktop.DBus"),
-                    "/org/freedesktop/DBus",
-                    Some("org.freedesktop.DBus"),
-                    "AddMatch",
-                    &(rule,),
-                )
-                .await?;
+            // Trigger a WiFi scan so NM refreshes its stale AP cache.
+            // Results arrive via D-Bus signals and trigger a rescan.
+            if self.status.wifi_enabled {
+                let _ = self.wifi_scan(&conn).await;
             }
-            let mut stream = zbus::MessageStream::from(&conn);
+
+            // Monitor NM manager PropertiesChanged (connectivity, enabled, active connections)
+            let nm_props_proxy = zbus::fdo::PropertiesProxy::builder(&conn)
+                .destination(NM_SERVICE)?
+                .path(zbus::zvariant::ObjectPath::try_from(NM_PATH)?)?
+                .build()
+                .await?;
+            let mut nm_changes = nm_props_proxy.receive_properties_changed().await?;
+
+            // Monitor WiFi device PropertiesChanged via per-device PropertiesProxy
+            let mut wifi_prop_streams = Vec::new();
+            let device_paths: Vec<zbus::zvariant::OwnedObjectPath> = {
+                let nm_tmp = DbusPropertyGroup::new(&conn, NM_SERVICE, NM_PATH, NM_IFACE).await?;
+                nm_tmp.call("GetDevices", &()).await.unwrap_or_default()
+            };
+            for dev_path in &device_paths {
+                let dev_str = dev_path.to_string();
+                if let Ok(dev) = DbusPropertyGroup::new(&conn, NM_SERVICE, &dev_str, "org.freedesktop.NetworkManager.Device").await {
+                    if dev.get::<u32>("DeviceType").await.unwrap_or(0) == 2 {
+                        // Watch PropertiesChanged on the Wireless interface directly
+                        if let Ok(props) = zbus::fdo::PropertiesProxy::builder(&conn)
+                            .destination(NM_SERVICE)?
+                            .path(zbus::zvariant::ObjectPath::try_from(dev_str.as_str())?)?
+                            .build()
+                            .await
+                        {
+                            if let Ok(s) = props.receive_properties_changed().await {
+                                wifi_prop_streams.push(s);
+                            }
+                        }
+                    }
+                }
+            }
+            let mut wifi_stream = futures_util::stream::select_all(wifi_prop_streams);
 
             let mut dirty = false;
             let debounce = tokio::time::sleep(std::time::Duration::from_secs(86400));
@@ -233,18 +260,21 @@ impl Provider for NetworkProvider {
                         let Some(req) = req else { break };
                         self.handle_request(req, &conn).await;
                     }
-                    Some(Ok(msg)) = stream.next() => {
-                        if is_nm_signal(&msg) {
-                            dirty = true;
-                            debounce.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(500));
-                        }
+                    Some(_changed) = nm_changes.next() => {
+                        tracing::debug!("network: NM manager properties changed");
+                        dirty = true;
+                        debounce.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(500));
+                    }
+                    Some(_changed) = wifi_stream.next() => {
+                        tracing::debug!("network: wifi device properties changed");
+                        dirty = true;
+                        debounce.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(500));
                     }
                     () = &mut debounce, if dirty => {
                         dirty = false;
                         self.full_scan(&conn).await;
                         tracing::info!(
-                            connectivity = %self.status.connectivity,
-                            devices = self.devices.len(),
+                            aps = self.access_points.len(),
                             connections = self.connections.len(),
                             "network: rescan"
                         );
@@ -257,20 +287,6 @@ impl Provider for NetworkProvider {
     }
 }
 
-fn is_nm_signal(msg: &zbus::message::Message) -> bool {
-    let header = msg.header();
-    let Some(member) = header.member() else {
-        return false;
-    };
-    let member = member.as_str();
-    if member != "PropertiesChanged" && member != "StateChanged" {
-        return false;
-    }
-    let Some(path) = header.path() else {
-        return false;
-    };
-    path.as_str().starts_with("/org/freedesktop/NetworkManager")
-}
 
 impl NetworkProvider {
     async fn full_scan(&mut self, conn: &zbus::Connection) {
@@ -889,7 +905,8 @@ impl NetworkProvider {
                             return;
                         };
                         let password = params["password"].as_str().map(|s| s.to_owned());
-                        tracing::info!("connecting to wifi network {ssid}");
+                        let has_pw = password.is_some();
+                        tracing::info!("connecting to \"{ssid}\" (password: {has_pw})");
                         self.connect(conn, ssid, password.as_deref()).await
                     }
                     "network.connect_uuid" => {
@@ -897,7 +914,12 @@ impl NetworkProvider {
                             let _ = reply.send(Err(anyhow::anyhow!("missing 'uuid' (string)")));
                             return;
                         };
-                        tracing::info!("activating connection {uuid}");
+                        let name = self.connections.iter()
+                            .find(|c| c.uuid == uuid)
+                            .map(|c| c.id.clone())
+                            .or_else(|| self.saved_vpns.iter().find(|v| v.uuid == uuid).map(|v| v.id.clone()))
+                            .unwrap_or_else(|| uuid.to_string());
+                        tracing::info!("activating saved connection \"{name}\"");
                         self.connect_uuid(conn, uuid).await
                     }
                     "network.disconnect" => {
@@ -905,7 +927,11 @@ impl NetworkProvider {
                             let _ = reply.send(Err(anyhow::anyhow!("missing 'uuid' (string)")));
                             return;
                         };
-                        tracing::info!("disconnecting connection {uuid}");
+                        let name = self.connections.iter()
+                            .find(|c| c.uuid == uuid)
+                            .map(|c| c.id.clone())
+                            .unwrap_or_else(|| uuid.to_string());
+                        tracing::info!("disconnecting \"{name}\"");
                         self.disconnect(conn, uuid).await
                     }
                     "network.forget" => {
@@ -918,8 +944,9 @@ impl NetworkProvider {
                     }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
                 };
-                if let Err(ref e) = result {
-                    tracing::warn!(method = %method, error = %e, "network: call failed");
+                match &result {
+                    Ok(_) => tracing::info!(method = %method, "network: call succeeded"),
+                    Err(e) => tracing::warn!(method = %method, error = %e, "network: call failed"),
                 }
                 let _ = reply.send(result);
             }
@@ -1256,4 +1283,310 @@ impl ProviderFactory for NetworkProviderFactory {
             saved_vpns: Vec::new(),
         })
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- NM enum conversions --
+
+    #[test]
+    fn connectivity_values() {
+        assert_eq!(connectivity_str(0), "unknown");
+        assert_eq!(connectivity_str(1), "none");
+        assert_eq!(connectivity_str(2), "portal");
+        assert_eq!(connectivity_str(3), "limited");
+        assert_eq!(connectivity_str(4), "full");
+        assert_eq!(connectivity_str(99), "unknown");
+    }
+
+    #[test]
+    fn device_state_values() {
+        assert_eq!(device_state_str(20), "unavailable");
+        assert_eq!(device_state_str(30), "connecting");
+        assert_eq!(device_state_str(50), "connecting");
+        assert_eq!(device_state_str(90), "connecting");
+        assert_eq!(device_state_str(100), "connected");
+        assert_eq!(device_state_str(110), "deactivating");
+        assert_eq!(device_state_str(0), "disconnected");
+    }
+
+    #[test]
+    fn device_type_values() {
+        assert_eq!(device_type_str(1), "ethernet");
+        assert_eq!(device_type_str(2), "wifi");
+        assert_eq!(device_type_str(29), "wireguard");
+        assert_eq!(device_type_str(5), "other");
+        assert_eq!(device_type_str(14), "other");
+    }
+
+    #[test]
+    fn connection_state_values() {
+        assert_eq!(connection_state_str(1), "activating");
+        assert_eq!(connection_state_str(2), "activated");
+        assert_eq!(connection_state_str(3), "deactivating");
+        assert_eq!(connection_state_str(0), "unknown");
+    }
+
+    #[test]
+    fn connection_type_mapping() {
+        assert_eq!(connection_type_str("802-11-wireless"), "wifi");
+        assert_eq!(connection_type_str("802-3-ethernet"), "ethernet");
+        assert_eq!(connection_type_str("vpn"), "vpn");
+        assert_eq!(connection_type_str("wireguard"), "wireguard");
+        assert_eq!(connection_type_str("bridge"), "other");
+        assert_eq!(connection_type_str(""), "other");
+    }
+
+    // -- WiFi security detection --
+
+    #[test]
+    fn security_open() {
+        assert_eq!(ap_security(0, 0, 0), "open");
+    }
+
+    #[test]
+    fn security_wep() {
+        assert_eq!(ap_security(0x01, 0, 0), "wep");
+    }
+
+    #[test]
+    fn security_wpa_psk() {
+        assert_eq!(ap_security(0, 0x100, 0), "wpa");
+    }
+
+    #[test]
+    fn security_wpa2_psk() {
+        assert_eq!(ap_security(0, 0, 0x100), "wpa2");
+    }
+
+    #[test]
+    fn security_wpa3() {
+        assert_eq!(ap_security(0, 0, 0x400), "wpa3");
+    }
+
+    #[test]
+    fn security_enterprise() {
+        assert_eq!(ap_security(0, 0, 0x200), "enterprise");
+    }
+
+    #[test]
+    fn security_wpa3_over_wpa2() {
+        // WPA3 takes precedence when both flags set
+        assert_eq!(ap_security(0, 0, 0x500), "wpa3");
+    }
+
+    // -- WiFi icon thresholds --
+
+    #[test]
+    fn wifi_icon_excellent() {
+        assert_eq!(wifi_icon(100), "network-wireless-signal-excellent-symbolic");
+        assert_eq!(wifi_icon(75), "network-wireless-signal-excellent-symbolic");
+    }
+
+    #[test]
+    fn wifi_icon_good() {
+        assert_eq!(wifi_icon(74), "network-wireless-signal-good-symbolic");
+        assert_eq!(wifi_icon(50), "network-wireless-signal-good-symbolic");
+    }
+
+    #[test]
+    fn wifi_icon_ok() {
+        assert_eq!(wifi_icon(49), "network-wireless-signal-ok-symbolic");
+        assert_eq!(wifi_icon(25), "network-wireless-signal-ok-symbolic");
+    }
+
+    #[test]
+    fn wifi_icon_weak() {
+        assert_eq!(wifi_icon(24), "network-wireless-signal-weak-symbolic");
+        assert_eq!(wifi_icon(1), "network-wireless-signal-weak-symbolic");
+    }
+
+    #[test]
+    fn wifi_icon_none() {
+        assert_eq!(wifi_icon(0), "network-wireless-signal-none-symbolic");
+    }
+
+    // -- Icon resolution from provider state --
+
+    fn make_provider() -> NetworkProvider {
+        NetworkProvider {
+            status: NetworkStatus::default(),
+            access_points: Vec::new(),
+            connections: Vec::new(),
+            devices: Vec::new(),
+            saved_vpns: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn icon_offline_when_disabled() {
+        let mut p = make_provider();
+        p.status.enabled = false;
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-offline-symbolic");
+    }
+
+    #[test]
+    fn icon_wifi_from_connected_ap() {
+        let mut p = make_provider();
+        p.status.enabled = true;
+        p.connections.push(NetworkConnection {
+            id: "Home".into(), uuid: "u1".into(),
+            connection_type: "wifi".into(), device: "wlan0".into(),
+            state: "activated".into(), vpn: false,
+            ip4_address: None, gateway: None, dns: vec![], speed: 72,
+        });
+        p.access_points.push(WifiAccessPoint {
+            ssid: "Home".into(), strength: 82, frequency: 5200,
+            security: "wpa2".into(), connected: true, saved: true, uuid: Some("u1".into()),
+        });
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-wireless-signal-excellent-symbolic");
+    }
+
+    #[test]
+    fn icon_wired_when_ethernet() {
+        let mut p = make_provider();
+        p.status.enabled = true;
+        p.connections.push(NetworkConnection {
+            id: "Wired".into(), uuid: "u1".into(),
+            connection_type: "ethernet".into(), device: "enp3s0".into(),
+            state: "activated".into(), vpn: false,
+            ip4_address: None, gateway: None, dns: vec![], speed: 1000,
+        });
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-wired-symbolic");
+    }
+
+    #[test]
+    fn icon_wifi_disabled() {
+        let mut p = make_provider();
+        p.status.enabled = true;
+        p.status.wifi_enabled = false;
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-wireless-disabled-symbolic");
+    }
+
+    #[test]
+    fn icon_offline_when_enabled_but_no_connections() {
+        let mut p = make_provider();
+        p.status.enabled = true;
+        p.status.wifi_enabled = true;
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-offline-symbolic");
+    }
+
+    #[test]
+    fn icon_wifi_prefers_over_ethernet() {
+        let mut p = make_provider();
+        p.status.enabled = true;
+        p.connections.push(NetworkConnection {
+            id: "Wired".into(), uuid: "u1".into(),
+            connection_type: "ethernet".into(), device: "enp3s0".into(),
+            state: "activated".into(), vpn: false,
+            ip4_address: None, gateway: None, dns: vec![], speed: 1000,
+        });
+        p.connections.push(NetworkConnection {
+            id: "Home".into(), uuid: "u2".into(),
+            connection_type: "wifi".into(), device: "wlan0".into(),
+            state: "activated".into(), vpn: false,
+            ip4_address: None, gateway: None, dns: vec![], speed: 72,
+        });
+        p.access_points.push(WifiAccessPoint {
+            ssid: "Home".into(), strength: 60, frequency: 5200,
+            security: "wpa2".into(), connected: true, saved: true, uuid: Some("u2".into()),
+        });
+        p.resolve_icon();
+        assert_eq!(p.status.icon, "network-wireless-signal-good-symbolic");
+    }
+
+    // -- Serialization contract (daemon → panel) --
+
+    #[test]
+    fn status_json_shape() {
+        let status = NetworkStatus {
+            connectivity: "full".into(),
+            enabled: true,
+            wifi_enabled: true,
+            wifi_hw_enabled: true,
+            primary_connection: "MyWiFi".into(),
+            primary_type: "wifi".into(),
+            metered: false,
+            speed: 72,
+            icon: "network-wireless-signal-excellent-symbolic".into(),
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["connectivity"], "full");
+        assert_eq!(json["enabled"], true);
+        assert_eq!(json["wifi_enabled"], true);
+        assert_eq!(json["primary_connection"], "MyWiFi");
+        assert_eq!(json["primary_type"], "wifi");
+        assert_eq!(json["metered"], false);
+        assert_eq!(json["speed"], 72);
+        assert_eq!(json["icon"], "network-wireless-signal-excellent-symbolic");
+    }
+
+    #[test]
+    fn access_point_json_shape() {
+        let ap = WifiAccessPoint {
+            ssid: "CoffeeShop".into(), strength: 65, frequency: 2437,
+            security: "wpa2".into(), connected: false, saved: true,
+            uuid: Some("abc-123".into()),
+        };
+        let json = serde_json::to_value(&ap).unwrap();
+        assert_eq!(json["ssid"], "CoffeeShop");
+        assert_eq!(json["strength"], 65);
+        assert_eq!(json["frequency"], 2437);
+        assert_eq!(json["security"], "wpa2");
+        assert_eq!(json["connected"], false);
+        assert_eq!(json["saved"], true);
+        assert_eq!(json["uuid"], "abc-123");
+    }
+
+    #[test]
+    fn connection_json_shape() {
+        let conn = NetworkConnection {
+            id: "Work VPN".into(), uuid: "vpn-uuid".into(),
+            connection_type: "vpn".into(), device: "".into(),
+            state: "activated".into(), vpn: true,
+            ip4_address: Some("10.0.0.5".into()),
+            gateway: Some("10.0.0.1".into()),
+            dns: vec!["1.1.1.1".into()],
+            speed: 0,
+        };
+        let json = serde_json::to_value(&conn).unwrap();
+        assert_eq!(json["vpn"], true);
+        assert_eq!(json["connection_type"], "vpn");
+        assert_eq!(json["ip4_address"], "10.0.0.5");
+        assert_eq!(json["dns"][0], "1.1.1.1");
+    }
+
+    #[test]
+    fn saved_vpn_json_shape() {
+        let vpn = SavedVpn {
+            id: "Work".into(), uuid: "vpn-uuid".into(),
+            connection_type: "vpn".into(), active: true,
+            state: Some("activated".into()),
+        };
+        let json = serde_json::to_value(&vpn).unwrap();
+        assert_eq!(json["id"], "Work");
+        assert_eq!(json["active"], true);
+        assert_eq!(json["state"], "activated");
+    }
+
+    #[test]
+    fn device_json_shape() {
+        let dev = NetworkDevice {
+            interface: "enp3s0".into(), device_type: "ethernet".into(),
+            state: "connected".into(), speed: 1000,
+            carrier: Some(true),
+        };
+        let json = serde_json::to_value(&dev).unwrap();
+        assert_eq!(json["interface"], "enp3s0");
+        assert_eq!(json["carrier"], true);
+        assert_eq!(json["speed"], 1000);
+    }
+
 }

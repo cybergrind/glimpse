@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -72,12 +71,7 @@ pub struct NetworkPopover {
     wifi_section: gtk::Box,
     ap_box: gtk::Box,
     wifi_empty_label: gtk::Label,
-    scan_btn: gtk::Button,
-    scan_label: gtk::Label,
-    password_box: gtk::Box,
-    password_entry: gtk::PasswordEntry,
-    password_error: gtk::Label,
-    password_target_ssid: Rc<RefCell<String>>,
+    scan_interval: u64,
     eth_section: gtk::Box,
     eth_device_box: gtk::Box,
     vpn_section: gtk::Box,
@@ -95,6 +89,7 @@ pub struct NetworkPopoverInit {
     pub parent: gtk::Box,
     pub client: Arc<Client>,
     pub settings_command: String,
+    pub scan_interval: u64,
 }
 
 #[derive(Debug)]
@@ -115,8 +110,6 @@ pub enum NetworkPopoverInput {
     UpdateDevices(serde_json::Value),
     UpdateSavedVpns(serde_json::Value),
     ScanStarted,
-    PasswordSubmit,
-    PasswordCancel,
 }
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
@@ -124,27 +117,115 @@ fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Va
     glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
 }
 
-fn spawn_call_with_spinner(
-    client: &Arc<Client>, method: &'static str, params: serde_json::Value,
-    name: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner,
-) {
+
+fn spawn_password_dialog(client: &Arc<Client>, ssid: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner) {
+    tracing::info!("network: requesting password for \"{}\"", ssid);
     let c = client.clone();
     connecting.set(true);
     spinner.set_visible(true);
     spinner.start();
     glib::spawn_future_local(async move {
-        let result = c.call(method, params).await;
+        let result = tokio::task::spawn_blocking({
+            let ssid = ssid.clone();
+            move || {
+                std::process::Command::new("zenity")
+                    .args([
+                        "--password",
+                        "--title=WiFi Password",
+                        &format!("--text=Enter password for {}", ssid),
+                    ])
+                    .output()
+            }
+        }).await;
+
+        let password = result.ok()
+            .and_then(|r| r.ok())
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        if let Some(password) = password {
+            tracing::info!("network: connecting to \"{}\" with password", ssid);
+            let result = c.call("network.connect", serde_json::json!({
+                "ssid": ssid,
+                "password": password,
+            })).await;
+            match &result {
+                Ok(_) => tracing::info!("network: connect to \"{}\" succeeded", ssid),
+                Err(e) => {
+                    tracing::warn!("network: connect to \"{}\" failed: {}", ssid, e);
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["Network", &format!("Failed to connect to {}: {}", ssid, e)])
+                        .spawn();
+                }
+            }
+        } else {
+            tracing::info!("network: password dialog cancelled for \"{}\"", ssid);
+        }
+
         connecting.set(false);
         spinner.stop();
         spinner.set_visible(false);
-        if let Err(e) = result {
-            let msg = format!("Network operation failed for {}: {}", name, e);
-            tracing::warn!("{}", msg);
-            let _ = std::process::Command::new("notify-send")
-                .args(["Network", &msg])
-                .spawn();
+    });
+}
+
+/// Like spawn_call_with_spinner, but keeps the spinner running after the call
+/// succeeds. The spinner is cleared by update_ap_row when the state changes,
+/// or by a timeout.
+fn spawn_connect_call(
+    client: &Arc<Client>, method: &'static str, params: serde_json::Value,
+    name: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner,
+) {
+    tracing::info!("network: calling {} for \"{}\"", method, name);
+    let c = client.clone();
+    connecting.set(true);
+    spinner.set_visible(true);
+    spinner.start();
+
+    // Timeout: clear spinner after 15 seconds if still connecting
+    let conn_timeout = connecting.clone();
+    let spin_timeout = spinner.clone();
+    glib::timeout_add_local_once(std::time::Duration::from_secs(15), move || {
+        if conn_timeout.get() {
+            tracing::warn!("network: connection attempt timed out for \"{}\"", name);
+            conn_timeout.set(false);
+            spin_timeout.stop();
+            spin_timeout.set_visible(false);
         }
     });
+
+    glib::spawn_future_local(async move {
+        let result = c.call(method, params).await;
+        if let Err(e) = result {
+            tracing::warn!("network: {} failed: {}", method, e);
+            connecting.set(false);
+            spinner.stop();
+            spinner.set_visible(false);
+            let _ = std::process::Command::new("notify-send")
+                .args(["Network", &format!("Connection failed: {}", e)])
+                .spawn();
+        }
+        // On success: keep spinner running — update_ap_row will clear it
+    });
+}
+
+fn band_label(frequency: u32) -> &'static str {
+    if frequency < 3000 { "2.4 GHz" }
+    else if frequency < 6000 { "5 GHz" }
+    else { "6 GHz" }
+}
+
+fn ap_tooltip(ap: &WifiAp) -> String {
+    let mut parts = Vec::new();
+    if ap.security != "open" {
+        parts.push(ap.security.to_uppercase());
+    }
+    if ap.frequency > 0 {
+        parts.push(band_label(ap.frequency).to_string());
+    }
+    parts.push(format!("Signal: {}%", ap.strength));
+    parts.join(" \u{b7} ")
 }
 
 fn signal_icon_name(strength: u8) -> &'static str {
@@ -202,22 +283,9 @@ impl SimpleComponent for NetworkPopover {
         title_box.append(&subtitle);
         hero.append(&title_box);
 
-        vbox.append(&hero);
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
-        // === WiFi section ===
-        let wifi_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
-        let wifi_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        wifi_header.add_css_class("net-section-header");
-        let wifi_title = gtk::Label::new(Some("WiFi"));
-        wifi_title.set_halign(gtk::Align::Start);
-        wifi_title.set_hexpand(true);
-        wifi_title.add_css_class("net-section-title");
-        wifi_header.append(&wifi_title);
-
         let wifi_switch = gtk::Switch::new();
         wifi_switch.set_valign(gtk::Align::Center);
+        wifi_switch.set_tooltip_text(Some("Toggle WiFi"));
         let updating_wifi_switch = Rc::new(Cell::new(false));
         let guard = updating_wifi_switch.clone();
         let c = init.client.clone();
@@ -226,8 +294,13 @@ impl SimpleComponent for NetworkPopover {
             spawn_call(&c, "network.set_wifi_enabled", serde_json::json!({"enabled": active}));
             glib::Propagation::Stop
         });
-        wifi_header.append(&wifi_switch);
-        wifi_section.append(&wifi_header);
+        hero.append(&wifi_switch);
+
+        vbox.append(&hero);
+        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+        // === WiFi section ===
+        let wifi_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let wifi_empty_label = gtk::Label::new(Some("No access points"));
         wifi_empty_label.set_halign(gtk::Align::Start);
@@ -242,72 +315,13 @@ impl SimpleComponent for NetworkPopover {
         scroll.set_child(Some(&ap_box));
         wifi_section.append(&scroll);
 
-        // Password entry box (hidden by default)
-        let password_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        password_box.add_css_class("net-password-box");
-        password_box.set_visible(false);
-
-        let pw_input_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-
-        let password_entry = gtk::PasswordEntry::new();
-        password_entry.set_hexpand(true);
-        password_entry.set_show_peek_icon(true);
-        password_entry.set_placeholder_text(Some("Password"));
-        pw_input_row.append(&password_entry);
-
-        let pw_connect_btn = gtk::Button::with_label("Connect");
-        pw_connect_btn.add_css_class("suggested-action");
-        let s = sender.clone();
-        pw_connect_btn.connect_clicked(move |_| {
-            s.input(NetworkPopoverInput::PasswordSubmit);
-        });
-        pw_input_row.append(&pw_connect_btn);
-
-        password_box.append(&pw_input_row);
-
-        let password_error = gtk::Label::new(None);
-        password_error.set_halign(gtk::Align::Start);
-        password_error.add_css_class("net-password-error");
-        password_error.set_visible(false);
-        password_box.append(&password_error);
-
-        let s = sender.clone();
-        password_entry.connect_activate(move |_| {
-            s.input(NetworkPopoverInput::PasswordSubmit);
-        });
-
-        let pw_key = gtk::EventControllerKey::new();
-        let s = sender.clone();
-        pw_key.connect_key_pressed(move |_, key, _, _| {
-            if key == gtk::gdk::Key::Escape {
-                s.input(NetworkPopoverInput::PasswordCancel);
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        });
-        password_entry.add_controller(pw_key);
-
-        wifi_section.append(&password_box);
-
-        // Scan button
-        let scan_lbl = gtk::Label::new(Some("Scan for networks"));
-        scan_lbl.set_halign(gtk::Align::Start);
-        let scan_btn = gtk::Button::new();
-        scan_btn.set_child(Some(&scan_lbl));
-        scan_btn.add_css_class("flat");
-        scan_btn.add_css_class("settings-btn");
-        let s = sender.clone();
-        scan_btn.connect_clicked(move |_| {
-            s.input(NetworkPopoverInput::ScanStarted);
-        });
-        wifi_section.append(&scan_btn);
-
         vbox.append(&wifi_section);
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        // === Ethernet section ===
+        // === Ethernet section (hidden when no ethernet devices) ===
         let eth_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
         eth_section.set_visible(false);
+
+        eth_section.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
         let eth_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         eth_header.add_css_class("net-section-header");
@@ -323,12 +337,11 @@ impl SimpleComponent for NetworkPopover {
 
         vbox.append(&eth_section);
 
-        // === VPN section ===
+        // === VPN section (hidden when no VPN connections) ===
         let vpn_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
         vpn_section.set_visible(false);
 
-        let vpn_sep = gtk::Separator::new(gtk::Orientation::Horizontal);
-        vbox.append(&vpn_sep);
+        vpn_section.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
         let vpn_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         vpn_header.add_css_class("net-section-header");
@@ -343,9 +356,10 @@ impl SimpleComponent for NetworkPopover {
         vpn_section.append(&vpn_box);
 
         vbox.append(&vpn_section);
+
+        // === Settings button ===
         vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        // === Settings ===
         if !init.settings_command.is_empty() {
             let cmd = init.settings_command;
             let lbl = gtk::Label::new(Some("Network Settings"));
@@ -365,21 +379,30 @@ impl SimpleComponent for NetworkPopover {
 
         root.set_child(Some(&vbox));
 
-        // Auto-scan on popover open
-        let s = sender.clone();
+        // Auto-scan: trigger immediately on open, repeat every scan_interval while open
+        let scan_interval = init.scan_interval;
+        let c = init.client.clone();
+        let popover_ref = root.clone();
         root.connect_show(move |_| {
-            s.input(NetworkPopoverInput::ScanStarted);
+            spawn_call(&c, "network.wifi_scan", serde_json::json!({}));
+            let c2 = c.clone();
+            let p = popover_ref.clone();
+            let interval = std::time::Duration::from_secs(scan_interval);
+            glib::timeout_add_local(interval, move || {
+                if p.is_visible() {
+                    spawn_call(&c2, "network.wifi_scan", serde_json::json!({}));
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
+            });
         });
-
-        let password_target_ssid = Rc::new(RefCell::new(String::new()));
 
         let model = NetworkPopover {
             popover: root.clone(), client: init.client,
             hero_icon, subtitle, wifi_switch, wifi_section,
             ap_box, wifi_empty_label,
-            scan_btn, scan_label: scan_lbl,
-            password_box, password_entry, password_error,
-            password_target_ssid,
+            scan_interval: init.scan_interval,
             eth_section, eth_device_box,
             vpn_section, vpn_box,
             ap_rows: HashMap::new(),
@@ -422,6 +445,7 @@ impl SimpleComponent for NetworkPopover {
             }
             NetworkPopoverInput::UpdateWifi(data) => {
                 let aps: Vec<WifiAp> = serde_json::from_value(data).unwrap_or_default();
+                tracing::info!(count = aps.len(), "network popover: wifi update");
                 self.update_ap_list(aps);
             }
             NetworkPopoverInput::UpdateDevices(data) => {
@@ -433,42 +457,7 @@ impl SimpleComponent for NetworkPopover {
                 self.update_vpn_list(vpns);
             }
             NetworkPopoverInput::ScanStarted => {
-                self.scan_btn.set_sensitive(false);
-                self.scan_label.set_label("Scanning\u{2026}");
-                spawn_call(&self.client, "network.request_scan", serde_json::json!({}));
-                let btn = self.scan_btn.clone();
-                let label = self.scan_label.clone();
-                glib::timeout_add_local_once(std::time::Duration::from_secs(10), move || {
-                    if !btn.is_sensitive() {
-                        btn.set_sensitive(true);
-                        label.set_label("Scan for networks");
-                    }
-                });
-            }
-            NetworkPopoverInput::PasswordSubmit => {
-                let password = self.password_entry.text().to_string();
-                if password.is_empty() {
-                    self.password_error.set_label("Password is required");
-                    self.password_error.set_visible(true);
-                    return;
-                }
-                let ssid = self.password_target_ssid.borrow().clone();
-                if ssid.is_empty() { return; }
-
-                self.password_error.set_visible(false);
-                self.password_box.set_visible(false);
-                self.password_entry.set_text("");
-
-                spawn_call(&self.client, "network.connect_wifi", serde_json::json!({
-                    "ssid": ssid,
-                    "password": password,
-                }));
-            }
-            NetworkPopoverInput::PasswordCancel => {
-                self.password_box.set_visible(false);
-                self.password_entry.set_text("");
-                self.password_error.set_visible(false);
-                *self.password_target_ssid.borrow_mut() = String::new();
+                spawn_call(&self.client, "network.wifi_scan", serde_json::json!({}));
             }
         }
     }
@@ -518,7 +507,7 @@ impl NetworkPopover {
                     }
                 }
             } else {
-                let row = create_ap_row(ap, &self.client, &self.password_box, &self.password_entry, &self.password_error, &self.password_target_ssid);
+                let row = create_ap_row(ap, &self.client);
                 self.ap_box.append(&row.button);
                 self.ap_rows.insert(ap.ssid.clone(), row);
             }
@@ -555,7 +544,7 @@ impl NetworkPopover {
             name_label.set_halign(gtk::Align::Start);
             row.append(&name_label);
 
-            let info = if dev.state == "activated" {
+            let info = if dev.state == "connected" {
                 if dev.speed > 0 {
                     format!("{} Mbps", dev.speed)
                 } else {
@@ -613,11 +602,7 @@ impl NetworkPopover {
     }
 }
 
-fn create_ap_row(
-    ap: &WifiAp, client: &Arc<Client>,
-    password_box: &gtk::Box, password_entry: &gtk::PasswordEntry,
-    password_error: &gtk::Label, password_target_ssid: &Rc<RefCell<String>>,
-) -> ApRow {
+fn create_ap_row(ap: &WifiAp, client: &Arc<Client>) -> ApRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
     let icon = gtk::Image::from_icon_name(signal_icon_name(ap.strength));
@@ -638,7 +623,7 @@ fn create_ap_row(
     let lock_icon = gtk::Image::from_icon_name("channel-secure-symbolic");
     lock_icon.set_pixel_size(12);
     lock_icon.add_css_class("net-lock-icon");
-    lock_icon.set_visible(!ap.security.is_empty() && ap.security != "none" && !ap.connected);
+    lock_icon.set_visible(!ap.security.is_empty() && ap.security != "open" && !ap.connected);
     right_box.append(&lock_icon);
 
     let spinner = gtk::Spinner::new();
@@ -663,37 +648,31 @@ fn create_ap_row(
     let ssid = ap.ssid.clone();
     let uuid = ap.uuid.clone();
     let is_saved = ap.saved;
-    let is_encrypted = !ap.security.is_empty() && ap.security != "none";
+    let is_encrypted = !ap.security.is_empty() && ap.security != "open";
     let conn_flag = connecting.clone();
     let conn_state = connected.clone();
     let spin = spinner.clone();
-    let pw_box = password_box.clone();
-    let pw_entry = password_entry.clone();
-    let pw_error = password_error.clone();
-    let pw_target = password_target_ssid.clone();
     btn.connect_clicked(move |_| {
         if conn_flag.get() { return; }
         if conn_state.get() {
-            spawn_call_with_spinner(
-                &c, "network.disconnect_wifi", serde_json::json!({}),
-                ssid.clone(), conn_flag.clone(), spin.clone(),
-            );
+            if let Some(ref u) = uuid {
+                spawn_connect_call(
+                    &c, "network.disconnect", serde_json::json!({"uuid": u}),
+                    ssid.clone(), conn_flag.clone(), spin.clone(),
+                );
+            }
         } else if is_saved {
             if let Some(ref u) = uuid {
-                spawn_call_with_spinner(
+                spawn_connect_call(
                     &c, "network.connect_uuid", serde_json::json!({"uuid": u}),
                     ssid.clone(), conn_flag.clone(), spin.clone(),
                 );
             }
         } else if is_encrypted {
-            *pw_target.borrow_mut() = ssid.clone();
-            pw_error.set_visible(false);
-            pw_entry.set_text("");
-            pw_box.set_visible(true);
-            pw_entry.grab_focus();
+            spawn_password_dialog(&c, ssid.clone(), conn_flag.clone(), spin.clone());
         } else {
-            spawn_call_with_spinner(
-                &c, "network.connect_wifi", serde_json::json!({"ssid": ssid}),
+            spawn_connect_call(
+                &c, "network.connect", serde_json::json!({"ssid": ssid}),
                 ssid.clone(), conn_flag.clone(), spin.clone(),
             );
         }
@@ -715,7 +694,7 @@ fn create_ap_row(
             let uuid = u.clone();
             let action = gtk::gio::SimpleAction::new("forget", None);
             action.connect_activate(move |_, _| {
-                spawn_call(&c, "network.forget_connection", serde_json::json!({"uuid": uuid}));
+                spawn_call(&c, "network.forget", serde_json::json!({"uuid": uuid}));
             });
             action_group.add_action(&action);
         }
@@ -733,10 +712,7 @@ fn create_ap_row(
         popover_menu = Some(pm);
     }
 
-    let tooltip = if ap.connected { "Disconnect" }
-        else if ap.saved { "Connect" }
-        else { "Connect to network" };
-    btn.set_tooltip_text(Some(tooltip));
+    btn.set_tooltip_text(Some(&ap_tooltip(ap)));
 
     ApRow {
         button: btn, icon, name_label, lock_icon, spinner,
@@ -745,17 +721,25 @@ fn create_ap_row(
 }
 
 fn update_ap_row(row: &ApRow, ap: &WifiAp) {
-    if row.connecting.get() { return; }
+    if row.connecting.get() {
+        // Connection/disconnection in progress — check if it completed
+        let was_connected = row.connected.get();
+        if ap.connected != was_connected {
+            // State changed — operation completed
+            row.connecting.set(false);
+            row.spinner.stop();
+            row.spinner.set_visible(false);
+        } else {
+            return; // Still in progress
+        }
+    }
     row.connected.set(ap.connected);
     row.icon.set_icon_name(Some(signal_icon_name(ap.strength)));
     apply_ap_icon_style(&row.icon, ap.connected);
     row.name_label.set_label(&ap.ssid);
-    row.lock_icon.set_visible(!ap.security.is_empty() && ap.security != "none" && !ap.connected);
+    row.lock_icon.set_visible(!ap.security.is_empty() && ap.security != "open" && !ap.connected);
 
-    let tooltip = if ap.connected { "Disconnect" }
-        else if ap.saved { "Connect" }
-        else { "Connect to network" };
-    row.button.set_tooltip_text(Some(tooltip));
+    row.button.set_tooltip_text(Some(&ap_tooltip(ap)));
 }
 
 fn apply_ap_icon_style(icon: &gtk::Image, connected: bool) {
@@ -806,12 +790,12 @@ fn create_vpn_row(vpn: &VpnEntry, client: &Arc<Client>) -> VpnRow {
     btn.connect_clicked(move |_| {
         if conn_flag.get() { return; }
         if active_flag.get() {
-            spawn_call_with_spinner(
-                &c, "network.disconnect_vpn", serde_json::json!({"uuid": uuid}),
+            spawn_connect_call(
+                &c, "network.disconnect", serde_json::json!({"uuid": uuid}),
                 name.clone(), conn_flag.clone(), spin.clone(),
             );
         } else {
-            spawn_call_with_spinner(
+            spawn_connect_call(
                 &c, "network.connect_uuid", serde_json::json!({"uuid": uuid}),
                 name.clone(), conn_flag.clone(), spin.clone(),
             );
@@ -825,7 +809,16 @@ fn create_vpn_row(vpn: &VpnEntry, client: &Arc<Client>) -> VpnRow {
 }
 
 fn update_vpn_row(row: &VpnRow, vpn: &VpnEntry) {
-    if row.connecting.get() { return; }
+    if row.connecting.get() {
+        let was_active = row.active.get();
+        if vpn.active != was_active {
+            row.connecting.set(false);
+            row.spinner.stop();
+            row.spinner.set_visible(false);
+        } else {
+            return;
+        }
+    }
     row.active.set(vpn.active);
     let tooltip = if vpn.active { "Disconnect VPN" } else { "Connect VPN" };
     row.button.set_tooltip_text(Some(tooltip));

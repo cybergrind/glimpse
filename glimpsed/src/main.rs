@@ -1,7 +1,9 @@
+mod bluetooth_agent;
 mod broker;
 mod pattern;
 mod provider;
 mod providers;
+mod secret_agent;
 mod server;
 
 use tokio::net::{UnixListener, UnixStream};
@@ -62,6 +64,22 @@ async fn main() -> anyhow::Result<()> {
 
     let (broker, broker_tx) = Broker::new(register_providers());
     tokio::spawn(broker.run());
+
+    // NM SecretAgent — retrieves WiFi passwords from gnome-keyring
+    let agent_cancel = cancel.clone();
+    tokio::spawn(async move {
+        if let Err(e) = secret_agent::run(agent_cancel).await {
+            tracing::warn!("secret-agent: {e}");
+        }
+    });
+
+    // BlueZ pairing agent — auto-confirms JustWorks and passkey pairing
+    let bt_cancel = cancel.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bluetooth_agent::run(bt_cancel).await {
+            tracing::warn!("bluetooth-agent: {e}");
+        }
+    });
 
     // Shutdown on SIGTERM / SIGINT.
     let shutdown = cancel.clone();

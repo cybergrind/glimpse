@@ -12,6 +12,7 @@ use super::popover::{NetworkPopover, NetworkPopoverInit, NetworkPopoverInput};
 pub struct Network {
     primary_icon: String,
     vpn_icon_visible: bool,
+    connecting: bool,
     tooltip: String,
     show_vpn_icon: bool,
     popover: Controller<NetworkPopover>,
@@ -67,8 +68,14 @@ impl Component for Network {
 
             gtk::Image {
                 #[watch]
-                set_icon_name: Some(&model.primary_icon),
+                set_icon_name: Some(if model.connecting {
+                    "network-wireless-acquiring-symbolic"
+                } else {
+                    &model.primary_icon
+                }),
                 set_pixel_size: 16,
+                #[watch]
+                set_css_classes: if model.connecting { &["net-connecting"] } else { &[] },
             },
 
             gtk::Image {
@@ -88,12 +95,14 @@ impl Component for Network {
                 parent: root.clone(),
                 client: init.client.clone(),
                 settings_command: init.config.settings_command.clone(),
+                scan_interval: init.config.scan_interval,
             })
             .detach();
 
         let model = Network {
             primary_icon: "network-offline-symbolic".into(),
             vpn_icon_visible: false,
+            connecting: false,
             tooltip: String::new(),
             show_vpn_icon: init.config.show_vpn_icon,
             popover,
@@ -151,6 +160,8 @@ impl Component for Network {
                                     None => std::future::pending().await,
                                 }
                             } => {
+                                let count = ev.data.as_array().map(|a| a.len()).unwrap_or(0);
+                                tracing::info!(count, "network applet: received wifi event");
                                 let _ = out.send(NetworkMsg::WifiUpdate(ev.data));
                             }
                             Some(ev) = async {
@@ -194,18 +205,25 @@ impl Component for Network {
                 );
                 self.primary_icon = icon.clone();
 
-                self.tooltip = if connectivity == "none" || primary_connection.is_empty() {
+                // Connecting state: WiFi enabled but no primary connection yet
+                self.connecting = wifi_enabled
+                    && primary_connection.is_empty()
+                    && connectivity != "full";
+
+                self.tooltip = if self.connecting {
+                    "Connecting\u{2026}".into()
+                } else if connectivity == "none" || primary_connection.is_empty() {
                     "Network offline".into()
                 } else {
                     let base = match primary_type.as_str() {
-                        "802-11-wireless" => {
+                        "wifi" => {
                             if speed > 0 {
                                 format!("{primary_connection} \u{b7} {speed} Mbps")
                             } else {
                                 primary_connection.clone()
                             }
                         }
-                        "802-3-ethernet" => {
+                        "ethernet" => {
                             if speed > 0 {
                                 format!("Wired \u{b7} {speed} Mbps")
                             } else {

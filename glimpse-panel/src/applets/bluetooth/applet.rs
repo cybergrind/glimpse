@@ -66,6 +66,7 @@ impl Component for Bluetooth {
                 parent: root.clone(),
                 client: init.client.clone(),
                 settings_command: init.config.settings_command,
+                scan_interval: init.config.scan_interval,
             })
             .detach();
 

@@ -7,6 +7,7 @@ pub struct NetworkConfig {
     pub tooltip_format: String,
     pub show_vpn_icon: bool,
     pub settings_command: String,
+    pub scan_interval: u64,
 }
 
 impl Default for NetworkConfig {
@@ -16,6 +17,7 @@ impl Default for NetworkConfig {
             tooltip_format: String::new(),
             show_vpn_icon: true,
             settings_command: "nm-connection-editor".into(),
+            scan_interval: 15,
         }
     }
 }

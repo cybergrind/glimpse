@@ -43,8 +43,6 @@ pub struct BluetoothPopover {
     power_switch: gtk::Switch,
     device_box: gtk::Box,
     empty_label: gtk::Label,
-    scan_btn: gtk::Button,
-    scan_label: gtk::Label,
     rows: HashMap<String, DeviceRow>,
     updating_power: Rc<Cell<bool>>,
     powered: bool,
@@ -55,6 +53,7 @@ pub struct BluetoothPopoverInit {
     pub parent: gtk::Box,
     pub client: Arc<Client>,
     pub settings_command: String,
+    pub scan_interval: u64,
 }
 
 #[derive(Debug)]
@@ -189,19 +188,6 @@ impl SimpleComponent for BluetoothPopover {
 
         vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        // === Scan button ===
-        let scan_lbl = gtk::Label::new(Some("Scan for devices"));
-        scan_lbl.set_halign(gtk::Align::Start);
-        let scan_btn = gtk::Button::new();
-        scan_btn.set_child(Some(&scan_lbl));
-        scan_btn.add_css_class("flat");
-        scan_btn.add_css_class("settings-btn");
-        let s = sender.clone();
-        scan_btn.connect_clicked(move |_| {
-            s.input(BluetoothPopoverInput::ScanStarted);
-        });
-        vbox.append(&scan_btn);
-
         // === Settings ===
         if !init.settings_command.is_empty() {
             let cmd = init.settings_command;
@@ -222,27 +208,33 @@ impl SimpleComponent for BluetoothPopover {
 
         root.set_child(Some(&vbox));
 
-        // Auto-scan on popover open, stop on close.
-        let s = sender.clone();
+        // Auto-scan: start on open, repeat every scan_interval, stop on close
+        let scan_interval = init.scan_interval;
+        let c = init.client.clone();
+        let popover_ref = root.clone();
         root.connect_show(move |_| {
-            s.input(BluetoothPopoverInput::ScanStarted);
+            spawn_call(&c, "bluetooth.start_discovery", serde_json::json!({}));
+            let c2 = c.clone();
+            let p = popover_ref.clone();
+            let interval = std::time::Duration::from_secs(scan_interval);
+            glib::timeout_add_local(interval, move || {
+                if p.is_visible() {
+                    spawn_call(&c2, "bluetooth.start_discovery", serde_json::json!({}));
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
+            });
         });
         let c = init.client.clone();
-        let btn_ref = scan_btn.clone();
-        let lbl_ref = scan_lbl.clone();
         root.connect_closed(move |_| {
-            if !btn_ref.is_sensitive() {
-                spawn_call(&c, "bluetooth.stop_discovery", serde_json::json!({}));
-                btn_ref.set_sensitive(true);
-                lbl_ref.set_label("Scan for devices");
-            }
+            spawn_call(&c, "bluetooth.stop_discovery", serde_json::json!({}));
         });
 
         let model = BluetoothPopover {
             popover: root.clone(), client: init.client,
             hero_icon, subtitle, power_switch,
             device_box, empty_label,
-            scan_btn, scan_label: scan_lbl,
             rows: HashMap::new(),
             updating_power, powered: false, connected_count: 0,
         };
@@ -256,14 +248,8 @@ impl SimpleComponent for BluetoothPopover {
                 if self.popover.is_visible() { self.popover.popdown(); }
                 else { self.popover.popup(); }
             }
-            BluetoothPopoverInput::UpdateStatus { powered, discovering } => {
+            BluetoothPopoverInput::UpdateStatus { powered, discovering: _ } => {
                 self.powered = powered;
-
-                // If daemon says discovery stopped, reset scan button.
-                if !discovering && !self.scan_btn.is_sensitive() {
-                    self.scan_btn.set_sensitive(true);
-                    self.scan_label.set_label("Scan for devices");
-                }
 
                 if self.power_switch.is_active() != powered {
                     self.updating_power.set(true);
@@ -329,20 +315,7 @@ impl SimpleComponent for BluetoothPopover {
                 self.update_subtitle();
             }
             BluetoothPopoverInput::ScanStarted => {
-                self.scan_btn.set_sensitive(false);
-                self.scan_label.set_label("Scanning…");
                 spawn_call(&self.client, "bluetooth.start_discovery", serde_json::json!({}));
-                let client = self.client.clone();
-                let btn = self.scan_btn.clone();
-                let label = self.scan_label.clone();
-                glib::timeout_add_local_once(std::time::Duration::from_secs(10), move || {
-                    if !btn.is_sensitive() {
-                        spawn_call(&client, "bluetooth.stop_discovery", serde_json::json!({}));
-                        btn.set_sensitive(true);
-                        label.set_label("Scan for devices");
-                    }
-                });
-                self.update_subtitle();
             }
         }
     }
