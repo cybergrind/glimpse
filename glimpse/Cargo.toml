@@ -1,0 +1,15 @@
+[package]
+name = "glimpse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+zbus = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros"] }
+tokio-util = "0.7"
+anyhow = "1"
+tracing = { workspace = true }
