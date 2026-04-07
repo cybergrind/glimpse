@@ -87,7 +87,7 @@ impl ProviderState {
     }
 
     fn current(&self) -> Option<PlayerSnapshot> {
-        select_current_player(&self.players)
+        self.players.first().cloned()
     }
 }
 
@@ -328,6 +328,7 @@ mod tests {
         });
 
         assert_eq!(state.players.len(), 2);
+        assert_eq!(state.players[0].player_id, "spotify");
         assert_eq!(state.current().unwrap().player_id, "spotify");
         assert_eq!(state.current().unwrap().last_active, 30);
         assert_eq!(state.players[1].player_id, "firefox");
@@ -335,24 +336,20 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_replies_use_provider_state() {
-        let provider = MprisProvider {
-            state: ProviderState {
-                players: vec![
-                    PlayerSnapshot {
-                        player_id: "spotify".into(),
-                        identity: "Spotify".into(),
-                        last_active: 10,
-                        ..PlayerSnapshot::test_default()
-                    },
-                    PlayerSnapshot {
-                        player_id: "firefox".into(),
-                        identity: "Firefox".into(),
-                        last_active: 20,
-                        ..PlayerSnapshot::test_default()
-                    },
-                ],
-            },
-        };
+        let mut state = ProviderState::default();
+        state.upsert(PlayerSnapshot {
+            player_id: "spotify".into(),
+            identity: "Spotify".into(),
+            last_active: 10,
+            ..PlayerSnapshot::test_default()
+        });
+        state.upsert(PlayerSnapshot {
+            player_id: "firefox".into(),
+            identity: "Firefox".into(),
+            last_active: 20,
+            ..PlayerSnapshot::test_default()
+        });
+        let provider = MprisProvider { state };
 
         let (current_reply_tx, current_reply_rx) = tokio::sync::oneshot::channel();
         provider
@@ -363,8 +360,6 @@ mod tests {
             .await;
 
         let current = current_reply_rx.await.unwrap().expect("current snapshot");
-        assert_eq!(current["player_id"], "firefox");
-
         let (players_reply_tx, players_reply_rx) = tokio::sync::oneshot::channel();
         provider
             .handle_request(ProviderRequest::Snapshot {
@@ -375,7 +370,38 @@ mod tests {
 
         let players = players_reply_rx.await.unwrap().expect("players snapshot");
         assert_eq!(players.as_array().unwrap().len(), 2);
-        assert_eq!(players[0]["player_id"], "spotify");
-        assert_eq!(players[1]["player_id"], "firefox");
+        assert_eq!(players[0]["player_id"], "firefox");
+        assert_eq!(current["player_id"], players[0]["player_id"]);
+        assert_eq!(current["player_id"], "firefox");
+        assert_eq!(players[1]["player_id"], "spotify");
+    }
+
+    #[test]
+    fn provider_state_remove_recomputes_current_and_handles_empty_state() {
+        let mut state = ProviderState::default();
+        state.upsert(PlayerSnapshot {
+            player_id: "spotify".into(),
+            last_active: 20,
+            ..PlayerSnapshot::test_default()
+        });
+        state.upsert(PlayerSnapshot {
+            player_id: "firefox".into(),
+            last_active: 20,
+            ..PlayerSnapshot::test_default()
+        });
+
+        assert_eq!(state.players[0].player_id, "firefox");
+        assert_eq!(state.current().unwrap().player_id, "firefox");
+
+        state.remove("firefox");
+
+        assert_eq!(state.players.len(), 1);
+        assert_eq!(state.players[0].player_id, "spotify");
+        assert_eq!(state.current().unwrap().player_id, "spotify");
+
+        state.remove("spotify");
+
+        assert!(state.players.is_empty());
+        assert!(state.current().is_none());
     }
 }
