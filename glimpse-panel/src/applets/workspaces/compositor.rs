@@ -143,21 +143,10 @@ pub async fn hyprland_event_loop(tx: mpsc::Sender<AppletState>) {
 
 // --- Niri ---
 
-async fn niri_query_full_state() -> Option<NiriWindowState> {
-    let (ws_output, win_output) = tokio::join!(
-        Command::new("niri")
-            .args(["msg", "-j", "workspaces"])
-            .output(),
-        Command::new("niri")
-            .args(["msg", "-j", "windows"])
-            .output(),
-    );
-
-    let ws_json: Vec<serde_json::Value> =
-        serde_json::from_slice(&ws_output.ok()?.stdout).ok()?;
-    let win_json: Vec<serde_json::Value> =
-        serde_json::from_slice(&win_output.ok()?.stdout).ok()?;
-
+fn parse_niri_window_state(
+    ws_json: &[serde_json::Value],
+    win_json: &[serde_json::Value],
+) -> Option<NiriWindowState> {
     let focused_ws = ws_json.iter().find(|ws| {
         ws.get("is_focused")
             .and_then(|f| f.as_bool())
@@ -200,6 +189,20 @@ async fn niri_query_full_state() -> Option<NiriWindowState> {
     })
 }
 
+async fn niri_query_full_state() -> Option<NiriWindowState> {
+    let (ws_output, win_output) = tokio::join!(
+        Command::new("niri")
+            .args(["msg", "-j", "workspaces"])
+            .output(),
+        Command::new("niri").args(["msg", "-j", "windows"]).output(),
+    );
+
+    let ws_json: Vec<serde_json::Value> = serde_json::from_slice(&ws_output.ok()?.stdout).ok()?;
+    let win_json: Vec<serde_json::Value> = serde_json::from_slice(&win_output.ok()?.stdout).ok()?;
+
+    parse_niri_window_state(&ws_json, &win_json)
+}
+
 pub async fn niri_event_loop(tx: mpsc::Sender<AppletState>) {
     tracing::info!("workspaces: starting niri event stream");
 
@@ -222,6 +225,7 @@ pub async fn niri_event_loop(tx: mpsc::Sender<AppletState>) {
 
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
+    let mut last_state_windows: Vec<NiriWindow> = Vec::new();
 
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -237,6 +241,13 @@ pub async fn niri_event_loop(tx: mpsc::Sender<AppletState>) {
 
         if dominated {
             if let Some(state) = niri_query_full_state().await {
+                // If no window is focused (e.g. mouse moved to panel),
+                // keep the previous active marker
+                let any_focused = state.windows.iter().any(|w| w.is_focused);
+                if !any_focused && !last_state_windows.is_empty() {
+                    continue;
+                }
+                last_state_windows = state.windows.clone();
                 if tx.send(AppletState::Niri(state)).await.is_err() {
                     break;
                 }
@@ -371,7 +382,9 @@ pub async fn focus_notification_target(desktop_entry: Option<&str>, app_name: &s
     }
 
     let (ws_output, win_output) = tokio::join!(
-        Command::new("niri").args(["msg", "-j", "workspaces"]).output(),
+        Command::new("niri")
+            .args(["msg", "-j", "workspaces"])
+            .output(),
         Command::new("niri").args(["msg", "-j", "windows"]).output(),
     );
 
@@ -426,9 +439,69 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_niri_windows_filters_to_focused_workspace() {
+        let ws = vec![
+            serde_json::json!({"id": 1, "idx": 1, "is_focused": false}),
+            serde_json::json!({"id": 2, "idx": 2, "is_focused": true}),
+        ];
+        let win = vec![
+            serde_json::json!({"id": 10, "workspace_id": 1, "is_focused": false, "layout": {"pos_in_scrolling_layout": [1, 1]}}),
+            serde_json::json!({"id": 20, "workspace_id": 2, "is_focused": true, "layout": {"pos_in_scrolling_layout": [1, 1]}}),
+            serde_json::json!({"id": 21, "workspace_id": 2, "is_focused": false, "layout": {"pos_in_scrolling_layout": [2, 1]}}),
+        ];
+
+        let state = parse_niri_window_state(&ws, &win).unwrap();
+
+        assert_eq!(state.workspace_index, 2);
+        assert_eq!(state.windows.len(), 2);
+        assert_eq!(state.windows[0].id, 20);
+        assert!(state.windows[0].is_focused);
+        assert_eq!(state.windows[1].id, 21);
+        assert!(!state.windows[1].is_focused);
+    }
+
+    #[test]
+    fn parse_niri_windows_sorts_by_column() {
+        let ws = vec![serde_json::json!({"id": 1, "idx": 1, "is_focused": true})];
+        let win = vec![
+            serde_json::json!({"id": 3, "workspace_id": 1, "is_focused": false, "layout": {"pos_in_scrolling_layout": [3, 1]}}),
+            serde_json::json!({"id": 1, "workspace_id": 1, "is_focused": false, "layout": {"pos_in_scrolling_layout": [1, 1]}}),
+            serde_json::json!({"id": 2, "workspace_id": 1, "is_focused": true, "layout": {"pos_in_scrolling_layout": [2, 1]}}),
+        ];
+
+        let state = parse_niri_window_state(&ws, &win).unwrap();
+
+        assert_eq!(state.windows[0].id, 1);
+        assert_eq!(state.windows[1].id, 2);
+        assert_eq!(state.windows[2].id, 3);
+    }
+
+    #[test]
+    fn parse_niri_windows_returns_none_when_no_focused_workspace() {
+        let ws = vec![serde_json::json!({"id": 1, "idx": 1, "is_focused": false})];
+        let win = vec![];
+
+        assert!(parse_niri_window_state(&ws, &win).is_none());
+    }
+
+    #[test]
+    fn parse_niri_windows_empty_workspace_returns_empty_list() {
+        let ws = vec![serde_json::json!({"id": 1, "idx": 1, "is_focused": true})];
+        let win = vec![];
+
+        let state = parse_niri_window_state(&ws, &win).unwrap();
+
+        assert_eq!(state.workspace_index, 1);
+        assert!(state.windows.is_empty());
+    }
+
+    #[test]
     fn strips_desktop_suffix_when_normalizing() {
         assert_eq!(normalize_app_id("firefox.desktop"), "firefox");
-        assert_eq!(normalize_app_id("org.mozilla.firefox"), "org.mozilla.firefox");
+        assert_eq!(
+            normalize_app_id("org.mozilla.firefox"),
+            "org.mozilla.firefox"
+        );
     }
 
     #[test]

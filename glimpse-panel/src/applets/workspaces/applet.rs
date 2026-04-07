@@ -75,11 +75,11 @@ impl Component for Workspaces {
         );
         let scroll_sender = sender.clone();
         scroll.connect_scroll(move |_ctrl, dx, dy| {
-            // GTK4 converts shift+vertical-scroll into horizontal scroll (dx),
-            // so dx != 0 means shift was held
             if dx != 0.0 {
+                // Horizontal scroll → switch workspaces
                 scroll_sender.input(WorkspacesInput::Scroll { dy: dx, shift: true });
             } else if dy != 0.0 {
+                // Vertical scroll → switch windows
                 scroll_sender.input(WorkspacesInput::Scroll { dy, shift: false });
             }
             gtk::glib::Propagation::Stop
@@ -154,7 +154,11 @@ impl Component for Workspaces {
                 root.set_tooltip_text(None);
             }
             AppletState::Niri(win_state) => {
-                let tooltip = format!("Workspace {}, {} windows", win_state.workspace_index, win_state.windows.len());
+                let tooltip = format!(
+                    "Workspace {}, {} windows",
+                    win_state.workspace_index,
+                    win_state.windows.len()
+                );
                 root.set_tooltip_text(Some(&tooltip));
                 self.update_niri(win_state, &sender);
             }
@@ -163,23 +167,21 @@ impl Component for Workspaces {
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            WorkspacesInput::Click(index) => {
-                match self.compositor {
-                    Some(Compositor::Niri) => {
-                        if let Some(&window_id) = self.window_ids.get(&index) {
-                            self.action_tx
-                                .try_send(WorkspaceAction::FocusWindow(window_id))
-                                .ok();
-                        }
-                    }
-                    Some(Compositor::Hyprland) => {
+            WorkspacesInput::Click(index) => match self.compositor {
+                Some(Compositor::Niri) => {
+                    if let Some(&window_id) = self.window_ids.get(&index) {
                         self.action_tx
-                            .try_send(WorkspaceAction::SwitchTo(index))
+                            .try_send(WorkspaceAction::FocusWindow(window_id))
                             .ok();
                     }
-                    None => {}
                 }
-            }
+                Some(Compositor::Hyprland) => {
+                    self.action_tx
+                        .try_send(WorkspaceAction::SwitchTo(index))
+                        .ok();
+                }
+                None => {}
+            },
             WorkspacesInput::Scroll { dy, shift } => {
                 let next = dy > 0.0;
                 match self.compositor {
@@ -234,27 +236,32 @@ impl Workspaces {
         self.update_indicators(&indicators, sender);
     }
 
-    fn update_niri(
-        &mut self,
-        state: compositor::NiriWindowState,
-        sender: &ComponentSender<Self>,
-    ) {
+    fn update_niri(&mut self, state: compositor::NiriWindowState, sender: &ComponentSender<Self>) {
         self.window_ids.clear();
-        let indicators: Vec<Indicator> = state
-            .windows
-            .iter()
-            .enumerate()
-            .map(|(i, w)| {
-                let index = (i + 1) as u32;
-                self.window_ids.insert(index, w.id);
-                Indicator {
-                    index,
-                    is_focused: w.is_focused,
-                    occupied: true,
-                    is_urgent: false,
-                }
-            })
-            .collect();
+        let indicators: Vec<Indicator> = if state.windows.is_empty() {
+            vec![Indicator {
+                index: 1,
+                is_focused: true,
+                occupied: false,
+                is_urgent: false,
+            }]
+        } else {
+            state
+                .windows
+                .iter()
+                .enumerate()
+                .map(|(i, w)| {
+                    let index = (i + 1) as u32;
+                    self.window_ids.insert(index, w.id);
+                    Indicator {
+                        index,
+                        is_focused: w.is_focused,
+                        occupied: true,
+                        is_urgent: false,
+                    }
+                })
+                .collect()
+        };
         self.update_indicators(&indicators, sender);
     }
 
