@@ -1,6 +1,16 @@
 ./CLAUDE.md
 Use 'bd' for task tracking
 
+## GTK4 Widget Layout Pitfalls
+
+When creating panel widgets, avoid these common GTK4 layout issues:
+
+- **Widgets stretch to fill panel height** — add `set_valign(gtk::Align::Center)` on indicator/dot widgets
+- **Content not centered in fixed-width containers** — don't use `min-width` in CSS for centering. Instead use `padding: 0 Npx` so the box wraps content with equal padding. Or use `label.set_xalign(0.5)` for text centering.
+- **`set_hexpand(true)` causes widgets to fill available space** — never use hexpand on panel applet children. The panel is a horizontal box; hexpand makes one applet consume all free space.
+- **`set_halign(Center)` on a box inside a horizontal parent** — this centers the box itself but doesn't center its children. Center the child (label), not the container.
+- **CSS `min-width` creates dead space** — the label sits at the start of the box. Use padding instead, or `set_size_request` with `label.set_xalign(0.5)`.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 
