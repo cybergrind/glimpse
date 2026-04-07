@@ -1134,13 +1134,13 @@
     text-align: center;
 }
 
-/* workspaces */
+/* pager */
 
-.workspaces {
+.pager {
     padding: 0 4px;
 }
 
-.workspace-dot {
+.pager-dot {
     min-width: 8px;
     min-height: 8px;
     border-radius: 99px;
@@ -1149,20 +1149,20 @@
     transition: opacity 200ms ease, background 200ms ease;
 }
 
-.workspace-dot.active {
+.pager-dot.active {
     min-width: 20px;
     background: rgba(255, 255, 255, 0.9);
 }
 
-.workspace-dot.occupied {
+.pager-dot.occupied {
     background: rgba(255, 255, 255, 0.55);
 }
 
-.workspace-dot.urgent {
+.pager-dot.urgent {
     background: var(--accent-bg);
 }
 
-.workspace-num {
+.pager-num {
     min-width: 20px;
     min-height: 20px;
     border-radius: 10px;
@@ -1173,27 +1173,27 @@
     transition: opacity 200ms ease, background 200ms ease;
 }
 
-.workspace-num label {
+.pager-num label {
     color: rgba(255, 255, 255, 0.35);
 }
 
-.workspace-num.active {
+.pager-num.active {
     background: rgba(255, 255, 255, 0.2);
 }
 
-.workspace-num.active label {
+.pager-num.active label {
     color: rgba(255, 255, 255, 1.0);
 }
 
-.workspace-num.occupied label {
+.pager-num.occupied label {
     color: rgba(255, 255, 255, 0.6);
 }
 
-.workspace-num.urgent {
+.pager-num.urgent {
     background: var(--accent-bg);
 }
 
-.workspace-num.urgent label {
+.pager-num.urgent label {
     color: var(--on-accent);
 }
 

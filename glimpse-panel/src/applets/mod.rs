@@ -12,7 +12,7 @@ mod session;
 mod spacer;
 mod tray;
 mod weather;
-mod workspaces;
+mod pager;
 
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ pub enum AppletController {
     Weather(Controller<weather::Weather>),
     Session(Controller<session::Session>),
     Spacer(Controller<Spacer>),
-    Workspaces(Controller<workspaces::Workspaces>),
+    Pager(Controller<pager::Pager>),
 }
 
 impl AppletController {
@@ -66,7 +66,7 @@ impl AppletController {
             AppletController::Weather(c) => c.widget().clone().upcast(),
             AppletController::Session(c) => c.widget().clone().upcast(),
             AppletController::Spacer(c) => c.widget().clone().upcast(),
-            AppletController::Workspaces(c) => c.widget().clone().upcast(),
+            AppletController::Pager(c) => c.widget().clone().upcast(),
         }
     }
 }
@@ -210,14 +210,14 @@ pub fn create_applet(
                 .detach();
             Some(AppletController::Session(applet))
         }
-        "workspaces" => {
-            let config: workspaces::WorkspacesConfig = applet_config
+        "pager" => {
+            let config: pager::PagerConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
-            let applet = workspaces::Workspaces::builder()
-                .launch(workspaces::WorkspacesInit { config })
+            let applet = pager::Pager::builder()
+                .launch(pager::PagerInit { config })
                 .detach();
-            Some(AppletController::Workspaces(applet))
+            Some(AppletController::Pager(applet))
         }
         "keyboard" => {
             let config: keyboard::KeyboardConfig = applet_config

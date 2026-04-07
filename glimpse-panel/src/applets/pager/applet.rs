@@ -7,30 +7,29 @@ use relm4::{
 use tokio::sync::mpsc;
 
 use super::compositor::{self, AppletState, Compositor};
-use super::config::{WorkspacesConfig, WorkspacesStyle};
+use super::config::{PagerConfig, PagerStyle, ScrollAction};
 
-pub struct Workspaces {
-    config: WorkspacesConfig,
+pub struct Pager {
+    config: PagerConfig,
     compositor: Option<Compositor>,
-    action_tx: mpsc::Sender<WorkspaceAction>,
+    action_tx: mpsc::Sender<PagerAction>,
     indicators: HashMap<u32, gtk::Box>,
     container: gtk::Box,
-    /// Maps indicator index to niri window ID (for click-to-focus)
     window_ids: HashMap<u32, u64>,
 }
 
-pub struct WorkspacesInit {
-    pub config: WorkspacesConfig,
+pub struct PagerInit {
+    pub config: PagerConfig,
 }
 
 #[derive(Debug)]
-pub enum WorkspacesInput {
+pub enum PagerInput {
     Click(u32),
-    Scroll { dy: f64, shift: bool },
+    Scroll { dy: f64, horizontal: bool },
 }
 
 #[derive(Debug)]
-enum WorkspaceAction {
+enum PagerAction {
     SwitchTo(u32),
     SwitchRelative(bool),
     FocusWindowRelative(bool),
@@ -38,9 +37,9 @@ enum WorkspaceAction {
 }
 
 #[relm4::component(pub)]
-impl Component for Workspaces {
-    type Init = WorkspacesInit;
-    type Input = WorkspacesInput;
+impl Component for Pager {
+    type Init = PagerInit;
+    type Input = PagerInput;
     type Output = ();
     type CommandOutput = AppletState;
 
@@ -48,7 +47,7 @@ impl Component for Workspaces {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             add_css_class: "applet",
-            add_css_class: "workspaces",
+            add_css_class: "pager",
         }
     }
 
@@ -58,9 +57,9 @@ impl Component for Workspaces {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let compositor = compositor::detect();
-        let (action_tx, action_rx) = mpsc::channel::<WorkspaceAction>(16);
+        let (action_tx, action_rx) = mpsc::channel::<PagerAction>(16);
 
-        let model = Workspaces {
+        let model = Pager {
             config: init.config,
             compositor,
             action_tx,
@@ -76,11 +75,9 @@ impl Component for Workspaces {
         let scroll_sender = sender.clone();
         scroll.connect_scroll(move |_ctrl, dx, dy| {
             if dx != 0.0 {
-                // Horizontal scroll → switch workspaces
-                scroll_sender.input(WorkspacesInput::Scroll { dy: dx, shift: true });
+                scroll_sender.input(PagerInput::Scroll { dy: dx, horizontal: true });
             } else if dy != 0.0 {
-                // Vertical scroll → switch windows
-                scroll_sender.input(WorkspacesInput::Scroll { dy, shift: false });
+                scroll_sender.input(PagerInput::Scroll { dy, horizontal: false });
             }
             gtk::glib::Propagation::Stop
         });
@@ -113,16 +110,16 @@ impl Component for Workspaces {
                                 }
                                 Some(action) = action_rx.recv() => {
                                     match action {
-                                        WorkspaceAction::SwitchTo(idx) => {
+                                        PagerAction::SwitchTo(idx) => {
                                             compositor::switch_workspace(comp, idx).await;
                                         }
-                                        WorkspaceAction::SwitchRelative(next) => {
+                                        PagerAction::SwitchRelative(next) => {
                                             compositor::switch_workspace_relative(comp, next).await;
                                         }
-                                        WorkspaceAction::FocusWindowRelative(next) => {
+                                        PagerAction::FocusWindowRelative(next) => {
                                             compositor::focus_window_relative(comp, next).await;
                                         }
-                                        WorkspaceAction::FocusWindow(id) => {
+                                        PagerAction::FocusWindow(id) => {
                                             compositor::focus_window(id).await;
                                         }
                                     }
@@ -136,7 +133,7 @@ impl Component for Workspaces {
                     .drop_on_shutdown()
             });
         } else {
-            tracing::warn!("workspaces: no supported compositor detected");
+            tracing::warn!("pager: no supported compositor detected");
         }
 
         ComponentParts { model, widgets }
@@ -167,48 +164,46 @@ impl Component for Workspaces {
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            WorkspacesInput::Click(index) => match self.compositor {
+            PagerInput::Click(index) => match self.compositor {
                 Some(Compositor::Niri) => {
                     if let Some(&window_id) = self.window_ids.get(&index) {
                         self.action_tx
-                            .try_send(WorkspaceAction::FocusWindow(window_id))
+                            .try_send(PagerAction::FocusWindow(window_id))
                             .ok();
                     }
                 }
                 Some(Compositor::Hyprland) => {
                     self.action_tx
-                        .try_send(WorkspaceAction::SwitchTo(index))
+                        .try_send(PagerAction::SwitchTo(index))
                         .ok();
                 }
                 None => {}
             },
-            WorkspacesInput::Scroll { dy, shift } => {
+            PagerInput::Scroll { dy, horizontal } => {
                 let next = dy > 0.0;
-                match self.compositor {
-                    Some(Compositor::Niri) => {
-                        if shift {
-                            self.action_tx
-                                .try_send(WorkspaceAction::SwitchRelative(next))
-                                .ok();
-                        } else {
-                            self.action_tx
-                                .try_send(WorkspaceAction::FocusWindowRelative(next))
-                                .ok();
-                        }
-                    }
-                    Some(Compositor::Hyprland) => {
+                let scroll_action = self.resolve_scroll_action(horizontal);
+                match scroll_action {
+                    ResolvedScroll::SwitchWorkspace => {
                         self.action_tx
-                            .try_send(WorkspaceAction::SwitchRelative(next))
+                            .try_send(PagerAction::SwitchRelative(next))
                             .ok();
                     }
-                    None => {}
+                    ResolvedScroll::SwitchWindow => {
+                        self.action_tx
+                            .try_send(PagerAction::FocusWindowRelative(next))
+                            .ok();
+                    }
                 }
             }
         }
     }
 }
 
-/// Indicator data for the generic update_indicators method
+enum ResolvedScroll {
+    SwitchWorkspace,
+    SwitchWindow,
+}
+
 struct Indicator {
     index: u32,
     is_focused: bool,
@@ -216,7 +211,27 @@ struct Indicator {
     is_urgent: bool,
 }
 
-impl Workspaces {
+impl Pager {
+    fn resolve_scroll_action(&self, horizontal: bool) -> ResolvedScroll {
+        match &self.config.scroll_action {
+            Some(ScrollAction::Workspaces) => ResolvedScroll::SwitchWorkspace,
+            Some(ScrollAction::Windows) => ResolvedScroll::SwitchWindow,
+            None => {
+                // Default: compositor-aware behavior
+                match self.compositor {
+                    Some(Compositor::Niri) => {
+                        if horizontal {
+                            ResolvedScroll::SwitchWorkspace
+                        } else {
+                            ResolvedScroll::SwitchWindow
+                        }
+                    }
+                    _ => ResolvedScroll::SwitchWorkspace,
+                }
+            }
+        }
+    }
+
     fn update_hyprland(
         &mut self,
         state: compositor::WorkspaceState,
@@ -289,7 +304,7 @@ impl Workspaces {
             Self::set_class(indicator, "occupied", t.occupied && !t.is_focused);
             Self::set_class(indicator, "urgent", t.is_urgent);
 
-            if self.config.style == WorkspacesStyle::Numbered {
+            if self.config.style == PagerStyle::Numbered {
                 if let Some(label) = indicator
                     .first_child()
                     .and_then(|c| c.downcast::<gtk::Label>().ok())
@@ -317,11 +332,11 @@ impl Workspaces {
         wrapper.set_valign(gtk::Align::Center);
 
         match self.config.style {
-            WorkspacesStyle::Pills => {
-                wrapper.add_css_class("workspace-dot");
+            PagerStyle::Pills => {
+                wrapper.add_css_class("pager-dot");
             }
-            WorkspacesStyle::Numbered => {
-                wrapper.add_css_class("workspace-num");
+            PagerStyle::Numbered => {
+                wrapper.add_css_class("pager-num");
                 let label = gtk::Label::new(Some(&index.to_string()));
                 wrapper.append(&label);
             }
@@ -331,7 +346,7 @@ impl Workspaces {
         click.set_button(1);
         let click_sender = sender.clone();
         click.connect_pressed(move |_, _, _, _| {
-            click_sender.input(WorkspacesInput::Click(index));
+            click_sender.input(PagerInput::Click(index));
         });
         wrapper.add_controller(click);
 
