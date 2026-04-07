@@ -15,15 +15,19 @@ fn default_format() -> KeyboardFormat {
 pub struct KeyboardConfig {
     #[serde(default = "default_format")]
     pub format: KeyboardFormat,
-    #[serde(default)]
+    #[serde(default = "default_per_window")]
     pub per_window: bool,
+}
+
+fn default_per_window() -> bool {
+    true
 }
 
 impl Default for KeyboardConfig {
     fn default() -> Self {
         Self {
             format: default_format(),
-            per_window: false,
+            per_window: default_per_window(),
         }
     }
 }

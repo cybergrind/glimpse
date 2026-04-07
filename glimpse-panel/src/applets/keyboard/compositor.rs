@@ -233,38 +233,32 @@ pub async fn niri_event_loop(
     let mut lines = reader.lines();
     let mut window_layouts: HashMap<u64, usize> = HashMap::new();
     let mut focused_window: Option<u64> = None;
+
+    // Query and send initial state
     let mut current_index: usize = 0;
+    if let Some(state) = niri_query_state().await {
+        current_index = state.current_index;
+        if tx.send(state).await.is_err() {
+            let _ = child.kill().await;
+            return;
+        }
+    }
 
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
 
-        if let Some(kl) = event.get("KeyboardLayoutsChanged") {
-            if let Some(layouts) = kl.get("keyboard_layouts") {
-                let names = layouts
-                    .get("names")
-                    .and_then(|n| n.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let idx = layouts
-                    .get("current_idx")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                current_index = idx;
+        if event.get("KeyboardLayoutSwitched").is_some()
+            || event.get("KeyboardLayoutsChanged").is_some()
+        {
+            if let Some(state) = niri_query_state().await {
+                current_index = state.current_index;
                 if per_window {
                     if let Some(wid) = focused_window {
-                        window_layouts.insert(wid, idx);
+                        window_layouts.insert(wid, current_index);
                     }
                 }
-                let state = KeyboardState {
-                    layout_names: names,
-                    current_index: idx,
-                };
                 if tx.send(state).await.is_err() {
                     break;
                 }
@@ -272,6 +266,10 @@ pub async fn niri_event_loop(
         } else if per_window {
             if let Some(wf) = event.get("WindowFocusChanged") {
                 let new_id = wf.get("id").and_then(|v| v.as_u64());
+                // Save current layout for the window we're leaving
+                if let Some(old_wid) = focused_window {
+                    window_layouts.insert(old_wid, current_index);
+                }
                 focused_window = new_id;
                 if let Some(wid) = new_id {
                     if let Some(&saved_index) = window_layouts.get(&wid) {
@@ -285,7 +283,10 @@ pub async fn niri_event_loop(
                                 ])
                                 .output()
                                 .await;
+                            current_index = saved_index;
                         }
+                    } else {
+                        window_layouts.insert(wid, current_index);
                     }
                 }
             } else if let Some(wc) = event.get("WindowClosed") {
