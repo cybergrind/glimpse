@@ -310,7 +310,9 @@ impl<'de> Deserialize<'de> for ChildMessage {
                     .map(|payload| ChildMessage::Tree(payload.content))
                     .map_err(serde::de::Error::custom)
             }
-            other => Err(serde::de::Error::custom(format!("unknown message type {other}"))),
+            other => Err(serde::de::Error::custom(format!(
+                "unknown message type {other}"
+            ))),
         }
     }
 }

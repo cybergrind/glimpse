@@ -1,6 +1,6 @@
-use std::rc::Rc;
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
-use relm4::gtk::{self, prelude::*};
+use relm4::gtk::{self, glib, prelude::*};
 
 use super::protocol::{
     AlignValue, BoxNode, ButtonNode, CallbackData, CheckboxNode, CommonProps, DropdownNode,
@@ -13,19 +13,28 @@ pub type CallbackSink = Rc<dyn Fn(CallbackData)>;
 #[derive(Clone)]
 pub struct RenderCatalog {
     callback: CallbackSink,
+    focus_targets: Rc<RefCell<HashMap<String, gtk::Widget>>>,
 }
 
 impl Default for RenderCatalog {
     fn default() -> Self {
         Self {
             callback: Rc::new(|_| {}),
+            focus_targets: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 }
 
 impl RenderCatalog {
     pub fn with_callback(callback: CallbackSink) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            focus_targets: Rc::new(RefCell::new(HashMap::new())),
+        }
+    }
+
+    pub fn focus_targets(&self) -> HashMap<String, gtk::Widget> {
+        self.focus_targets.borrow().clone()
     }
 
     pub fn render(&self, node: &TreeNode) -> Result<gtk::Widget, RenderError> {
@@ -68,7 +77,13 @@ impl RenderCatalog {
         grid.set_column_spacing(data.column_spacing as u32);
         for child in &data.children {
             let rendered = self.render(&child.child)?;
-            grid.attach(&rendered, child.column, child.row, child.width, child.height);
+            grid.attach(
+                &rendered,
+                child.column,
+                child.row,
+                child.width,
+                child.height,
+            );
         }
         Ok(grid.upcast())
     }
@@ -115,14 +130,16 @@ impl RenderCatalog {
         }
 
         let callback = self.callback.clone();
+        let callback_id = id.clone();
         button.connect_clicked(move |_| {
             callback(CallbackData {
-                id: id.clone(),
+                id: callback_id.clone(),
                 event: "click".into(),
                 button: Some("left".into()),
                 ..CallbackData::default()
             });
         });
+        self.register_focus_target(&id, &button);
         Ok(button.upcast())
     }
 
@@ -136,14 +153,21 @@ impl RenderCatalog {
             entry.set_placeholder_text(Some(placeholder));
         }
         let callback = self.callback.clone();
+        let debounce = Rc::new(RefCell::new(None));
+        let callback_id = id.clone();
         entry.connect_changed(move |entry| {
-            callback(CallbackData {
-                id: id.clone(),
-                event: "input".into(),
-                text: Some(entry.text().to_string()),
-                ..CallbackData::default()
-            });
+            emit_callback(
+                &callback,
+                &debounce,
+                CallbackData {
+                    id: callback_id.clone(),
+                    event: "input".into(),
+                    text: Some(entry.text().to_string()),
+                    ..CallbackData::default()
+                },
+            );
         });
+        self.register_focus_target(&id, &entry);
         Ok(entry.upcast())
     }
 
@@ -160,15 +184,17 @@ impl RenderCatalog {
         let switch = gtk::Switch::new();
         switch.set_active(data.active);
         let callback = self.callback.clone();
+        let callback_id = id.clone();
         switch.connect_active_notify(move |switch| {
             callback(CallbackData {
-                id: id.clone(),
+                id: callback_id.clone(),
                 event: "toggle".into(),
                 value: Some(serde_json::Value::Bool(switch.is_active())),
                 ..CallbackData::default()
             });
         });
         row.append(&switch);
+        self.register_focus_target(&id, &switch);
         Ok(row.upcast())
     }
 
@@ -184,20 +210,28 @@ impl RenderCatalog {
         scale.set_draw_value(data.draw_value);
         scale.set_value(data.value);
         let callback = self.callback.clone();
+        let debounce = Rc::new(RefCell::new(None));
+        let callback_id = id.clone();
         scale.connect_value_changed(move |scale| {
-            callback(CallbackData {
-                id: id.clone(),
-                event: "change".into(),
-                value: Some(serde_json::Value::from(scale.value())),
-                ..CallbackData::default()
-            });
+            emit_callback(
+                &callback,
+                &debounce,
+                CallbackData {
+                    id: callback_id.clone(),
+                    event: "change".into(),
+                    value: Some(serde_json::Value::from(scale.value())),
+                    ..CallbackData::default()
+                },
+            );
         });
+        self.register_focus_target(&id, &scale);
         Ok(scale.upcast())
     }
 
     fn render_separator(&self, data: &SeparatorNode) -> Result<gtk::Widget, RenderError> {
-        let separator =
-            gtk::Separator::new(to_orientation(data.orientation.unwrap_or(OrientationValue::Horizontal)));
+        let separator = gtk::Separator::new(to_orientation(
+            data.orientation.unwrap_or(OrientationValue::Horizontal),
+        ));
         apply_common_props(&separator, &data.common);
         Ok(separator.upcast())
     }
@@ -212,14 +246,16 @@ impl RenderCatalog {
         apply_common_props(&checkbox, &data.common);
         checkbox.set_active(data.active);
         let callback = self.callback.clone();
+        let callback_id = id.clone();
         checkbox.connect_toggled(move |button| {
             callback(CallbackData {
-                id: id.clone(),
+                id: callback_id.clone(),
                 event: "toggle".into(),
                 value: Some(serde_json::Value::Bool(button.is_active())),
                 ..CallbackData::default()
             });
         });
+        self.register_focus_target(&id, &checkbox);
         Ok(checkbox.upcast())
     }
 
@@ -233,20 +269,33 @@ impl RenderCatalog {
         }
         let items = data.items.clone();
         let callback = self.callback.clone();
+        let debounce = Rc::new(RefCell::new(None));
+        let callback_id = id.clone();
         dropdown.connect_selected_notify(move |dropdown| {
             let index = dropdown.selected();
             let value = items
                 .get(index as usize)
                 .map(|item| serde_json::json!({"id": item.id, "label": item.label, "index": index}))
                 .unwrap_or_else(|| serde_json::json!({"index": index}));
-            callback(CallbackData {
-                id: id.clone(),
-                event: "change".into(),
-                value: Some(value),
-                ..CallbackData::default()
-            });
+            emit_callback(
+                &callback,
+                &debounce,
+                CallbackData {
+                    id: callback_id.clone(),
+                    event: "change".into(),
+                    value: Some(value),
+                    ..CallbackData::default()
+                },
+            );
         });
+        self.register_focus_target(&id, &dropdown);
         Ok(dropdown.upcast())
+    }
+
+    fn register_focus_target(&self, id: &str, widget: &impl IsA<gtk::Widget>) {
+        self.focus_targets
+            .borrow_mut()
+            .insert(id.to_owned(), widget.clone().upcast());
     }
 }
 
@@ -323,6 +372,37 @@ fn to_orientation(value: OrientationValue) -> gtk::Orientation {
     }
 }
 
+fn emit_callback(
+    callback: &CallbackSink,
+    debounce: &Rc<RefCell<Option<glib::SourceId>>>,
+    data: CallbackData,
+) {
+    if let Some(delay_ms) = callback_debounce_delay_ms(&data.event) {
+        if let Some(source_id) = debounce.borrow_mut().take() {
+            source_id.remove();
+        }
+        let callback = callback.clone();
+        let debounce = debounce.clone();
+        let clear_handle = debounce.clone();
+        *debounce.borrow_mut() = Some(glib::timeout_add_local_once(
+            Duration::from_millis(delay_ms),
+            move || {
+                callback(data);
+                clear_handle.borrow_mut().take();
+            },
+        ));
+    } else {
+        callback(data);
+    }
+}
+
+fn callback_debounce_delay_ms(event: &str) -> Option<u64> {
+    match event {
+        "input" | "change" => Some(300),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use relm4::gtk;
@@ -387,6 +467,41 @@ mod tests {
             widget_type: "button",
         };
 
-        assert_eq!(err.to_string(), "button widgets require an id for callbacks");
+        assert_eq!(
+            err.to_string(),
+            "button widgets require an id for callbacks"
+        );
+    }
+
+    #[test]
+    fn callback_debounce_policy_delays_input_and_change() {
+        assert_eq!(super::callback_debounce_delay_ms("input"), Some(300));
+        assert_eq!(super::callback_debounce_delay_ms("change"), Some(300));
+    }
+
+    #[test]
+    fn callback_debounce_policy_keeps_click_and_toggle_immediate() {
+        assert_eq!(super::callback_debounce_delay_ms("click"), None);
+        assert_eq!(super::callback_debounce_delay_ms("toggle"), None);
+    }
+
+    #[test]
+    fn renderer_registers_focus_targets_for_entries() {
+        if gtk::init().is_err() {
+            return;
+        }
+        let node = serde_json::from_value::<TreeNode>(serde_json::json!({
+            "type": "entry",
+            "data": {
+                "id": "version",
+                "text": "v1"
+            }
+        }))
+        .expect("entry should parse");
+
+        let renderer = RenderCatalog::default();
+        let _ = renderer.render(&node).expect("entry should render");
+
+        assert!(renderer.focus_targets().contains_key("version"));
     }
 }

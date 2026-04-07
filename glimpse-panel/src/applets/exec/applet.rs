@@ -1,7 +1,7 @@
-use std::{process::Stdio, rc::Rc, time::Duration};
+use std::{process::Stdio, time::Duration};
 
 use relm4::{
-    Component, ComponentParts, ComponentSender,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
 use tokio::{
@@ -12,8 +12,11 @@ use tokio::{
 
 use super::{
     config::ExecConfig,
-    protocol::{CallbackData, ChildMessage, HeroData, InitData, PanelMessage, StatusItem, TreeNode},
-    renderer::{RenderCatalog, apply_icon_to_image},
+    popover::{ExecPopover, ExecPopoverInit, ExecPopoverInput, ExecPopoverOutput},
+    protocol::{
+        CallbackData, ChildMessage, HeroData, InitData, PanelMessage, StatusItem, TreeNode,
+    },
+    renderer::apply_icon_to_image,
 };
 
 pub struct Exec {
@@ -22,7 +25,11 @@ pub struct Exec {
     hero: Option<HeroData>,
     tree: Option<TreeNode>,
     outbound_tx: mpsc::UnboundedSender<PanelMessage>,
-    popover: gtk::Popover,
+    restart_tx: mpsc::UnboundedSender<SupervisorControl>,
+    popover: Controller<ExecPopover>,
+    trigger: gtk::MenuButton,
+    status_box: gtk::Box,
+    context_menu: gtk::PopoverMenu,
 }
 
 #[derive(Clone)]
@@ -36,7 +43,13 @@ pub enum ExecMsg {
     ChildMessage(ChildMessage),
     ChildExited,
     Callback(CallbackData),
+    RestartCommand,
     TogglePopover,
+}
+
+#[derive(Debug)]
+enum SupervisorControl {
+    Restart,
 }
 
 #[relm4::component(pub)]
@@ -52,8 +65,6 @@ impl Component for Exec {
             set_spacing: 4,
             add_css_class: "applet",
             add_css_class: "exec",
-            #[watch]
-            set_visible: !model.status.is_empty(),
         }
     }
 
@@ -62,18 +73,61 @@ impl Component for Exec {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let popover = gtk::Popover::new();
-        popover.set_parent(&root);
-        popover.set_autohide(true);
-        popover.add_css_class("exec-popover");
+        let popover = ExecPopover::builder()
+            .launch(ExecPopoverInit {
+                applet_name: init.name.clone(),
+            })
+            .forward(sender.input_sender(), |msg| match msg {
+                ExecPopoverOutput::Callback(cb) => ExecMsg::Callback(cb),
+            });
+        let trigger = gtk::MenuButton::new();
+        trigger.set_has_frame(false);
+        trigger.add_css_class("flat");
+        trigger.add_css_class("exec-trigger");
+        let status_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        trigger.set_child(Some(&status_box));
+        trigger.set_popover(Some(popover.widget()));
+        root.append(&trigger);
+        root.set_visible(false);
+
+        let action_group = gtk::gio::SimpleActionGroup::new();
+        let restart_action = gtk::gio::SimpleAction::new("restart_command", None);
+        restart_action.connect_activate({
+            let sender = sender.input_sender().clone();
+            move |_, _| sender.emit(ExecMsg::RestartCommand)
+        });
+        action_group.add_action(&restart_action);
+        root.insert_action_group("exec", Some(&action_group));
+
+        let context_menu = gtk::PopoverMenu::from_model(Some(&{
+            let menu = gtk::gio::Menu::new();
+            menu.append(Some("Restart command"), Some("exec.restart_command"));
+            menu
+        }));
+        context_menu.set_parent(&root);
+        context_menu.set_has_arrow(false);
+        {
+            let context_menu = context_menu.clone();
+            root.connect_destroy(move |_| context_menu.unparent());
+        }
+
+        let right_click = gtk::GestureClick::new();
+        right_click.set_button(3);
+        let context_menu_ref = context_menu.clone();
+        right_click.connect_pressed(move |gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            context_menu_ref.popup();
+        });
+        root.add_controller(right_click);
 
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
+        let (restart_tx, restart_rx) = mpsc::unbounded_channel();
         let name = init.name.clone();
         let config = init.config.clone();
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    run_supervisor(name, config, outbound_rx, out).await;
+                    run_supervisor(name, config, outbound_rx, restart_rx, out).await;
                 })
                 .drop_on_shutdown()
         });
@@ -84,7 +138,11 @@ impl Component for Exec {
             hero: None,
             tree: None,
             outbound_tx,
+            restart_tx,
             popover,
+            trigger,
+            status_box,
+            context_menu,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -104,31 +162,49 @@ impl Component for Exec {
             ExecMsg::ChildMessage(message) => {
                 match message {
                     ChildMessage::Status(data) => self.status = data.items,
-                    ChildMessage::Hero(data) => self.hero = data,
-                    ChildMessage::Tree(data) => self.tree = data,
+                    ChildMessage::Hero(data) => {
+                        self.hero = data.clone();
+                        self.popover.emit(ExecPopoverInput::SetHero(data));
+                    }
+                    ChildMessage::Tree(data) => {
+                        self.tree = data.clone();
+                        self.popover.emit(ExecPopoverInput::SetTree(data));
+                    }
                 }
-                self.rebuild_status(root, &sender);
-                self.rebuild_popover(root, &sender);
+                self.rebuild_status(&sender);
+                root.set_visible(!self.status.is_empty());
             }
             ExecMsg::ChildExited => {
                 self.status.clear();
                 self.hero = None;
                 self.tree = None;
-                self.popover.popdown();
-                self.rebuild_status(root, &sender);
-                self.rebuild_popover(root, &sender);
+                self.popover.emit(ExecPopoverInput::Clear);
+                self.trigger.popdown();
+                self.context_menu.popdown();
+                self.rebuild_status(&sender);
+                root.set_visible(false);
             }
             ExecMsg::Callback(callback) => {
+                self.popover
+                    .emit(ExecPopoverInput::RememberInteraction(callback.id.clone()));
                 if let Err(error) = self.outbound_tx.send(PanelMessage::Callback(callback)) {
                     tracing::warn!(%error, applet = %self.name, "exec applet: failed to queue callback");
                 }
             }
+            ExecMsg::RestartCommand => {
+                self.trigger.popdown();
+                self.context_menu.popdown();
+                if let Err(error) = self.restart_tx.send(SupervisorControl::Restart) {
+                    tracing::warn!(%error, applet = %self.name, "exec applet: failed to request restart");
+                }
+            }
             ExecMsg::TogglePopover => {
                 if self.has_popover_content() {
-                    if self.popover.is_visible() {
-                        self.popover.popdown();
+                    if self.popover.widget().is_visible() {
+                        self.trigger.popdown();
                     } else {
-                        self.popover.popup();
+                        self.context_menu.popdown();
+                        self.trigger.popup();
                     }
                 }
             }
@@ -141,45 +217,19 @@ impl Exec {
         self.hero.is_some() || self.tree.is_some()
     }
 
-    fn rebuild_status(&self, root: &gtk::Box, sender: &ComponentSender<Self>) {
-        while let Some(child) = root.first_child() {
-            root.remove(&child);
+    fn rebuild_status(&self, sender: &ComponentSender<Self>) {
+        while let Some(child) = self.status_box.first_child() {
+            self.status_box.remove(&child);
         }
 
         for (index, item) in self.status.iter().enumerate() {
-            root.append(&build_status_item(item, index, self.has_popover_content(), sender));
+            self.status_box.append(&build_status_item(
+                item,
+                index,
+                self.has_popover_content(),
+                sender,
+            ));
         }
-    }
-
-    fn rebuild_popover(&self, _root: &gtk::Box, sender: &ComponentSender<Self>) {
-        if !self.has_popover_content() {
-            self.popover.set_child(Option::<&gtk::Widget>::None);
-            self.popover.popdown();
-            return;
-        }
-
-        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
-        if let Some(hero) = &self.hero {
-            outer.append(&build_hero(hero));
-        }
-        if self.hero.is_some() && self.tree.is_some() {
-            outer.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        }
-        if let Some(tree) = &self.tree {
-            let callback_sender = sender.clone();
-            let renderer = RenderCatalog::with_callback(Rc::new(move |callback| {
-                callback_sender.input(ExecMsg::Callback(callback));
-            }));
-            match renderer.render(tree) {
-                Ok(widget) => outer.append(&widget),
-                Err(error) => {
-                    tracing::warn!(?error, applet = %self.name, "exec applet: failed to render tree");
-                }
-            }
-        }
-
-        self.popover.set_child(Some(&outer));
     }
 }
 
@@ -188,53 +238,48 @@ fn build_status_item(
     index: usize,
     has_popover: bool,
     sender: &ComponentSender<Exec>,
-) -> gtk::Button {
+) -> gtk::Box {
     let fallback_item = item.clone();
-    let button = gtk::Button::new();
-    button.add_css_class("flat");
-    button.add_css_class("exec-status-item");
+    let container = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    container.add_css_class("exec-status-item");
 
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     if let Some(icon) = &item.icon {
         let image = gtk::Image::new();
         apply_icon_to_image(&image, icon);
         image.set_pixel_size(16);
-        content.append(&image);
+        container.append(&image);
     }
     if let Some(text) = &item.text {
         let label = gtk::Label::new(Some(text));
         label.add_css_class("exec-status-label");
-        content.append(&label);
+        container.append(&label);
     }
-    button.set_child(Some(&content));
 
-    let id = item.id.clone();
     let click_sender = sender.clone();
     let click = gtk::GestureClick::new();
-    click.set_button(0);
+    click.set_button(1);
     click.connect_pressed(move |gesture, _, _, _| {
-        if has_popover && gesture.current_button() == 1 {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        let button_name = mouse_button_name(gesture.current_button());
+        let opens_popover = has_popover && gesture.current_button() == 1;
+        if opens_popover {
             click_sender.input(ExecMsg::TogglePopover);
         }
-        if let Some(id) = &id {
-            click_sender.input(ExecMsg::Callback(CallbackData {
-                id: id.clone(),
-                event: "click".into(),
-                button: Some(mouse_button_name(gesture.current_button()).into()),
-                ..CallbackData::default()
-            }));
-        } else if let Some(message) = PanelMessage::status_click(&fallback_item, index, mouse_button_name(gesture.current_button())) {
-            if let PanelMessage::Callback(callback) = message {
+        if let Some(callback) =
+            status_click_callback(&fallback_item, index, button_name, opens_popover)
+        {
+            if let PanelMessage::Callback(callback) = callback {
                 click_sender.input(ExecMsg::Callback(callback));
             }
         }
     });
-    button.add_controller(click);
+    container.add_controller(click);
 
     let scroll_id = item.id.clone();
     let scroll_sender = sender.clone();
-    let scroll =
-        gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE);
+    let scroll = gtk::EventControllerScroll::new(
+        gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+    );
     scroll.connect_scroll(move |_, _, delta_y| {
         if let Some(id) = &scroll_id {
             scroll_sender.input(ExecMsg::Callback(CallbackData {
@@ -246,37 +291,9 @@ fn build_status_item(
         }
         gtk::glib::Propagation::Proceed
     });
-    button.add_controller(scroll);
+    container.add_controller(scroll);
 
-    button
-}
-
-fn build_hero(hero: &HeroData) -> gtk::Box {
-    let hero_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    hero_box.add_css_class("exec-hero");
-
-    if let Some(icon) = &hero.icon {
-        let image = gtk::Image::new();
-        image.set_pixel_size(32);
-        apply_icon_to_image(&image, icon);
-        hero_box.append(&image);
-    }
-
-    let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    text_box.set_valign(gtk::Align::Center);
-
-    let title = gtk::Label::new(Some(&hero.title));
-    title.set_halign(gtk::Align::Start);
-    title.add_css_class("exec-hero-title");
-    text_box.append(&title);
-
-    let subtitle = gtk::Label::new(Some(&hero.subtitle));
-    subtitle.set_halign(gtk::Align::Start);
-    subtitle.add_css_class("exec-hero-subtitle");
-    text_box.append(&subtitle);
-
-    hero_box.append(&text_box);
-    hero_box
+    container
 }
 
 fn mouse_button_name(button: u32) -> &'static str {
@@ -288,10 +305,23 @@ fn mouse_button_name(button: u32) -> &'static str {
     }
 }
 
+fn status_click_callback(
+    item: &StatusItem,
+    index: usize,
+    button: &str,
+    opens_popover: bool,
+) -> Option<PanelMessage> {
+    if opens_popover && button == "left" {
+        return None;
+    }
+    PanelMessage::status_click(item, index, button)
+}
+
 async fn run_supervisor(
     name: String,
     config: ExecConfig,
     mut outbound_rx: mpsc::UnboundedReceiver<PanelMessage>,
+    mut restart_rx: mpsc::UnboundedReceiver<SupervisorControl>,
     out: relm4::Sender<ExecMsg>,
 ) {
     loop {
@@ -346,8 +376,24 @@ async fn run_supervisor(
 
         let mut lines = BufReader::new(stdout).lines();
         let mut should_stop = false;
+        let mut restart_now = false;
         loop {
             tokio::select! {
+                maybe_restart = restart_rx.recv() => {
+                    match maybe_restart {
+                        Some(SupervisorControl::Restart) => {
+                            tracing::info!(applet = %name, "exec applet: restart requested");
+                            restart_now = true;
+                            let _ = child.kill().await;
+                            break;
+                        }
+                        None => {
+                            should_stop = true;
+                            let _ = child.kill().await;
+                            break;
+                        }
+                    }
+                }
                 maybe_message = outbound_rx.recv() => {
                     match maybe_message {
                         Some(message) => {
@@ -394,7 +440,9 @@ async fn run_supervisor(
         if should_stop {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(config.restart_delay_ms)).await;
+        if !restart_now {
+            tokio::time::sleep(Duration::from_millis(config.restart_delay_ms)).await;
+        }
     }
 }
 
@@ -428,8 +476,9 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{
-        ExecMsg, encode_message_line, mouse_button_name, run_supervisor,
         super::protocol::{CallbackData, InitData, PanelMessage, StatusItem},
+        ExecMsg, SupervisorControl, encode_message_line, mouse_button_name, run_supervisor,
+        status_click_callback,
     };
     use crate::applets::exec::{
         config::ExecConfig,
@@ -455,6 +504,19 @@ mod tests {
                 ..CallbackData::default()
             }))
         );
+    }
+
+    #[test]
+    fn left_click_that_opens_popover_does_not_also_emit_status_callback() {
+        let item = StatusItem {
+            id: Some("deploy_status".into()),
+            icon: None,
+            text: Some("Ready".into()),
+        };
+
+        let callback = status_click_callback(&item, 0, "left", true);
+
+        assert_eq!(callback, None);
     }
 
     #[test]
@@ -492,6 +554,7 @@ mod tests {
         );
 
         let (outbound_tx, outbound_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_restart_tx, restart_rx) = tokio::sync::mpsc::unbounded_channel();
         let (sender, receiver) = channel();
         let task = tokio::spawn(run_supervisor(
             "demo".into(),
@@ -500,14 +563,21 @@ mod tests {
                 restart_delay_ms: 10_000,
             },
             outbound_rx,
+            restart_rx,
             sender,
         ));
 
         let message = recv_exec_msg(&receiver).await;
-        assert!(matches!(message, ExecMsg::ChildMessage(ChildMessage::Status(StatusData { .. }))));
+        assert!(matches!(
+            message,
+            ExecMsg::ChildMessage(ChildMessage::Status(StatusData { .. }))
+        ));
 
         let init = fs::read_to_string(&init_path).expect("child should capture init");
-        assert_eq!(init, "{\"type\":\"init\",\"data\":{\"instance\":\"demo\"}}\n");
+        assert_eq!(
+            init,
+            "{\"type\":\"init\",\"data\":{\"instance\":\"demo\"}}\n"
+        );
 
         drop(outbound_tx);
         task.abort();
@@ -528,6 +598,7 @@ mod tests {
         );
 
         let (outbound_tx, outbound_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_restart_tx, restart_rx) = tokio::sync::mpsc::unbounded_channel();
         let (sender, receiver) = channel();
         let task = tokio::spawn(run_supervisor(
             "demo".into(),
@@ -536,6 +607,7 @@ mod tests {
                 restart_delay_ms: 50,
             },
             outbound_rx,
+            restart_rx,
             sender,
         ));
 
@@ -549,6 +621,52 @@ mod tests {
         assert_status_text(&third, "run2");
 
         drop(outbound_tx);
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test]
+    async fn supervisor_restarts_immediately_when_requested() {
+        let temp_dir = make_temp_dir("exec-restart-now");
+        let counter_path = temp_dir.join("counter");
+        let script_path = temp_dir.join("child.sh");
+        write_script(
+            &script_path,
+            &format!(
+                "#!/usr/bin/env bash\ncount=0\nif [ -f {counter} ]; then count=$(cat {counter}); fi\ncount=$((count + 1))\nprintf '%s' \"$count\" > {counter}\nprintf '%s\\n' \"{{\\\"type\\\":\\\"status\\\",\\\"data\\\":{{\\\"items\\\":[{{\\\"id\\\":\\\"demo\\\",\\\"text\\\":\\\"run$count\\\"}}]}}}}\"\nsleep 30\n",
+                counter = shell_single_quote(&counter_path)
+            ),
+        );
+
+        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (restart_tx, restart_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, receiver) = channel();
+        let task = tokio::spawn(run_supervisor(
+            "demo".into(),
+            ExecConfig {
+                command: vec![script_path.to_string_lossy().into_owned()],
+                restart_delay_ms: 60_000,
+            },
+            outbound_rx,
+            restart_rx,
+            sender,
+        ));
+
+        let first = recv_exec_msg(&receiver).await;
+        assert_status_text(&first, "run1");
+
+        restart_tx
+            .send(SupervisorControl::Restart)
+            .expect("restart request should be queued");
+
+        let second = recv_exec_msg(&receiver).await;
+        assert!(matches!(second, ExecMsg::ChildExited));
+
+        let third = recv_exec_msg(&receiver).await;
+        assert_status_text(&third, "run2");
+
+        drop(outbound_tx);
+        drop(restart_tx);
         task.abort();
         let _ = task.await;
     }
@@ -576,10 +694,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "glimpse-{prefix}-{}-{unique}",
-            nanos
-        ));
+        let path = std::env::temp_dir().join(format!("glimpse-{prefix}-{}-{unique}", nanos));
         fs::create_dir_all(&path).expect("temp dir should be created");
         path
     }

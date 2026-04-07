@@ -82,7 +82,7 @@ impl Panel {
         window.init_layer_shell();
         window.set_layer(Layer::Top);
         window.set_namespace("glimpse-panel");
-        window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
+        window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
         window.auto_exclusive_zone_enable();
         window.set_height_request(config.height);
         window.set_margin(Edge::Left, config.margin.left);
