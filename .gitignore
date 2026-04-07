@@ -17,3 +17,5 @@ node_modules
 *.pyc
 dist/
 frameworks/custom-applet/sdk-go/stateful_counter
+.superpowers
+var
