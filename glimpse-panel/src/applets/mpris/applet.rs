@@ -52,8 +52,10 @@ pub enum MprisMsg {
     Unavailable,
 }
 
+const MARQUEE_THRESHOLD_CHARS: usize = 120;
 const MARQUEE_WINDOW_CHARS: usize = 32;
-const MARQUEE_GAP: &str = "   ";
+const MARQUEE_GAP: &str = "      ";
+const MARQUEE_HOLD_TICKS: usize = 6;
 
 fn panel_label(player: &CurrentPlayer, format: &str) -> String {
     let label = format
@@ -88,6 +90,15 @@ fn marquee_frame(text: &str, offset: usize) -> String {
     (0..MARQUEE_WINDOW_CHARS)
         .map(|index| looped[(offset + index) % len])
         .collect()
+}
+
+fn should_marquee(text: &str) -> bool {
+    text.chars().count() > MARQUEE_THRESHOLD_CHARS
+}
+
+fn next_marquee_offset(text: &str, offset: usize) -> usize {
+    let loop_len = text.chars().count() + MARQUEE_GAP.chars().count() + MARQUEE_HOLD_TICKS;
+    (offset + 1) % loop_len
 }
 
 #[relm4::component(pub)]
@@ -157,7 +168,7 @@ impl Component for Mpris {
         };
 
         let tick_sender = sender.clone();
-        glib::timeout_add_local(Duration::from_millis(250), move || {
+        glib::timeout_add_local(Duration::from_millis(450), move || {
             tick_sender.input(MprisMsg::TickMarquee);
             glib::ControlFlow::Continue
         });
@@ -231,7 +242,7 @@ impl Component for Mpris {
             MprisMsg::CurrentUpdate(player) => {
                 self.label = panel_label(&player, &self.config.label_format);
                 self.marquee_offset = 0;
-                self.displayed_label = marquee_frame(&self.label, self.marquee_offset);
+                self.displayed_label = self.label.clone();
                 self.hidden = false;
                 self.current = Some(player);
             }
@@ -239,9 +250,8 @@ impl Component for Mpris {
                 self.popover.emit(MprisPopoverInput::UpdatePlayers(players));
             }
             MprisMsg::TickMarquee => {
-                if self.label.chars().count() > MARQUEE_WINDOW_CHARS {
-                    let loop_len = self.label.chars().count() + MARQUEE_GAP.chars().count();
-                    self.marquee_offset = (self.marquee_offset + 1) % loop_len;
+                if should_marquee(&self.label) {
+                    self.marquee_offset = next_marquee_offset(&self.label, self.marquee_offset);
                     self.displayed_label = marquee_frame(&self.label, self.marquee_offset);
                 } else if self.displayed_label != self.label {
                     self.displayed_label = self.label.clone();
@@ -302,5 +312,17 @@ mod tests {
     #[test]
     fn marquee_frame_keeps_short_labels_unchanged() {
         assert_eq!(marquee_frame("short", 3), "short");
+    }
+
+    #[test]
+    fn marquee_stays_disabled_for_labels_up_to_120_chars() {
+        let text = "a".repeat(120);
+        assert!(!should_marquee(&text));
+    }
+
+    #[test]
+    fn marquee_starts_only_after_120_chars() {
+        let text = "a".repeat(121);
+        assert!(should_marquee(&text));
     }
 }

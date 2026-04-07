@@ -733,8 +733,8 @@
 .mpris {}
 
 .mpris-popover {
-    min-width: 360px;
-    max-width: 360px;
+    min-width: 520px;
+    max-width: 520px;
 }
 
 .mpris-popover contents>box {
@@ -758,9 +758,10 @@
 }
 
 .mpris-popover .mpris-card-art {
-    min-width: 168px;
-    min-height: 168px;
+    min-width: 120px;
+    min-height: 160px;
     background: color-mix(in srgb, currentColor 4%, transparent);
+    -gtk-icon-size: 48px;
 }
 
 .mpris-popover .mpris-card-content {

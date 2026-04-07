@@ -43,8 +43,6 @@ pub enum MprisPopoverInput {
     UpdatePlayers(Vec<PlayerRow>),
 }
 
-const CARD_ART_SIZE: i32 = 168;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ArtSource {
     FilePath(String),
@@ -171,8 +169,6 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
     shell.set_valign(gtk::Align::Fill);
 
     let art = gtk::Image::from_icon_name("audio-x-generic-symbolic");
-    art.set_pixel_size(CARD_ART_SIZE);
-    art.set_size_request(CARD_ART_SIZE, CARD_ART_SIZE);
     art.set_halign(gtk::Align::Fill);
     art.set_valign(gtk::Align::Fill);
     art.add_css_class("mpris-card-art");
@@ -318,11 +314,6 @@ impl SimpleComponent for MprisPopover {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn card_art_size_matches_large_media_layout() {
-        assert_eq!(CARD_ART_SIZE, 168);
-    }
 
     #[test]
     fn artwork_source_parses_file_urls() {
