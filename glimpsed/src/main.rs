@@ -45,6 +45,7 @@ fn register_providers(
         Box::new(providers::brightness::BrightnessProviderFactory),
         Box::new(providers::calendar::CalendarProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
+        Box::new(providers::mpris::MprisProviderFactory),
         Box::new(providers::network::NetworkProviderFactory),
         Box::new(providers::notifications::NotificationsProviderFactory {
             server_tx: notify_tx,
