@@ -5,6 +5,7 @@ mod brightness;
 mod clock;
 mod exec;
 mod keyboard;
+mod mpris;
 mod network;
 mod notifications;
 mod power;
@@ -40,6 +41,7 @@ pub enum AppletController {
     Clock(Controller<Clock>),
     Exec(Controller<exec::Exec>),
     Keyboard(Controller<keyboard::Keyboard>),
+    Mpris(Controller<mpris::Mpris>),
     Network(Controller<network::Network>),
     Notifications(Controller<notifications::Notifications>),
     Power(Controller<power::Power>),
@@ -61,6 +63,7 @@ impl AppletController {
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Exec(c) => c.widget().clone().upcast(),
             AppletController::Keyboard(c) => c.widget().clone().upcast(),
+            AppletController::Mpris(c) => c.widget().clone().upcast(),
             AppletController::Network(c) => c.widget().clone().upcast(),
             AppletController::Notifications(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
@@ -125,6 +128,16 @@ pub fn create_applet(
                 .launch(network::NetworkInit { config, client })
                 .detach();
             Some(AppletController::Network(applet))
+        }
+        "mpris" => {
+            let client = client.clone()?;
+            let config: mpris::MprisConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = mpris::Mpris::builder()
+                .launch(mpris::MprisInit { config, client })
+                .detach();
+            Some(AppletController::Mpris(applet))
         }
         "exec" => {
             let config: ExecConfig = applet_config
