@@ -40,6 +40,8 @@ Rules:
 - If `artist` is missing, fall back to `track`.
 - If `track` is missing, fall back to player identity.
 - If no players exist, hide the applet by default.
+- The panel applet must remain content-sized and must not expand horizontally because of child layout.
+- Long panel labels should marquee rather than hard-trimming or forcing the applet wider.
 
 ### Popover
 
@@ -56,10 +58,16 @@ Rules:
 - No expanded hero row.
 - All rows use the same layout and importance.
 - Sort rows by recency, newest first.
+- Each player renders as a full card rather than a bare row.
 - Track is the first line.
 - Artist is the second line.
 - If artist is missing, fall back to album, then player identity.
-- Artwork is optional. If unavailable, show a symbolic media icon.
+- Artwork should be visibly larger than the initial row-icon placeholder.
+- Artwork loading should use the player-provided `art_url` only, interpreted by scheme:
+  - `file://...` URLs load from the local filesystem
+  - plain local paths load from the local filesystem
+  - `http://` and `https://` URLs load over the network
+  - unsupported, missing, or failed artwork falls back to a symbolic media icon
 - Previous and next buttons disable when unsupported.
 - Play/pause reflects the row player's current playback status.
 
@@ -87,7 +95,7 @@ The `mpris` applet in `glimpse-panel` is responsible for:
 - rendering the compact panel label
 - rendering the flat multi-player popover
 - dispatching controls for the clicked row
-- loading artwork asynchronously in the UI layer
+- loading artwork asynchronously in the UI layer from the single `art_url` field
 - falling back cleanly when artwork or metadata is missing
 
 This keeps D-Bus integration and selection logic out of GTK and follows the same provider/applet split already used elsewhere in the project.
@@ -262,5 +270,7 @@ Verify these scenarios:
 ## Open Implementation Notes
 
 - Artwork loading belongs in the applet, not the provider.
+- The panel widget must avoid `hexpand` or equivalent layout choices that cause the applet to consume extra panel width.
+- The popover should reuse the notification-card visual language for each player card instead of a plain list-row appearance.
 - The popover should use GTK layout patterns already established in the repo, including centered vertical alignment and no `hexpand` on panel children.
 - The provider should prefer stable, explicit normalization over mirroring raw MPRIS metadata directly into UI payloads.
