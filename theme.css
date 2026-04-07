@@ -674,6 +674,62 @@
     font-weight: normal;
 }
 
+.brightness {}
+
+.brightness-label {
+    font-variant-numeric: tabular-nums;
+}
+
+.brightness-popover {
+    min-width: 360px;
+    max-width: 360px;
+}
+
+.brightness-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.brightness-popover separator {
+    margin-top: var(--popover-section-spacing);
+    margin-bottom: var(--popover-section-spacing);
+}
+
+.brightness-popover .brightness-hero {
+    margin-bottom: 4px;
+}
+
+.brightness-popover .brightness-hero-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.brightness-popover .brightness-hero-subtitle {
+    font-size: 12px;
+    opacity: var(--dim-opacity);
+}
+
+.brightness-popover .brightness-row {
+    margin-bottom: 10px;
+}
+
+.brightness-popover .brightness-row-name {
+    font-weight: 500;
+}
+
+.brightness-popover .brightness-row-percent {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+}
+
+.brightness-popover .settings-btn {
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.brightness-popover .settings-btn label {
+    font-weight: normal;
+}
+
 /* session */
 
 .session {}

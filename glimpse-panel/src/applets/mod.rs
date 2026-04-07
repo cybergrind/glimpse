@@ -1,6 +1,7 @@
 mod audio;
 mod battery;
 mod bluetooth;
+mod brightness;
 mod clock;
 mod exec;
 mod keyboard;
@@ -35,6 +36,7 @@ pub enum AppletController {
     Audio(Controller<audio::Audio>),
     Battery(Controller<battery::Battery>),
     Bluetooth(Controller<bluetooth::Bluetooth>),
+    Brightness(Controller<brightness::Brightness>),
     Clock(Controller<Clock>),
     Exec(Controller<exec::Exec>),
     Keyboard(Controller<keyboard::Keyboard>),
@@ -55,6 +57,7 @@ impl AppletController {
             AppletController::Audio(c) => c.widget().clone().upcast(),
             AppletController::Battery(c) => c.widget().clone().upcast(),
             AppletController::Bluetooth(c) => c.widget().clone().upcast(),
+            AppletController::Brightness(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Exec(c) => c.widget().clone().upcast(),
             AppletController::Keyboard(c) => c.widget().clone().upcast(),
@@ -102,6 +105,16 @@ pub fn create_applet(
                 .launch(bluetooth::BluetoothInit { config, client })
                 .detach();
             Some(AppletController::Bluetooth(applet))
+        }
+        "brightness" => {
+            let client = client.clone()?;
+            let config: brightness::BrightnessConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = brightness::Brightness::builder()
+                .launch(brightness::BrightnessInit { config, client })
+                .detach();
+            Some(AppletController::Brightness(applet))
         }
         "network" => {
             let client = client.clone()?;
