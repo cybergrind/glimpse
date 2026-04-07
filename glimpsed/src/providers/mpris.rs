@@ -82,15 +82,31 @@ impl Provider for MprisProvider {
                     _ = cancel.cancelled() => break,
                     req = requests.recv() => {
                         let Some(req) = req else { break };
-                        if let ProviderRequest::Snapshot { reply, .. } = req {
-                            let _ = reply.send(None);
-                        }
+                        self.handle_request(req).await;
                     }
                 }
             }
 
             Ok(())
         })
+    }
+}
+
+impl MprisProvider {
+    async fn handle_request(&self, req: ProviderRequest) {
+        match req {
+            ProviderRequest::Snapshot { topic, reply } => {
+                let data = match topic.as_str() {
+                    "mpris.current" => Some(serde_json::Value::Null),
+                    "mpris.players" => Some(serde_json::json!([])),
+                    _ => None,
+                };
+                let _ = reply.send(data);
+            }
+            ProviderRequest::Call { reply, .. } => {
+                let _ = reply.send(Err(anyhow::anyhow!("not implemented")));
+            }
+        }
     }
 }
 
@@ -145,5 +161,55 @@ mod tests {
 
         let current = select_current_player(&players).expect("current player");
         assert_eq!(current.player_id, "firefox");
+    }
+
+    #[tokio::test]
+    async fn current_snapshot_returns_null() {
+        let provider = MprisProvider;
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        provider
+            .handle_request(ProviderRequest::Snapshot {
+                topic: "mpris.current".into(),
+                reply: reply_tx,
+            })
+            .await;
+
+        assert_eq!(reply_rx.await.unwrap(), Some(serde_json::Value::Null));
+    }
+
+    #[tokio::test]
+    async fn players_snapshot_returns_empty_array() {
+        let provider = MprisProvider;
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        provider
+            .handle_request(ProviderRequest::Snapshot {
+                topic: "mpris.players".into(),
+                reply: reply_tx,
+            })
+            .await;
+
+        assert_eq!(
+            reply_rx.await.unwrap(),
+            Some(serde_json::json!([]))
+        );
+    }
+
+    #[tokio::test]
+    async fn methods_return_not_implemented() {
+        let provider = MprisProvider;
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        provider
+            .handle_request(ProviderRequest::Call {
+                method: "mpris.play_pause".into(),
+                params: serde_json::json!({}),
+                reply: reply_tx,
+            })
+            .await;
+
+        let err = reply_rx.await.unwrap().expect_err("expected error");
+        assert_eq!(err.to_string(), "not implemented");
     }
 }
