@@ -45,7 +45,8 @@ pub enum MprisPopoverInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ArtSource {
-    File(String),
+    FilePath(String),
+    FileUri(String),
     Remote(String),
     Fallback,
 }
@@ -70,12 +71,12 @@ fn row_subtitle(player: &PlayerRow) -> String {
 }
 
 fn parse_art_source(value: &str) -> ArtSource {
-    if let Some(path) = value.strip_prefix("file://") {
-        ArtSource::File(path.to_string())
+    if value.starts_with("file://") {
+        ArtSource::FileUri(value.to_string())
     } else if value.starts_with("http://") || value.starts_with("https://") {
         ArtSource::Remote(value.to_string())
     } else if value.starts_with('/') {
-        ArtSource::File(value.to_string())
+        ArtSource::FilePath(value.to_string())
     } else {
         ArtSource::Fallback
     }
@@ -125,8 +126,15 @@ fn set_fallback_art(widget: &gtk::Image) {
 
 fn load_player_art(widget: &gtk::Image, art_url: &str) {
     match parse_art_source(art_url) {
-        ArtSource::File(path) => {
+        ArtSource::FilePath(path) => {
             let file = gio::File::for_path(path);
+            match gdk::Texture::from_file(&file) {
+                Ok(texture) => widget.set_paintable(Some(&texture)),
+                Err(_) => set_fallback_art(widget),
+            }
+        }
+        ArtSource::FileUri(uri) => {
+            let file = gio::File::for_uri(&uri);
             match gdk::Texture::from_file(&file) {
                 Ok(texture) => widget.set_paintable(Some(&texture)),
                 Err(_) => set_fallback_art(widget),
@@ -162,6 +170,8 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
 
     let art = gtk::Image::from_icon_name("audio-x-generic-symbolic");
     art.set_pixel_size(56);
+    art.set_size_request(56, 56);
+    art.set_halign(gtk::Align::Center);
     art.set_valign(gtk::Align::Center);
     art.add_css_class("mpris-card-art");
     load_player_art(&art, &player.art_url);
@@ -300,7 +310,7 @@ mod tests {
     fn artwork_source_parses_file_urls() {
         assert_eq!(
             parse_art_source("file:///tmp/cover.jpg"),
-            ArtSource::File("/tmp/cover.jpg".into())
+            ArtSource::FileUri("file:///tmp/cover.jpg".into())
         );
     }
 
