@@ -130,6 +130,22 @@ fn parse_player_id(params: &serde_json::Value) -> anyhow::Result<&str> {
         .ok_or_else(|| anyhow::anyhow!("missing 'player_id'"))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlTarget {
+    Player,
+    Root,
+}
+
+fn control_method_target(method: &str) -> anyhow::Result<(ControlTarget, &'static str)> {
+    match method {
+        "mpris.play_pause" => Ok((ControlTarget::Player, "PlayPause")),
+        "mpris.previous" => Ok((ControlTarget::Player, "Previous")),
+        "mpris.next" => Ok((ControlTarget::Player, "Next")),
+        "mpris.raise" => Ok((ControlTarget::Root, "Raise")),
+        _ => Err(anyhow::anyhow!("unknown method: {method}")),
+    }
+}
+
 fn now_ts() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -468,12 +484,11 @@ impl MprisProvider {
         events: Option<&mpsc::Sender<ProviderEvent>>,
     ) -> anyhow::Result<serde_json::Value> {
         let player_id = parse_player_id(params)?;
-        let result = match method {
-            "mpris.play_pause" => call_player_method(conn, player_id, "PlayPause").await,
-            "mpris.previous" => call_player_method(conn, player_id, "Previous").await,
-            "mpris.next" => call_player_method(conn, player_id, "Next").await,
-            "mpris.raise" => call_root_method(conn, player_id, "Raise").await,
-            _ => Err(anyhow::anyhow!("unknown method: {method}")),
+        let result = match control_method_target(method)? {
+            (ControlTarget::Player, dbus_method) => {
+                call_player_method(conn, player_id, dbus_method).await
+            }
+            (ControlTarget::Root, dbus_method) => call_root_method(conn, player_id, dbus_method).await,
         }?;
 
         self.state.mark_active(player_id, now_ts());
@@ -785,5 +800,25 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("missing 'player_id'"));
+    }
+
+    #[test]
+    fn control_methods_map_to_expected_dbus_methods() {
+        assert_eq!(
+            control_method_target("mpris.play_pause").unwrap(),
+            (ControlTarget::Player, "PlayPause")
+        );
+        assert_eq!(
+            control_method_target("mpris.previous").unwrap(),
+            (ControlTarget::Player, "Previous")
+        );
+        assert_eq!(
+            control_method_target("mpris.next").unwrap(),
+            (ControlTarget::Player, "Next")
+        );
+        assert_eq!(
+            control_method_target("mpris.raise").unwrap(),
+            (ControlTarget::Root, "Raise")
+        );
     }
 }
