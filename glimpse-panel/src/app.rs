@@ -76,7 +76,7 @@ impl SimpleComponent for App {
             }
         };
 
-        let panels = setup_panels(&config, dbus.connection.clone(), client.clone());
+        let panels = setup_panels(&config, dbus.session.clone(), dbus.system.clone(), client.clone());
 
         let model = App {
             panels,
@@ -97,7 +97,8 @@ impl SimpleComponent for App {
                 }
                 self.panels = setup_panels(
                     &new_config,
-                    self.dbus.connection.clone(),
+                    self.dbus.session.clone(),
+                    self.dbus.system.clone(),
                     self.client.clone(),
                 );
                 self.config = new_config;
@@ -111,7 +112,8 @@ impl SimpleComponent for App {
 
 fn setup_panels(
     config: &Config,
-    dbus: Arc<zbus::Connection>,
+    dbus: zbus::Connection,
+    system: zbus::Connection,
     client: Option<Arc<Client>>,
 ) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
@@ -120,6 +122,7 @@ fn setup_panels(
             config: panel_config.clone(),
             applet_configs: config.applets.clone(),
             dbus: dbus.clone(),
+            system: system.clone(),
             client: client.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();

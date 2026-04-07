@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
@@ -29,7 +27,7 @@ pub struct Power {
 }
 
 pub struct PowerInit {
-    pub dbus: Arc<zbus::Connection>,
+    pub dbus: zbus::Connection,
     pub config: PowerConfig,
 }
 
@@ -115,6 +113,7 @@ impl Component for Power {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let (action_tx, action_rx) = mpsc::channel::<PowerAction>(8);
+        let sys_conn = init.dbus;
 
         let popover = PowerPopover::builder()
             .launch(PowerPopoverInit {
@@ -155,18 +154,10 @@ impl Component for Power {
             shutdown
                 .register(async move {
                     let mut action_rx = action_rx;
-                    let sys_conn = match zbus::Connection::system().await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            tracing::error!("system bus connection failed: {e}");
-                            return;
-                        }
-                    };
-
                     tracing::info!("power applet: starting monitors");
                     let (inner_tx, mut inner_rx) = mpsc::channel::<PowerCommand>(16);
-                    tokio::spawn(monitor_battery(inner_tx.clone()));
-                    tokio::spawn(monitor_profiles(inner_tx));
+                    tokio::spawn(monitor_battery(sys_conn.clone(), inner_tx.clone()));
+                    tokio::spawn(monitor_profiles(sys_conn.clone(), inner_tx));
 
                     loop {
                         tokio::select! {

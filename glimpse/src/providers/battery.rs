@@ -8,19 +8,20 @@ use zbus::zvariant::OwnedObjectPath;
 
 use crate::dbus::DbusPropertyGroup;
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[repr(u32)]
 pub enum DeviceType {
-    LinePower,
-    Battery,
-    Ups,
-    Monitor,
-    Mouse,
-    Keyboard,
-    Pda,
-    Phone,
     #[default]
-    Unknown,
+    Unknown = 0,
+    LinePower = 1,
+    Battery = 2,
+    Ups = 3,
+    Monitor = 4,
+    Mouse = 5,
+    Keyboard = 6,
+    Pda = 7,
+    Phone = 8,
 }
 
 impl From<u32> for DeviceType {

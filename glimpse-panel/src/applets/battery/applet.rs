@@ -1,10 +1,11 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::providers::battery::{BatteryEvent, BatteryProvider, BatteryState, BatteryStatus};
+use glimpse::providers::power::{PowerEvent, PowerProfiles, PowerProvider};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::config::BatteryConfig;
 use super::popover::{BatteryPopover, BatteryPopoverInit, BatteryPopoverInput};
@@ -20,13 +21,13 @@ pub struct Battery {
 
 pub struct BatteryInit {
     pub config: BatteryConfig,
-    pub client: Arc<Client>,
+    pub conn: zbus::Connection,
 }
 
 #[derive(Debug)]
 pub enum BatteryInput {
-    Update(serde_json::Value),
-    ProfilesUpdate(serde_json::Value),
+    Update(BatteryStatus),
+    UpdateProfiles(PowerProfiles),
     TogglePopover,
     Unavailable,
 }
@@ -78,10 +79,11 @@ impl Component for Battery {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let conn = init.conn;
         let popover = BatteryPopover::builder()
             .launch(BatteryPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
+                conn: conn.clone(),
                 settings_command: init.config.settings_command.clone(),
             })
             .detach();
@@ -95,38 +97,57 @@ impl Component for Battery {
             popover,
         };
 
-        let client = init.client;
         sender.command(move |cmd_tx, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("battery applet: subscribing");
-                    let mut bat_sub = match client.subscribe("battery.status").await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("battery: subscribe failed: {e}");
-                            let _ = cmd_tx.send(BatteryInput::Unavailable);
-                            return;
+                    tracing::debug!("battery applet: starting providers");
+                    let cancel = CancellationToken::new();
+
+                    let (bat_tx, mut bat_rx) = mpsc::channel::<BatteryEvent>(8);
+                    tokio::spawn({
+                        let cancel = cancel.clone();
+                        let conn = conn.clone();
+                        async move {
+                            let mut provider = BatteryProvider::new();
+                            if let Err(e) = provider.run(conn, bat_tx, cancel).await {
+                                tracing::error!("battery provider: {e}");
+                            }
                         }
-                    };
-                    let mut profile_sub = client.subscribe("power.profiles").await.ok();
+                    });
+
+                    let (pwr_tx, mut pwr_rx) = mpsc::channel::<PowerEvent>(8);
+                    tokio::spawn({
+                        let cancel = cancel.clone();
+                        async move {
+                            let mut provider = PowerProvider::new();
+                            if let Err(e) = provider.run(conn, pwr_tx, cancel).await {
+                                tracing::error!("power provider: {e}");
+                            }
+                        }
+                    });
 
                     loop {
                         tokio::select! {
-                            Some(ev) = bat_sub.next() => {
-                                let _ = cmd_tx.send(BatteryInput::Update(ev.data));
-                            }
-                            Some(ev) = async {
-                                match &mut profile_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
+                            event = bat_rx.recv() => match event {
+                                Some(BatteryEvent::StatusChanged(status)) => {
+                                    let _ = cmd_tx.send(BatteryInput::Update(status));
                                 }
-                            } => {
-                                let _ = cmd_tx.send(BatteryInput::ProfilesUpdate(ev.data));
-                            }
-                            else => break,
+                                Some(BatteryEvent::DevicesChanged(_)) => {}
+                                None => {
+                                    cancel.cancel();
+                                    let _ = cmd_tx.send(BatteryInput::Unavailable);
+                                    break;
+                                }
+                            },
+                            event = pwr_rx.recv() => match event {
+                                Some(PowerEvent::ProfilesChanged(profiles)) => {
+                                    let _ = cmd_tx.send(BatteryInput::UpdateProfiles(profiles));
+                                }
+                                Some(PowerEvent::ActionsChanged(_)) => {}
+                                None => break,
+                            },
                         }
                     }
-                    let _ = cmd_tx.send(BatteryInput::Unavailable);
                 })
                 .drop_on_shutdown()
         });
@@ -146,33 +167,21 @@ impl Component for Battery {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            BatteryInput::Update(data) => {
-                tracing::info!(pct = %data["percentage"], state = %data["state"], "battery applet: update");
-                let percentage = data["percentage"].as_u64().unwrap_or(0).min(100) as u8;
-                let state = data["state"].as_str().unwrap_or("unknown");
-                let icon_name = data["icon_name"]
-                    .as_str()
-                    .unwrap_or("battery-missing-symbolic");
-                let present = data["present"].as_bool().unwrap_or(false);
-                let on_battery = data["on_battery"].as_bool().unwrap_or(false);
-                let energy_rate = data["energy_rate"].as_f64().unwrap_or(0.0);
-                let capacity = data["capacity"].as_f64().unwrap_or(0.0);
-                let time_to_empty = data["time_to_empty"].as_i64().unwrap_or(0);
-                let time_to_full = data["time_to_full"].as_i64().unwrap_or(0);
-
-                self.icon_name = icon_name.to_owned();
-                self.visible = present;
+            BatteryInput::Update(status) => {
+                tracing::info!(pct = status.percentage, state = ?status.state, "battery applet: update");
+                self.icon_name = status.icon_name.clone();
+                self.visible = status.present;
 
                 let vars = FormatVars {
-                    percentage,
-                    state,
-                    energy_rate,
-                    capacity,
-                    time_to_empty,
-                    time_to_full,
+                    percentage: status.percentage,
+                    state: &status.state,
+                    energy_rate: status.energy_rate,
+                    capacity: status.capacity,
+                    time_to_empty: status.time_to_empty,
+                    time_to_full: status.time_to_full,
                 };
 
-                let (label_fmt, tooltip_fmt) = if on_battery {
+                let (label_fmt, tooltip_fmt) = if status.on_battery {
                     (
                         &self.config.label_on_battery,
                         &self.config.tooltip_on_battery,
@@ -184,16 +193,17 @@ impl Component for Battery {
                 self.label = format_template(label_fmt, &vars);
                 self.tooltip = format_template(tooltip_fmt, &vars);
 
-                self.popover.emit(BatteryPopoverInput::UpdateStatus(data));
+                self.popover.emit(BatteryPopoverInput::UpdateStatus(status));
             }
-            BatteryInput::ProfilesUpdate(data) => {
-                self.popover.emit(BatteryPopoverInput::UpdateProfiles(data));
+            BatteryInput::UpdateProfiles(profiles) => {
+                self.popover
+                    .emit(BatteryPopoverInput::UpdateProfiles(profiles));
             }
             BatteryInput::TogglePopover => {
                 self.popover.emit(BatteryPopoverInput::Toggle);
             }
             BatteryInput::Unavailable => {
-                tracing::warn!("battery applet: daemon unavailable");
+                tracing::warn!("battery applet: provider unavailable");
                 self.visible = false;
             }
         }
@@ -202,7 +212,7 @@ impl Component for Battery {
 
 struct FormatVars<'a> {
     percentage: u8,
-    state: &'a str,
+    state: &'a BatteryState,
     energy_rate: f64,
     capacity: f64,
     time_to_empty: i64,
@@ -215,13 +225,13 @@ fn format_template(template: &str, vars: &FormatVars) -> String {
     }
 
     let time_left = match vars.state {
-        "discharging" if vars.time_to_empty > 0 => {
+        BatteryState::Discharging if vars.time_to_empty > 0 => {
             format!("{} remaining", format_duration(vars.time_to_empty))
         }
-        "charging" if vars.time_to_full > 0 => {
+        BatteryState::Charging if vars.time_to_full > 0 => {
             format!("{} until full", format_duration(vars.time_to_full))
         }
-        "fully-charged" => "fully charged".into(),
+        BatteryState::FullyCharged => "fully charged".into(),
         _ => String::new(),
     };
     let power = if vars.energy_rate > 0.0 {
@@ -229,10 +239,19 @@ fn format_template(template: &str, vars: &FormatVars) -> String {
     } else {
         String::new()
     };
+    let state_str = match vars.state {
+        BatteryState::Charging => "charging",
+        BatteryState::Discharging => "discharging",
+        BatteryState::Empty => "empty",
+        BatteryState::FullyCharged => "fully-charged",
+        BatteryState::PendingCharge => "pending-charge",
+        BatteryState::PendingDischarge => "pending-discharge",
+        BatteryState::Unknown => "unknown",
+    };
 
     template
         .replace("{percentage}", &vars.percentage.to_string())
-        .replace("{state}", vars.state)
+        .replace("{state}", state_str)
         .replace("{time_left}", &time_left)
         .replace("{power}", &power)
         .replace("{health}", &format!("{:.0}%", vars.capacity))

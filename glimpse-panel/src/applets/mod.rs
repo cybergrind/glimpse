@@ -8,13 +8,13 @@ mod keyboard;
 mod mpris;
 mod network;
 mod notifications;
+mod pager;
 mod power;
 mod privacy;
 mod session;
 mod spacer;
 mod tray;
 mod weather;
-mod pager;
 
 use std::sync::Arc;
 
@@ -80,7 +80,8 @@ impl AppletController {
 pub fn create_applet(
     applet_config: Option<&AppletConfig>,
     name: &str,
-    dbus: Arc<zbus::Connection>,
+    dbus: zbus::Connection,
+    system: zbus::Connection,
     client: Option<Arc<Client>>,
 ) -> Option<AppletController> {
     let applet_type = applet_config
@@ -166,12 +167,14 @@ pub fn create_applet(
             Some(AppletController::Notifications(applet))
         }
         "battery" => {
-            let client = client.clone()?;
             let config: battery::BatteryConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = battery::Battery::builder()
-                .launch(battery::BatteryInit { config, client })
+                .launch(battery::BatteryInit {
+                    config,
+                    conn: system.clone(),
+                })
                 .detach();
             Some(AppletController::Battery(applet))
         }
@@ -194,7 +197,7 @@ pub fn create_applet(
             let applet = power::Power::builder()
                 .launch(power::PowerInit {
                     config,
-                    dbus: dbus.clone(),
+                    dbus: system.clone(),
                 })
                 .detach();
             Some(AppletController::Power(applet))

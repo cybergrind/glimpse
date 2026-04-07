@@ -1,14 +1,13 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::providers::battery::{BatteryState, BatteryStatus};
+use glimpse::providers::power::{PowerProfiles, set_profile};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, glib, prelude::*},
+    gtk::{self, prelude::*},
 };
 
 pub struct BatteryPopover {
+    conn: zbus::Connection,
     popover: gtk::Popover,
-    client: Arc<Client>,
     // Status section.
     status_icon: gtk::Image,
     status_pct: gtk::Label,
@@ -27,22 +26,15 @@ pub struct BatteryPopover {
 
 pub struct BatteryPopoverInit {
     pub parent: gtk::Box,
-    pub client: Arc<Client>,
+    pub conn: zbus::Connection,
     pub settings_command: String,
 }
 
 #[derive(Debug)]
 pub enum BatteryPopoverInput {
     Toggle,
-    UpdateStatus(serde_json::Value),
-    UpdateProfiles(serde_json::Value),
-}
-
-fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
-    let c = client.clone();
-    glib::spawn_future_local(async move {
-        let _ = c.call(method, params).await;
-    });
+    UpdateStatus(BatteryStatus),
+    UpdateProfiles(PowerProfiles),
 }
 
 impl SimpleComponent for BatteryPopover {
@@ -149,8 +141,8 @@ impl SimpleComponent for BatteryPopover {
         root.set_child(Some(&vbox));
 
         let model = BatteryPopover {
+            conn: init.conn,
             popover: root.clone(),
-            client: init.client,
             status_icon,
             status_pct,
             progress,
@@ -175,123 +167,122 @@ impl SimpleComponent for BatteryPopover {
                     self.popover.popup();
                 }
             }
-            BatteryPopoverInput::UpdateStatus(data) => {
-                let pct = data["percentage"].as_u64().unwrap_or(0).min(100) as u8;
-                let state = data["state"].as_str().unwrap_or("unknown");
-                let icon = data["icon_name"]
-                    .as_str()
-                    .unwrap_or("battery-missing-symbolic");
-                let model_name = data["model"].as_str().unwrap_or("");
-                let energy_rate = data["energy_rate"].as_f64().unwrap_or(0.0);
-                let capacity = data["capacity"].as_f64().unwrap_or(0.0);
-                let tte = data["time_to_empty"].as_i64().unwrap_or(0);
-                let ttf = data["time_to_full"].as_i64().unwrap_or(0);
-                let threshold = data["charge_threshold"].as_u64().unwrap_or(0) as u32;
+            BatteryPopoverInput::UpdateStatus(status) => {
+                let pct = status.percentage;
+                let tte = status.time_to_empty;
+                let ttf = status.time_to_full;
 
-                self.status_icon.set_icon_name(Some(icon));
+                self.status_icon.set_icon_name(Some(&status.icon_name));
                 self.status_pct.set_label(&format!("{pct}%"));
                 self.progress.set_fraction(pct as f64 / 100.0);
 
-                let state_text = match state {
-                    "discharging" if tte > 0 => {
+                let state_text = match status.state {
+                    BatteryState::Discharging if tte > 0 => {
                         format!("Discharging — {} remaining", format_duration(tte))
                     }
-                    "discharging" => "Discharging".into(),
-                    "charging" if ttf > 0 => {
+                    BatteryState::Discharging => "Discharging".into(),
+                    BatteryState::Charging if ttf > 0 => {
                         format!("Charging — {} until full", format_duration(ttf))
                     }
-                    "charging" => "Charging".into(),
-                    "fully-charged" => "Fully charged".into(),
-                    "pending-charge" => "Plugged in, not charging".into(),
-                    "pending-discharge" => "Plugged in".into(),
-                    _ => state.to_owned(),
+                    BatteryState::Charging => "Charging".into(),
+                    BatteryState::FullyCharged => "Fully charged".into(),
+                    BatteryState::PendingCharge => "Plugged in, not charging".into(),
+                    BatteryState::PendingDischarge => "Plugged in".into(),
+                    BatteryState::Unknown | BatteryState::Empty => String::new(),
                 };
                 self.status_text.set_label(&state_text);
 
-                self.health_val.set_label(&format!("{capacity:.0}%"));
-                self.model_val.set_label(if model_name.is_empty() {
+                self.health_val
+                    .set_label(&format!("{:.0}%", status.capacity));
+                self.model_val.set_label(if status.model.is_empty() {
                     "—"
                 } else {
-                    model_name
+                    &status.model
                 });
 
-                if energy_rate > 0.0 {
-                    self.rate_val.set_label(&format!("{energy_rate:.1}W"));
+                if status.energy_rate > 0.0 {
+                    self.rate_val
+                        .set_label(&format!("{:.1}W", status.energy_rate));
                     self.rate_val.parent().map(|p| p.set_visible(true));
                 } else {
                     self.rate_val.parent().map(|p| p.set_visible(false));
                 }
 
-                if threshold > 0 {
+                if status.charge_threshold > 0 {
                     self.charge_limit_row.set_visible(true);
-                    self.charge_limit_val.set_label(&format!("{threshold}%"));
+                    self.charge_limit_val
+                        .set_label(&format!("{}%", status.charge_threshold));
                 } else {
                     self.charge_limit_row.set_visible(false);
                 }
             }
-            BatteryPopoverInput::UpdateProfiles(data) => {
-                let active = data["active"].as_str().unwrap_or("");
-                let available = data["available"].as_array();
-
+            BatteryPopoverInput::UpdateProfiles(profiles) => {
                 while let Some(child) = self.profile_box.first_child() {
                     self.profile_box.remove(&child);
                 }
 
-                if let Some(profiles) = available {
-                    for p in profiles {
-                        let name = p.as_str().unwrap_or("");
-                        if name.is_empty() {
-                            continue;
-                        }
-
-                        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                        row.add_css_class("profile-row");
-
-                        let icon_name = match name {
-                            "power-saver" => "power-profile-power-saver-symbolic",
-                            "balanced" => "power-profile-balanced-symbolic",
-                            "performance" => "power-profile-performance-symbolic",
-                            _ => "power-profile-balanced-symbolic",
-                        };
-                        let icon = gtk::Image::from_icon_name(icon_name);
-                        icon.set_pixel_size(16);
-                        icon.add_css_class("profile-icon");
-                        row.append(&icon);
-
-                        let display_name = match name {
-                            "power-saver" => "Power Saver",
-                            "balanced" => "Balanced",
-                            "performance" => "Performance",
-                            _ => name,
-                        };
-                        let label = gtk::Label::new(Some(display_name));
-                        label.set_hexpand(true);
-                        label.set_halign(gtk::Align::Start);
-                        row.append(&label);
-
-                        if name == active {
-                            let check = gtk::Image::from_icon_name("object-select-symbolic");
-                            check.set_pixel_size(14);
-                            check.add_css_class("profile-check");
-                            row.append(&check);
-                        }
-
-                        let btn = gtk::Button::new();
-                        btn.set_child(Some(&row));
-                        btn.add_css_class("flat");
-                        btn.add_css_class("profile-btn");
-
-                        let c = self.client.clone();
-                        let profile = name.to_owned();
-                        btn.connect_clicked(move |_| {
-                            spawn_call(&c, "power.set_profile", serde_json::json!(profile));
-                        });
-
-                        self.profile_box.append(&btn);
+                for name in &profiles.available {
+                    if name.is_empty() {
+                        continue;
                     }
+
+                    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                    row.add_css_class("profile-row");
+
+                    let icon_name = profile_icon(name);
+                    let icon = gtk::Image::from_icon_name(icon_name);
+                    icon.set_pixel_size(16);
+                    icon.add_css_class("profile-icon");
+                    row.append(&icon);
+
+                    let display_name = match name.as_str() {
+                        "power-saver" => "Power Saver",
+                        "balanced" => "Balanced",
+                        "performance" => "Performance",
+                        _ => name.as_str(),
+                    };
+                    let label = gtk::Label::new(Some(display_name));
+                    label.set_hexpand(true);
+                    label.set_halign(gtk::Align::Start);
+                    row.append(&label);
+
+                    if *name == profiles.active {
+                        let check = gtk::Image::from_icon_name("object-select-symbolic");
+                        check.set_pixel_size(14);
+                        check.add_css_class("profile-check");
+                        row.append(&check);
+                    }
+
+                    let btn = gtk::Button::new();
+                    btn.set_child(Some(&row));
+                    btn.add_css_class("flat");
+                    btn.add_css_class("profile-btn");
+
+                    let conn = self.conn.clone();
+                    let profile = name.clone();
+                    btn.connect_clicked(move |_| {
+                        let conn = conn.clone();
+                        let profile = profile.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            if let Err(e) = set_profile(&conn, &profile).await {
+                                tracing::warn!("set profile failed: {e}");
+                            }
+                        });
+                    });
+
+                    self.profile_box.append(&btn);
                 }
             }
         }
+    }
+}
+
+fn profile_icon(profile: &str) -> &'static str {
+    match profile {
+        "power-saver" => "power-profile-power-saver-symbolic",
+        "balanced" => "power-profile-balanced-symbolic",
+        "performance" => "power-profile-performance-symbolic",
+        _ => "power-profile-balanced-symbolic",
     }
 }
 

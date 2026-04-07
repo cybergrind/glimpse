@@ -11,14 +11,13 @@ pub(super) enum PowerAction {
     PowerOff,
 }
 
-pub(super) async fn monitor_battery(tx: mpsc::Sender<PowerCommand>) {
-    if let Err(e) = try_monitor_battery(tx).await {
+pub(super) async fn monitor_battery(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) {
+    if let Err(e) = try_monitor_battery(conn, tx).await {
         tracing::error!("battery monitoring failed: {e}");
     }
 }
 
-async fn try_monitor_battery(tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
-    let conn = zbus::Connection::system().await?;
+async fn try_monitor_battery(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
 
     let upower = zbus::Proxy::new(
         &conn,
@@ -89,17 +88,15 @@ async fn read_battery_state(bat: &zbus::Proxy<'_>) -> PowerCommand {
     }
 }
 
-pub(super) async fn monitor_profiles(tx: mpsc::Sender<PowerCommand>) {
-    if let Err(e) = try_monitor_profiles(tx).await {
+pub(super) async fn monitor_profiles(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) {
+    if let Err(e) = try_monitor_profiles(conn, tx).await {
         tracing::warn!("profile monitoring unavailable: {e}");
     }
 }
 
-async fn try_monitor_profiles(tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
+async fn try_monitor_profiles(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
     use std::collections::HashMap;
     use zbus::zvariant::OwnedValue;
-
-    let conn = zbus::Connection::system().await?;
 
     let proxy = zbus::Proxy::new(
         &conn,
