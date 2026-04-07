@@ -741,26 +741,40 @@
     margin: var(--popover-padding);
 }
 
-.mpris-row {
-    padding: 6px 0;
+.mpris-label {
+    font-variant-numeric: tabular-nums;
 }
 
-.mpris-art {
-    min-width: 32px;
-    min-height: 32px;
+.mpris-popover .mpris-card {
+    padding: 12px;
+    margin: 2px 0;
+    border-radius: 12px;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    transition: background 150ms ease, opacity 200ms ease;
 }
 
-.mpris-track {
+.mpris-popover .mpris-card:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mpris-popover .mpris-card-art {
+    min-width: 56px;
+    min-height: 56px;
+}
+
+.mpris-popover .mpris-card-title {
     font-weight: 600;
 }
 
-.mpris-artist {
+.mpris-popover .mpris-card-subtitle {
     opacity: var(--dim-opacity);
 }
 
-.mpris-controls button {
+.mpris-popover .mpris-card-controls button {
     min-width: 28px;
     min-height: 28px;
+    padding: 0;
+    border-radius: 999px;
 }
 
 /* session */

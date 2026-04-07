@@ -3,7 +3,7 @@ use std::sync::Arc;
 use glimpse_client::Client;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, glib, prelude::*},
+    gtk::{self, gdk, gio, glib, prelude::*},
 };
 use serde::Deserialize;
 
@@ -43,6 +43,13 @@ pub enum MprisPopoverInput {
     UpdatePlayers(Vec<PlayerRow>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ArtSource {
+    File(String),
+    Remote(String),
+    Fallback,
+}
+
 fn spawn_call(client: &Arc<Client>, method: &'static str, player_id: String) {
     let client = client.clone();
     glib::spawn_future_local(async move {
@@ -59,6 +66,18 @@ fn row_subtitle(player: &PlayerRow) -> String {
         player.album.clone()
     } else {
         player.identity.clone()
+    }
+}
+
+fn parse_art_source(value: &str) -> ArtSource {
+    if let Some(path) = value.strip_prefix("file://") {
+        ArtSource::File(path.to_string())
+    } else if value.starts_with("http://") || value.starts_with("https://") {
+        ArtSource::Remote(value.to_string())
+    } else if value.starts_with('/') {
+        ArtSource::File(value.to_string())
+    } else {
+        ArtSource::Fallback
     }
 }
 
@@ -100,38 +119,80 @@ fn media_button(
     button
 }
 
+fn set_fallback_art(widget: &gtk::Image) {
+    widget.set_icon_name(Some("audio-x-generic-symbolic"));
+}
+
+fn load_player_art(widget: &gtk::Image, art_url: &str) {
+    match parse_art_source(art_url) {
+        ArtSource::File(path) => {
+            let file = gio::File::for_path(path);
+            match gdk::Texture::from_file(&file) {
+                Ok(texture) => widget.set_paintable(Some(&texture)),
+                Err(_) => set_fallback_art(widget),
+            }
+        }
+        ArtSource::Remote(url) => {
+            let widget = widget.clone();
+            glib::spawn_future_local(async move {
+                let Ok(response) = reqwest::get(&url).await else {
+                    set_fallback_art(&widget);
+                    return;
+                };
+                let Ok(bytes) = response.bytes().await else {
+                    set_fallback_art(&widget);
+                    return;
+                };
+                match gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes.to_vec())) {
+                    Ok(texture) => widget.set_paintable(Some(&texture)),
+                    Err(_) => set_fallback_art(&widget),
+                }
+            });
+        }
+        ArtSource::Fallback => set_fallback_art(widget),
+    }
+}
+
 fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
-    let root = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    root.add_css_class("mpris-row");
-    root.set_valign(gtk::Align::Center);
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    card.add_css_class("mpris-card");
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    header.set_valign(gtk::Align::Center);
 
     let art = gtk::Image::from_icon_name("audio-x-generic-symbolic");
-    art.set_pixel_size(32);
+    art.set_pixel_size(56);
     art.set_valign(gtk::Align::Center);
-    art.add_css_class("mpris-art");
-    root.append(&art);
+    art.add_css_class("mpris-card-art");
+    load_player_art(&art, &player.art_url);
+    header.append(&art);
 
     let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_hexpand(true);
     text.set_valign(gtk::Align::Center);
+    text.add_css_class("mpris-card-copy");
 
     let title = gtk::Label::new(Some(&player_title(player)));
     title.set_halign(gtk::Align::Start);
     title.set_xalign(0.0);
-    title.add_css_class("mpris-track");
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_max_width_chars(32);
+    title.add_css_class("mpris-card-title");
     text.append(&title);
 
     let subtitle = gtk::Label::new(Some(&row_subtitle(player)));
     subtitle.set_halign(gtk::Align::Start);
     subtitle.set_xalign(0.0);
-    subtitle.add_css_class("mpris-artist");
+    subtitle.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    subtitle.set_max_width_chars(36);
+    subtitle.add_css_class("mpris-card-subtitle");
     text.append(&subtitle);
 
-    root.append(&text);
+    header.append(&text);
 
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     controls.set_valign(gtk::Align::Center);
-    controls.add_css_class("mpris-controls");
+    controls.add_css_class("mpris-card-controls");
 
     let player_id = player.player_id.clone();
     let prev = media_button(
@@ -159,8 +220,9 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
     });
     controls.append(&next);
 
-    root.append(&controls);
-    root
+    header.append(&controls);
+    card.append(&header);
+    card
 }
 
 impl SimpleComponent for MprisPopover {
@@ -233,6 +295,27 @@ impl SimpleComponent for MprisPopover {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artwork_source_parses_file_urls() {
+        assert_eq!(
+            parse_art_source("file:///tmp/cover.jpg"),
+            ArtSource::File("/tmp/cover.jpg".into())
+        );
+    }
+
+    #[test]
+    fn artwork_source_parses_https_urls() {
+        assert_eq!(
+            parse_art_source("https://example.com/cover.jpg"),
+            ArtSource::Remote("https://example.com/cover.jpg".into())
+        );
+    }
+
+    #[test]
+    fn artwork_source_falls_back_for_unknown_values() {
+        assert_eq!(parse_art_source(""), ArtSource::Fallback);
+    }
 
     #[test]
     fn subtitle_falls_back_to_album_then_identity() {
