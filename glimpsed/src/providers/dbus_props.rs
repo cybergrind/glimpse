@@ -96,10 +96,7 @@ impl DbusPropertyGroup {
             .await
             .ok()?;
         let value = props
-            .get(
-                self.proxy.interface().to_owned(),
-                name,
-            )
+            .get(self.proxy.interface().to_owned(), name)
             .await
             .ok()?;
         T::try_from(value).ok()

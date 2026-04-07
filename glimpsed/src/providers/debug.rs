@@ -16,9 +16,15 @@ struct DebugProvider {
 }
 
 impl Provider for DebugProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -64,7 +70,11 @@ impl DebugProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { method, params, reply } => {
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
                 let result = match method.as_str() {
                     "debug.echo" => Ok(params),
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
@@ -78,10 +88,18 @@ impl DebugProvider {
 pub struct DebugProviderFactory;
 
 impl ProviderFactory for DebugProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
-    fn create(&self) -> Box<dyn Provider> { Box::new(DebugProvider { counter: 0 }) }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
+    fn create(&self) -> Box<dyn Provider> {
+        Box::new(DebugProvider { counter: 0 })
+    }
 }
 
 #[cfg(test)]
@@ -96,22 +114,42 @@ mod tests {
         tokio::spawn(broker.run());
 
         let (client_tx, mut rx) = mpsc::channel(32);
-        tx.send(BrokerMsg::ClientConnected { id: 1, tx: client_tx }).await.unwrap();
+        tx.send(BrokerMsg::ClientConnected {
+            id: 1,
+            tx: client_tx,
+        })
+        .await
+        .unwrap();
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "debug.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "debug.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         let resp = rx.recv().await.unwrap();
-        assert!(matches!(resp.body, ResponseBody::SubscribeAck { available: true, .. }));
+        assert!(matches!(
+            resp.body,
+            ResponseBody::SubscribeAck {
+                available: true,
+                ..
+            }
+        ));
 
         let mut got_counter = false;
         let mut got_timestamp = false;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         while tokio::time::Instant::now() < deadline {
             let resp = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if let ResponseBody::Event { topic, .. } = &resp.body {
                 match topic.as_str() {
                     "debug.counter" => got_counter = true,
@@ -119,7 +157,9 @@ mod tests {
                     _ => {}
                 }
             }
-            if got_counter && got_timestamp { break; }
+            if got_counter && got_timestamp {
+                break;
+            }
         }
         assert!(got_counter, "never received debug.counter");
         assert!(got_timestamp, "never received debug.timestamp");
@@ -131,23 +171,44 @@ mod tests {
         tokio::spawn(broker.run());
 
         let (client_tx, mut rx) = mpsc::channel(32);
-        tx.send(BrokerMsg::ClientConnected { id: 1, tx: client_tx }).await.unwrap();
+        tx.send(BrokerMsg::ClientConnected {
+            id: 1,
+            tx: client_tx,
+        })
+        .await
+        .unwrap();
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "debug.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "debug.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 2, body: RequestBody::Get { topic: "debug.counter".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 2,
+                body: RequestBody::Get {
+                    topic: "debug.counter".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         loop {
             let resp = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if let ResponseBody::GetResult { result, .. } = &resp.body {
                 assert_eq!(resp.id, 2);
                 assert!(matches!(result, RequestResult::Ok { .. }));
@@ -162,28 +223,52 @@ mod tests {
         tokio::spawn(broker.run());
 
         let (client_tx, mut rx) = mpsc::channel(32);
-        tx.send(BrokerMsg::ClientConnected { id: 1, tx: client_tx }).await.unwrap();
+        tx.send(BrokerMsg::ClientConnected {
+            id: 1,
+            tx: client_tx,
+        })
+        .await
+        .unwrap();
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "debug.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "debug.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 3, body: RequestBody::Call { method: "debug.echo".into(), params: json!({"msg": "hello"}) } },
-        }).await.unwrap();
+            request: Request {
+                id: 3,
+                body: RequestBody::Call {
+                    method: "debug.echo".into(),
+                    params: json!({"msg": "hello"}),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         loop {
             let resp = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if let ResponseBody::CallResult { result, .. } = &resp.body {
                 assert_eq!(resp.id, 3);
                 if let RequestResult::Ok { data } = result {
                     assert_eq!(*data, json!({"msg": "hello"}));
-                } else { panic!("expected Ok"); }
+                } else {
+                    panic!("expected Ok");
+                }
                 break;
             }
         }

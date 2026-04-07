@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use relm4::{
     Component, ComponentParts, ComponentSender,
-    gtk::{self, gdk, prelude::*},
+    gtk::{self, prelude::*},
 };
 use tokio::sync::mpsc;
 
@@ -70,13 +70,18 @@ impl Component for Workspaces {
         };
         let widgets = view_output!();
 
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        let scroll = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::HORIZONTAL,
+        );
         let scroll_sender = sender.clone();
-        scroll.connect_scroll(move |ctrl, _dx, dy| {
-            let shift = ctrl
-                .current_event_state()
-                .contains(gdk::ModifierType::SHIFT_MASK);
-            scroll_sender.input(WorkspacesInput::Scroll { dy, shift });
+        scroll.connect_scroll(move |_ctrl, dx, dy| {
+            // GTK4 converts shift+vertical-scroll into horizontal scroll (dx),
+            // so dx != 0 means shift was held
+            if dx != 0.0 {
+                scroll_sender.input(WorkspacesInput::Scroll { dy: dx, shift: true });
+            } else if dy != 0.0 {
+                scroll_sender.input(WorkspacesInput::Scroll { dy, shift: false });
+            }
             gtk::glib::Propagation::Stop
         });
         root.add_controller(scroll);

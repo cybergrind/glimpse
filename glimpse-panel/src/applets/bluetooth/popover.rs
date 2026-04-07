@@ -66,12 +66,18 @@ pub enum BluetoothPopoverInput {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, params).await;
+    });
 }
 
 fn spawn_call_with_notify(
-    client: &Arc<Client>, method: &'static str, params: serde_json::Value,
-    device_name: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner,
+    client: &Arc<Client>,
+    method: &'static str,
+    params: serde_json::Value,
+    device_name: String,
+    connecting: Rc<Cell<bool>>,
+    spinner: gtk::Spinner,
 ) {
     let c = client.clone();
     connecting.set(true);
@@ -100,10 +106,21 @@ fn spawn_call_with_notify(
 
 fn looks_like_mac(s: &str) -> bool {
     let s = s.trim();
-    if s.len() < 11 { return false; }
-    let sep = if s.contains(':') { ':' } else if s.contains('-') { '-' } else { return false };
+    if s.len() < 11 {
+        return false;
+    }
+    let sep = if s.contains(':') {
+        ':'
+    } else if s.contains('-') {
+        '-'
+    } else {
+        return false;
+    };
     let parts: Vec<&str> = s.split(sep).collect();
-    parts.len() == 6 && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+    parts.len() == 6
+        && parts
+            .iter()
+            .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 fn is_visible_device(dev: &BtDevice) -> bool {
@@ -120,10 +137,14 @@ impl SimpleComponent for BluetoothPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -161,8 +182,14 @@ impl SimpleComponent for BluetoothPopover {
         let guard = updating_power.clone();
         let c = init.client.clone();
         power_switch.connect_state_set(move |_, active| {
-            if guard.get() { return glib::Propagation::Stop; }
-            spawn_call(&c, "bluetooth.set_powered", serde_json::json!({"powered": active}));
+            if guard.get() {
+                return glib::Propagation::Stop;
+            }
+            spawn_call(
+                &c,
+                "bluetooth.set_powered",
+                serde_json::json!({"powered": active}),
+            );
             glib::Propagation::Stop
         });
         hero.append(&power_switch);
@@ -232,11 +259,17 @@ impl SimpleComponent for BluetoothPopover {
         });
 
         let model = BluetoothPopover {
-            popover: root.clone(), client: init.client,
-            hero_icon, subtitle, power_switch,
-            device_box, empty_label,
+            popover: root.clone(),
+            client: init.client,
+            hero_icon,
+            subtitle,
+            power_switch,
+            device_box,
+            empty_label,
             rows: HashMap::new(),
-            updating_power, powered: false, connected_count: 0,
+            updating_power,
+            powered: false,
+            connected_count: 0,
         };
 
         ComponentParts { model, widgets: () }
@@ -245,10 +278,16 @@ impl SimpleComponent for BluetoothPopover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             BluetoothPopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
-            BluetoothPopoverInput::UpdateStatus { powered, discovering: _ } => {
+            BluetoothPopoverInput::UpdateStatus {
+                powered,
+                discovering: _,
+            } => {
                 self.powered = powered;
 
                 if self.power_switch.is_active() != powered {
@@ -267,11 +306,11 @@ impl SimpleComponent for BluetoothPopover {
                 self.update_subtitle();
             }
             BluetoothPopoverInput::UpdateDevices(devices) => {
-                let mut visible: Vec<&BtDevice> = devices.iter()
-                    .filter(|d| is_visible_device(d))
-                    .collect();
+                let mut visible: Vec<&BtDevice> =
+                    devices.iter().filter(|d| is_visible_device(d)).collect();
                 visible.sort_by(|a, b| {
-                    b.connected.cmp(&a.connected)
+                    b.connected
+                        .cmp(&a.connected)
                         .then(b.paired.cmp(&a.paired))
                         .then(b.rssi.unwrap_or(i16::MIN).cmp(&a.rssi.unwrap_or(i16::MIN)))
                 });
@@ -281,7 +320,9 @@ impl SimpleComponent for BluetoothPopover {
                 // Remove rows for devices no longer visible.
                 let visible_addrs: std::collections::HashSet<&str> =
                     visible.iter().map(|d| d.address.as_str()).collect();
-                let to_remove: Vec<String> = self.rows.keys()
+                let to_remove: Vec<String> = self
+                    .rows
+                    .keys()
                     .filter(|addr| !visible_addrs.contains(addr.as_str()))
                     .cloned()
                     .collect();
@@ -298,10 +339,12 @@ impl SimpleComponent for BluetoothPopover {
                         update_row(row, dev);
                         // Reorder: move to correct position.
                         if i == 0 {
-                            self.device_box.reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
+                            self.device_box
+                                .reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
                         } else if let Some(prev) = visible.get(i - 1) {
                             if let Some(prev_row) = self.rows.get(&prev.address) {
-                                self.device_box.reorder_child_after(&row.button, Some(&prev_row.button));
+                                self.device_box
+                                    .reorder_child_after(&row.button, Some(&prev_row.button));
                             }
                         }
                     } else {
@@ -315,7 +358,11 @@ impl SimpleComponent for BluetoothPopover {
                 self.update_subtitle();
             }
             BluetoothPopoverInput::ScanStarted => {
-                spawn_call(&self.client, "bluetooth.start_discovery", serde_json::json!({}));
+                spawn_call(
+                    &self.client,
+                    "bluetooth.start_discovery",
+                    serde_json::json!({}),
+                );
             }
         }
     }
@@ -383,7 +430,9 @@ fn create_row(dev: &BtDevice, client: &Arc<Client>) -> DeviceRow {
     let conn_state = connected.clone();
     let pair_state = paired.clone();
     btn.connect_clicked(move |_| {
-        if conn_flag.get() { return; }
+        if conn_flag.get() {
+            return;
+        }
         let method = if conn_state.get() {
             "bluetooth.disconnect"
         } else if pair_state.get() {
@@ -392,8 +441,12 @@ fn create_row(dev: &BtDevice, client: &Arc<Client>) -> DeviceRow {
             "bluetooth.pair"
         };
         spawn_call_with_notify(
-            &c, method, serde_json::json!({"address": addr}),
-            dev_name.clone(), conn_flag.clone(), spin.clone(),
+            &c,
+            method,
+            serde_json::json!({"address": addr}),
+            dev_name.clone(),
+            conn_flag.clone(),
+            spin.clone(),
         );
     });
 
@@ -414,7 +467,14 @@ fn create_row(dev: &BtDevice, client: &Arc<Client>) -> DeviceRow {
     popover_menu.set_has_arrow(false);
 
     let action_group = gtk::gio::SimpleActionGroup::new();
-    setup_actions(&action_group, client, &dev.address, &dev.name, &connecting, &spinner);
+    setup_actions(
+        &action_group,
+        client,
+        &dev.address,
+        &dev.name,
+        &connecting,
+        &spinner,
+    );
     btn.insert_action_group("bt", Some(&action_group));
 
     let right_click = gtk::GestureClick::new();
@@ -432,14 +492,23 @@ fn create_row(dev: &BtDevice, client: &Arc<Client>) -> DeviceRow {
     apply_battery(&battery_label, dev.battery);
 
     DeviceRow {
-        button: btn, icon, name_label, battery_label,
-        spinner, popover_menu, connecting, connected, paired,
+        button: btn,
+        icon,
+        name_label,
+        battery_label,
+        spinner,
+        popover_menu,
+        connecting,
+        connected,
+        paired,
     }
 }
 
 fn update_row(row: &DeviceRow, dev: &BtDevice) {
     // Don't update while connecting — spinner is showing, state is in flux.
-    if row.connecting.get() { return; }
+    if row.connecting.get() {
+        return;
+    }
 
     row.connected.set(dev.connected);
     row.paired.set(dev.paired);
@@ -505,8 +574,11 @@ fn apply_battery(label: &gtk::Label, battery: Option<u8>) {
 
 fn setup_actions(
     group: &gtk::gio::SimpleActionGroup,
-    client: &Arc<Client>, address: &str, name: &str,
-    connecting: &Rc<Cell<bool>>, spinner: &gtk::Spinner,
+    client: &Arc<Client>,
+    address: &str,
+    name: &str,
+    connecting: &Rc<Cell<bool>>,
+    spinner: &gtk::Spinner,
 ) {
     for (action_name, method) in [
         ("disconnect", "bluetooth.disconnect"),
@@ -520,10 +592,16 @@ fn setup_actions(
         let spin = spinner.clone();
         let action = gtk::gio::SimpleAction::new(action_name, None);
         action.connect_activate(move |_, _| {
-            if conn.get() { return; }
+            if conn.get() {
+                return;
+            }
             spawn_call_with_notify(
-                &c, method, serde_json::json!({"address": addr}),
-                dev_name.clone(), conn.clone(), spin.clone(),
+                &c,
+                method,
+                serde_json::json!({"address": addr}),
+                dev_name.clone(),
+                conn.clone(),
+                spin.clone(),
             );
         });
         group.add_action(&action);

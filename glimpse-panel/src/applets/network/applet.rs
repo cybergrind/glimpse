@@ -88,7 +88,9 @@ impl Component for Network {
     }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let popover = NetworkPopover::builder()
             .launch(NetworkPopoverInit {
@@ -192,23 +194,40 @@ impl Component for Network {
         ComponentParts { model, widgets }
     }
 
-    fn update_cmd(&mut self, msg: Self::CommandOutput, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_cmd(
+        &mut self,
+        msg: Self::CommandOutput,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         self.update(msg, sender, root);
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            NetworkMsg::StatusUpdate { icon, primary_connection, primary_type, speed, metered, wifi_enabled, connectivity } => {
+            NetworkMsg::StatusUpdate {
+                icon,
+                primary_connection,
+                primary_type,
+                speed,
+                metered,
+                wifi_enabled,
+                connectivity,
+            } => {
                 tracing::info!(
-                    primary_connection, primary_type, speed, metered, wifi_enabled, connectivity,
+                    primary_connection,
+                    primary_type,
+                    speed,
+                    metered,
+                    wifi_enabled,
+                    connectivity,
                     "network applet: status update"
                 );
                 self.primary_icon = icon.clone();
 
                 // Connecting state: WiFi enabled but no primary connection yet
-                self.connecting = wifi_enabled
-                    && primary_connection.is_empty()
-                    && connectivity != "full";
+                self.connecting =
+                    wifi_enabled && primary_connection.is_empty() && connectivity != "full";
 
                 self.tooltip = if self.connecting {
                     "Connecting\u{2026}".into()
@@ -233,13 +252,23 @@ impl Component for Network {
                         _ => primary_connection.clone(),
                     };
                     let mut parts = vec![base];
-                    if metered { parts.push("Metered".into()); }
-                    if self.vpn_icon_visible { parts.push("VPN".into()); }
+                    if metered {
+                        parts.push("Metered".into());
+                    }
+                    if self.vpn_icon_visible {
+                        parts.push("VPN".into());
+                    }
                     parts.join(" \u{b7} ")
                 };
 
                 self.popover.emit(NetworkPopoverInput::UpdateStatus {
-                    primary_connection, primary_type, speed, metered, wifi_enabled, connectivity, icon,
+                    primary_connection,
+                    primary_type,
+                    speed,
+                    metered,
+                    wifi_enabled,
+                    connectivity,
+                    icon,
                 });
             }
             NetworkMsg::ConnectionsUpdate { has_vpn } => {
@@ -252,7 +281,8 @@ impl Component for Network {
                 self.popover.emit(NetworkPopoverInput::UpdateDevices(data));
             }
             NetworkMsg::SavedVpnsUpdate(data) => {
-                self.popover.emit(NetworkPopoverInput::UpdateSavedVpns(data));
+                self.popover
+                    .emit(NetworkPopoverInput::UpdateSavedVpns(data));
             }
             NetworkMsg::TogglePopover => {
                 self.popover.emit(NetworkPopoverInput::Toggle);

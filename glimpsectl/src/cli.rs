@@ -19,11 +19,7 @@ pub async fn cmd_get(topic: String, color: bool, pretty: bool) -> anyhow::Result
     Ok(())
 }
 
-pub async fn cmd_subscribe(
-    patterns: Vec<String>,
-    color: bool,
-    pretty: bool,
-) -> anyhow::Result<()> {
+pub async fn cmd_subscribe(patterns: Vec<String>, color: bool, pretty: bool) -> anyhow::Result<()> {
     let client = Client::connect().await?;
     let mut subs = Vec::new();
 

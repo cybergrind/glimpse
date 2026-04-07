@@ -48,7 +48,11 @@ pub struct NotificationsPopoverInit {
 #[derive(Debug)]
 pub enum NotificationsPopoverInput {
     Toggle,
-    UpdateStatus { dnd: bool, count: u32, badge_count: u32 },
+    UpdateStatus {
+        dnd: bool,
+        count: u32,
+        badge_count: u32,
+    },
     UpdateList(serde_json::Value),
     ToggleStack(String),
 }
@@ -68,7 +72,9 @@ fn resolve_notif_icon(notif: &NotifData) -> &str {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, params).await;
+    });
 }
 
 fn format_time_diff(diff_secs: u64) -> String {
@@ -134,10 +140,14 @@ impl SimpleComponent for NotificationsPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -176,9 +186,15 @@ impl SimpleComponent for NotificationsPopover {
         let guard = updating_dnd.clone();
         let c = init.client.clone();
         dnd_switch.connect_state_set(move |_, active| {
-            if guard.get() { return glib::Propagation::Stop; }
+            if guard.get() {
+                return glib::Propagation::Stop;
+            }
             // active=true → notifications ON (dnd=false), active=false → DnD (dnd=true)
-            spawn_call(&c, "notifications.set_dnd", serde_json::json!({"enabled": !active}));
+            spawn_call(
+                &c,
+                "notifications.set_dnd",
+                serde_json::json!({"enabled": !active}),
+            );
             glib::Propagation::Stop
         });
         hero.append(&dnd_switch);
@@ -223,10 +239,14 @@ impl SimpleComponent for NotificationsPopover {
         let model = NotificationsPopover {
             popover: root.clone(),
             client: init.client,
-            hero_icon, subtitle, dnd_switch,
-            notif_box, empty_label,
+            hero_icon,
+            subtitle,
+            dnd_switch,
+            notif_box,
+            empty_label,
             updating_dnd,
-            dnd: false, count: 0,
+            dnd: false,
+            count: 0,
             stack_state: HashMap::new(),
             last_notifications: Vec::new(),
         };
@@ -243,7 +263,11 @@ impl SimpleComponent for NotificationsPopover {
                     self.popover.popup();
                 }
             }
-            NotificationsPopoverInput::UpdateStatus { dnd, count, badge_count: _ } => {
+            NotificationsPopoverInput::UpdateStatus {
+                dnd,
+                count,
+                badge_count: _,
+            } => {
                 self.dnd = dnd;
                 self.count = count;
 
@@ -303,7 +327,11 @@ impl NotificationsPopover {
         let mut groups: Vec<(String, Vec<&NotifData>)> = Vec::new();
         let mut group_map: HashMap<String, usize> = HashMap::new();
         for notif in &notifications {
-            let key = if notif.app_name.is_empty() { "Unknown".to_string() } else { notif.app_name.clone() };
+            let key = if notif.app_name.is_empty() {
+                "Unknown".to_string()
+            } else {
+                notif.app_name.clone()
+            };
             if let Some(&idx) = group_map.get(&key) {
                 groups[idx].1.push(notif);
             } else {
@@ -338,13 +366,18 @@ impl NotificationsPopover {
                 icon.add_css_class("notif-icon");
                 header.append(&icon);
 
-                let app_label = gtk::Label::new(Some(&format!("{app_name} ({count})", count = notifs.len())));
+                let app_label =
+                    gtk::Label::new(Some(&format!("{app_name} ({count})", count = notifs.len())));
                 app_label.set_halign(gtk::Align::Start);
                 app_label.set_hexpand(true);
                 app_label.add_css_class("notif-app-name");
                 header.append(&app_label);
 
-                let chevron_icon = if stacked { "go-down-symbolic" } else { "go-up-symbolic" };
+                let chevron_icon = if stacked {
+                    "go-down-symbolic"
+                } else {
+                    "go-up-symbolic"
+                };
                 let chevron = gtk::Button::from_icon_name(chevron_icon);
                 chevron.add_css_class("flat");
                 chevron.add_css_class("notif-expand-btn");
@@ -425,7 +458,11 @@ impl NotificationsPopover {
         icon.add_css_class("notif-icon");
         header.append(&icon);
 
-        let app_name = if notif.app_name.is_empty() { "Notification" } else { &notif.app_name };
+        let app_name = if notif.app_name.is_empty() {
+            "Notification"
+        } else {
+            &notif.app_name
+        };
         let app_label = gtk::Label::new(Some(app_name));
         app_label.set_halign(gtk::Align::Start);
         app_label.set_hexpand(true);
@@ -471,7 +508,9 @@ impl NotificationsPopover {
         }
 
         // Action buttons
-        let visible_actions: Vec<&(String, String)> = notif.actions.iter()
+        let visible_actions: Vec<&(String, String)> = notif
+            .actions
+            .iter()
             .filter(|(key, _)| key != "default")
             .collect();
         if !visible_actions.is_empty() {
@@ -485,8 +524,11 @@ impl NotificationsPopover {
                 let nid = notif.id;
                 let k = key.clone();
                 action_btn.connect_clicked(move |_| {
-                    spawn_call(&c, "notifications.invoke_action",
-                        serde_json::json!({"id": nid, "action_key": k}));
+                    spawn_call(
+                        &c,
+                        "notifications.invoke_action",
+                        serde_json::json!({"id": nid, "action_key": k}),
+                    );
                 });
                 actions_box.append(&action_btn);
             }
@@ -502,8 +544,11 @@ impl NotificationsPopover {
             let id = notif.id;
             gesture.connect_pressed(move |g, _, _, _| {
                 g.set_state(gtk::EventSequenceState::Claimed);
-                spawn_call(&c, "notifications.invoke_action",
-                    serde_json::json!({"id": id, "action_key": "default"}));
+                spawn_call(
+                    &c,
+                    "notifications.invoke_action",
+                    serde_json::json!({"id": id, "action_key": "default"}),
+                );
             });
             card.add_controller(gesture);
         }

@@ -6,11 +6,11 @@ use relm4::{
 };
 use tokio::sync::mpsc;
 
+use super::dbus::{PowerAction, handle_action, monitor_battery, monitor_profiles};
 use crate::applets::power::{
     PowerConfig,
     popover::{PowerPopover, PowerPopoverInit, PowerPopoverInput, PowerPopoverOutput},
 };
-use super::dbus::{PowerAction, handle_action, monitor_battery, monitor_profiles};
 
 struct PowerState {
     percentage: u8,
@@ -117,7 +117,9 @@ impl Component for Power {
         let (action_tx, action_rx) = mpsc::channel::<PowerAction>(8);
 
         let popover = PowerPopover::builder()
-            .launch(PowerPopoverInit { parent: root.clone() })
+            .launch(PowerPopoverInit {
+                parent: root.clone(),
+            })
             .forward(sender.input_sender(), |msg| match msg {
                 PowerPopoverOutput::SetProfile(p) => PowerInput::SetProfile(p),
                 PowerPopoverOutput::Suspend => PowerInput::Suspend,
@@ -189,18 +191,29 @@ impl Component for Power {
         _root: &Self::Root,
     ) {
         match message {
-            PowerCommand::BatteryUpdate { percentage, charging, icon_name } =>
-                sender.input(PowerInput::BatteryUpdate { percentage, charging, icon_name }),
-            PowerCommand::ProfilesUpdate { profiles, active } =>
-                sender.input(PowerInput::ProfilesUpdate { profiles, active }),
-            PowerCommand::NoBattery =>
-                sender.input(PowerInput::NoBattery),
+            PowerCommand::BatteryUpdate {
+                percentage,
+                charging,
+                icon_name,
+            } => sender.input(PowerInput::BatteryUpdate {
+                percentage,
+                charging,
+                icon_name,
+            }),
+            PowerCommand::ProfilesUpdate { profiles, active } => {
+                sender.input(PowerInput::ProfilesUpdate { profiles, active })
+            }
+            PowerCommand::NoBattery => sender.input(PowerInput::NoBattery),
         }
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            PowerInput::BatteryUpdate { percentage, charging, icon_name } => {
+            PowerInput::BatteryUpdate {
+                percentage,
+                charging,
+                icon_name,
+            } => {
                 tracing::info!(percentage, charging, icon = %icon_name, "power applet: battery update");
                 self.state.percentage = percentage;
                 self.state.charging = charging;
@@ -215,7 +228,8 @@ impl Component for Power {
                 tracing::info!(active = %active, profiles = ?profiles, "power applet: profiles update");
                 self.state.profiles = profiles.clone();
                 self.state.active_profile = active.clone();
-                self.popover.emit(PowerPopoverInput::Update { profiles, active });
+                self.popover
+                    .emit(PowerPopoverInput::Update { profiles, active });
             }
             PowerInput::NoBattery => {
                 self.state.hidden = self.config.hide_on_no_battery;
@@ -248,12 +262,22 @@ impl Component for Power {
                     profiles: self.state.profiles.clone(),
                     active: profile.clone(),
                 });
-                self.action_tx.try_send(PowerAction::SetProfile(profile)).ok();
+                self.action_tx
+                    .try_send(PowerAction::SetProfile(profile))
+                    .ok();
             }
-            PowerInput::Suspend => { self.action_tx.try_send(PowerAction::Suspend).ok(); }
-            PowerInput::Hibernate => { self.action_tx.try_send(PowerAction::Hibernate).ok(); }
-            PowerInput::Reboot => { self.action_tx.try_send(PowerAction::Reboot).ok(); }
-            PowerInput::PowerOff => { self.action_tx.try_send(PowerAction::PowerOff).ok(); }
+            PowerInput::Suspend => {
+                self.action_tx.try_send(PowerAction::Suspend).ok();
+            }
+            PowerInput::Hibernate => {
+                self.action_tx.try_send(PowerAction::Hibernate).ok();
+            }
+            PowerInput::Reboot => {
+                self.action_tx.try_send(PowerAction::Reboot).ok();
+            }
+            PowerInput::PowerOff => {
+                self.action_tx.try_send(PowerAction::PowerOff).ok();
+            }
         }
     }
 }

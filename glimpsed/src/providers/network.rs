@@ -231,7 +231,14 @@ impl Provider for NetworkProvider {
             };
             for dev_path in &device_paths {
                 let dev_str = dev_path.to_string();
-                if let Ok(dev) = DbusPropertyGroup::new(&conn, NM_SERVICE, &dev_str, "org.freedesktop.NetworkManager.Device").await {
+                if let Ok(dev) = DbusPropertyGroup::new(
+                    &conn,
+                    NM_SERVICE,
+                    &dev_str,
+                    "org.freedesktop.NetworkManager.Device",
+                )
+                .await
+                {
                     if dev.get::<u32>("DeviceType").await.unwrap_or(0) == 2 {
                         // Watch PropertiesChanged on the Wireless interface directly
                         if let Ok(props) = zbus::fdo::PropertiesProxy::builder(&conn)
@@ -287,7 +294,6 @@ impl Provider for NetworkProvider {
     }
 }
 
-
 impl NetworkProvider {
     async fn full_scan(&mut self, conn: &zbus::Connection) {
         self.access_points.clear();
@@ -313,8 +319,10 @@ impl NetworkProvider {
             connectivity_str(nm.get::<u32>("Connectivity").await.unwrap_or(0)).into();
         self.status.enabled = nm.get::<bool>("NetworkingEnabled").await.unwrap_or(false);
         self.status.wifi_enabled = nm.get::<bool>("WirelessEnabled").await.unwrap_or(false);
-        self.status.wifi_hw_enabled =
-            nm.get::<bool>("WirelessHardwareEnabled").await.unwrap_or(false);
+        self.status.wifi_hw_enabled = nm
+            .get::<bool>("WirelessHardwareEnabled")
+            .await
+            .unwrap_or(false);
         self.status.metered = matches!(nm.get::<u32>("Metered").await.unwrap_or(0), 1 | 3);
 
         let primary_path: String = nm
@@ -643,10 +651,7 @@ impl NetworkProvider {
         });
     }
 
-    async fn get_saved_wifi(
-        &self,
-        conn: &zbus::Connection,
-    ) -> HashMap<String, String> {
+    async fn get_saved_wifi(&self, conn: &zbus::Connection) -> HashMap<String, String> {
         let mut saved: HashMap<String, String> = HashMap::new();
         let Ok(settings) =
             DbusPropertyGroup::new(conn, NM_SERVICE, NM_SETTINGS_PATH, NM_SETTINGS_IFACE).await
@@ -673,13 +678,11 @@ impl NetworkProvider {
                 continue;
             };
 
-            let settings_map: HashMap<
-                String,
-                HashMap<String, zbus::zvariant::OwnedValue>,
-            > = match sc.call("GetSettings", &()).await {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+            let settings_map: HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>> =
+                match sc.call("GetSettings", &()).await {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
             let Some(conn_section) = settings_map.get("connection") else {
                 continue;
@@ -745,13 +748,11 @@ impl NetworkProvider {
                 continue;
             };
 
-            let settings_map: HashMap<
-                String,
-                HashMap<String, zbus::zvariant::OwnedValue>,
-            > = match sc.call("GetSettings", &()).await {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+            let settings_map: HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>> =
+                match sc.call("GetSettings", &()).await {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
             let Some(conn_section) = settings_map.get("connection") else {
                 continue;
@@ -879,8 +880,7 @@ impl NetworkProvider {
                 let result = match method.as_str() {
                     "network.set_wifi_enabled" => {
                         let Some(enabled) = params["enabled"].as_bool() else {
-                            let _ =
-                                reply.send(Err(anyhow::anyhow!("missing 'enabled' (bool)")));
+                            let _ = reply.send(Err(anyhow::anyhow!("missing 'enabled' (bool)")));
                             return;
                         };
                         tracing::info!("setting wifi enabled to {enabled}");
@@ -888,8 +888,7 @@ impl NetworkProvider {
                     }
                     "network.set_enabled" => {
                         let Some(enabled) = params["enabled"].as_bool() else {
-                            let _ =
-                                reply.send(Err(anyhow::anyhow!("missing 'enabled' (bool)")));
+                            let _ = reply.send(Err(anyhow::anyhow!("missing 'enabled' (bool)")));
                             return;
                         };
                         tracing::info!("setting networking enabled to {enabled}");
@@ -914,10 +913,17 @@ impl NetworkProvider {
                             let _ = reply.send(Err(anyhow::anyhow!("missing 'uuid' (string)")));
                             return;
                         };
-                        let name = self.connections.iter()
+                        let name = self
+                            .connections
+                            .iter()
                             .find(|c| c.uuid == uuid)
                             .map(|c| c.id.clone())
-                            .or_else(|| self.saved_vpns.iter().find(|v| v.uuid == uuid).map(|v| v.id.clone()))
+                            .or_else(|| {
+                                self.saved_vpns
+                                    .iter()
+                                    .find(|v| v.uuid == uuid)
+                                    .map(|v| v.id.clone())
+                            })
                             .unwrap_or_else(|| uuid.to_string());
                         tracing::info!("activating saved connection \"{name}\"");
                         self.connect_uuid(conn, uuid).await
@@ -927,7 +933,9 @@ impl NetworkProvider {
                             let _ = reply.send(Err(anyhow::anyhow!("missing 'uuid' (string)")));
                             return;
                         };
-                        let name = self.connections.iter()
+                        let name = self
+                            .connections
+                            .iter()
                             .find(|c| c.uuid == uuid)
                             .map(|c| c.id.clone())
                             .unwrap_or_else(|| uuid.to_string());
@@ -986,10 +994,10 @@ impl NetworkProvider {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let device_paths: Vec<zbus::zvariant::OwnedObjectPath> = nm
-            .call("GetDevices", &())
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let device_paths: Vec<zbus::zvariant::OwnedObjectPath> =
+            nm.call("GetDevices", &())
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let empty_opts: HashMap<String, zbus::zvariant::Value<'_>> = HashMap::new();
 
@@ -1038,10 +1046,10 @@ impl NetworkProvider {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let device_paths: Vec<zbus::zvariant::OwnedObjectPath> = nm
-            .call("GetDevices", &())
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let device_paths: Vec<zbus::zvariant::OwnedObjectPath> =
+            nm.call("GetDevices", &())
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let mut wifi_dev_path: Option<String> = None;
         let mut target_ap_path: Option<String> = None;
@@ -1111,8 +1119,8 @@ impl NetworkProvider {
         let wifi_dev = wifi_dev_path.ok_or_else(|| anyhow::anyhow!("no wifi device found"))?;
         let ap = target_ap_path.ok_or_else(|| anyhow::anyhow!("access point not found: {ssid}"))?;
 
-        let dev_obj = zbus::zvariant::ObjectPath::try_from(wifi_dev)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let dev_obj =
+            zbus::zvariant::ObjectPath::try_from(wifi_dev).map_err(|e| anyhow::anyhow!("{e}"))?;
         let ap_obj =
             zbus::zvariant::ObjectPath::try_from(ap).map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -1124,7 +1132,10 @@ impl NetworkProvider {
         settings.insert("connection".into(), conn_settings);
 
         let mut wifi_settings: HashMap<String, zbus::zvariant::Value<'_>> = HashMap::new();
-        wifi_settings.insert("ssid".into(), zbus::zvariant::Value::from(ssid.as_bytes().to_vec()));
+        wifi_settings.insert(
+            "ssid".into(),
+            zbus::zvariant::Value::from(ssid.as_bytes().to_vec()),
+        );
         settings.insert("802-11-wireless".into(), wifi_settings);
 
         if let Some(pw) = password {
@@ -1142,10 +1153,7 @@ impl NetworkProvider {
             zbus::zvariant::OwnedObjectPath,
             zbus::zvariant::OwnedObjectPath,
         ) = nm
-            .call(
-                "AddAndActivateConnection",
-                &(&settings, &dev_obj, &ap_obj),
-            )
+            .call("AddAndActivateConnection", &(&settings, &dev_obj, &ap_obj))
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -1157,9 +1165,10 @@ impl NetworkProvider {
         conn: &zbus::Connection,
         uuid: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        let settings = DbusPropertyGroup::new(conn, NM_SERVICE, NM_SETTINGS_PATH, NM_SETTINGS_IFACE)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let settings =
+            DbusPropertyGroup::new(conn, NM_SERVICE, NM_SETTINGS_PATH, NM_SETTINGS_IFACE)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let conn_path: zbus::zvariant::OwnedObjectPath = settings
             .call("GetConnectionByUuid", &(uuid,))
@@ -1236,9 +1245,10 @@ impl NetworkProvider {
         conn: &zbus::Connection,
         uuid: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        let settings = DbusPropertyGroup::new(conn, NM_SERVICE, NM_SETTINGS_PATH, NM_SETTINGS_IFACE)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let settings =
+            DbusPropertyGroup::new(conn, NM_SERVICE, NM_SETTINGS_PATH, NM_SETTINGS_IFACE)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let conn_path: zbus::zvariant::OwnedObjectPath = settings
             .call("GetConnectionByUuid", &(uuid,))
@@ -1433,14 +1443,25 @@ mod tests {
         let mut p = make_provider();
         p.status.enabled = true;
         p.connections.push(NetworkConnection {
-            id: "Home".into(), uuid: "u1".into(),
-            connection_type: "wifi".into(), device: "wlan0".into(),
-            state: "activated".into(), vpn: false,
-            ip4_address: None, gateway: None, dns: vec![], speed: 72,
+            id: "Home".into(),
+            uuid: "u1".into(),
+            connection_type: "wifi".into(),
+            device: "wlan0".into(),
+            state: "activated".into(),
+            vpn: false,
+            ip4_address: None,
+            gateway: None,
+            dns: vec![],
+            speed: 72,
         });
         p.access_points.push(WifiAccessPoint {
-            ssid: "Home".into(), strength: 82, frequency: 5200,
-            security: "wpa2".into(), connected: true, saved: true, uuid: Some("u1".into()),
+            ssid: "Home".into(),
+            strength: 82,
+            frequency: 5200,
+            security: "wpa2".into(),
+            connected: true,
+            saved: true,
+            uuid: Some("u1".into()),
         });
         p.resolve_icon();
         assert_eq!(p.status.icon, "network-wireless-signal-excellent-symbolic");
@@ -1451,10 +1472,16 @@ mod tests {
         let mut p = make_provider();
         p.status.enabled = true;
         p.connections.push(NetworkConnection {
-            id: "Wired".into(), uuid: "u1".into(),
-            connection_type: "ethernet".into(), device: "enp3s0".into(),
-            state: "activated".into(), vpn: false,
-            ip4_address: None, gateway: None, dns: vec![], speed: 1000,
+            id: "Wired".into(),
+            uuid: "u1".into(),
+            connection_type: "ethernet".into(),
+            device: "enp3s0".into(),
+            state: "activated".into(),
+            vpn: false,
+            ip4_address: None,
+            gateway: None,
+            dns: vec![],
+            speed: 1000,
         });
         p.resolve_icon();
         assert_eq!(p.status.icon, "network-wired-symbolic");
@@ -1483,20 +1510,37 @@ mod tests {
         let mut p = make_provider();
         p.status.enabled = true;
         p.connections.push(NetworkConnection {
-            id: "Wired".into(), uuid: "u1".into(),
-            connection_type: "ethernet".into(), device: "enp3s0".into(),
-            state: "activated".into(), vpn: false,
-            ip4_address: None, gateway: None, dns: vec![], speed: 1000,
+            id: "Wired".into(),
+            uuid: "u1".into(),
+            connection_type: "ethernet".into(),
+            device: "enp3s0".into(),
+            state: "activated".into(),
+            vpn: false,
+            ip4_address: None,
+            gateway: None,
+            dns: vec![],
+            speed: 1000,
         });
         p.connections.push(NetworkConnection {
-            id: "Home".into(), uuid: "u2".into(),
-            connection_type: "wifi".into(), device: "wlan0".into(),
-            state: "activated".into(), vpn: false,
-            ip4_address: None, gateway: None, dns: vec![], speed: 72,
+            id: "Home".into(),
+            uuid: "u2".into(),
+            connection_type: "wifi".into(),
+            device: "wlan0".into(),
+            state: "activated".into(),
+            vpn: false,
+            ip4_address: None,
+            gateway: None,
+            dns: vec![],
+            speed: 72,
         });
         p.access_points.push(WifiAccessPoint {
-            ssid: "Home".into(), strength: 60, frequency: 5200,
-            security: "wpa2".into(), connected: true, saved: true, uuid: Some("u2".into()),
+            ssid: "Home".into(),
+            strength: 60,
+            frequency: 5200,
+            security: "wpa2".into(),
+            connected: true,
+            saved: true,
+            uuid: Some("u2".into()),
         });
         p.resolve_icon();
         assert_eq!(p.status.icon, "network-wireless-signal-good-symbolic");
@@ -1531,8 +1575,12 @@ mod tests {
     #[test]
     fn access_point_json_shape() {
         let ap = WifiAccessPoint {
-            ssid: "CoffeeShop".into(), strength: 65, frequency: 2437,
-            security: "wpa2".into(), connected: false, saved: true,
+            ssid: "CoffeeShop".into(),
+            strength: 65,
+            frequency: 2437,
+            security: "wpa2".into(),
+            connected: false,
+            saved: true,
             uuid: Some("abc-123".into()),
         };
         let json = serde_json::to_value(&ap).unwrap();
@@ -1548,9 +1596,12 @@ mod tests {
     #[test]
     fn connection_json_shape() {
         let conn = NetworkConnection {
-            id: "Work VPN".into(), uuid: "vpn-uuid".into(),
-            connection_type: "vpn".into(), device: "".into(),
-            state: "activated".into(), vpn: true,
+            id: "Work VPN".into(),
+            uuid: "vpn-uuid".into(),
+            connection_type: "vpn".into(),
+            device: "".into(),
+            state: "activated".into(),
+            vpn: true,
             ip4_address: Some("10.0.0.5".into()),
             gateway: Some("10.0.0.1".into()),
             dns: vec!["1.1.1.1".into()],
@@ -1566,8 +1617,10 @@ mod tests {
     #[test]
     fn saved_vpn_json_shape() {
         let vpn = SavedVpn {
-            id: "Work".into(), uuid: "vpn-uuid".into(),
-            connection_type: "vpn".into(), active: true,
+            id: "Work".into(),
+            uuid: "vpn-uuid".into(),
+            connection_type: "vpn".into(),
+            active: true,
             state: Some("activated".into()),
         };
         let json = serde_json::to_value(&vpn).unwrap();
@@ -1579,8 +1632,10 @@ mod tests {
     #[test]
     fn device_json_shape() {
         let dev = NetworkDevice {
-            interface: "enp3s0".into(), device_type: "ethernet".into(),
-            state: "connected".into(), speed: 1000,
+            interface: "enp3s0".into(),
+            device_type: "ethernet".into(),
+            state: "connected".into(),
+            speed: 1000,
             carrier: Some(true),
         };
         let json = serde_json::to_value(&dev).unwrap();
@@ -1588,5 +1643,4 @@ mod tests {
         assert_eq!(json["carrier"], true);
         assert_eq!(json["speed"], 1000);
     }
-
 }

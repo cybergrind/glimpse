@@ -15,7 +15,11 @@ use crate::provider::{Provider, ProviderEvent, ProviderFactory, ProviderRequest}
 
 const NAME: &str = "tray";
 const TOPICS: &[&str] = &["tray.items"];
-const METHODS: &[&str] = &["tray.activate", "tray.secondary_activate", "tray.activate_menu_item"];
+const METHODS: &[&str] = &[
+    "tray.activate",
+    "tray.secondary_activate",
+    "tray.activate_menu_item",
+];
 
 #[derive(Debug, Clone, Serialize)]
 struct TrayItemData {
@@ -47,9 +51,15 @@ struct TrayProvider {
 }
 
 impl Provider for TrayProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -67,10 +77,15 @@ impl Provider for TrayProvider {
                         Err(e) => {
                             attempts += 1;
                             if attempts >= 10 {
-                                return Err(anyhow::anyhow!("failed to create tray client after {attempts} attempts: {e}"));
+                                return Err(anyhow::anyhow!(
+                                    "failed to create tray client after {attempts} attempts: {e}"
+                                ));
                             }
                             let delay = std::time::Duration::from_secs(2u64.pow(attempts.min(4)));
-                            tracing::warn!(attempt = attempts, "tray client init failed: {e}, retrying in {delay:?}");
+                            tracing::warn!(
+                                attempt = attempts,
+                                "tray client init failed: {e}, retrying in {delay:?}"
+                            );
                             tokio::select! {
                                 _ = cancel.cancelled() => return Ok(()),
                                 _ = tokio::time::sleep(delay) => {}
@@ -113,7 +128,8 @@ impl TrayProvider {
         match event {
             Event::Add(address, item) => {
                 tracing::info!(address = %address, title = ?item.title, "tray: item added");
-                self.items.insert(address.clone(), item_to_data(&address, &item));
+                self.items
+                    .insert(address.clone(), item_to_data(&address, &item));
                 true
             }
             Event::Update(address, update) => {
@@ -162,18 +178,32 @@ impl TrayProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { method, params, reply } => {
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
                 let result = match method.as_str() {
                     "tray.activate" => {
-                        tracing::info!("activating tray item {}", params["address"].as_str().unwrap_or("?"));
+                        tracing::info!(
+                            "activating tray item {}",
+                            params["address"].as_str().unwrap_or("?")
+                        );
                         self.activate(&method, &params).await
                     }
                     "tray.secondary_activate" => {
-                        tracing::info!("secondary-activating tray item {}", params["address"].as_str().unwrap_or("?"));
+                        tracing::info!(
+                            "secondary-activating tray item {}",
+                            params["address"].as_str().unwrap_or("?")
+                        );
                         self.activate(&method, &params).await
                     }
                     "tray.activate_menu_item" => {
-                        tracing::info!("activating menu item {} on {}", params["submenu_id"], params["address"].as_str().unwrap_or("?"));
+                        tracing::info!(
+                            "activating menu item {} on {}",
+                            params["submenu_id"],
+                            params["address"].as_str().unwrap_or("?")
+                        );
                         self.activate(&method, &params).await
                     }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
@@ -253,11 +283,7 @@ fn apply_update(data: &mut TrayItemData, update: UpdateEvent) {
             icon_name,
             icon_pixmap,
         } => {
-            data.icon = resolve_icon(
-                &data.address,
-                icon_name.as_deref(),
-                icon_pixmap.as_deref(),
-            );
+            data.icon = resolve_icon(&data.address, icon_name.as_deref(), icon_pixmap.as_deref());
         }
         UpdateEvent::Title(title) => {
             if let Some(t) = title {
@@ -304,7 +330,13 @@ fn write_pixmap_to_file(address: &str, pixmap: &IconPixmap) -> Option<String> {
 
     let safe_name: String = address
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let path = icon_dir.join(format!("{safe_name}.png"));
 
@@ -313,10 +345,10 @@ fn write_pixmap_to_file(address: &str, pixmap: &IconPixmap) -> Option<String> {
     let mut rgba = vec![0u8; argb.len()];
     for i in (0..argb.len()).step_by(4) {
         if i + 3 < argb.len() {
-            rgba[i] = argb[i + 1];     // R
+            rgba[i] = argb[i + 1]; // R
             rgba[i + 1] = argb[i + 2]; // G
             rgba[i + 2] = argb[i + 3]; // B
-            rgba[i + 3] = argb[i];     // A
+            rgba[i + 3] = argb[i]; // A
         }
     }
 
@@ -354,9 +386,15 @@ fn serialize_menu(items: &[MenuItem]) -> Vec<TrayMenuItemData> {
 pub struct TrayProviderFactory;
 
 impl ProviderFactory for TrayProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
     fn create(&self) -> Box<dyn Provider> {
         Box::new(TrayProvider {
             items: HashMap::new(),

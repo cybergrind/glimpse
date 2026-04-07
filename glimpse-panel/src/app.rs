@@ -95,8 +95,11 @@ impl SimpleComponent for App {
                 for panel in self.panels.drain(..) {
                     panel.widget().close();
                 }
-                self.panels =
-                    setup_panels(&new_config, self.dbus.connection.clone(), self.client.clone());
+                self.panels = setup_panels(
+                    &new_config,
+                    self.dbus.connection.clone(),
+                    self.client.clone(),
+                );
                 self.config = new_config;
             }
             Input::CssChanged => {

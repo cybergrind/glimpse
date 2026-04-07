@@ -109,7 +109,10 @@ async fn try_monitor_profiles(tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()
     )
     .await?;
 
-    let active: String = proxy.get_property("ActiveProfile").await.unwrap_or_default();
+    let active: String = proxy
+        .get_property("ActiveProfile")
+        .await
+        .unwrap_or_default();
     let raw: Vec<HashMap<String, OwnedValue>> =
         proxy.get_property("Profiles").await.unwrap_or_default();
     tx.send(PowerCommand::ProfilesUpdate {
@@ -127,7 +130,10 @@ async fn try_monitor_profiles(tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()
     let mut stream = props.receive_properties_changed().await?;
 
     while stream.next().await.is_some() {
-        let active: String = proxy.get_property("ActiveProfile").await.unwrap_or_default();
+        let active: String = proxy
+            .get_property("ActiveProfile")
+            .await
+            .unwrap_or_default();
         let raw: Vec<HashMap<String, OwnedValue>> =
             proxy.get_property("Profiles").await.unwrap_or_default();
         tx.send(PowerCommand::ProfilesUpdate {

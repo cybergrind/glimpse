@@ -42,9 +42,15 @@ struct PowerProvider {
 }
 
 impl Provider for PowerProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -130,8 +136,10 @@ impl PowerProvider {
 
         self.profiles.active = pp.get_uncached("ActiveProfile").await.unwrap_or_default();
         self.profiles.icon_name = profile_icon(&self.profiles.active);
-        self.profiles.performance_degraded =
-            pp.get_uncached("PerformanceDegraded").await.unwrap_or_default();
+        self.profiles.performance_degraded = pp
+            .get_uncached("PerformanceDegraded")
+            .await
+            .unwrap_or_default();
 
         let raw: Vec<HashMap<String, OwnedValue>> =
             pp.get_uncached("Profiles").await.unwrap_or_default();
@@ -164,7 +172,11 @@ impl PowerProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { method, params, reply } => {
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
                 let result = match method.as_str() {
                     "power.set_profile" => {
                         let profile = params.as_str().or_else(|| params["profile"].as_str());
@@ -197,7 +209,9 @@ impl PowerProvider {
                     }
                     "power.lock" => {
                         tracing::info!("locking session");
-                        logind.call_void("LockSessions", &()).await
+                        logind
+                            .call_void("LockSessions", &())
+                            .await
                             .map(|()| json!(null))
                             .map_err(|e| anyhow::anyhow!("{e}"))
                     }
@@ -235,9 +249,15 @@ fn profile_icon(profile: &str) -> &'static str {
 pub struct PowerProviderFactory;
 
 impl ProviderFactory for PowerProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
     fn create(&self) -> Box<dyn Provider> {
         Box::new(PowerProvider {
             profiles: PowerProfiles::default(),

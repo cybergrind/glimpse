@@ -41,13 +41,7 @@ pub struct CalendarServerEvent {
 }
 
 type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
-type CalendarServerSignalEvent = (
-    String,
-    String,
-    i64,
-    i64,
-    HashMap<String, OwnedValue>,
-);
+type CalendarServerSignalEvent = (String, String, i64, i64, HashMap<String, OwnedValue>);
 
 #[derive(Debug, Deserialize)]
 struct CalendarDayParams {
@@ -66,9 +60,15 @@ pub struct CalendarProvider {
 }
 
 impl Provider for CalendarProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -219,9 +219,15 @@ impl CalendarProvider {
 pub struct CalendarProviderFactory;
 
 impl ProviderFactory for CalendarProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
     fn create(&self) -> Box<dyn Provider> {
         Box::new(CalendarProvider {
             cache: CalendarToday {
@@ -239,8 +245,10 @@ pub fn select_visible_events(
     events: Vec<CalendarServerEvent>,
     sources: &[SourceInfo],
 ) -> CalendarToday {
-    let sources_by_uid: HashMap<&str, &SourceInfo> =
-        sources.iter().map(|source| (source.uid.as_str(), source)).collect();
+    let sources_by_uid: HashMap<&str, &SourceInfo> = sources
+        .iter()
+        .map(|source| (source.uid.as_str(), source))
+        .collect();
 
     let mut visible_events: Vec<(i64, CalendarEvent)> = events
         .into_iter()
@@ -287,8 +295,10 @@ fn select_events_for_day(
     events: Vec<CalendarServerEvent>,
     sources: &[SourceInfo],
 ) -> CalendarDay {
-    let sources_by_uid: HashMap<&str, &SourceInfo> =
-        sources.iter().map(|source| (source.uid.as_str(), source)).collect();
+    let sources_by_uid: HashMap<&str, &SourceInfo> = sources
+        .iter()
+        .map(|source| (source.uid.as_str(), source))
+        .collect();
     let start_of_day = day_start(date).expect("valid local day start");
     let end_of_day = next_day_start(date).expect("valid local next day");
     let is_today = date == now.date_naive();
@@ -340,8 +350,10 @@ fn summarize_month(
     events: Vec<CalendarServerEvent>,
     sources: &[SourceInfo],
 ) -> CalendarMonth {
-    let sources_by_uid: HashMap<&str, &SourceInfo> =
-        sources.iter().map(|source| (source.uid.as_str(), source)).collect();
+    let sources_by_uid: HashMap<&str, &SourceInfo> = sources
+        .iter()
+        .map(|source| (source.uid.as_str(), source))
+        .collect();
     let next_month_date = month_start_date
         .checked_add_months(chrono::Months::new(1))
         .unwrap_or(month_start_date);
@@ -454,7 +466,9 @@ async fn fetch_calendar_month(
     let month = parse_month(&params.month)?;
     let sources = read_sources(conn).await?;
     let events = fetch_range(day_start(month)?, next_month_start(month)?).await?;
-    Ok(serde_json::to_value(summarize_month(month, events, &sources))?)
+    Ok(serde_json::to_value(summarize_month(
+        month, events, &sources,
+    ))?)
 }
 
 async fn fetch_range(
@@ -512,7 +526,11 @@ async fn set_today_range(proxy: &zbus::Proxy<'_>, force_reload: bool) -> anyhow:
     proxy
         .call_method(
             "SetTimeRange",
-            &(today_start.timestamp(), tomorrow_start.timestamp(), force_reload),
+            &(
+                today_start.timestamp(),
+                tomorrow_start.timestamp(),
+                force_reload,
+            ),
         )
         .await?;
     Ok(())

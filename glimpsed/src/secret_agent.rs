@@ -78,16 +78,16 @@ async fn lookup_keyring_secret(
     uuid: &str,
     setting_name: &str,
 ) -> anyhow::Result<HashMap<String, HashMap<String, OwnedValue>>> {
-    let ss = secret_service::SecretService::connect(secret_service::EncryptionType::Dh).await
+    let ss = secret_service::SecretService::connect(secret_service::EncryptionType::Dh)
+        .await
         .map_err(|e| anyhow::anyhow!("failed to connect to Secret Service: {e}"))?;
 
     // NM stores secrets with these attributes in gnome-keyring
-    let attrs = HashMap::from([
-        ("connection-uuid", uuid),
-        ("setting-name", setting_name),
-    ]);
+    let attrs = HashMap::from([("connection-uuid", uuid), ("setting-name", setting_name)]);
 
-    let results = ss.search_items(attrs).await
+    let results = ss
+        .search_items(attrs)
+        .await
         .map_err(|e| anyhow::anyhow!("search failed: {e}"))?;
 
     let mut setting_secrets: HashMap<String, OwnedValue> = HashMap::new();
@@ -96,12 +96,18 @@ async fn lookup_keyring_secret(
     let items: Vec<_> = results.unlocked.into_iter().chain(results.locked).collect();
 
     for item in &items {
-        let item_attrs = item.get_attributes().await
+        let item_attrs = item
+            .get_attributes()
+            .await
             .map_err(|e| anyhow::anyhow!("get_attributes: {e}"))?;
 
-        let Some(key) = item_attrs.get("setting-key") else { continue };
+        let Some(key) = item_attrs.get("setting-key") else {
+            continue;
+        };
 
-        let secret_bytes = item.get_secret().await
+        let secret_bytes = item
+            .get_secret()
+            .await
             .map_err(|e| anyhow::anyhow!("get_secret: {e}"))?;
 
         let secret_str = String::from_utf8(secret_bytes)
@@ -110,7 +116,8 @@ async fn lookup_keyring_secret(
         tracing::debug!(key, "secret-agent: found secret key");
         setting_secrets.insert(
             key.clone(),
-            Value::from(secret_str).try_to_owned()
+            Value::from(secret_str)
+                .try_to_owned()
                 .map_err(|e| anyhow::anyhow!("value conversion: {e}"))?,
         );
     }
@@ -141,7 +148,9 @@ pub async fn run(cancel: tokio_util::sync::CancellationToken) -> anyhow::Result<
     )
     .await?;
 
-    agent_mgr.call::<_, _, ()>("Register", &(AGENT_ID,)).await
+    agent_mgr
+        .call::<_, _, ()>("Register", &(AGENT_ID,))
+        .await
         .map_err(|e| anyhow::anyhow!("failed to register secret agent: {e}"))?;
 
     tracing::info!("secret-agent: registered as \"{AGENT_ID}\"");
@@ -149,7 +158,9 @@ pub async fn run(cancel: tokio_util::sync::CancellationToken) -> anyhow::Result<
     cancel.cancelled().await;
 
     // Unregister on shutdown
-    let _ = agent_mgr.call::<&str, _, ()>("Unregister", &(AGENT_ID,)).await;
+    let _ = agent_mgr
+        .call::<&str, _, ()>("Unregister", &(AGENT_ID,))
+        .await;
     tracing::info!("secret-agent: unregistered");
 
     Ok(())

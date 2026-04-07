@@ -54,7 +54,10 @@ fn formats_midnight_spanning_event_as_all_day() {
 #[test]
 fn formats_non_today_event_with_absolute_time() {
     let now = Local.with_ymd_and_hms(2026, 4, 7, 15, 15, 0).unwrap();
-    let selected_date = Local.with_ymd_and_hms(2026, 4, 8, 0, 0, 0).unwrap().date_naive();
+    let selected_date = Local
+        .with_ymd_and_hms(2026, 4, 8, 0, 0, 0)
+        .unwrap()
+        .date_naive();
     let start = Local.with_ymd_and_hms(2026, 4, 8, 17, 30, 0).unwrap();
     let end = Local.with_ymd_and_hms(2026, 4, 8, 18, 15, 0).unwrap();
 

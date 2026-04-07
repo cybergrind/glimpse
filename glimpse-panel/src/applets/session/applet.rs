@@ -54,7 +54,9 @@ impl Component for Session {
     }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let popover = SessionPopover::builder()
             .launch(SessionPopoverInit {

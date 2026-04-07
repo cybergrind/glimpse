@@ -7,7 +7,7 @@ use relm4::{
 };
 
 use super::config::BluetoothConfig;
-use super::popover::{BtDevice, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput};
+use super::popover::{BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput, BtDevice};
 
 pub struct Bluetooth {
     icon_name: String,
@@ -22,7 +22,11 @@ pub struct BluetoothInit {
 
 #[derive(Debug)]
 pub enum BluetoothMsg {
-    StatusUpdate { powered: bool, discovering: bool, connected_count: u32 },
+    StatusUpdate {
+        powered: bool,
+        discovering: bool,
+        connected_count: u32,
+    },
     DevicesUpdate(Vec<BtDevice>),
     TogglePopover,
     Unavailable,
@@ -59,7 +63,9 @@ impl Component for Bluetooth {
     }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let popover = BluetoothPopover::builder()
             .launch(BluetoothPopoverInit {
@@ -121,32 +127,54 @@ impl Component for Bluetooth {
         ComponentParts { model, widgets }
     }
 
-    fn update_cmd(&mut self, msg: Self::CommandOutput, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_cmd(
+        &mut self,
+        msg: Self::CommandOutput,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         self.update(msg, sender, root);
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            BluetoothMsg::StatusUpdate { powered, discovering, connected_count } => {
-                tracing::info!(powered, discovering, connected_count, "bluetooth applet: status update");
+            BluetoothMsg::StatusUpdate {
+                powered,
+                discovering,
+                connected_count,
+            } => {
+                tracing::info!(
+                    powered,
+                    discovering,
+                    connected_count,
+                    "bluetooth applet: status update"
+                );
                 self.icon_name = if !powered {
                     "bluetooth-disabled-symbolic"
                 } else {
                     "bluetooth-active-symbolic"
-                }.into();
+                }
+                .into();
 
                 self.tooltip = if !powered {
                     "Bluetooth off".into()
                 } else if connected_count > 0 {
-                    format!("{connected_count} device{} connected", if connected_count > 1 { "s" } else { "" })
+                    format!(
+                        "{connected_count} device{} connected",
+                        if connected_count > 1 { "s" } else { "" }
+                    )
                 } else {
                     "Bluetooth".into()
                 };
 
-                self.popover.emit(BluetoothPopoverInput::UpdateStatus { powered, discovering });
+                self.popover.emit(BluetoothPopoverInput::UpdateStatus {
+                    powered,
+                    discovering,
+                });
             }
             BluetoothMsg::DevicesUpdate(devices) => {
-                self.popover.emit(BluetoothPopoverInput::UpdateDevices(devices));
+                self.popover
+                    .emit(BluetoothPopoverInput::UpdateDevices(devices));
             }
             BluetoothMsg::TogglePopover => {
                 self.popover.emit(BluetoothPopoverInput::Toggle);

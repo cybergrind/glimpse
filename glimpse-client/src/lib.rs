@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use glimpse_types::{Request, RequestBody, RequestResult, Response, ResponseBody};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 /// Async client for the glimpsed daemon.
 pub struct Client {
@@ -39,7 +39,7 @@ impl Subscription {
             let resp = self.rx.recv().await?;
             match resp.body {
                 ResponseBody::Event { topic, ts, data } => {
-                    return Some(SubscriptionEvent { topic, ts, data })
+                    return Some(SubscriptionEvent { topic, ts, data });
                 }
                 ResponseBody::ProviderUnavailable { provider, error } => {
                     tracing::warn!("provider {provider} unavailable: {error}");

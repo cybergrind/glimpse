@@ -12,7 +12,10 @@ use crate::providers::dbus_props::DbusPropertyGroup;
 
 const NAME: &str = "battery";
 const TOPICS: &[&str] = &["battery.status", "battery.devices"];
-const METHODS: &[&str] = &["battery.set_charge_threshold", "battery.get_charge_threshold"];
+const METHODS: &[&str] = &[
+    "battery.set_charge_threshold",
+    "battery.get_charge_threshold",
+];
 
 #[derive(Debug, Clone, Serialize, Default)]
 struct BatteryStatus {
@@ -47,9 +50,15 @@ struct BatteryProvider {
 }
 
 impl Provider for BatteryProvider {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
 
     fn run(
         &mut self,
@@ -72,7 +81,11 @@ impl Provider for BatteryProvider {
             let on_battery: bool = upower.get("OnBattery").await.unwrap_or(false);
 
             let device_paths: Vec<OwnedObjectPath> = upower.call("EnumerateDevices", &()).await?;
-            tracing::info!(devices = device_paths.len(), on_battery, "battery: enumerating UPower devices");
+            tracing::info!(
+                devices = device_paths.len(),
+                on_battery,
+                "battery: enumerating UPower devices"
+            );
             let mut battery_path: Option<String> = None;
             self.devices.clear();
 
@@ -309,16 +322,25 @@ fn write_charge_threshold(value: u32) -> anyhow::Result<()> {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(anyhow::anyhow!("failed to set threshold: {}", stderr.trim()))
+        Err(anyhow::anyhow!(
+            "failed to set threshold: {}",
+            stderr.trim()
+        ))
     }
 }
 
 pub struct BatteryProviderFactory;
 
 impl ProviderFactory for BatteryProviderFactory {
-    fn name(&self) -> &'static str { NAME }
-    fn topics(&self) -> &'static [&'static str] { TOPICS }
-    fn methods(&self) -> &'static [&'static str] { METHODS }
+    fn name(&self) -> &'static str {
+        NAME
+    }
+    fn topics(&self) -> &'static [&'static str] {
+        TOPICS
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        METHODS
+    }
     fn create(&self) -> Box<dyn Provider> {
         Box::new(BatteryProvider {
             status: BatteryStatus::default(),

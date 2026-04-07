@@ -72,7 +72,11 @@ impl NotificationsProvider {
                 // Return None here — the broker will use its cached data.
                 let _ = reply.send(None);
             }
-            ProviderRequest::Call { method, params, reply } => {
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
                 let result = match method.as_str() {
                     "notifications.dismiss" => {
                         let Some(id) = params["id"].as_u64() else {
@@ -80,14 +84,21 @@ impl NotificationsProvider {
                             return;
                         };
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = self.server_tx.send(NotifyMessage::Dismiss {
-                            id: id as u32, reply: tx,
-                        }).await;
+                        let _ = self
+                            .server_tx
+                            .send(NotifyMessage::Dismiss {
+                                id: id as u32,
+                                reply: tx,
+                            })
+                            .await;
                         rx.await.unwrap_or(Err(anyhow::anyhow!("server gone")))
                     }
                     "notifications.dismiss_all" => {
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = self.server_tx.send(NotifyMessage::DismissAll { reply: tx }).await;
+                        let _ = self
+                            .server_tx
+                            .send(NotifyMessage::DismissAll { reply: tx })
+                            .await;
                         rx.await.unwrap_or(Err(anyhow::anyhow!("server gone")))
                     }
                     "notifications.invoke_action" => {
@@ -100,9 +111,14 @@ impl NotificationsProvider {
                             return;
                         };
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = self.server_tx.send(NotifyMessage::InvokeAction {
-                            id: id as u32, action_key: action_key.to_owned(), reply: tx,
-                        }).await;
+                        let _ = self
+                            .server_tx
+                            .send(NotifyMessage::InvokeAction {
+                                id: id as u32,
+                                action_key: action_key.to_owned(),
+                                reply: tx,
+                            })
+                            .await;
                         rx.await.unwrap_or(Err(anyhow::anyhow!("server gone")))
                     }
                     "notifications.set_dnd" => {
@@ -111,14 +127,18 @@ impl NotificationsProvider {
                             return;
                         };
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = self.server_tx.send(NotifyMessage::SetDnd {
-                            enabled, reply: tx,
-                        }).await;
+                        let _ = self
+                            .server_tx
+                            .send(NotifyMessage::SetDnd { enabled, reply: tx })
+                            .await;
                         rx.await.unwrap_or(Err(anyhow::anyhow!("server gone")))
                     }
                     "notifications.clear_history" => {
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = self.server_tx.send(NotifyMessage::ClearHistory { reply: tx }).await;
+                        let _ = self
+                            .server_tx
+                            .send(NotifyMessage::ClearHistory { reply: tx })
+                            .await;
                         rx.await.unwrap_or(Err(anyhow::anyhow!("server gone")))
                     }
                     _ => Err(anyhow::anyhow!("unknown method: {method}")),
@@ -168,10 +188,12 @@ mod tests {
         let (tx, _rx) = mpsc::channel(1);
         let provider = NotificationsProvider { server_tx: tx };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-        provider.handle_request(ProviderRequest::Snapshot {
-            topic: "notifications.status".into(),
-            reply: reply_tx,
-        }).await;
+        provider
+            .handle_request(ProviderRequest::Snapshot {
+                topic: "notifications.status".into(),
+                reply: reply_tx,
+            })
+            .await;
         assert!(reply_rx.await.unwrap().is_none());
     }
 
@@ -183,11 +205,13 @@ mod tests {
 
         // Spawn handler (it will block waiting for server reply)
         let handle = tokio::spawn(async move {
-            provider.handle_request(ProviderRequest::Call {
-                method: "notifications.dismiss".into(),
-                params: serde_json::json!({"id": 42}),
-                reply: reply_tx,
-            }).await;
+            provider
+                .handle_request(ProviderRequest::Call {
+                    method: "notifications.dismiss".into(),
+                    params: serde_json::json!({"id": 42}),
+                    reply: reply_tx,
+                })
+                .await;
         });
 
         // Receive the forwarded message and respond
@@ -211,11 +235,13 @@ mod tests {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
         let handle = tokio::spawn(async move {
-            provider.handle_request(ProviderRequest::Call {
-                method: "notifications.set_dnd".into(),
-                params: serde_json::json!({"enabled": true}),
-                reply: reply_tx,
-            }).await;
+            provider
+                .handle_request(ProviderRequest::Call {
+                    method: "notifications.set_dnd".into(),
+                    params: serde_json::json!({"enabled": true}),
+                    reply: reply_tx,
+                })
+                .await;
         });
 
         let msg = rx.recv().await.unwrap();
@@ -236,11 +262,13 @@ mod tests {
         let (tx, _rx) = mpsc::channel(16);
         let provider = NotificationsProvider { server_tx: tx };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-        provider.handle_request(ProviderRequest::Call {
-            method: "notifications.dismiss".into(),
-            params: serde_json::json!({}), // missing "id"
-            reply: reply_tx,
-        }).await;
+        provider
+            .handle_request(ProviderRequest::Call {
+                method: "notifications.dismiss".into(),
+                params: serde_json::json!({}), // missing "id"
+                reply: reply_tx,
+            })
+            .await;
         let result = reply_rx.await.unwrap();
         assert!(result.is_err());
     }
@@ -250,11 +278,13 @@ mod tests {
         let (tx, _rx) = mpsc::channel(16);
         let provider = NotificationsProvider { server_tx: tx };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-        provider.handle_request(ProviderRequest::Call {
-            method: "notifications.nonexistent".into(),
-            params: serde_json::json!({}),
-            reply: reply_tx,
-        }).await;
+        provider
+            .handle_request(ProviderRequest::Call {
+                method: "notifications.nonexistent".into(),
+                params: serde_json::json!({}),
+                reply: reply_tx,
+            })
+            .await;
         let result = reply_rx.await.unwrap();
         assert!(result.is_err());
     }

@@ -114,11 +114,17 @@ pub enum NetworkPopoverInput {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, params).await;
+    });
 }
 
-
-fn spawn_password_dialog(client: &Arc<Client>, ssid: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner) {
+fn spawn_password_dialog(
+    client: &Arc<Client>,
+    ssid: String,
+    connecting: Rc<Cell<bool>>,
+    spinner: gtk::Spinner,
+) {
     tracing::info!("network: requesting password for \"{}\"", ssid);
     let c = client.clone();
     connecting.set(true);
@@ -136,9 +142,11 @@ fn spawn_password_dialog(client: &Arc<Client>, ssid: String, connecting: Rc<Cell
                     ])
                     .output()
             }
-        }).await;
+        })
+        .await;
 
-        let password = result.ok()
+        let password = result
+            .ok()
             .and_then(|r| r.ok())
             .filter(|o| o.status.success())
             .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -147,10 +155,15 @@ fn spawn_password_dialog(client: &Arc<Client>, ssid: String, connecting: Rc<Cell
 
         if let Some(password) = password {
             tracing::info!("network: connecting to \"{}\" with password", ssid);
-            let result = c.call("network.connect", serde_json::json!({
-                "ssid": ssid,
-                "password": password,
-            })).await;
+            let result = c
+                .call(
+                    "network.connect",
+                    serde_json::json!({
+                        "ssid": ssid,
+                        "password": password,
+                    }),
+                )
+                .await;
             match &result {
                 Ok(_) => tracing::info!("network: connect to \"{}\" succeeded", ssid),
                 Err(e) => {
@@ -174,8 +187,12 @@ fn spawn_password_dialog(client: &Arc<Client>, ssid: String, connecting: Rc<Cell
 /// succeeds. The spinner is cleared by update_ap_row when the state changes,
 /// or by a timeout.
 fn spawn_connect_call(
-    client: &Arc<Client>, method: &'static str, params: serde_json::Value,
-    name: String, connecting: Rc<Cell<bool>>, spinner: gtk::Spinner,
+    client: &Arc<Client>,
+    method: &'static str,
+    params: serde_json::Value,
+    name: String,
+    connecting: Rc<Cell<bool>>,
+    spinner: gtk::Spinner,
 ) {
     tracing::info!("network: calling {} for \"{}\"", method, name);
     let c = client.clone();
@@ -211,9 +228,13 @@ fn spawn_connect_call(
 }
 
 fn band_label(frequency: u32) -> &'static str {
-    if frequency < 3000 { "2.4 GHz" }
-    else if frequency < 6000 { "5 GHz" }
-    else { "6 GHz" }
+    if frequency < 3000 {
+        "2.4 GHz"
+    } else if frequency < 6000 {
+        "5 GHz"
+    } else {
+        "6 GHz"
+    }
 }
 
 fn ap_tooltip(ap: &WifiAp) -> String {
@@ -249,10 +270,14 @@ impl SimpleComponent for NetworkPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -290,8 +315,14 @@ impl SimpleComponent for NetworkPopover {
         let guard = updating_wifi_switch.clone();
         let c = init.client.clone();
         wifi_switch.connect_state_set(move |_, active| {
-            if guard.get() { return glib::Propagation::Stop; }
-            spawn_call(&c, "network.set_wifi_enabled", serde_json::json!({"enabled": active}));
+            if guard.get() {
+                return glib::Propagation::Stop;
+            }
+            spawn_call(
+                &c,
+                "network.set_wifi_enabled",
+                serde_json::json!({"enabled": active}),
+            );
             glib::Propagation::Stop
         });
         hero.append(&wifi_switch);
@@ -399,12 +430,19 @@ impl SimpleComponent for NetworkPopover {
         });
 
         let model = NetworkPopover {
-            popover: root.clone(), client: init.client,
-            hero_icon, subtitle, wifi_switch, wifi_section,
-            ap_box, wifi_empty_label,
+            popover: root.clone(),
+            client: init.client,
+            hero_icon,
+            subtitle,
+            wifi_switch,
+            wifi_section,
+            ap_box,
+            wifi_empty_label,
             scan_interval: init.scan_interval,
-            eth_section, eth_device_box,
-            vpn_section, vpn_box,
+            eth_section,
+            eth_device_box,
+            vpn_section,
+            vpn_box,
             ap_rows: HashMap::new(),
             vpn_rows: HashMap::new(),
             updating_wifi_switch,
@@ -420,10 +458,21 @@ impl SimpleComponent for NetworkPopover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             NetworkPopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
-            NetworkPopoverInput::UpdateStatus { primary_connection, primary_type, speed: _, metered, wifi_enabled, connectivity: _, icon } => {
+            NetworkPopoverInput::UpdateStatus {
+                primary_connection,
+                primary_type,
+                speed: _,
+                metered,
+                wifi_enabled,
+                connectivity: _,
+                icon,
+            } => {
                 self.primary_connection = primary_connection;
                 self.primary_type = primary_type;
                 self.metered = metered;
@@ -469,7 +518,9 @@ impl NetworkPopover {
             "Offline".into()
         } else {
             let mut parts = vec![self.primary_connection.clone()];
-            if self.metered { parts.push("Metered".into()); }
+            if self.metered {
+                parts.push("Metered".into());
+            }
             parts.join(" \u{b7} ")
         };
         self.subtitle.set_label(&text);
@@ -477,33 +528,42 @@ impl NetworkPopover {
 
     fn update_ap_list(&mut self, mut aps: Vec<WifiAp>) {
         aps.sort_by(|a, b| {
-            b.connected.cmp(&a.connected)
+            b.connected
+                .cmp(&a.connected)
                 .then(b.saved.cmp(&a.saved))
                 .then(b.strength.cmp(&a.strength))
         });
 
         let visible_ssids: std::collections::HashSet<&str> =
             aps.iter().map(|a| a.ssid.as_str()).collect();
-        let to_remove: Vec<String> = self.ap_rows.keys()
+        let to_remove: Vec<String> = self
+            .ap_rows
+            .keys()
             .filter(|ssid| !visible_ssids.contains(ssid.as_str()))
             .cloned()
             .collect();
         for ssid in to_remove {
             if let Some(row) = self.ap_rows.remove(&ssid) {
-                if let Some(pm) = &row.popover_menu { pm.unparent(); }
+                if let Some(pm) = &row.popover_menu {
+                    pm.unparent();
+                }
                 self.ap_box.remove(&row.button);
             }
         }
 
         for (i, ap) in aps.iter().enumerate() {
-            if ap.ssid.is_empty() { continue; }
+            if ap.ssid.is_empty() {
+                continue;
+            }
             if let Some(row) = self.ap_rows.get(&ap.ssid) {
                 update_ap_row(row, ap);
                 if i == 0 {
-                    self.ap_box.reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
+                    self.ap_box
+                        .reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
                 } else if let Some(prev) = aps.get(i - 1) {
                     if let Some(prev_row) = self.ap_rows.get(&prev.ssid) {
-                        self.ap_box.reorder_child_after(&row.button, Some(&prev_row.button));
+                        self.ap_box
+                            .reorder_child_after(&row.button, Some(&prev_row.button));
                     }
                 }
             } else {
@@ -513,11 +573,13 @@ impl NetworkPopover {
             }
         }
 
-        self.wifi_empty_label.set_visible(aps.is_empty() || aps.iter().all(|a| a.ssid.is_empty()));
+        self.wifi_empty_label
+            .set_visible(aps.is_empty() || aps.iter().all(|a| a.ssid.is_empty()));
     }
 
     fn update_ethernet(&mut self, devices: Vec<NetDevice>) {
-        let eth_devices: Vec<&NetDevice> = devices.iter()
+        let eth_devices: Vec<&NetDevice> = devices
+            .iter()
             .filter(|d| d.device_type == "ethernet")
             .collect();
 
@@ -573,7 +635,9 @@ impl NetworkPopover {
 
         let visible_uuids: std::collections::HashSet<&str> =
             vpns.iter().map(|v| v.uuid.as_str()).collect();
-        let to_remove: Vec<String> = self.vpn_rows.keys()
+        let to_remove: Vec<String> = self
+            .vpn_rows
+            .keys()
             .filter(|uuid| !visible_uuids.contains(uuid.as_str()))
             .cloned()
             .collect();
@@ -587,10 +651,12 @@ impl NetworkPopover {
             if let Some(row) = self.vpn_rows.get(&vpn.uuid) {
                 update_vpn_row(row, vpn);
                 if i == 0 {
-                    self.vpn_box.reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
+                    self.vpn_box
+                        .reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
                 } else if let Some(prev) = vpns.get(i - 1) {
                     if let Some(prev_row) = self.vpn_rows.get(&prev.uuid) {
-                        self.vpn_box.reorder_child_after(&row.button, Some(&prev_row.button));
+                        self.vpn_box
+                            .reorder_child_after(&row.button, Some(&prev_row.button));
                     }
                 }
             } else {
@@ -653,27 +719,41 @@ fn create_ap_row(ap: &WifiAp, client: &Arc<Client>) -> ApRow {
     let conn_state = connected.clone();
     let spin = spinner.clone();
     btn.connect_clicked(move |_| {
-        if conn_flag.get() { return; }
+        if conn_flag.get() {
+            return;
+        }
         if conn_state.get() {
             if let Some(ref u) = uuid {
                 spawn_connect_call(
-                    &c, "network.disconnect", serde_json::json!({"uuid": u}),
-                    ssid.clone(), conn_flag.clone(), spin.clone(),
+                    &c,
+                    "network.disconnect",
+                    serde_json::json!({"uuid": u}),
+                    ssid.clone(),
+                    conn_flag.clone(),
+                    spin.clone(),
                 );
             }
         } else if is_saved {
             if let Some(ref u) = uuid {
                 spawn_connect_call(
-                    &c, "network.connect_uuid", serde_json::json!({"uuid": u}),
-                    ssid.clone(), conn_flag.clone(), spin.clone(),
+                    &c,
+                    "network.connect_uuid",
+                    serde_json::json!({"uuid": u}),
+                    ssid.clone(),
+                    conn_flag.clone(),
+                    spin.clone(),
                 );
             }
         } else if is_encrypted {
             spawn_password_dialog(&c, ssid.clone(), conn_flag.clone(), spin.clone());
         } else {
             spawn_connect_call(
-                &c, "network.connect", serde_json::json!({"ssid": ssid}),
-                ssid.clone(), conn_flag.clone(), spin.clone(),
+                &c,
+                "network.connect",
+                serde_json::json!({"ssid": ssid}),
+                ssid.clone(),
+                conn_flag.clone(),
+                spin.clone(),
             );
         }
     });
@@ -715,8 +795,14 @@ fn create_ap_row(ap: &WifiAp, client: &Arc<Client>) -> ApRow {
     btn.set_tooltip_text(Some(&ap_tooltip(ap)));
 
     ApRow {
-        button: btn, icon, name_label, lock_icon, spinner,
-        popover_menu, connecting, connected,
+        button: btn,
+        icon,
+        name_label,
+        lock_icon,
+        spinner,
+        popover_menu,
+        connecting,
+        connected,
     }
 }
 
@@ -737,7 +823,8 @@ fn update_ap_row(row: &ApRow, ap: &WifiAp) {
     row.icon.set_icon_name(Some(signal_icon_name(ap.strength)));
     apply_ap_icon_style(&row.icon, ap.connected);
     row.name_label.set_label(&ap.ssid);
-    row.lock_icon.set_visible(!ap.security.is_empty() && ap.security != "open" && !ap.connected);
+    row.lock_icon
+        .set_visible(!ap.security.is_empty() && ap.security != "open" && !ap.connected);
 
     row.button.set_tooltip_text(Some(&ap_tooltip(ap)));
 }
@@ -788,24 +875,43 @@ fn create_vpn_row(vpn: &VpnEntry, client: &Arc<Client>) -> VpnRow {
     let active_flag = active.clone();
     let spin = spinner.clone();
     btn.connect_clicked(move |_| {
-        if conn_flag.get() { return; }
+        if conn_flag.get() {
+            return;
+        }
         if active_flag.get() {
             spawn_connect_call(
-                &c, "network.disconnect", serde_json::json!({"uuid": uuid}),
-                name.clone(), conn_flag.clone(), spin.clone(),
+                &c,
+                "network.disconnect",
+                serde_json::json!({"uuid": uuid}),
+                name.clone(),
+                conn_flag.clone(),
+                spin.clone(),
             );
         } else {
             spawn_connect_call(
-                &c, "network.connect_uuid", serde_json::json!({"uuid": uuid}),
-                name.clone(), conn_flag.clone(), spin.clone(),
+                &c,
+                "network.connect_uuid",
+                serde_json::json!({"uuid": uuid}),
+                name.clone(),
+                conn_flag.clone(),
+                spin.clone(),
             );
         }
     });
 
-    let tooltip = if vpn.active { "Disconnect VPN" } else { "Connect VPN" };
+    let tooltip = if vpn.active {
+        "Disconnect VPN"
+    } else {
+        "Connect VPN"
+    };
     btn.set_tooltip_text(Some(tooltip));
 
-    VpnRow { button: btn, spinner, connecting, active }
+    VpnRow {
+        button: btn,
+        spinner,
+        connecting,
+        active,
+    }
 }
 
 fn update_vpn_row(row: &VpnRow, vpn: &VpnEntry) {
@@ -820,6 +926,10 @@ fn update_vpn_row(row: &VpnRow, vpn: &VpnEntry) {
         }
     }
     row.active.set(vpn.active);
-    let tooltip = if vpn.active { "Disconnect VPN" } else { "Connect VPN" };
+    let tooltip = if vpn.active {
+        "Disconnect VPN"
+    } else {
+        "Connect VPN"
+    };
     row.button.set_tooltip_text(Some(tooltip));
 }

@@ -45,7 +45,9 @@ fn register_providers(
         Box::new(providers::calendar::CalendarProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
         Box::new(providers::network::NetworkProviderFactory),
-        Box::new(providers::notifications::NotificationsProviderFactory { server_tx: notify_tx }),
+        Box::new(providers::notifications::NotificationsProviderFactory {
+            server_tx: notify_tx,
+        }),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::tray::TrayProviderFactory),
     ]
@@ -76,7 +78,9 @@ async fn main() -> anyhow::Result<()> {
     let notif_cancel = cancel.clone();
     let notif_broker_tx = broker_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = notification_server::run(notif_cancel, notif_broker_tx, notify_rx, notify_tx).await {
+        if let Err(e) =
+            notification_server::run(notif_cancel, notif_broker_tx, notify_rx, notify_tx).await
+        {
             tracing::warn!("notification-server: {e}");
         }
     });

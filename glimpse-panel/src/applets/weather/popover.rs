@@ -306,7 +306,10 @@ fn build_details_rows(
     let wind = if current.wind_direction_label.is_empty() {
         format!("{:.0} km/h", current.wind_speed)
     } else {
-        format!("{:.0} km/h {}", current.wind_speed, current.wind_direction_label)
+        format!(
+            "{:.0} km/h {}",
+            current.wind_speed, current.wind_direction_label
+        )
     };
 
     vec![
@@ -329,7 +332,11 @@ fn build_details_rows(
 }
 
 fn display_time_or_dash(value: &str) -> &str {
-    value.rsplit('T').next().filter(|part| !part.is_empty()).unwrap_or("—")
+    value
+        .rsplit('T')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("—")
 }
 
 fn visible_forecast_rows(configured: usize, available: usize) -> usize {
@@ -429,8 +436,8 @@ mod tests {
     use relm4::gtk;
 
     use super::{
-        build_details_rows, display_time_or_dash, forecast_detail, hero_location_constraints,
-        hero_summary, visible_forecast_rows, visible_hourly_slots, WeatherCurrent, WeatherDaily,
+        WeatherCurrent, WeatherDaily, build_details_rows, display_time_or_dash, forecast_detail,
+        hero_location_constraints, hero_summary, visible_forecast_rows, visible_hourly_slots,
     };
 
     #[test]

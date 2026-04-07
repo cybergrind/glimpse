@@ -40,7 +40,9 @@ pub enum BatteryPopoverInput {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, params).await;
+    });
 }
 
 impl SimpleComponent for BatteryPopover {
@@ -50,10 +52,14 @@ impl SimpleComponent for BatteryPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, _sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -143,10 +149,17 @@ impl SimpleComponent for BatteryPopover {
         root.set_child(Some(&vbox));
 
         let model = BatteryPopover {
-            popover: root.clone(), client: init.client,
-            status_icon, status_pct, progress, status_text,
-            health_val, model_val, rate_val,
-            charge_limit_row, charge_limit_val,
+            popover: root.clone(),
+            client: init.client,
+            status_icon,
+            status_pct,
+            progress,
+            status_text,
+            health_val,
+            model_val,
+            rate_val,
+            charge_limit_row,
+            charge_limit_val,
             profile_box,
         };
 
@@ -156,13 +169,18 @@ impl SimpleComponent for BatteryPopover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             BatteryPopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
             BatteryPopoverInput::UpdateStatus(data) => {
                 let pct = data["percentage"].as_u64().unwrap_or(0).min(100) as u8;
                 let state = data["state"].as_str().unwrap_or("unknown");
-                let icon = data["icon_name"].as_str().unwrap_or("battery-missing-symbolic");
+                let icon = data["icon_name"]
+                    .as_str()
+                    .unwrap_or("battery-missing-symbolic");
                 let model_name = data["model"].as_str().unwrap_or("");
                 let energy_rate = data["energy_rate"].as_f64().unwrap_or(0.0);
                 let capacity = data["capacity"].as_f64().unwrap_or(0.0);
@@ -175,9 +193,13 @@ impl SimpleComponent for BatteryPopover {
                 self.progress.set_fraction(pct as f64 / 100.0);
 
                 let state_text = match state {
-                    "discharging" if tte > 0 => format!("Discharging — {} remaining", format_duration(tte)),
+                    "discharging" if tte > 0 => {
+                        format!("Discharging — {} remaining", format_duration(tte))
+                    }
                     "discharging" => "Discharging".into(),
-                    "charging" if ttf > 0 => format!("Charging — {} until full", format_duration(ttf)),
+                    "charging" if ttf > 0 => {
+                        format!("Charging — {} until full", format_duration(ttf))
+                    }
                     "charging" => "Charging".into(),
                     "fully-charged" => "Fully charged".into(),
                     "pending-charge" => "Plugged in, not charging".into(),
@@ -187,7 +209,11 @@ impl SimpleComponent for BatteryPopover {
                 self.status_text.set_label(&state_text);
 
                 self.health_val.set_label(&format!("{capacity:.0}%"));
-                self.model_val.set_label(if model_name.is_empty() { "—" } else { model_name });
+                self.model_val.set_label(if model_name.is_empty() {
+                    "—"
+                } else {
+                    model_name
+                });
 
                 if energy_rate > 0.0 {
                     self.rate_val.set_label(&format!("{energy_rate:.1}W"));
@@ -214,7 +240,9 @@ impl SimpleComponent for BatteryPopover {
                 if let Some(profiles) = available {
                     for p in profiles {
                         let name = p.as_str().unwrap_or("");
-                        if name.is_empty() { continue; }
+                        if name.is_empty() {
+                            continue;
+                        }
 
                         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
                         row.add_css_class("profile-row");
@@ -288,6 +316,9 @@ fn build_detail_row(parent: &gtk::Box, key: &str) -> gtk::Label {
 fn format_duration(seconds: i64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
-    if hours > 0 { format!("{hours}h {minutes:02}m") }
-    else { format!("{minutes}m") }
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else {
+        format!("{minutes}m")
+    }
 }

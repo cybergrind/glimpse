@@ -600,8 +600,8 @@ fn wind_direction_label(degrees: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_current, parse_daily, parse_geocoding_location, parse_hourly, resolve_city_name,
-        WeatherSnapshot,
+        WeatherSnapshot, parse_current, parse_daily, parse_geocoding_location, parse_hourly,
+        resolve_city_name,
     };
     use crate::applets::weather::config::WeatherConfig;
 
@@ -677,12 +677,15 @@ mod tests {
             "is_day": 1,
             "precipitation": 0.0
         }));
-        let hourly = parse_hourly(&serde_json::json!({
-            "time": ["2099-01-01T10:00", "2099-01-01T11:00", "2099-01-01T12:00"],
-            "temperature_2m": [20.0, 21.0, 22.0],
-            "weather_code": [1, 2, 3],
-            "is_day": [1, 1, 1]
-        }), 5);
+        let hourly = parse_hourly(
+            &serde_json::json!({
+                "time": ["2099-01-01T10:00", "2099-01-01T11:00", "2099-01-01T12:00"],
+                "temperature_2m": [20.0, 21.0, 22.0],
+                "weather_code": [1, 2, 3],
+                "is_day": [1, 1, 1]
+            }),
+            5,
+        );
         let forecast = parse_daily(&serde_json::json!({
             "time": ["2099-01-01"],
             "weather_code": [3],

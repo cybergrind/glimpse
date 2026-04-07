@@ -26,11 +26,16 @@ pub enum SessionPopoverInput {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, serde_json::json!({})).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, serde_json::json!({})).await;
+    });
 }
 
 fn confirm_and_call(
-    client: &Arc<Client>, method: &'static str, title: &str, message: &str,
+    client: &Arc<Client>,
+    method: &'static str,
+    title: &str,
+    message: &str,
     popover: &gtk::Popover,
 ) {
     let dialog = gtk::MessageDialog::new(
@@ -63,10 +68,14 @@ impl SimpleComponent for SessionPopover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, _sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -112,22 +121,36 @@ impl SimpleComponent for SessionPopover {
         // === Session actions ===
         if config.show_lock {
             let c = client.clone();
-            vbox.append(&build_action_row("system-lock-screen-symbolic", "Lock Screen", move |_| {
-                spawn_call(&c, "power.lock");
-            }));
+            vbox.append(&build_action_row(
+                "system-lock-screen-symbolic",
+                "Lock Screen",
+                move |_| {
+                    spawn_call(&c, "power.lock");
+                },
+            ));
         }
 
         if config.show_logout {
             let c = client.clone();
             let confirm = config.confirm_logout;
             let p = popover.clone();
-            vbox.append(&build_action_row("system-log-out-symbolic", "Log Out", move |_| {
-                if confirm {
-                    confirm_and_call(&c, "power.lock", "Log Out", "Are you sure you want to log out?", &p);
-                } else {
-                    spawn_call(&c, "power.lock");
-                }
-            }));
+            vbox.append(&build_action_row(
+                "system-log-out-symbolic",
+                "Log Out",
+                move |_| {
+                    if confirm {
+                        confirm_and_call(
+                            &c,
+                            "power.lock",
+                            "Log Out",
+                            "Are you sure you want to log out?",
+                            &p,
+                        );
+                    } else {
+                        spawn_call(&c, "power.lock");
+                    }
+                },
+            ));
         }
 
         vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -135,55 +158,88 @@ impl SimpleComponent for SessionPopover {
         // === Power actions ===
         if config.show_suspend {
             let c = client.clone();
-            vbox.append(&build_action_row("media-playback-pause-symbolic", "Suspend", move |_| {
-                spawn_call(&c, "power.suspend");
-            }));
+            vbox.append(&build_action_row(
+                "media-playback-pause-symbolic",
+                "Suspend",
+                move |_| {
+                    spawn_call(&c, "power.suspend");
+                },
+            ));
         }
 
         if config.show_hibernate {
             let c = client.clone();
-            vbox.append(&build_action_row("document-save-symbolic", "Hibernate", move |_| {
-                spawn_call(&c, "power.hibernate");
-            }));
+            vbox.append(&build_action_row(
+                "document-save-symbolic",
+                "Hibernate",
+                move |_| {
+                    spawn_call(&c, "power.hibernate");
+                },
+            ));
         }
 
         if config.show_reboot {
             let c = client.clone();
             let confirm = config.confirm_reboot;
             let p = popover.clone();
-            vbox.append(&build_action_row("system-reboot-symbolic", "Restart", move |_| {
-                if confirm {
-                    confirm_and_call(&c, "power.reboot", "Restart", "Are you sure you want to restart?", &p);
-                } else {
-                    spawn_call(&c, "power.reboot");
-                }
-            }));
+            vbox.append(&build_action_row(
+                "system-reboot-symbolic",
+                "Restart",
+                move |_| {
+                    if confirm {
+                        confirm_and_call(
+                            &c,
+                            "power.reboot",
+                            "Restart",
+                            "Are you sure you want to restart?",
+                            &p,
+                        );
+                    } else {
+                        spawn_call(&c, "power.reboot");
+                    }
+                },
+            ));
         }
 
         if config.show_shutdown {
             let c = client.clone();
             let confirm = config.confirm_shutdown;
             let p = popover.clone();
-            vbox.append(&build_action_row("system-shutdown-symbolic", "Shut Down", move |_| {
-                if confirm {
-                    confirm_and_call(&c, "power.poweroff", "Shut Down", "Are you sure you want to shut down?", &p);
-                } else {
-                    spawn_call(&c, "power.poweroff");
-                }
-            }));
+            vbox.append(&build_action_row(
+                "system-shutdown-symbolic",
+                "Shut Down",
+                move |_| {
+                    if confirm {
+                        confirm_and_call(
+                            &c,
+                            "power.poweroff",
+                            "Shut Down",
+                            "Are you sure you want to shut down?",
+                            &p,
+                        );
+                    } else {
+                        spawn_call(&c, "power.poweroff");
+                    }
+                },
+            ));
         }
 
         root.set_child(Some(&vbox));
 
-        let model = SessionPopover { popover: root.clone() };
+        let model = SessionPopover {
+            popover: root.clone(),
+        };
         ComponentParts { model, widgets: () }
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             SessionPopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
             SessionPopoverInput::UpdateActions(_) => {}
         }
@@ -191,7 +247,9 @@ impl SimpleComponent for SessionPopover {
 }
 
 fn build_action_row<F: Fn(&gtk::Button) + 'static>(
-    icon_name: &str, label: &str, on_click: F,
+    icon_name: &str,
+    label: &str,
+    on_click: F,
 ) -> gtk::Button {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     row.add_css_class("session-action-row");

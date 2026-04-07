@@ -122,7 +122,9 @@ impl App {
                 self.push_in("  clear                   clear messages".into());
                 self.push_in("  quit                    exit".into());
                 self.push_in("".into());
-                self.push_in("Tab: switch pane | Ctrl+P: picker | Ctrl+L: clear | Ctrl+Q: quit".into());
+                self.push_in(
+                    "Tab: switch pane | Ctrl+P: picker | Ctrl+L: clear | Ctrl+Q: quit".into(),
+                );
             }
             Some("get") if parts.len() >= 2 => {
                 let topic = parts[1].to_owned();
@@ -160,7 +162,11 @@ impl App {
             }
             Some("call") if parts.len() >= 2 => {
                 let method = parts[1].to_owned();
-                let raw_params = if parts.len() >= 3 { parts[2].trim() } else { "{}" };
+                let raw_params = if parts.len() >= 3 {
+                    parts[2].trim()
+                } else {
+                    "{}"
+                };
                 let raw_params = raw_params
                     .strip_prefix('\'')
                     .and_then(|s| s.strip_suffix('\''))
@@ -426,7 +432,8 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
         .take(height)
         .map(|(msg_idx, line)| {
             if *msg_idx == app.selected && app.focus == Focus::Messages {
-                line.clone().patch_style(Style::default().bg(Color::DarkGray))
+                line.clone()
+                    .patch_style(Style::default().bg(Color::DarkGray))
             } else {
                 line.clone()
             }
@@ -496,10 +503,7 @@ fn colorize_json_line(line: &str) -> Vec<Span<'static>> {
             b'"' => {
                 // Find closing quote.
                 let rest = &trimmed[pos + 1..];
-                let end = rest
-                    .find('"')
-                    .map(|i| pos + 2 + i)
-                    .unwrap_or(trimmed.len());
+                let end = rest.find('"').map(|i| pos + 2 + i).unwrap_or(trimmed.len());
                 let s = &trimmed[pos..end];
                 // Check if this is a key (followed by ':').
                 let after = trimmed[end..].trim_start();
@@ -513,7 +517,14 @@ fn colorize_json_line(line: &str) -> Vec<Span<'static>> {
             }
             b'0'..=b'9' | b'-' => {
                 let end = trimmed[pos..]
-                    .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-' && c != 'e' && c != 'E' && c != '+')
+                    .find(|c: char| {
+                        !c.is_ascii_digit()
+                            && c != '.'
+                            && c != '-'
+                            && c != 'e'
+                            && c != 'E'
+                            && c != '+'
+                    })
                     .map(|i| pos + i)
                     .unwrap_or(trimmed.len());
                 spans.push(Span::styled(
@@ -522,8 +533,14 @@ fn colorize_json_line(line: &str) -> Vec<Span<'static>> {
                 ));
                 pos = end;
             }
-            b't' | b'f' if trimmed[pos..].starts_with("true") || trimmed[pos..].starts_with("false") => {
-                let word_len = if trimmed[pos..].starts_with("true") { 4 } else { 5 };
+            b't' | b'f'
+                if trimmed[pos..].starts_with("true") || trimmed[pos..].starts_with("false") =>
+            {
+                let word_len = if trimmed[pos..].starts_with("true") {
+                    4
+                } else {
+                    5
+                };
                 spans.push(Span::styled(
                     trimmed[pos..pos + word_len].to_owned(),
                     Style::default().fg(Color::Magenta),
@@ -578,8 +595,7 @@ fn draw_picker(f: &mut Frame, picker: &Picker, area: Rect) {
 
     f.render_widget(Clear, popup);
 
-    let chunks =
-        Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(popup);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(popup);
 
     // Search input.
     let search_block = Block::default()
@@ -623,7 +639,10 @@ fn draw_picker(f: &mut Frame, picker: &Picker, area: Rect) {
     let results_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(Color::Yellow));
-    let footer = format!(" {} results | Enter: select | Esc: cancel ", picker.filtered.len());
+    let footer = format!(
+        " {} results | Enter: select | Esc: cancel ",
+        picker.filtered.len()
+    );
     let results_block = results_block.title_bottom(Line::from(footer).centered());
     let list = List::new(items).block(results_block);
     f.render_widget(list, chunks[1]);

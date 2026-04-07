@@ -176,7 +176,8 @@ impl Broker {
                 // Request snapshots in the background — don't block the broker.
                 if available {
                     if let Some(entry) = self.providers.get(provider_name) {
-                        let topics: Vec<&'static str> = entry.topics
+                        let topics: Vec<&'static str> = entry
+                            .topics
                             .iter()
                             .filter(|t| pat.matches(t))
                             .copied()
@@ -184,28 +185,40 @@ impl Broker {
                         if !topics.is_empty() {
                             if let Some(handle) = &entry.handle {
                                 let request_tx = handle.requests.clone();
-                                let client_tx = self.clients.get(&client)
-                                    .map(|c| c.tx.clone());
+                                let client_tx = self.clients.get(&client).map(|c| c.tx.clone());
                                 if let Some(client_tx) = client_tx {
                                     tokio::spawn(async move {
                                         for topic in topics {
                                             let (reply_tx, reply_rx) = oneshot::channel();
-                                            if request_tx.send(ProviderRequest::Snapshot {
-                                                topic: topic.to_owned(),
-                                                reply: reply_tx,
-                                            }).await.is_err() { break; }
+                                            if request_tx
+                                                .send(ProviderRequest::Snapshot {
+                                                    topic: topic.to_owned(),
+                                                    reply: reply_tx,
+                                                })
+                                                .await
+                                                .is_err()
+                                            {
+                                                break;
+                                            }
                                             let data = tokio::time::timeout(
-                                                std::time::Duration::from_secs(5), reply_rx,
-                                            ).await.ok().and_then(|r| r.ok()).flatten();
+                                                std::time::Duration::from_secs(5),
+                                                reply_rx,
+                                            )
+                                            .await
+                                            .ok()
+                                            .and_then(|r| r.ok())
+                                            .flatten();
                                             if let Some(data) = data {
-                                                let _ = client_tx.send(Response {
-                                                    id: req_id,
-                                                    body: ResponseBody::Event {
-                                                        topic: topic.to_owned(),
-                                                        ts: glimpse_types::now_ms(),
-                                                        data,
-                                                    },
-                                                }).await;
+                                                let _ = client_tx
+                                                    .send(Response {
+                                                        id: req_id,
+                                                        body: ResponseBody::Event {
+                                                            topic: topic.to_owned(),
+                                                            ts: glimpse_types::now_ms(),
+                                                            data,
+                                                        },
+                                                    })
+                                                    .await;
                                             }
                                         }
                                     });
@@ -303,35 +316,54 @@ impl Broker {
 
                 self.ensure_provider(name);
                 let entry = self.providers.get(name);
-                let request_tx = entry.and_then(|e| e.handle.as_ref()).map(|h| h.requests.clone());
+                let request_tx = entry
+                    .and_then(|e| e.handle.as_ref())
+                    .map(|h| h.requests.clone());
                 let client_tx = self.clients.get(&client).map(|c| c.tx.clone());
 
                 if let (Some(request_tx), Some(client_tx)) = (request_tx, client_tx) {
                     tokio::spawn(async move {
                         let (reply_tx, reply_rx) = oneshot::channel();
-                        let send_ok = request_tx.send(ProviderRequest::Call {
-                            method: method.clone(),
-                            params,
-                            reply: reply_tx,
-                        }).await.is_ok();
+                        let send_ok = request_tx
+                            .send(ProviderRequest::Call {
+                                method: method.clone(),
+                                params,
+                                reply: reply_tx,
+                            })
+                            .await
+                            .is_ok();
 
                         let result = if send_ok {
-                            match tokio::time::timeout(
-                                std::time::Duration::from_secs(30), reply_rx
-                            ).await {
+                            match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx)
+                                .await
+                            {
                                 Ok(Ok(Ok(data))) => RequestResult::Ok { data },
-                                Ok(Ok(Err(e))) => RequestResult::Error { code: 5, message: e.to_string() },
-                                Ok(Err(_)) => RequestResult::Error { code: 5, message: "provider dropped reply".into() },
-                                Err(_) => RequestResult::Error { code: 5, message: "provider call timed out".into() },
+                                Ok(Ok(Err(e))) => RequestResult::Error {
+                                    code: 5,
+                                    message: e.to_string(),
+                                },
+                                Ok(Err(_)) => RequestResult::Error {
+                                    code: 5,
+                                    message: "provider dropped reply".into(),
+                                },
+                                Err(_) => RequestResult::Error {
+                                    code: 5,
+                                    message: "provider call timed out".into(),
+                                },
                             }
                         } else {
-                            RequestResult::Error { code: 5, message: "provider not responding".into() }
+                            RequestResult::Error {
+                                code: 5,
+                                message: "provider not responding".into(),
+                            }
                         };
 
-                        let _ = client_tx.send(Response {
-                            id: req_id,
-                            body: ResponseBody::CallResult { method, result },
-                        }).await;
+                        let _ = client_tx
+                            .send(Response {
+                                id: req_id,
+                                body: ResponseBody::CallResult { method, result },
+                            })
+                            .await;
                     });
                 } else {
                     self.send_to(
@@ -496,7 +528,11 @@ impl Broker {
         let in_use: HashSet<&str> = self
             .clients
             .values()
-            .flat_map(|c| c.subscriptions.iter().filter_map(|s| s.pattern.provider_name()))
+            .flat_map(|c| {
+                c.subscriptions
+                    .iter()
+                    .filter_map(|s| s.pattern.provider_name())
+            })
             .collect();
 
         for (name, entry) in &mut self.providers {
@@ -521,9 +557,15 @@ mod tests {
     struct TestProvider;
 
     impl Provider for TestProvider {
-        fn name(&self) -> &'static str { "test" }
-        fn topics(&self) -> &'static [&'static str] { &["test.value"] }
-        fn methods(&self) -> &'static [&'static str] { &["test.echo"] }
+        fn name(&self) -> &'static str {
+            "test"
+        }
+        fn topics(&self) -> &'static [&'static str] {
+            &["test.value"]
+        }
+        fn methods(&self) -> &'static [&'static str] {
+            &["test.echo"]
+        }
         fn run(
             &mut self,
             events: mpsc::Sender<ProviderEvent>,
@@ -562,10 +604,18 @@ mod tests {
 
     struct TestFactory;
     impl ProviderFactory for TestFactory {
-        fn name(&self) -> &'static str { "test" }
-        fn topics(&self) -> &'static [&'static str] { &["test.value"] }
-        fn methods(&self) -> &'static [&'static str] { &["test.echo"] }
-        fn create(&self) -> Box<dyn Provider> { Box::new(TestProvider) }
+        fn name(&self) -> &'static str {
+            "test"
+        }
+        fn topics(&self) -> &'static [&'static str] {
+            &["test.value"]
+        }
+        fn methods(&self) -> &'static [&'static str] {
+            &["test.echo"]
+        }
+        fn create(&self) -> Box<dyn Provider> {
+            Box::new(TestProvider)
+        }
     }
 
     fn test_broker() -> (mpsc::Sender<BrokerMsg>, mpsc::Receiver<Response>) {
@@ -574,7 +624,12 @@ mod tests {
         let (client_tx, client_rx) = mpsc::channel(16);
         let tx2 = broker_tx.clone();
         tokio::spawn(async move {
-            tx2.send(BrokerMsg::ClientConnected { id: 1, tx: client_tx }).await.unwrap();
+            tx2.send(BrokerMsg::ClientConnected {
+                id: 1,
+                tx: client_tx,
+            })
+            .await
+            .unwrap();
         });
         (broker_tx, client_rx)
     }
@@ -586,15 +641,30 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 10, body: RequestBody::Subscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 10,
+                body: RequestBody::Subscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         let resp = rx.recv().await.unwrap();
-        assert!(matches!(resp.body, ResponseBody::SubscribeAck { available: true, .. }));
+        assert!(matches!(
+            resp.body,
+            ResponseBody::SubscribeAck {
+                available: true,
+                ..
+            }
+        ));
         assert_eq!(resp.id, 10);
 
         let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-            .await.expect("timed out").unwrap();
+            .await
+            .expect("timed out")
+            .unwrap();
         assert!(matches!(resp.body, ResponseBody::Event { .. }));
         assert_eq!(resp.id, 10);
     }
@@ -606,12 +676,21 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        tx.send(BrokerMsg::ClientDisconnected { id: 1 }).await.unwrap();
+        tx.send(BrokerMsg::ClientDisconnected { id: 1 })
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
@@ -622,11 +701,24 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 5, body: RequestBody::Subscribe { pattern: "nonexistent.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 5,
+                body: RequestBody::Subscribe {
+                    pattern: "nonexistent.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         let resp = rx.recv().await.unwrap();
-        assert!(matches!(resp.body, ResponseBody::SubscribeAck { available: false, .. }));
+        assert!(matches!(
+            resp.body,
+            ResponseBody::SubscribeAck {
+                available: false,
+                ..
+            }
+        ));
         assert_eq!(resp.id, 5);
     }
 
@@ -637,20 +729,36 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         while rx.try_recv().is_ok() {}
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 2, body: RequestBody::Unsubscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 2,
+                body: RequestBody::Unsubscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if matches!(resp.body, ResponseBody::UnsubscribeAck { .. }) {
                 assert_eq!(resp.id, 2);
                 break;
@@ -665,19 +773,35 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 99, body: RequestBody::Get { topic: "test.value".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 99,
+                body: RequestBody::Get {
+                    topic: "test.value".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if matches!(resp.body, ResponseBody::GetResult { .. }) {
                 assert_eq!(resp.id, 99);
                 break;
@@ -692,19 +816,36 @@ mod tests {
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 1, body: RequestBody::Subscribe { pattern: "test.**".into() } },
-        }).await.unwrap();
+            request: Request {
+                id: 1,
+                body: RequestBody::Subscribe {
+                    pattern: "test.**".into(),
+                },
+            },
+        })
+        .await
+        .unwrap();
         let _ = rx.recv().await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tx.send(BrokerMsg::Request {
             client: 1,
-            request: Request { id: 42, body: RequestBody::Call { method: "test.echo".into(), params: json!({"hello": "world"}) } },
-        }).await.unwrap();
+            request: Request {
+                id: 42,
+                body: RequestBody::Call {
+                    method: "test.echo".into(),
+                    params: json!({"hello": "world"}),
+                },
+            },
+        })
+        .await
+        .unwrap();
 
         loop {
             let resp = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-                .await.expect("timed out").unwrap();
+                .await
+                .expect("timed out")
+                .unwrap();
             if let ResponseBody::CallResult { result, .. } = &resp.body {
                 assert_eq!(resp.id, 42);
                 if let RequestResult::Ok { data } = result {

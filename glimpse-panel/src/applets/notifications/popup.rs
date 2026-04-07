@@ -22,10 +22,17 @@ pub struct NotificationPopup {
     overflow_label: gtk::Label,
     client: Arc<Client>,
     popup_timeout: u32,
+    on_mark_seen: Rc<dyn Fn(u32)>,
 }
 
 impl NotificationPopup {
-    pub fn new(client: Arc<Client>, popup_timeout: u32, position: &str) -> Self {
+    pub fn new(
+        client: Arc<Client>,
+        popup_timeout: u32,
+        position: &str,
+        margin_top: i32,
+        on_mark_seen: Rc<dyn Fn(u32)>,
+    ) -> Self {
         let window = gtk::Window::new();
         window.set_decorated(false);
         window.set_resizable(false);
@@ -62,7 +69,7 @@ impl NotificationPopup {
                 window.set_anchor(Edge::Top, true);
             }
         }
-        window.set_margin(Edge::Top, 44);
+        window.set_margin(Edge::Top, margin_top);
         window.set_margin(Edge::Right, 12);
         window.set_margin(Edge::Left, 12);
         window.set_margin(Edge::Bottom, 12);
@@ -84,6 +91,7 @@ impl NotificationPopup {
             overflow_label,
             client,
             popup_timeout,
+            on_mark_seen,
         }
     }
 
@@ -125,11 +133,14 @@ impl NotificationPopup {
             None
         };
 
-        self.cards.borrow_mut().insert(notif.id, PopupCard {
-            card_widget: card,
-            timeout_source,
-            order: notif.timestamp,
-        });
+        self.cards.borrow_mut().insert(
+            notif.id,
+            PopupCard {
+                card_widget: card,
+                timeout_source,
+                order: notif.timestamp,
+            },
+        );
 
         self.update_overflow();
         self.window.set_visible(true);
@@ -178,7 +189,11 @@ impl NotificationPopup {
         let icon_name = if !notif.app_icon.is_empty() {
             &notif.app_icon
         } else if let Some(ref de) = notif.desktop_entry {
-            if !de.is_empty() { de } else { "dialog-information-symbolic" }
+            if !de.is_empty() {
+                de
+            } else {
+                "dialog-information-symbolic"
+            }
         } else {
             "dialog-information-symbolic"
         };
@@ -187,7 +202,11 @@ impl NotificationPopup {
         icon.add_css_class("popup-card-icon");
         header.append(&icon);
 
-        let app = if notif.app_name.is_empty() { "Notification" } else { &notif.app_name };
+        let app = if notif.app_name.is_empty() {
+            "Notification"
+        } else {
+            &notif.app_name
+        };
         let app_label = gtk::Label::new(Some(app));
         app_label.set_hexpand(true);
         app_label.set_halign(gtk::Align::Start);
@@ -205,7 +224,9 @@ impl NotificationPopup {
         dismiss_btn.connect_clicked(move |_| {
             let cc = c.clone();
             glib::spawn_future_local(async move {
-                let _ = cc.call("notifications.dismiss", serde_json::json!({"id": id})).await;
+                let _ = cc
+                    .call("notifications.dismiss", serde_json::json!({"id": id}))
+                    .await;
             });
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {
@@ -241,7 +262,9 @@ impl NotificationPopup {
         }
 
         // Action buttons
-        let visible_actions: Vec<&(String, String)> = notif.actions.iter()
+        let visible_actions: Vec<&(String, String)> = notif
+            .actions
+            .iter()
             .filter(|(key, _)| key != "default")
             .collect();
         if !visible_actions.is_empty() {
@@ -258,8 +281,12 @@ impl NotificationPopup {
                     let cc = c.clone();
                     let kk = k.clone();
                     glib::spawn_future_local(async move {
-                        let _ = cc.call("notifications.invoke_action",
-                            serde_json::json!({"id": nid, "action_key": kk})).await;
+                        let _ = cc
+                            .call(
+                                "notifications.invoke_action",
+                                serde_json::json!({"id": nid, "action_key": kk}),
+                            )
+                            .await;
                     });
                 });
                 actions_box.append(&action_btn);
@@ -276,19 +303,31 @@ impl NotificationPopup {
         gesture.set_button(1);
         let c = self.client.clone();
         let id = notif.id;
+        let on_mark_seen = self.on_mark_seen.clone();
         let has_default = notif.actions.iter().any(|(k, _)| k == "default");
         let cards = self.cards.clone();
         let card_box = self.card_box.clone();
         let window = self.window.clone();
         gesture.connect_pressed(move |g, _, _, _| {
             g.set_state(gtk::EventSequenceState::Claimed);
+            on_mark_seen(id);
             if has_default {
                 let cc = c.clone();
                 glib::spawn_future_local(async move {
-                    let _ = cc.call("notifications.invoke_action",
-                        serde_json::json!({"id": id, "action_key": "default"})).await;
+                    let _ = cc
+                        .call(
+                            "notifications.invoke_action",
+                            serde_json::json!({"id": id, "action_key": "default"}),
+                        )
+                        .await;
                 });
             }
+            let cc = c.clone();
+            glib::spawn_future_local(async move {
+                let _ = cc
+                    .call("notifications.dismiss", serde_json::json!({"id": id}))
+                    .await;
+            });
             // Remove the card
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {
@@ -314,7 +353,9 @@ impl NotificationPopup {
             g.set_state(gtk::EventSequenceState::Claimed);
             let cc = c.clone();
             glib::spawn_future_local(async move {
-                let _ = cc.call("notifications.dismiss", serde_json::json!({"id": id})).await;
+                let _ = cc
+                    .call("notifications.dismiss", serde_json::json!({"id": id}))
+                    .await;
             });
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {

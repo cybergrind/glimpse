@@ -67,7 +67,12 @@ pub struct PopoverInit {
 #[derive(Debug)]
 pub enum PopoverInput {
     Toggle,
-    UpdateStatus { icon: String, description: String, volume: u32, muted: bool },
+    UpdateStatus {
+        icon: String,
+        description: String,
+        volume: u32,
+        muted: bool,
+    },
     UpdateOutputs(Vec<AudioOutput>),
     UpdateInputs(Vec<AudioInput>),
     UpdateStreams(Vec<AudioStream>),
@@ -75,7 +80,9 @@ pub enum PopoverInput {
 
 fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
     let c = client.clone();
-    glib::spawn_future_local(async move { let _ = c.call(method, params).await; });
+    glib::spawn_future_local(async move {
+        let _ = c.call(method, params).await;
+    });
 }
 
 impl SimpleComponent for Popover {
@@ -85,10 +92,14 @@ impl SimpleComponent for Popover {
     type Root = gtk::Popover;
     type Widgets = ();
 
-    fn init_root() -> Self::Root { gtk::Popover::new() }
+    fn init_root() -> Self::Root {
+        gtk::Popover::new()
+    }
 
     fn init(
-        init: Self::Init, root: Self::Root, _sender: ComponentSender<Self>,
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.set_parent(&init.parent);
         root.set_autohide(true);
@@ -146,7 +157,11 @@ impl SimpleComponent for Popover {
         input_mute_btn.add_css_class("mute-btn");
         let c = init.client.clone();
         input_mute_btn.connect_clicked(move |_| {
-            spawn_call(&c, "audio.set_mute", serde_json::json!({"target": "@DEFAULT_SOURCE@"}));
+            spawn_call(
+                &c,
+                "audio.set_mute",
+                serde_json::json!({"target": "@DEFAULT_SOURCE@"}),
+            );
         });
         input_row.append(&input_mute_btn);
         let input_scale = build_scale(max_vol, &init.client, Some("@DEFAULT_SOURCE@"));
@@ -189,12 +204,24 @@ impl SimpleComponent for Popover {
         root.set_child(Some(&vbox));
 
         let model = Popover {
-            popover: root.clone(), config: init.config, client: init.client,
-            hero_icon, hero_subtitle,
-            output_scale, output_mute_btn, input_scale, input_mute_btn,
-            output_device_label, output_device_chevron, output_devices_box,
-            input_device_label, input_device_chevron, input_devices_box,
-            apps_label, apps_chevron, apps_box,
+            popover: root.clone(),
+            config: init.config,
+            client: init.client,
+            hero_icon,
+            hero_subtitle,
+            output_scale,
+            output_mute_btn,
+            input_scale,
+            input_mute_btn,
+            output_device_label,
+            output_device_chevron,
+            output_devices_box,
+            input_device_label,
+            input_device_chevron,
+            input_devices_box,
+            apps_label,
+            apps_chevron,
+            apps_box,
         };
 
         ComponentParts { model, widgets: () }
@@ -203,10 +230,18 @@ impl SimpleComponent for Popover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             PopoverInput::Toggle => {
-                if self.popover.is_visible() { self.popover.popdown(); }
-                else { self.popover.popup(); }
+                if self.popover.is_visible() {
+                    self.popover.popdown();
+                } else {
+                    self.popover.popup();
+                }
             }
-            PopoverInput::UpdateStatus { icon, description, volume, muted } => {
+            PopoverInput::UpdateStatus {
+                icon,
+                description,
+                volume,
+                muted,
+            } => {
                 self.hero_icon.set_icon_name(Some(&icon));
                 let label = if muted {
                     format!("{description} — muted")
@@ -220,23 +255,34 @@ impl SimpleComponent for Popover {
                     if !is_being_dragged(&self.output_scale) {
                         self.output_scale.set_value(d.volume as f64);
                     }
-                    let icon = if d.muted { "audio-volume-muted-symbolic" }
-                        else if d.volume == 0 { "audio-volume-muted-symbolic" }
-                        else if d.volume < 33 { "audio-volume-low-symbolic" }
-                        else if d.volume < 66 { "audio-volume-medium-symbolic" }
-                        else { "audio-volume-high-symbolic" };
+                    let icon = if d.muted {
+                        "audio-volume-muted-symbolic"
+                    } else if d.volume == 0 {
+                        "audio-volume-muted-symbolic"
+                    } else if d.volume < 33 {
+                        "audio-volume-low-symbolic"
+                    } else if d.volume < 66 {
+                        "audio-volume-medium-symbolic"
+                    } else {
+                        "audio-volume-high-symbolic"
+                    };
                     self.output_mute_btn.set_icon_name(icon);
                     self.hero_icon.set_icon_name(Some(icon));
-                    self.hero_subtitle.set_label(&format!("{} — {}%", d.description, d.volume));
-                    self.output_mute_btn.set_tooltip_text(Some(
-                        &format!("{} — {}%", d.description, d.volume)
-                    ));
-                    self.output_device_label.set_tooltip_text(Some(&d.description));
+                    self.hero_subtitle
+                        .set_label(&format!("{} — {}%", d.description, d.volume));
+                    self.output_mute_btn
+                        .set_tooltip_text(Some(&format!("{} — {}%", d.description, d.volume)));
+                    self.output_device_label
+                        .set_tooltip_text(Some(&d.description));
                 }
                 rebuild_device_list(
-                    &self.output_devices_box, &outputs, &self.client,
-                    "audio.set_default_output", true,
-                    &self.output_devices_box, &self.output_device_chevron,
+                    &self.output_devices_box,
+                    &outputs,
+                    &self.client,
+                    "audio.set_default_output",
+                    true,
+                    &self.output_devices_box,
+                    &self.output_device_chevron,
                 );
             }
             PopoverInput::UpdateInputs(inputs) => {
@@ -244,24 +290,35 @@ impl SimpleComponent for Popover {
                     if !is_being_dragged(&self.input_scale) {
                         self.input_scale.set_value(d.volume as f64);
                     }
-                    self.input_mute_btn.set_icon_name(
-                        if d.muted { "microphone-sensitivity-muted-symbolic" }
-                        else { "audio-input-microphone-symbolic" }
-                    );
-                    self.input_mute_btn.set_tooltip_text(Some(
-                        &format!("{} — {}%", d.description, d.volume)
-                    ));
-                    self.input_device_label.set_tooltip_text(Some(&d.description));
+                    self.input_mute_btn.set_icon_name(if d.muted {
+                        "microphone-sensitivity-muted-symbolic"
+                    } else {
+                        "audio-input-microphone-symbolic"
+                    });
+                    self.input_mute_btn
+                        .set_tooltip_text(Some(&format!("{} — {}%", d.description, d.volume)));
+                    self.input_device_label
+                        .set_tooltip_text(Some(&d.description));
                 }
-                let as_outputs: Vec<AudioOutput> = inputs.iter().map(|i| AudioOutput {
-                    name: i.name.clone(), description: i.description.clone(),
-                    volume: i.volume, muted: i.muted, is_default: i.is_default,
-                    icon_name: "audio-input-microphone-symbolic".into(),
-                }).collect();
+                let as_outputs: Vec<AudioOutput> = inputs
+                    .iter()
+                    .map(|i| AudioOutput {
+                        name: i.name.clone(),
+                        description: i.description.clone(),
+                        volume: i.volume,
+                        muted: i.muted,
+                        is_default: i.is_default,
+                        icon_name: "audio-input-microphone-symbolic".into(),
+                    })
+                    .collect();
                 rebuild_device_list(
-                    &self.input_devices_box, &as_outputs, &self.client,
-                    "audio.set_default_input", false,
-                    &self.input_devices_box, &self.input_device_chevron,
+                    &self.input_devices_box,
+                    &as_outputs,
+                    &self.client,
+                    "audio.set_default_input",
+                    false,
+                    &self.input_devices_box,
+                    &self.input_device_chevron,
                 );
             }
             PopoverInput::UpdateStreams(streams) => {
@@ -285,7 +342,9 @@ fn is_being_dragged(scale: &gtk::Scale) -> bool {
 }
 
 fn clear_box(container: &gtk::Box) {
-    while let Some(child) = container.first_child() { container.remove(&child); }
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
 }
 
 fn build_scale(max_vol: f64, client: &Arc<Client>, target: Option<&str>) -> gtk::Scale {
@@ -295,7 +354,9 @@ fn build_scale(max_vol: f64, client: &Arc<Client>, target: Option<&str>) -> gtk:
 
     let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, max_vol, 1.0);
     scale.set_hexpand(true);
-    if max_vol > 100.0 { scale.add_mark(100.0, gtk::PositionType::Bottom, None); }
+    if max_vol > 100.0 {
+        scale.add_mark(100.0, gtk::PositionType::Bottom, None);
+    }
 
     let c = client.clone();
     let t = target.map(|s| s.to_owned());
@@ -309,7 +370,9 @@ fn build_scale(max_vol: f64, client: &Arc<Client>, target: Option<&str>) -> gtk:
         if elapsed.as_millis() >= 100 {
             last_sent.set(now);
             let mut params = serde_json::json!({"volume": val as u32});
-            if let Some(ref t) = t { params["target"] = serde_json::json!(t); }
+            if let Some(ref t) = t {
+                params["target"] = serde_json::json!(t);
+            }
             spawn_call(&c, "audio.set_volume", params);
             pending.set(false);
         } else if !pending.get() {
@@ -320,19 +383,18 @@ fn build_scale(max_vol: f64, client: &Arc<Client>, target: Option<&str>) -> gtk:
             let last_sent = last_sent.clone();
             let pending = pending.clone();
             let scale = scale.clone();
-            glib::timeout_add_local_once(
-                std::time::Duration::from_millis(100),
-                move || {
-                    if pending.get() {
-                        pending.set(false);
-                        last_sent.set(Instant::now());
-                        let val = scale.value() as u32;
-                        let mut params = serde_json::json!({"volume": val});
-                        if let Some(ref t) = t { params["target"] = serde_json::json!(t); }
-                        spawn_call(&c, "audio.set_volume", params);
+            glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
+                if pending.get() {
+                    pending.set(false);
+                    last_sent.set(Instant::now());
+                    let val = scale.value() as u32;
+                    let mut params = serde_json::json!({"volume": val});
+                    if let Some(ref t) = t {
+                        params["target"] = serde_json::json!(t);
                     }
-                },
-            );
+                    spawn_call(&c, "audio.set_volume", params);
+                }
+            });
         }
 
         glib::Propagation::Proceed
@@ -340,9 +402,7 @@ fn build_scale(max_vol: f64, client: &Arc<Client>, target: Option<&str>) -> gtk:
     scale
 }
 
-fn build_device_row(
-    parent: &gtk::Box, prefix: &str,
-) -> (gtk::Label, gtk::Label, gtk::Box) {
+fn build_device_row(parent: &gtk::Box, prefix: &str) -> (gtk::Label, gtk::Label, gtk::Box) {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     header.add_css_class("device-header");
 
@@ -413,9 +473,13 @@ fn build_apps_row(parent: &gtk::Box) -> (gtk::Label, gtk::Label, gtk::Box) {
 }
 
 fn rebuild_device_list(
-    container: &gtk::Box, devices: &[AudioOutput], client: &Arc<Client>,
-    method: &'static str, show_icons: bool,
-    devices_box: &gtk::Box, chevron: &gtk::Label,
+    container: &gtk::Box,
+    devices: &[AudioOutput],
+    client: &Arc<Client>,
+    method: &'static str,
+    show_icons: bool,
+    devices_box: &gtk::Box,
+    chevron: &gtk::Label,
 ) {
     clear_box(container);
     for dev in devices {
@@ -423,9 +487,11 @@ fn rebuild_device_list(
         row.add_css_class("device-item");
 
         if show_icons {
-            let icon = gtk::Image::from_icon_name(
-                if dev.icon_name.is_empty() { "audio-speakers-symbolic" } else { &dev.icon_name }
-            );
+            let icon = gtk::Image::from_icon_name(if dev.icon_name.is_empty() {
+                "audio-speakers-symbolic"
+            } else {
+                &dev.icon_name
+            });
             icon.set_pixel_size(16);
             icon.add_css_class("device-icon");
             row.append(&icon);
@@ -465,8 +531,11 @@ fn rebuild_device_list(
 }
 
 fn build_stream_row(
-    parent: &gtk::Box, stream: &AudioStream, max_vol: f64,
-    client: &Arc<Client>, show_divider: bool,
+    parent: &gtk::Box,
+    stream: &AudioStream,
+    max_vol: f64,
+    client: &Arc<Client>,
+    show_divider: bool,
 ) {
     if show_divider {
         let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
@@ -489,14 +558,22 @@ fn build_stream_row(
     // [mute icon] [slider]
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
-    let mute_icon = if stream.muted { "audio-volume-muted-symbolic" } else { "audio-volume-high-symbolic" };
+    let mute_icon = if stream.muted {
+        "audio-volume-muted-symbolic"
+    } else {
+        "audio-volume-high-symbolic"
+    };
     let mute = gtk::Button::from_icon_name(mute_icon);
     mute.add_css_class("flat");
     mute.add_css_class("mute-btn");
     let c = client.clone();
     let idx = stream.index;
     mute.connect_clicked(move |_| {
-        spawn_call(&c, "audio.set_mute", serde_json::json!({"target": idx.to_string()}));
+        spawn_call(
+            &c,
+            "audio.set_mute",
+            serde_json::json!({"target": idx.to_string()}),
+        );
     });
     row.append(&mute);
 
@@ -506,7 +583,11 @@ fn build_stream_row(
     let c = client.clone();
     let idx = stream.index;
     scale.connect_change_value(move |_, _, val| {
-        spawn_call(&c, "audio.set_volume", serde_json::json!({"target": idx.to_string(), "volume": val as u32}));
+        spawn_call(
+            &c,
+            "audio.set_volume",
+            serde_json::json!({"target": idx.to_string(), "volume": val as u32}),
+        );
         glib::Propagation::Proceed
     });
     row.append(&scale);

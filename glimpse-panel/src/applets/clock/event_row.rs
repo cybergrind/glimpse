@@ -102,7 +102,11 @@ pub fn format_timing_line(
     }
 
     if selected_date != now.date_naive() {
-        return format!("{} · {}", start.format("%H:%M"), format_duration(start, end));
+        return format!(
+            "{} · {}",
+            start.format("%H:%M"),
+            format_duration(start, end)
+        );
     }
 
     if now >= start && now < end {

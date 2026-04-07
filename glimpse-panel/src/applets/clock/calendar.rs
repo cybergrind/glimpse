@@ -223,7 +223,9 @@ impl Calendar {
             let result = client
                 .call("calendar.month", serde_json::json!({ "month": month }))
                 .await
-                .and_then(|value| serde_json::from_value::<CalendarMonth>(value).map_err(Into::into));
+                .and_then(|value| {
+                    serde_json::from_value::<CalendarMonth>(value).map_err(Into::into)
+                });
 
             match result {
                 Ok(month) => {
@@ -323,7 +325,8 @@ fn shift_month(date: NaiveDate, delta: i32) -> NaiveDate {
 
 fn clamp_day(month: NaiveDate, preferred_day: u32) -> NaiveDate {
     let max_day = days_in_month(month);
-    NaiveDate::from_ymd_opt(month.year(), month.month(), preferred_day.min(max_day)).unwrap_or(month)
+    NaiveDate::from_ymd_opt(month.year(), month.month(), preferred_day.min(max_day))
+        .unwrap_or(month)
 }
 
 fn days_in_month(month: NaiveDate) -> u32 {

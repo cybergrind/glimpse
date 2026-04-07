@@ -33,11 +33,7 @@ impl BluetoothAgent {
         Ok(())
     }
 
-    async fn authorize_service(
-        &self,
-        device: ObjectPath<'_>,
-        uuid: &str,
-    ) -> zbus::fdo::Result<()> {
+    async fn authorize_service(&self, device: ObjectPath<'_>, uuid: &str) -> zbus::fdo::Result<()> {
         tracing::info!(
             device = device.as_str(),
             uuid,
@@ -46,12 +42,12 @@ impl BluetoothAgent {
         Ok(())
     }
 
-    async fn request_passkey(
-        &self,
-        device: ObjectPath<'_>,
-    ) -> Result<u32, BluezError> {
+    async fn request_passkey(&self, device: ObjectPath<'_>) -> Result<u32, BluezError> {
         let dev = device.as_str().to_owned();
-        tracing::info!(device = dev, "bluetooth-agent: requesting passkey via dialog");
+        tracing::info!(
+            device = dev,
+            "bluetooth-agent: requesting passkey via dialog"
+        );
         let result = tokio::task::spawn_blocking(move || {
             std::process::Command::new("zenity")
                 .args([
@@ -60,9 +56,11 @@ impl BluetoothAgent {
                     &format!("--text=Enter passkey for {}", dev),
                 ])
                 .output()
-        }).await;
+        })
+        .await;
 
-        let passkey = result.ok()
+        let passkey = result
+            .ok()
             .and_then(|r| r.ok())
             .filter(|o| o.status.success())
             .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -80,12 +78,7 @@ impl BluetoothAgent {
         }
     }
 
-    async fn display_passkey(
-        &self,
-        device: ObjectPath<'_>,
-        passkey: u32,
-        _entered: u16,
-    ) {
+    async fn display_passkey(&self, device: ObjectPath<'_>, passkey: u32, _entered: u16) {
         tracing::info!(
             device = device.as_str(),
             passkey,
@@ -106,10 +99,7 @@ impl BluetoothAgent {
         Ok(())
     }
 
-    async fn request_pin_code(
-        &self,
-        device: ObjectPath<'_>,
-    ) -> Result<String, BluezError> {
+    async fn request_pin_code(&self, device: ObjectPath<'_>) -> Result<String, BluezError> {
         let dev = device.as_str().to_owned();
         tracing::info!(device = dev, "bluetooth-agent: requesting PIN via dialog");
         let result = tokio::task::spawn_blocking(move || {
@@ -120,9 +110,11 @@ impl BluetoothAgent {
                     &format!("--text=Enter PIN for {}", dev),
                 ])
                 .output()
-        }).await;
+        })
+        .await;
 
-        let pin = result.ok()
+        let pin = result
+            .ok()
             .and_then(|r| r.ok())
             .filter(|o| o.status.success())
             .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -149,17 +141,10 @@ impl BluetoothAgent {
 pub async fn run(cancel: tokio_util::sync::CancellationToken) -> anyhow::Result<()> {
     let conn = zbus::Connection::system().await?;
 
-    conn.object_server()
-        .at(AGENT_PATH, BluetoothAgent)
-        .await?;
+    conn.object_server().at(AGENT_PATH, BluetoothAgent).await?;
 
-    let agent_mgr = zbus::Proxy::new(
-        &conn,
-        "org.bluez",
-        "/org/bluez",
-        "org.bluez.AgentManager1",
-    )
-    .await?;
+    let agent_mgr =
+        zbus::Proxy::new(&conn, "org.bluez", "/org/bluez", "org.bluez.AgentManager1").await?;
 
     let path = ObjectPath::try_from(AGENT_PATH)?;
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use tokio::sync::mpsc;
 
@@ -90,10 +90,16 @@ impl NotificationServer {
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        ["actions", "body", "body-markup", "icon-static", "persistence"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        [
+            "actions",
+            "body",
+            "body-markup",
+            "icon-static",
+            "persistence",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
@@ -189,7 +195,8 @@ pub async fn run(
 
     // State managed here (always alive)
     let mut notifications: HashMap<u32, serde_json::Value> = HashMap::new();
-    let mut history: std::collections::VecDeque<serde_json::Value> = std::collections::VecDeque::new();
+    let mut history: std::collections::VecDeque<serde_json::Value> =
+        std::collections::VecDeque::new();
     let mut dnd = false;
 
     let history_limit = 100;
@@ -198,10 +205,7 @@ pub async fn run(
                 history: &std::collections::VecDeque<serde_json::Value>,
                 dnd: bool,
                 broker_tx: &mpsc::Sender<BrokerMsg>| {
-        let badge_count = notifications.values()
-            .filter(|n| n["urgency"].as_u64().unwrap_or(1) > 0)
-            .count();
-        let status = serde_json::json!({ "dnd": dnd, "count": notifications.len(), "badge_count": badge_count });
+        let status = serde_json::json!({ "dnd": dnd });
         let list: Vec<&serde_json::Value> = notifications.values().collect();
         let hist: Vec<&serde_json::Value> = history.iter().collect();
 
@@ -210,18 +214,24 @@ pub async fn run(
         let hist_json = serde_json::to_value(&hist).unwrap_or_default();
 
         tokio::spawn(async move {
-            let _ = tx.send(BrokerMsg::ProviderEvent(ProviderEvent {
-                topic: "notifications.status".into(),
-                data: status,
-            })).await;
-            let _ = tx.send(BrokerMsg::ProviderEvent(ProviderEvent {
-                topic: "notifications.list".into(),
-                data: list_json,
-            })).await;
-            let _ = tx.send(BrokerMsg::ProviderEvent(ProviderEvent {
-                topic: "notifications.history".into(),
-                data: hist_json,
-            })).await;
+            let _ = tx
+                .send(BrokerMsg::ProviderEvent(ProviderEvent {
+                    topic: "notifications.status".into(),
+                    data: status,
+                }))
+                .await;
+            let _ = tx
+                .send(BrokerMsg::ProviderEvent(ProviderEvent {
+                    topic: "notifications.list".into(),
+                    data: list_json,
+                }))
+                .await;
+            let _ = tx
+                .send(BrokerMsg::ProviderEvent(ProviderEvent {
+                    topic: "notifications.history".into(),
+                    data: hist_json,
+                }))
+                .await;
         });
     };
 
@@ -342,7 +352,11 @@ fn parse_actions(actions: &[String]) -> Vec<(String, String)> {
 
 /// Resolve expire_timeout: -1 = server default (5000ms), 0 = never, >0 = as-is
 fn resolve_timeout(expire_timeout: i32) -> i32 {
-    if expire_timeout < 0 { 5000 } else { expire_timeout }
+    if expire_timeout < 0 {
+        5000
+    } else {
+        expire_timeout
+    }
 }
 
 #[cfg(test)]
@@ -352,8 +366,10 @@ mod tests {
     #[test]
     fn parse_actions_pairs() {
         let actions = vec![
-            "default".into(), "Open".into(),
-            "dismiss".into(), "Dismiss".into(),
+            "default".into(),
+            "Open".into(),
+            "dismiss".into(),
+            "Dismiss".into(),
         ];
         let pairs = parse_actions(&actions);
         assert_eq!(pairs.len(), 2);
@@ -392,8 +408,16 @@ mod tests {
 
     #[test]
     fn capabilities_list() {
-        let caps: Vec<String> = ["actions", "body", "body-markup", "icon-static", "persistence"]
-            .iter().map(|s| s.to_string()).collect();
+        let caps: Vec<String> = [
+            "actions",
+            "body",
+            "body-markup",
+            "icon-static",
+            "persistence",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         assert!(caps.contains(&"actions".to_string()));
         assert!(caps.contains(&"body-markup".to_string()));
         assert!(caps.contains(&"persistence".to_string()));
@@ -456,8 +480,9 @@ mod tests {
 
     #[test]
     fn status_json_shape() {
-        let status = serde_json::json!({ "dnd": false, "count": 3 });
+        let status = serde_json::json!({ "dnd": false });
         assert_eq!(status["dnd"], false);
-        assert_eq!(status["count"], 3);
+        assert!(status.get("count").is_none());
+        assert!(status.get("badge_count").is_none());
     }
 }

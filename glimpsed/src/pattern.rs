@@ -63,9 +63,7 @@ fn matches_recursive(pattern: &[Segment], topic: &[&str]) -> bool {
         ([Segment::Literal(lit), rest @ ..], [first, remaining @ ..]) => {
             lit == first && matches_recursive(rest, remaining)
         }
-        ([Segment::Single, rest @ ..], [_, remaining @ ..]) => {
-            matches_recursive(rest, remaining)
-        }
+        ([Segment::Single, rest @ ..], [_, remaining @ ..]) => matches_recursive(rest, remaining),
     }
 }
 
@@ -155,8 +153,14 @@ mod tests {
 
     #[test]
     fn provider_name() {
-        assert_eq!(Pattern::parse("battery.status").provider_name(), Some("battery"));
-        assert_eq!(Pattern::parse("bluetooth.**").provider_name(), Some("bluetooth"));
+        assert_eq!(
+            Pattern::parse("battery.status").provider_name(),
+            Some("battery")
+        );
+        assert_eq!(
+            Pattern::parse("bluetooth.**").provider_name(),
+            Some("bluetooth")
+        );
         assert_eq!(Pattern::parse("*.status").provider_name(), None);
         assert_eq!(Pattern::parse("**").provider_name(), None);
     }
