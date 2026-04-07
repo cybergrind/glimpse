@@ -120,44 +120,51 @@ fn media_button(
     button
 }
 
-fn set_fallback_art(widget: &gtk::Image) {
-    widget.set_icon_name(Some("audio-x-generic-symbolic"));
+fn set_fallback_art(picture: &gtk::Picture, fallback: &gtk::Image) {
+    picture.set_paintable(Option::<&gdk::Texture>::None);
+    fallback.set_visible(true);
 }
 
-fn load_player_art(widget: &gtk::Image, art_url: &str) {
+fn set_picture_art(picture: &gtk::Picture, fallback: &gtk::Image, texture: &gdk::Texture) {
+    picture.set_paintable(Some(texture));
+    fallback.set_visible(false);
+}
+
+fn load_player_art(picture: &gtk::Picture, fallback: &gtk::Image, art_url: &str) {
     match parse_art_source(art_url) {
         ArtSource::FilePath(path) => {
             let file = gio::File::for_path(path);
             match gdk::Texture::from_file(&file) {
-                Ok(texture) => widget.set_paintable(Some(&texture)),
-                Err(_) => set_fallback_art(widget),
+                Ok(texture) => set_picture_art(picture, fallback, &texture),
+                Err(_) => set_fallback_art(picture, fallback),
             }
         }
         ArtSource::FileUri(uri) => {
             let file = gio::File::for_uri(&uri);
             match gdk::Texture::from_file(&file) {
-                Ok(texture) => widget.set_paintable(Some(&texture)),
-                Err(_) => set_fallback_art(widget),
+                Ok(texture) => set_picture_art(picture, fallback, &texture),
+                Err(_) => set_fallback_art(picture, fallback),
             }
         }
         ArtSource::Remote(url) => {
-            let widget = widget.clone();
+            let picture = picture.clone();
+            let fallback = fallback.clone();
             glib::spawn_future_local(async move {
                 let Ok(response) = reqwest::get(&url).await else {
-                    set_fallback_art(&widget);
+                    set_fallback_art(&picture, &fallback);
                     return;
                 };
                 let Ok(bytes) = response.bytes().await else {
-                    set_fallback_art(&widget);
+                    set_fallback_art(&picture, &fallback);
                     return;
                 };
                 match gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes.to_vec())) {
-                    Ok(texture) => widget.set_paintable(Some(&texture)),
-                    Err(_) => set_fallback_art(&widget),
+                    Ok(texture) => set_picture_art(&picture, &fallback, &texture),
+                    Err(_) => set_fallback_art(&picture, &fallback),
                 }
             });
         }
-        ArtSource::Fallback => set_fallback_art(widget),
+        ArtSource::Fallback => set_fallback_art(picture, fallback),
     }
 }
 
@@ -168,21 +175,33 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
     let shell = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     shell.set_valign(gtk::Align::Fill);
 
-    let art = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+    let art_slot = gtk::Overlay::new();
+    art_slot.add_css_class("mpris-card-art");
+
+    let art = gtk::Picture::new();
     art.set_halign(gtk::Align::Fill);
     art.set_valign(gtk::Align::Fill);
-    art.add_css_class("mpris-card-art");
-    load_player_art(&art, &player.art_url);
-    shell.append(&art);
+    art.set_can_shrink(true);
+    art.set_keep_aspect_ratio(false);
+    art_slot.set_child(Some(&art));
 
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    let art_fallback = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+    art_fallback.set_halign(gtk::Align::Center);
+    art_fallback.set_valign(gtk::Align::Center);
+    art_fallback.add_css_class("mpris-card-art-fallback");
+    art_slot.add_overlay(&art_fallback);
+
+    load_player_art(&art, &art_fallback, &player.art_url);
+    shell.append(&art_slot);
+
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     content.set_hexpand(true);
-    content.set_valign(gtk::Align::Fill);
+    content.set_valign(gtk::Align::Center);
     content.add_css_class("mpris-card-content");
 
     let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_hexpand(true);
-    text.set_valign(gtk::Align::Start);
+    text.set_valign(gtk::Align::Center);
     text.add_css_class("mpris-card-copy");
 
     let title = gtk::Label::new(Some(&player_title(player)));
@@ -205,11 +224,9 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
     subtitle.add_css_class("mpris-card-subtitle");
     text.append(&subtitle);
 
-    content.append(&text);
-
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    controls.set_halign(gtk::Align::Start);
-    controls.set_valign(gtk::Align::End);
+    controls.set_halign(gtk::Align::End);
+    controls.set_valign(gtk::Align::Center);
     controls.add_css_class("mpris-card-controls");
 
     let player_id = player.player_id.clone();
@@ -238,6 +255,7 @@ fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
     });
     controls.append(&next);
 
+    content.append(&text);
     content.append(&controls);
     shell.append(&content);
     card.append(&shell);
