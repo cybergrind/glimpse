@@ -9,12 +9,70 @@ use zbus::zvariant::OwnedObjectPath;
 use crate::dbus::DbusPropertyGroup;
 
 #[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceType {
+    LinePower,
+    Battery,
+    Ups,
+    Monitor,
+    Mouse,
+    Keyboard,
+    Pda,
+    Phone,
+    #[default]
+    Unknown,
+}
+
+impl From<u32> for DeviceType {
+    fn from(t: u32) -> Self {
+        match t {
+            1 => Self::LinePower,
+            2 => Self::Battery,
+            3 => Self::Ups,
+            4 => Self::Monitor,
+            5 => Self::Mouse,
+            6 => Self::Keyboard,
+            7 => Self::Pda,
+            8 => Self::Phone,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum BatteryState {
+    Charging,
+    Discharging,
+    Empty,
+    FullyCharged,
+    PendingCharge,
+    PendingDischarge,
+    #[default]
+    Unknown,
+}
+
+impl From<u32> for BatteryState {
+    fn from(s: u32) -> Self {
+        match s {
+            1 => Self::Charging,
+            2 => Self::Discharging,
+            3 => Self::Empty,
+            4 => Self::FullyCharged,
+            5 => Self::PendingCharge,
+            6 => Self::PendingDischarge,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct BatteryStatus {
     pub present: bool,
-    pub device_type: &'static str,
+    pub device_type: DeviceType,
     pub model: String,
     pub percentage: u8,
-    pub state: &'static str,
+    pub state: BatteryState,
     pub icon_name: String,
     pub on_battery: bool,
     pub time_to_empty: i64,
@@ -27,10 +85,10 @@ pub struct BatteryStatus {
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct BatteryDevice {
     pub path: String,
-    pub device_type: &'static str,
+    pub device_type: DeviceType,
     pub model: String,
     pub percentage: f64,
-    pub state: &'static str,
+    pub state: BatteryState,
     pub icon_name: String,
 }
 
@@ -59,8 +117,6 @@ impl BatteryProvider {
         events: mpsc::Sender<BatteryEvent>,
         cancel: CancellationToken,
     ) -> anyhow::Result<()> {
-        tracing::info!("battery: starting");
-
         let upower = DbusPropertyGroup::new(
             &conn,
             "org.freedesktop.UPower",
@@ -71,7 +127,11 @@ impl BatteryProvider {
 
         let on_battery: bool = upower.get("OnBattery").await.unwrap_or(false);
         let device_paths: Vec<OwnedObjectPath> = upower.call("EnumerateDevices", &()).await?;
-        tracing::info!(devices = device_paths.len(), on_battery, "battery: enumerating UPower devices");
+        tracing::info!(
+            devices = device_paths.len(),
+            on_battery,
+            "battery: enumerating UPower devices"
+        );
 
         let mut battery_path: Option<String> = None;
         self.devices.clear();

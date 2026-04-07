@@ -1,9 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
-    gtk::{self, prelude::*},
+    gtk::{self, glib, prelude::*},
 };
 use serde::Deserialize;
 
@@ -30,8 +31,10 @@ pub struct Mpris {
     config: MprisConfig,
     current: Option<CurrentPlayer>,
     label: String,
+    displayed_label: String,
     hidden: bool,
     popover: Controller<MprisPopover>,
+    marquee_offset: usize,
 }
 
 pub struct MprisInit {
@@ -44,9 +47,13 @@ pub enum MprisMsg {
     CurrentUpdate(CurrentPlayer),
     PlayersUpdate(Vec<PlayerRow>),
     ClearCurrent,
+    TickMarquee,
     TogglePopover,
     Unavailable,
 }
+
+const MARQUEE_WINDOW_CHARS: usize = 32;
+const MARQUEE_GAP: &str = "   ";
 
 fn panel_label(player: &CurrentPlayer, format: &str) -> String {
     let label = format
@@ -65,6 +72,24 @@ fn panel_label(player: &CurrentPlayer, format: &str) -> String {
     }
 }
 
+fn marquee_frame(text: &str, offset: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= MARQUEE_WINDOW_CHARS {
+        return text.to_string();
+    }
+
+    let looped: Vec<char> = chars
+        .iter()
+        .copied()
+        .chain(MARQUEE_GAP.chars())
+        .collect();
+    let len = looped.len();
+
+    (0..MARQUEE_WINDOW_CHARS)
+        .map(|index| looped[(offset + index) % len])
+        .collect()
+}
+
 #[relm4::component(pub)]
 impl Component for Mpris {
     type Init = MprisInit;
@@ -76,6 +101,8 @@ impl Component for Mpris {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
+            set_hexpand: false,
+            set_halign: gtk::Align::Start,
             add_css_class: "applet",
             add_css_class: "mpris",
 
@@ -91,9 +118,17 @@ impl Component for Mpris {
 
             gtk::Label {
                 #[watch]
-                set_label: &model.label,
+                set_label: &model.displayed_label,
+                set_hexpand: false,
+                set_halign: gtk::Align::Start,
+                set_valign: gtk::Align::Center,
+                set_xalign: 0.0,
+                set_wrap: false,
+                set_single_line_mode: true,
+                set_ellipsize: gtk::pango::EllipsizeMode::None,
+                add_css_class: "mpris-label",
                 #[watch]
-                set_visible: !model.label.is_empty(),
+                set_visible: !model.displayed_label.is_empty(),
             },
         }
     }
@@ -115,9 +150,17 @@ impl Component for Mpris {
             config: init.config,
             current: None,
             label: String::new(),
+            displayed_label: String::new(),
             hidden: true,
             popover,
+            marquee_offset: 0,
         };
+
+        let tick_sender = sender.clone();
+        glib::timeout_add_local(Duration::from_millis(250), move || {
+            tick_sender.input(MprisMsg::TickMarquee);
+            glib::ControlFlow::Continue
+        });
 
         let client = init.client;
         sender.command(move |out, shutdown| {
@@ -187,15 +230,28 @@ impl Component for Mpris {
         match message {
             MprisMsg::CurrentUpdate(player) => {
                 self.label = panel_label(&player, &self.config.label_format);
+                self.marquee_offset = 0;
+                self.displayed_label = marquee_frame(&self.label, self.marquee_offset);
                 self.hidden = false;
                 self.current = Some(player);
             }
             MprisMsg::PlayersUpdate(players) => {
                 self.popover.emit(MprisPopoverInput::UpdatePlayers(players));
             }
+            MprisMsg::TickMarquee => {
+                if self.label.chars().count() > MARQUEE_WINDOW_CHARS {
+                    let loop_len = self.label.chars().count() + MARQUEE_GAP.chars().count();
+                    self.marquee_offset = (self.marquee_offset + 1) % loop_len;
+                    self.displayed_label = marquee_frame(&self.label, self.marquee_offset);
+                } else if self.displayed_label != self.label {
+                    self.displayed_label = self.label.clone();
+                }
+            }
             MprisMsg::ClearCurrent | MprisMsg::Unavailable => {
                 self.current = None;
                 self.label.clear();
+                self.displayed_label.clear();
+                self.marquee_offset = 0;
                 self.hidden = self.config.hide_when_empty;
                 self.popover.emit(MprisPopoverInput::UpdatePlayers(Vec::new()));
             }
@@ -241,5 +297,10 @@ mod tests {
         };
 
         assert_eq!(panel_label(&player, "{artist} - {track}"), "Firefox");
+    }
+
+    #[test]
+    fn marquee_frame_keeps_short_labels_unchanged() {
+        assert_eq!(marquee_frame("short", 3), "short");
     }
 }
