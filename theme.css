@@ -746,11 +746,11 @@
 }
 
 .mpris-popover .mpris-card {
-    padding: 12px;
     margin: 2px 0;
     border-radius: 12px;
     background: color-mix(in srgb, currentColor 6%, transparent);
     transition: background 150ms ease, opacity 200ms ease;
+    overflow: hidden;
 }
 
 .mpris-popover .mpris-card:hover {
@@ -758,8 +758,17 @@
 }
 
 .mpris-popover .mpris-card-art {
-    min-width: 56px;
-    min-height: 56px;
+    min-width: 168px;
+    min-height: 168px;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.mpris-popover .mpris-card-content {
+    padding: 14px;
+}
+
+.mpris-popover .mpris-card-copy {
+    min-width: 0;
 }
 
 .mpris-popover .mpris-card-title {
