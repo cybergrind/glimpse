@@ -730,6 +730,39 @@
     font-weight: normal;
 }
 
+.mpris {}
+
+.mpris-popover {
+    min-width: 360px;
+    max-width: 360px;
+}
+
+.mpris-popover contents>box {
+    margin: var(--popover-padding);
+}
+
+.mpris-row {
+    padding: 6px 0;
+}
+
+.mpris-art {
+    min-width: 32px;
+    min-height: 32px;
+}
+
+.mpris-track {
+    font-weight: 600;
+}
+
+.mpris-artist {
+    opacity: var(--dim-opacity);
+}
+
+.mpris-controls button {
+    min-width: 28px;
+    min-height: 28px;
+}
+
 /* session */
 
 .session {}
