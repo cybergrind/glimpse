@@ -537,6 +537,26 @@
     font-variant-numeric: tabular-nums;
 }
 
+.privacy {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.privacy-indicator,
+.privacy-recording-icon,
+.privacy-recording-label {
+    color: @warning_color;
+}
+
+.privacy-recording-pill {
+    padding: 0;
+}
+
+.privacy-recording-label {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
 .audio-popover {
     min-width: 420px;
     max-width: 420px;
@@ -1175,4 +1195,13 @@
 
 .workspace-num.urgent label {
     color: var(--on-accent);
+}
+
+/* keyboard */
+
+.keyboard {}
+
+.keyboard-label {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }

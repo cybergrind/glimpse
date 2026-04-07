@@ -3,9 +3,11 @@ mod battery;
 mod bluetooth;
 mod clock;
 mod exec;
+mod keyboard;
 mod network;
 mod notifications;
 mod power;
+mod privacy;
 mod session;
 mod spacer;
 mod tray;
@@ -35,9 +37,11 @@ pub enum AppletController {
     Bluetooth(Controller<bluetooth::Bluetooth>),
     Clock(Controller<Clock>),
     Exec(Controller<exec::Exec>),
+    Keyboard(Controller<keyboard::Keyboard>),
     Network(Controller<network::Network>),
     Notifications(Controller<notifications::Notifications>),
     Power(Controller<power::Power>),
+    Privacy(Controller<privacy::Privacy>),
     Tray(Controller<tray::Tray>),
     Weather(Controller<weather::Weather>),
     Session(Controller<session::Session>),
@@ -53,9 +57,11 @@ impl AppletController {
             AppletController::Bluetooth(c) => c.widget().clone().upcast(),
             AppletController::Clock(c) => c.widget().clone().upcast(),
             AppletController::Exec(c) => c.widget().clone().upcast(),
+            AppletController::Keyboard(c) => c.widget().clone().upcast(),
             AppletController::Network(c) => c.widget().clone().upcast(),
             AppletController::Notifications(c) => c.widget().clone().upcast(),
             AppletController::Power(c) => c.widget().clone().upcast(),
+            AppletController::Privacy(c) => c.widget().clone().upcast(),
             AppletController::Tray(c) => c.widget().clone().upcast(),
             AppletController::Weather(c) => c.widget().clone().upcast(),
             AppletController::Session(c) => c.widget().clone().upcast(),
@@ -167,6 +173,16 @@ pub fn create_applet(
                 .detach();
             Some(AppletController::Power(applet))
         }
+        "privacy" => {
+            let client = client.clone()?;
+            let config: privacy::PrivacyConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = privacy::Privacy::builder()
+                .launch(privacy::PrivacyInit { config, client })
+                .detach();
+            Some(AppletController::Privacy(applet))
+        }
         "tray" => {
             let client = client.clone()?;
             let config: tray::TrayConfig = applet_config
@@ -202,6 +218,15 @@ pub fn create_applet(
                 .launch(workspaces::WorkspacesInit { config })
                 .detach();
             Some(AppletController::Workspaces(applet))
+        }
+        "keyboard" => {
+            let config: keyboard::KeyboardConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = keyboard::Keyboard::builder()
+                .launch(keyboard::KeyboardInit { config })
+                .detach();
+            Some(AppletController::Keyboard(applet))
         }
         "spacer" => Some(AppletController::Spacer(
             Spacer::builder().launch(()).detach(),
