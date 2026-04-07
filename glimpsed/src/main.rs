@@ -49,6 +49,7 @@ fn register_providers(
             server_tx: notify_tx,
         }),
         Box::new(providers::power::PowerProviderFactory),
+        Box::new(providers::privacy::PrivacyProviderFactory),
         Box::new(providers::tray::TrayProviderFactory),
     ]
 }
