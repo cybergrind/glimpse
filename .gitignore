@@ -12,3 +12,8 @@ docs/superpowers/
 .playwright-mcp
 mockups/
 .worktrees/
+__pycache__
+node_modules
+*.pyc
+dist/
+frameworks/custom-applet/sdk-go/stateful_counter
