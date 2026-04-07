@@ -1,0 +1,184 @@
+import { createInterface } from "node:readline";
+
+import {
+  type CallbackEvent,
+  type ChangeEvent,
+  type ClickEvent,
+  type InitEvent,
+  type InputEvent,
+  type ScrollEvent,
+  type ToggleEvent,
+  parseCallbackEvent,
+  parseInitEvent,
+} from "./events.js";
+import { Hero, StatusItem } from "./protocol.js";
+import { type TreeNode } from "./widgets.js";
+
+type Handler<EventT> = (event: EventT) => void | Promise<void>;
+
+interface OutgoingMessage {
+  type: string;
+  data: unknown;
+}
+
+export class RenderResult {
+  constructor(
+    public readonly options: {
+      status?: StatusItem[];
+      hero?: Hero | null;
+      tree?: TreeNode | null;
+    } = {},
+  ) {}
+
+  get status(): StatusItem[] {
+    return this.options.status ?? [];
+  }
+
+  get hero(): Hero | null {
+    return this.options.hero ?? null;
+  }
+
+  get tree(): TreeNode | null {
+    return this.options.tree ?? null;
+  }
+}
+
+export abstract class Applet<State extends object> {
+  state: State;
+
+  private readonly handlerMap = new Map<string, Handler<CallbackEvent>>();
+  private readonly outgoing: OutgoingMessage[] = [];
+  private flushPromise: Promise<void> | null = null;
+  private lastStatus: unknown[] | null = null;
+  private lastHero: Record<string, unknown> | null = null;
+  private lastTree: Record<string, unknown> | null = null;
+
+  protected constructor() {
+    this.state = this.initialState();
+  }
+
+  protected abstract initialState(): State;
+
+  protected async onStart(): Promise<void> {}
+
+  protected async onInit(_event: InitEvent): Promise<void> {}
+
+  protected async onCallback(_event: CallbackEvent): Promise<void> {}
+
+  protected async render(): Promise<RenderResult> {
+    return new RenderResult();
+  }
+
+  async setState(patch: Partial<State>): Promise<void> {
+    this.state = { ...this.state, ...patch };
+    await this.scheduleRender();
+  }
+
+  onClick(id: string, handler: Handler<ClickEvent>): void {
+    this.register("click", id, handler as Handler<CallbackEvent>);
+  }
+
+  onScroll(id: string, handler: Handler<ScrollEvent>): void {
+    this.register("scroll", id, handler as Handler<CallbackEvent>);
+  }
+
+  onInput(id: string, handler: Handler<InputEvent>): void {
+    this.register("input", id, handler as Handler<CallbackEvent>);
+  }
+
+  onChange(id: string, handler: Handler<ChangeEvent>): void {
+    this.register("change", id, handler as Handler<CallbackEvent>);
+  }
+
+  onToggle(id: string, handler: Handler<ToggleEvent>): void {
+    this.register("toggle", id, handler as Handler<CallbackEvent>);
+  }
+
+  async run(): Promise<void> {
+    await this.onStart();
+    await this.scheduleRender();
+
+    const rl = createInterface({
+      input: process.stdin,
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      if (!line) {
+        continue;
+      }
+      const raw = JSON.parse(line) as { type?: unknown; data?: Record<string, unknown> };
+      const type = String(raw.type ?? "");
+      const data = raw.data ?? {};
+      if (type === "init") {
+        await this.onInit(parseInitEvent(data));
+        continue;
+      }
+      if (type === "callback") {
+        await this.dispatchCallback(parseCallbackEvent(data));
+      }
+    }
+  }
+
+  protected async drainOutgoingForTest(): Promise<OutgoingMessage[]> {
+    await this.scheduleRender();
+    const drained = [...this.outgoing];
+    this.outgoing.length = 0;
+    return drained;
+  }
+
+  private register(event: string, id: string, handler: Handler<CallbackEvent>): void {
+    this.handlerMap.set(`${event}:${id}`, handler);
+  }
+
+  private async dispatchCallback(event: CallbackEvent): Promise<void> {
+    const handler = this.handlerMap.get(`${event.event}:${event.id}`);
+    if (handler !== undefined) {
+      await handler(event);
+      return;
+    }
+    await this.onCallback(event);
+  }
+
+  private async scheduleRender(): Promise<void> {
+    if (this.flushPromise === null) {
+      this.flushPromise = Promise.resolve().then(async () => {
+        try {
+          await this.flushRender();
+        } finally {
+          this.flushPromise = null;
+        }
+      });
+    }
+    await this.flushPromise;
+  }
+
+  private async flushRender(): Promise<void> {
+    const rendered = await this.render();
+    const status = rendered.status.map((item) => item.toProtocol());
+    const hero = rendered.hero?.toProtocol() ?? null;
+    const tree = rendered.tree === null ? null : { content: rendered.tree?.toProtocol() ?? null };
+
+    if (!deepEqual(status, this.lastStatus)) {
+      this.lastStatus = status;
+      this.emit({ type: "status", data: { items: status } });
+    }
+    if (!deepEqual(hero, this.lastHero)) {
+      this.lastHero = hero;
+      this.emit({ type: "hero", data: hero });
+    }
+    if (!deepEqual(tree, this.lastTree)) {
+      this.lastTree = tree;
+      this.emit({ type: "tree", data: tree });
+    }
+  }
+
+  private emit(message: OutgoingMessage): void {
+    this.outgoing.push(message);
+    process.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
