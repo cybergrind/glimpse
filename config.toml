@@ -4,7 +4,7 @@
 
 [[panels]]
 position = "top"
-applets = ["spacer","clock_custom", "weather", "notifications", "spacer", "tray", "network", "bluetooth", "audio", "battery", "session"]
+applets = ["workspaces", "spacer","clock_custom", "weather", "notifications", "exec_demo", "spacer", "tray", "network", "bluetooth", "audio", "battery", "session"]
 
 [applets.clock_custom]
 extends = "clock"
@@ -45,3 +45,8 @@ badge_style = "count"      # "dot" = accent dot, "count" = number (max 9+), "" =
 # label_on_ac = ""
 # tooltip_on_battery = ""
 # tooltip_on_ac = ""
+
+[applets.exec_demo]
+extends = "exec"
+command = ["/home/alex/.config/glimpse/bin/custom_applet"]
+restart_delay_ms = 10000

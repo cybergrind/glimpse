@@ -1113,3 +1113,66 @@
     padding: 8px;
     text-align: center;
 }
+
+/* workspaces */
+
+.workspaces {
+    padding: 0 4px;
+}
+
+.workspace-dot {
+    min-width: 8px;
+    min-height: 8px;
+    border-radius: 99px;
+    margin: 0 2px;
+    background: rgba(255, 255, 255, 0.3);
+    transition: opacity 200ms ease, background 200ms ease;
+}
+
+.workspace-dot.active {
+    min-width: 20px;
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.workspace-dot.occupied {
+    background: rgba(255, 255, 255, 0.55);
+}
+
+.workspace-dot.urgent {
+    background: var(--accent-bg);
+}
+
+.workspace-num {
+    min-width: 20px;
+    min-height: 20px;
+    border-radius: 10px;
+    margin: 0 1px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    transition: opacity 200ms ease, background 200ms ease;
+}
+
+.workspace-num label {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.workspace-num.active {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.workspace-num.active label {
+    color: rgba(255, 255, 255, 1.0);
+}
+
+.workspace-num.occupied label {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.workspace-num.urgent {
+    background: var(--accent-bg);
+}
+
+.workspace-num.urgent label {
+    color: var(--on-accent);
+}

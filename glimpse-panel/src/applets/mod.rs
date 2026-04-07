@@ -10,6 +10,7 @@ mod session;
 mod spacer;
 mod tray;
 mod weather;
+mod workspaces;
 
 use std::sync::Arc;
 
@@ -41,6 +42,7 @@ pub enum AppletController {
     Weather(Controller<weather::Weather>),
     Session(Controller<session::Session>),
     Spacer(Controller<Spacer>),
+    Workspaces(Controller<workspaces::Workspaces>),
 }
 
 impl AppletController {
@@ -58,6 +60,7 @@ impl AppletController {
             AppletController::Weather(c) => c.widget().clone().upcast(),
             AppletController::Session(c) => c.widget().clone().upcast(),
             AppletController::Spacer(c) => c.widget().clone().upcast(),
+            AppletController::Workspaces(c) => c.widget().clone().upcast(),
         }
     }
 }
@@ -178,9 +181,7 @@ pub fn create_applet(
             let config: weather::WeatherConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
-            let applet = weather::Weather::builder()
-                .launch(config)
-                .detach();
+            let applet = weather::Weather::builder().launch(config).detach();
             Some(AppletController::Weather(applet))
         }
         "session" => {
@@ -192,6 +193,15 @@ pub fn create_applet(
                 .launch(session::SessionInit { config, client })
                 .detach();
             Some(AppletController::Session(applet))
+        }
+        "workspaces" => {
+            let config: workspaces::WorkspacesConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            let applet = workspaces::Workspaces::builder()
+                .launch(workspaces::WorkspacesInit { config })
+                .detach();
+            Some(AppletController::Workspaces(applet))
         }
         "spacer" => Some(AppletController::Spacer(
             Spacer::builder().launch(()).detach(),
