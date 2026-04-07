@@ -131,9 +131,13 @@ impl Component for Keyboard {
             .cloned()
             .unwrap_or_default();
 
-        let display = match self.config.format {
-            KeyboardFormat::Short => compositor::short_name(&full_name),
-            KeyboardFormat::Full => full_name.clone(),
+        let display = if let Some(label) = self.config.labels.get(&full_name) {
+            label.clone()
+        } else {
+            match self.config.format {
+                KeyboardFormat::Short => compositor::short_name(&full_name),
+                KeyboardFormat::Full => full_name.clone(),
+            }
         };
 
         self.label.set_label(&display);

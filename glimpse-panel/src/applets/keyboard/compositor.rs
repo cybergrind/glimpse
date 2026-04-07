@@ -30,6 +30,7 @@ pub fn detect() -> Option<Compositor> {
 }
 
 pub fn short_name(layout_name: &str) -> String {
+    // Try mapping as human-readable name first (single word or multi-word)
     let first_word = layout_name.split_whitespace().next().unwrap_or(layout_name);
     let code = match first_word.to_lowercase().as_str() {
         "english" => "EN",
@@ -69,8 +70,11 @@ pub fn short_name(layout_name: &str) -> String {
         "lithuanian" => "LT",
         "georgian" => "GE",
         _ => {
-            let upper: String = first_word.chars().take(2).collect::<String>().to_uppercase();
-            return upper;
+            // Raw xkb code (no spaces) — uppercase as-is: "us" → "US", "de_ch" → "DE_CH"
+            if !layout_name.contains(' ') {
+                return layout_name.to_uppercase();
+            }
+            return first_word.chars().take(2).collect::<String>().to_uppercase();
         }
     };
     code.to_string()
@@ -112,9 +116,32 @@ async fn hyprland_query_state() -> Option<KeyboardState> {
 
 fn find_active_index(layout_codes: &[&str], active_keymap: &str) -> usize {
     let keymap_lower = active_keymap.to_lowercase();
+    // Extract parenthetical if present: "English (US)" → "us"
+    let paren_content = keymap_lower
+        .find('(')
+        .and_then(|start| {
+            keymap_lower[start + 1..].find(')').map(|end| {
+                keymap_lower[start + 1..start + 1 + end].trim().to_string()
+            })
+        });
+
     layout_codes
         .iter()
-        .position(|code| keymap_lower.contains(code))
+        .position(|code| {
+            let code_lower = code.to_lowercase();
+            // Exact match with parenthetical: "English (US)" matches "us"
+            if let Some(ref paren) = paren_content {
+                if code_lower == *paren {
+                    return true;
+                }
+            }
+            // Exact match: code equals full keymap
+            if code_lower == keymap_lower {
+                return true;
+            }
+            // Use short_name to resolve: "German" → "de", "Russian" → "ru"
+            short_name(active_keymap).to_lowercase() == code_lower
+        })
         .unwrap_or(0)
 }
 
@@ -168,16 +195,27 @@ pub async fn hyprland_event_loop(
                 focused_window = None;
                 continue;
             }
-            focused_window = Some(addr.clone());
-            if let Some(&saved_index) = window_layouts.get(&addr) {
-                let _ = Command::new("hyprctl")
-                    .args(["switchxkblayout", "all", &saved_index.to_string()])
-                    .output()
-                    .await;
+            // Save current layout for the window we're leaving
+            if let Some(ref old_wid) = focused_window {
                 if let Some(state) = hyprland_query_state().await {
-                    if tx.send(state).await.is_err() {
-                        return;
-                    }
+                    window_layouts.insert(old_wid.clone(), state.current_index);
+                }
+            }
+            focused_window = Some(addr.clone());
+            let target_index = if let Some(&saved_index) = window_layouts.get(&addr) {
+                saved_index
+            } else {
+                // New window gets default layout (index 0)
+                window_layouts.insert(addr, 0);
+                0
+            };
+            let _ = Command::new("hyprctl")
+                .args(["switchxkblayout", "all", &target_index.to_string()])
+                .output()
+                .await;
+            if let Some(state) = hyprland_query_state().await {
+                if tx.send(state).await.is_err() {
+                    return;
                 }
             }
         } else if per_window && line.starts_with("closewindow>>") {
@@ -286,7 +324,15 @@ pub async fn niri_event_loop(
                             current_index = saved_index;
                         }
                     } else {
-                        window_layouts.insert(wid, current_index);
+                        // New window gets default layout (index 0)
+                        window_layouts.insert(wid, 0);
+                        if current_index != 0 {
+                            let _ = Command::new("niri")
+                                .args(["msg", "action", "switch-layout", "0"])
+                                .output()
+                                .await;
+                            current_index = 0;
+                        }
                     }
                 }
             } else if let Some(wc) = event.get("WindowClosed") {
@@ -318,5 +364,50 @@ pub async fn switch_layout_relative(compositor: Compositor, next: bool) {
                 .output()
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_name_maps_known_languages() {
+        assert_eq!(short_name("English (US)"), "EN");
+        assert_eq!(short_name("Russian"), "RU");
+        assert_eq!(short_name("German"), "DE");
+        assert_eq!(short_name("Polish"), "PL");
+        assert_eq!(short_name("Georgian"), "GE");
+    }
+
+    #[test]
+    fn short_name_handles_raw_xkb_codes() {
+        assert_eq!(short_name("us"), "US");
+        assert_eq!(short_name("de_ch"), "DE_CH");
+        assert_eq!(short_name("ru"), "RU");
+    }
+
+    #[test]
+    fn short_name_falls_back_to_first_two_chars() {
+        assert_eq!(short_name("Klingon (Standard)"), "KL");
+    }
+
+    #[test]
+    fn short_name_handles_empty_string() {
+        assert_eq!(short_name(""), "");
+    }
+
+    #[test]
+    fn find_active_index_matches_by_code_in_keymap() {
+        let codes = vec!["us", "ru", "de"];
+        assert_eq!(find_active_index(&codes, "English (US)"), 0);
+        assert_eq!(find_active_index(&codes, "Russian"), 1);
+        assert_eq!(find_active_index(&codes, "German"), 2);
+    }
+
+    #[test]
+    fn find_active_index_defaults_to_zero_on_no_match() {
+        let codes = vec!["us", "ru"];
+        assert_eq!(find_active_index(&codes, "Unknown Layout"), 0);
     }
 }

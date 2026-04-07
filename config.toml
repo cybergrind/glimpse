@@ -47,8 +47,10 @@ badge_style = "count"      # "dot" = accent dot, "count" = number (max 9+), "" =
 # tooltip_on_ac = ""
 
 [applets.keyboard]
+extends = "keyboard"
 format = "short"
 per_window = true
+
 
 [applets.exec_demo]
 extends = "exec"

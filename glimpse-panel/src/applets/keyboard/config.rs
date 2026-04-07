@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -11,16 +13,18 @@ fn default_format() -> KeyboardFormat {
     KeyboardFormat::Short
 }
 
+fn default_per_window() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct KeyboardConfig {
     #[serde(default = "default_format")]
     pub format: KeyboardFormat,
     #[serde(default = "default_per_window")]
     pub per_window: bool,
-}
-
-fn default_per_window() -> bool {
-    true
+    #[serde(default)]
+    pub labels: HashMap<String, String>,
 }
 
 impl Default for KeyboardConfig {
@@ -28,6 +32,7 @@ impl Default for KeyboardConfig {
         Self {
             format: default_format(),
             per_window: default_per_window(),
+            labels: HashMap::new(),
         }
     }
 }
