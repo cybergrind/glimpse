@@ -1,10 +1,16 @@
+use std::collections::HashMap;
 use std::pin::Pin;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use futures_util::StreamExt;
 use serde::Serialize;
+use serde_json::json;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use zbus::zvariant::OwnedValue;
 
 use crate::provider::{Provider, ProviderEvent, ProviderFactory, ProviderRequest};
+use crate::providers::dbus_props::DbusPropertyGroup;
 
 const NAME: &str = "mpris";
 const TOPICS: &[&str] = &["mpris.current", "mpris.players"];
@@ -14,8 +20,16 @@ const METHODS: &[&str] = &[
     "mpris.next",
     "mpris.raise",
 ];
+const MPRIS_NAME_PREFIX: &str = "org.mpris.MediaPlayer2.";
+const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
+const MPRIS_ROOT_IFACE: &str = "org.mpris.MediaPlayer2";
+const MPRIS_PLAYER_IFACE: &str = "org.mpris.MediaPlayer2.Player";
+const DBUS_SERVICE: &str = "org.freedesktop.DBus";
+const DBUS_PATH: &str = "/org/freedesktop/DBus";
+const DBUS_IFACE: &str = "org.freedesktop.DBus";
+const MPRIS_PROPERTIES_MATCH_RULE: &str = "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/mpris/MediaPlayer2'";
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 struct PlayerSnapshot {
     player_id: String,
     bus_name: String,
@@ -86,9 +100,227 @@ impl ProviderState {
         self.players.retain(|player| player.player_id != player_id);
     }
 
+    fn mark_active(&mut self, player_id: &str, ts: u64) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.player_id == player_id)
+        {
+            player.last_active = ts;
+            sort_players(&mut self.players);
+        }
+    }
+
     fn current(&self) -> Option<PlayerSnapshot> {
         self.players.first().cloned()
     }
+}
+
+fn sort_players(players: &mut [PlayerSnapshot]) {
+    players.sort_by(|a, b| {
+        b.last_active
+            .cmp(&a.last_active)
+            .then_with(|| a.player_id.cmp(&b.player_id))
+    });
+}
+
+fn parse_player_id(params: &serde_json::Value) -> anyhow::Result<&str> {
+    params["player_id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing 'player_id'"))
+}
+
+fn now_ts() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn player_bus_name(player_id: &str) -> String {
+    format!("{MPRIS_NAME_PREFIX}{player_id}")
+}
+
+fn strip_player_id(bus_name: &str) -> Option<&str> {
+    bus_name.strip_prefix(MPRIS_NAME_PREFIX)
+}
+
+fn metadata_string(metadata: &HashMap<String, OwnedValue>, key: &str) -> String {
+    metadata
+        .get(key)
+        .and_then(|value| value.try_clone().ok())
+        .and_then(|value| String::try_from(value).ok())
+        .unwrap_or_default()
+}
+
+fn metadata_artists(metadata: &HashMap<String, OwnedValue>) -> String {
+    metadata
+        .get("xesam:artist")
+        .and_then(|value| value.try_clone().ok())
+        .and_then(|value| Vec::<String>::try_from(value).ok())
+        .map(|artists| artists.join(", "))
+        .unwrap_or_default()
+}
+
+fn is_state_change_worthy(previous: &PlayerSnapshot, next: &PlayerSnapshot) -> bool {
+    previous.status != next.status
+        || previous.artist != next.artist
+        || previous.track != next.track
+        || previous.album != next.album
+        || previous.art_url != next.art_url
+}
+
+fn refreshed_last_active(previous: Option<&PlayerSnapshot>, next: &PlayerSnapshot, ts: u64) -> u64 {
+    match previous {
+        Some(previous) if is_state_change_worthy(previous, next) => ts,
+        Some(previous) => previous.last_active,
+        None if next.status == "Playing" => ts,
+        None => 0,
+    }
+}
+
+fn is_mpris_name(name: &str) -> bool {
+    name.starts_with(MPRIS_NAME_PREFIX)
+}
+
+fn is_mpris_name_owner_change(change: &zbus::fdo::NameOwnerChanged) -> bool {
+    change
+        .args()
+        .ok()
+        .map(|args| is_mpris_name(args.name().as_str()))
+        .unwrap_or(false)
+}
+
+fn is_mpris_properties_changed(msg: &zbus::message::Message) -> bool {
+    let header = msg.header();
+    let Some(member) = header.member() else {
+        return false;
+    };
+    if member.as_str() != "PropertiesChanged" {
+        return false;
+    }
+
+    let Some(interface) = header.interface() else {
+        return false;
+    };
+    if interface.as_str() != "org.freedesktop.DBus.Properties" {
+        return false;
+    }
+
+    let Some(path) = header.path() else {
+        return false;
+    };
+    if path.as_str() != MPRIS_PATH {
+        return false;
+    }
+
+    let Ok((changed_iface, changed, invalidated)) =
+        msg.body()
+            .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+    else {
+        return false;
+    };
+
+    match changed_iface.as_str() {
+        MPRIS_ROOT_IFACE => true,
+        MPRIS_PLAYER_IFACE => {
+            changed.keys().any(|key| key != "Position")
+                || invalidated.iter().any(|key| key != "Position")
+        }
+        _ => false,
+    }
+}
+
+async fn emit_snapshot<T: Serialize>(events: &mpsc::Sender<ProviderEvent>, topic: &str, data: &T) {
+    let _ = events
+        .send(ProviderEvent {
+            topic: topic.to_owned(),
+            data: serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
+        })
+        .await;
+}
+
+async fn list_mpris_names(conn: &zbus::Connection) -> anyhow::Result<Vec<String>> {
+    let proxy = zbus::fdo::DBusProxy::new(conn).await?;
+    Ok(proxy
+        .list_names()
+        .await?
+        .into_iter()
+        .map(|name| name.to_string())
+        .filter(|name| is_mpris_name(name))
+        .collect())
+}
+
+async fn load_player_snapshot(
+    conn: &zbus::Connection,
+    bus_name: &str,
+) -> anyhow::Result<PlayerSnapshot> {
+    let player_id = strip_player_id(bus_name)
+        .ok_or_else(|| anyhow::anyhow!("invalid MPRIS bus name: {bus_name}"))?
+        .to_owned();
+    let root = DbusPropertyGroup::new(conn, bus_name, MPRIS_PATH, MPRIS_ROOT_IFACE).await?;
+    let player = DbusPropertyGroup::new(conn, bus_name, MPRIS_PATH, MPRIS_PLAYER_IFACE).await?;
+    let metadata = player
+        .get::<HashMap<String, OwnedValue>>("Metadata")
+        .await
+        .unwrap_or_default();
+    let can_play = player.get::<bool>("CanPlay").await.unwrap_or(false);
+    let can_pause = player.get::<bool>("CanPause").await.unwrap_or(false);
+
+    Ok(PlayerSnapshot {
+        player_id: player_id.clone(),
+        bus_name: bus_name.to_owned(),
+        identity: root.get::<String>("Identity").await.unwrap_or(player_id),
+        artist: metadata_artists(&metadata),
+        track: metadata_string(&metadata, "xesam:title"),
+        album: metadata_string(&metadata, "xesam:album"),
+        status: player
+            .get::<String>("PlaybackStatus")
+            .await
+            .unwrap_or_else(|| "Stopped".into()),
+        art_url: metadata_string(&metadata, "mpris:artUrl"),
+        can_go_previous: player.get::<bool>("CanGoPrevious").await.unwrap_or(false),
+        can_play_pause: can_play || can_pause,
+        can_go_next: player.get::<bool>("CanGoNext").await.unwrap_or(false),
+        last_active: 0,
+    })
+}
+
+async fn call_player_method(
+    conn: &zbus::Connection,
+    player_id: &str,
+    method: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let player = DbusPropertyGroup::new(
+        conn,
+        &player_bus_name(player_id),
+        MPRIS_PATH,
+        MPRIS_PLAYER_IFACE,
+    )
+    .await?;
+    player
+        .call_void(method, &())
+        .await
+        .map(|()| json!(null))
+        .map_err(|error| anyhow::anyhow!("{error}"))
+}
+
+async fn call_root_method(
+    conn: &zbus::Connection,
+    player_id: &str,
+    method: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let root = DbusPropertyGroup::new(
+        conn,
+        &player_bus_name(player_id),
+        MPRIS_PATH,
+        MPRIS_ROOT_IFACE,
+    )
+    .await?;
+    root.call_void(method, &())
+        .await
+        .map(|()| json!(null))
+        .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 impl PlayerSnapshot {
@@ -140,28 +372,124 @@ impl Provider for MprisProvider {
 
     fn run(
         &mut self,
-        _events: mpsc::Sender<ProviderEvent>,
+        events: mpsc::Sender<ProviderEvent>,
         mut requests: mpsc::Receiver<ProviderRequest>,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
         Box::pin(async move {
+            tracing::info!("mpris: starting");
+            let conn = zbus::Connection::session().await?;
+            self.refresh_players(&conn, &events).await?;
+
+            let dbus_proxy = zbus::fdo::DBusProxy::new(&conn).await?;
+            let mut name_changes = dbus_proxy.receive_name_owner_changed().await?;
+            conn.call_method(
+                Some(DBUS_SERVICE),
+                DBUS_PATH,
+                Some(DBUS_IFACE),
+                "AddMatch",
+                &(MPRIS_PROPERTIES_MATCH_RULE,),
+            )
+            .await?;
+            let mut prop_changes = zbus::MessageStream::from(&conn);
+
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
                     req = requests.recv() => {
                         let Some(req) = req else { break };
-                        self.handle_request(req).await;
+                        self.handle_request(req, Some(&conn), Some(&events)).await;
+                    }
+                    Some(change) = name_changes.next() => {
+                        if is_mpris_name_owner_change(&change) {
+                            self.refresh_players(&conn, &events).await?;
+                        }
+                    }
+                    Some(Ok(msg)) = prop_changes.next() => {
+                        if is_mpris_properties_changed(&msg) {
+                            self.refresh_players(&conn, &events).await?;
+                        }
                     }
                 }
             }
 
+            tracing::info!("mpris: stopping");
             Ok(())
         })
     }
 }
 
 impl MprisProvider {
-    async fn handle_request(&self, req: ProviderRequest) {
+    async fn refresh_players(
+        &mut self,
+        conn: &zbus::Connection,
+        events: &mpsc::Sender<ProviderEvent>,
+    ) -> anyhow::Result<()> {
+        let previous_players = self.state.players.clone();
+        let names = list_mpris_names(conn).await?;
+
+        self.state
+            .players
+            .retain(|player| names.iter().any(|name| name == &player.bus_name));
+
+        let ts = now_ts();
+        for bus_name in names {
+            let mut snapshot = match load_player_snapshot(conn, &bus_name).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    tracing::warn!(bus_name = %bus_name, error = %error, "mpris: failed to refresh player");
+                    continue;
+                }
+            };
+            let previous = previous_players
+                .iter()
+                .find(|player| player.player_id == snapshot.player_id);
+            snapshot.last_active = refreshed_last_active(previous, &snapshot, ts);
+            self.state.upsert(snapshot);
+        }
+
+        if self.state.players != previous_players {
+            self.emit_state(events).await;
+        }
+
+        Ok(())
+    }
+
+    async fn emit_state(&self, events: &mpsc::Sender<ProviderEvent>) {
+        emit_snapshot(events, "mpris.players", &self.state.players).await;
+        emit_snapshot(events, "mpris.current", &self.state.current()).await;
+    }
+
+    async fn dispatch_call(
+        &mut self,
+        method: &str,
+        params: &serde_json::Value,
+        conn: &zbus::Connection,
+        events: Option<&mpsc::Sender<ProviderEvent>>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let player_id = parse_player_id(params)?;
+        let result = match method {
+            "mpris.play_pause" => call_player_method(conn, player_id, "PlayPause").await,
+            "mpris.previous" => call_player_method(conn, player_id, "Previous").await,
+            "mpris.next" => call_player_method(conn, player_id, "Next").await,
+            "mpris.raise" => call_root_method(conn, player_id, "Raise").await,
+            _ => Err(anyhow::anyhow!("unknown method: {method}")),
+        }?;
+
+        self.state.mark_active(player_id, now_ts());
+        if let Some(events) = events {
+            self.emit_state(events).await;
+        }
+
+        Ok(result)
+    }
+
+    async fn handle_request(
+        &mut self,
+        req: ProviderRequest,
+        conn: Option<&zbus::Connection>,
+        events: Option<&mpsc::Sender<ProviderEvent>>,
+    ) {
         match req {
             ProviderRequest::Snapshot { topic, reply } => {
                 let data = match topic.as_str() {
@@ -171,8 +499,19 @@ impl MprisProvider {
                 };
                 let _ = reply.send(data);
             }
-            ProviderRequest::Call { reply, .. } => {
-                let _ = reply.send(Err(anyhow::anyhow!("not implemented")));
+            ProviderRequest::Call {
+                method,
+                params,
+                reply,
+            } => {
+                let result = match conn {
+                    Some(conn) => self.dispatch_call(&method, &params, conn, events).await,
+                    None => Err(anyhow::anyhow!("not implemented")),
+                };
+                if let Err(ref error) = result {
+                    tracing::warn!(method = %method, error = %error, "mpris: call failed");
+                }
+                let _ = reply.send(result);
             }
         }
     }
@@ -238,14 +577,18 @@ mod tests {
 
     #[tokio::test]
     async fn current_snapshot_returns_null() {
-        let provider = MprisProvider::default();
+        let mut provider = MprisProvider::default();
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
         provider
-            .handle_request(ProviderRequest::Snapshot {
-                topic: "mpris.current".into(),
-                reply: reply_tx,
-            })
+            .handle_request(
+                ProviderRequest::Snapshot {
+                    topic: "mpris.current".into(),
+                    reply: reply_tx,
+                },
+                None,
+                None,
+            )
             .await;
 
         assert_eq!(reply_rx.await.unwrap(), Some(serde_json::Value::Null));
@@ -253,14 +596,18 @@ mod tests {
 
     #[tokio::test]
     async fn players_snapshot_returns_empty_array() {
-        let provider = MprisProvider::default();
+        let mut provider = MprisProvider::default();
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
         provider
-            .handle_request(ProviderRequest::Snapshot {
-                topic: "mpris.players".into(),
-                reply: reply_tx,
-            })
+            .handle_request(
+                ProviderRequest::Snapshot {
+                    topic: "mpris.players".into(),
+                    reply: reply_tx,
+                },
+                None,
+                None,
+            )
             .await;
 
         assert_eq!(reply_rx.await.unwrap(), Some(serde_json::json!([])));
@@ -268,15 +615,19 @@ mod tests {
 
     #[tokio::test]
     async fn methods_return_not_implemented() {
-        let provider = MprisProvider::default();
+        let mut provider = MprisProvider::default();
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
         provider
-            .handle_request(ProviderRequest::Call {
-                method: "mpris.play_pause".into(),
-                params: serde_json::json!({}),
-                reply: reply_tx,
-            })
+            .handle_request(
+                ProviderRequest::Call {
+                    method: "mpris.play_pause".into(),
+                    params: serde_json::json!({}),
+                    reply: reply_tx,
+                },
+                None,
+                None,
+            )
             .await;
 
         let err = reply_rx.await.unwrap().expect_err("expected error");
@@ -349,23 +700,31 @@ mod tests {
             last_active: 20,
             ..PlayerSnapshot::test_default()
         });
-        let provider = MprisProvider { state };
+        let mut provider = MprisProvider { state };
 
         let (current_reply_tx, current_reply_rx) = tokio::sync::oneshot::channel();
         provider
-            .handle_request(ProviderRequest::Snapshot {
-                topic: "mpris.current".into(),
-                reply: current_reply_tx,
-            })
+            .handle_request(
+                ProviderRequest::Snapshot {
+                    topic: "mpris.current".into(),
+                    reply: current_reply_tx,
+                },
+                None,
+                None,
+            )
             .await;
 
         let current = current_reply_rx.await.unwrap().expect("current snapshot");
         let (players_reply_tx, players_reply_rx) = tokio::sync::oneshot::channel();
         provider
-            .handle_request(ProviderRequest::Snapshot {
-                topic: "mpris.players".into(),
-                reply: players_reply_tx,
-            })
+            .handle_request(
+                ProviderRequest::Snapshot {
+                    topic: "mpris.players".into(),
+                    reply: players_reply_tx,
+                },
+                None,
+                None,
+            )
             .await;
 
         let players = players_reply_rx.await.unwrap().expect("players snapshot");
@@ -403,5 +762,28 @@ mod tests {
 
         assert!(state.players.is_empty());
         assert!(state.current().is_none());
+    }
+
+    #[test]
+    fn control_method_updates_last_active_for_target_player() {
+        let mut state = ProviderState::default();
+        state.upsert(PlayerSnapshot {
+            player_id: "spotify".into(),
+            last_active: 10,
+            ..PlayerSnapshot::test_default()
+        });
+
+        state.mark_active("spotify", 99);
+
+        assert_eq!(state.current().unwrap().player_id, "spotify");
+        assert_eq!(state.current().unwrap().last_active, 99);
+    }
+
+    #[test]
+    fn control_method_requires_player_id() {
+        let err = parse_player_id(&serde_json::json!({}))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("missing 'player_id'"));
     }
 }
