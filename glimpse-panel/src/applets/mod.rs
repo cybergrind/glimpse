@@ -100,7 +100,6 @@ pub fn create_applet(
             Some(AppletController::Audio(applet))
         }
         "bluetooth" => {
-            let client = client.clone()?;
             let config: bluetooth::BluetoothConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
@@ -108,7 +107,6 @@ pub fn create_applet(
                 .launch(bluetooth::BluetoothInit {
                     config,
                     conn: system.clone(),
-                    client,
                 })
                 .detach();
             Some(AppletController::Bluetooth(applet))

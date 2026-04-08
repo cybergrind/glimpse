@@ -1,4 +1,3 @@
-mod bluetooth_agent;
 mod broker;
 mod notification_server;
 mod pattern;
@@ -41,7 +40,6 @@ fn register_providers(
     vec![
         Box::new(providers::audio::AudioProviderFactory),
         Box::new(providers::battery::BatteryProviderFactory),
-        Box::new(providers::bluetooth::BluetoothProviderFactory),
         Box::new(providers::brightness::BrightnessProviderFactory),
         Box::new(providers::calendar::CalendarProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
@@ -93,14 +91,6 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         if let Err(e) = secret_agent::run(agent_cancel).await {
             tracing::warn!("secret-agent: {e}");
-        }
-    });
-
-    // BlueZ pairing agent — auto-confirms JustWorks and passkey pairing
-    let bt_cancel = cancel.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bluetooth_agent::run(bt_cancel).await {
-            tracing::warn!("bluetooth-agent: {e}");
         }
     });
 

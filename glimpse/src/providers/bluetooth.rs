@@ -5,7 +5,7 @@ use futures_util::{StreamExt, future};
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use zbus::{MatchRule, MessageStream, message::Type};
+use zbus::{MatchRule, MessageStream, message::Type, zvariant::ObjectPath};
 
 use crate::dbus::bluez::{Adapter1Proxy, Battery1Proxy, Device1Proxy};
 
@@ -500,7 +500,7 @@ impl BluetoothProvider {
         }
 
         let snapshot = BluetoothSnapshot::new(adapters, devices);
-        tracing::info!(
+        tracing::debug!(
             adapters = snapshot.adapters.len(),
             devices = snapshot.devices.len(),
             powered = snapshot.status.powered,
@@ -621,28 +621,99 @@ impl BluetoothProvider {
     }
 
     pub async fn set_powered(&self, powered: bool) -> anyhow::Result<()> {
-        tracing::info!(powered, "bluetooth: set power requested");
-        bail!("bluetooth: set power is not implemented yet")
+        let adapter_paths = self.adapter_paths().await?;
+        if adapter_paths.is_empty() {
+            bail!("no bluetooth adapters found");
+        }
+
+        tracing::info!(
+            powered,
+            adapters = adapter_paths.len(),
+            "bluetooth: set power requested"
+        );
+
+        for path in adapter_paths {
+            let proxy = self.adapter_proxy(&path).await?;
+            proxy
+                .set_powered(powered)
+                .await
+                .with_context(|| format!("failed to set adapter power on {path}"))?;
+            tracing::debug!(path = %path, powered, "bluetooth: adapter power updated");
+        }
+
+        tracing::info!(powered, "bluetooth: set power succeeded");
+        Ok(())
     }
 
     pub async fn connect(&self, address: &str) -> anyhow::Result<()> {
-        tracing::info!(address, "bluetooth: connect requested");
-        bail!("bluetooth: connect is not implemented yet")
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: connect requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .connect()
+            .await
+            .with_context(|| format!("failed to connect {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: connect succeeded");
+        Ok(())
     }
 
     pub async fn disconnect(&self, address: &str) -> anyhow::Result<()> {
-        tracing::info!(address, "bluetooth: disconnect requested");
-        bail!("bluetooth: disconnect is not implemented yet")
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: disconnect requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .disconnect()
+            .await
+            .with_context(|| format!("failed to disconnect {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: disconnect succeeded");
+        Ok(())
     }
 
     pub async fn pair(&self, address: &str) -> anyhow::Result<()> {
-        tracing::info!(address, "bluetooth: pair requested");
-        bail!("bluetooth: pair is not implemented yet")
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: pair requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .pair()
+            .await
+            .with_context(|| format!("failed to pair {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: pair succeeded");
+        Ok(())
     }
 
     pub async fn forget(&self, address: &str) -> anyhow::Result<()> {
-        tracing::info!(address, "bluetooth: forget requested");
-        bail!("bluetooth: forget is not implemented yet")
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            adapter = %device.adapter_path,
+            "bluetooth: forget requested"
+        );
+        let proxy = self.adapter_proxy(&device.adapter_path).await?;
+        let device_path = ObjectPath::try_from(device.path.as_str())
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        proxy
+            .remove_device(device_path)
+            .await
+            .with_context(|| format!("failed to forget {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: forget succeeded");
+        Ok(())
     }
 
     pub async fn start_discovery(&self) -> anyhow::Result<()> {
@@ -659,6 +730,10 @@ impl BluetoothProvider {
 
         for path in adapter_paths {
             let proxy = self.adapter_proxy(&path).await?;
+            if proxy.discovering().await.unwrap_or(false) {
+                tracing::debug!(path = %path, "bluetooth: start discovery skipped; adapter already discovering");
+                continue;
+            }
             proxy
                 .start_discovery()
                 .await
@@ -683,6 +758,10 @@ impl BluetoothProvider {
 
         for path in adapter_paths {
             let proxy = self.adapter_proxy(&path).await?;
+            if !proxy.discovering().await.unwrap_or(false) {
+                tracing::debug!(path = %path, "bluetooth: stop discovery skipped; adapter already idle");
+                continue;
+            }
             proxy
                 .stop_discovery()
                 .await
@@ -754,6 +833,14 @@ impl BluetoothProvider {
             .map_err(Into::into)
     }
 
+    async fn device_proxy<'a>(&self, path: &'a str) -> anyhow::Result<Device1Proxy<'a>> {
+        Device1Proxy::builder(&self.conn)
+            .path(path)?
+            .build()
+            .await
+            .map_err(Into::into)
+    }
+
     async fn read_adapter(&self, path: &str) -> anyhow::Result<BluetoothAdapter> {
         let proxy = self.adapter_proxy(path).await?;
         Ok(BluetoothAdapter {
@@ -766,7 +853,10 @@ impl BluetoothProvider {
     }
 
     async fn read_device(&self, path: &str, has_battery: bool) -> anyhow::Result<BluetoothDevice> {
-        let proxy = Device1Proxy::builder(&self.conn).path(path)?.build().await?;
+        let proxy = Device1Proxy::builder(&self.conn)
+            .path(path)?
+            .build()
+            .await?;
         let address = proxy.address().await.unwrap_or_default();
         let alias = proxy.alias().await.unwrap_or_default();
         let icon = proxy.icon().await.unwrap_or_default();
@@ -817,6 +907,54 @@ impl BluetoothProvider {
             .ok()?;
         proxy.percentage().await.ok()
     }
+
+    async fn resolve_device(&self, address: &str) -> anyhow::Result<ResolvedDevice> {
+        let om = self.object_manager().await?;
+        let objects = om
+            .get_managed_objects()
+            .await
+            .context("failed to read BlueZ managed objects for device lookup")?;
+
+        for (path, interfaces) in objects {
+            if !interfaces.contains_key("org.bluez.Device1") {
+                continue;
+            }
+
+            let path_str = path.to_string();
+            let proxy = self.device_proxy(&path_str).await?;
+            let current_address = proxy.address().await.unwrap_or_default();
+            if current_address != address {
+                continue;
+            }
+
+            let name = proxy.alias().await.unwrap_or_default();
+            let adapter_path = proxy
+                .adapter()
+                .await
+                .map(|path| path.to_string())
+                .unwrap_or_default();
+
+            return Ok(ResolvedDevice {
+                path: path_str,
+                adapter_path,
+                address: current_address,
+                name: if name.is_empty() {
+                    address.to_owned()
+                } else {
+                    name
+                },
+            });
+        }
+
+        bail!("unknown bluetooth device: {address}")
+    }
+}
+
+struct ResolvedDevice {
+    path: String,
+    adapter_path: String,
+    address: String,
+    name: String,
 }
 
 fn merge_change_reason(

@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use glimpse::providers::bluetooth::{
     BluetoothChangeReason, BluetoothDevice, BluetoothProvider, BluetoothProviderEvent,
     BluetoothSnapshot,
 };
-use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
@@ -13,18 +10,21 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::config::BluetoothConfig;
-use super::popover::{BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput, BtDevice};
+use super::popover::{
+    BluetoothDeviceAction, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput,
+    BluetoothPopoverOutput, BtDevice,
+};
 
 pub struct Bluetooth {
     icon_name: String,
     tooltip: String,
+    action_tx: mpsc::Sender<BluetoothActionRequest>,
     popover: Controller<BluetoothPopover>,
 }
 
 pub struct BluetoothInit {
     pub config: BluetoothConfig,
     pub conn: zbus::Connection,
-    pub client: Arc<Client>,
 }
 
 #[derive(Debug)]
@@ -36,8 +36,22 @@ pub enum BluetoothMsg {
     },
     DevicesUpdate(Vec<BtDevice>),
     ListenerChanged(BluetoothChangeReason),
+    PopoverOutput(BluetoothPopoverOutput),
+    DeviceActionFinished { address: String },
     TogglePopover,
     Unavailable,
+}
+
+#[derive(Debug)]
+enum BluetoothActionRequest {
+    StartDiscovery,
+    StopDiscovery,
+    SetPowered(bool),
+    DeviceAction {
+        address: String,
+        name: String,
+        action: BluetoothDeviceAction,
+    },
 }
 
 #[relm4::component(pub)]
@@ -76,18 +90,18 @@ impl Component for Bluetooth {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let conn = init.conn;
+        let (action_tx, mut action_rx) = mpsc::channel::<BluetoothActionRequest>(16);
         let popover = BluetoothPopover::builder()
             .launch(BluetoothPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
                 settings_command: init.config.settings_command,
-                scan_interval: init.config.scan_interval,
             })
-            .detach();
+            .forward(sender.input_sender(), BluetoothMsg::PopoverOutput);
 
         let model = Bluetooth {
             icon_name: "bluetooth-active-symbolic".into(),
             tooltip: "Bluetooth".into(),
+            action_tx,
             popover,
         };
 
@@ -113,18 +127,26 @@ impl Component for Bluetooth {
                         }
                     });
 
-                    while let Some(event) = event_rx.recv().await {
-                        match event {
-                            BluetoothProviderEvent::Changed { reason } => {
-                                let _ = out.send(BluetoothMsg::ListenerChanged(reason));
-                                if let Err(error) = refresh_snapshot(&provider, &out).await {
-                                    tracing::warn!(
-                                        reason = %reason,
-                                        error = %error,
-                                        "bluetooth applet: refresh failed after listener event"
-                                    );
+                    loop {
+                        tokio::select! {
+                            Some(event) = event_rx.recv() => {
+                                match event {
+                                    BluetoothProviderEvent::Changed { reason } => {
+                                        let _ = out.send(BluetoothMsg::ListenerChanged(reason));
+                                        if let Err(error) = refresh_snapshot(&provider, &out).await {
+                                            tracing::warn!(
+                                                reason = %reason,
+                                                error = %error,
+                                                "bluetooth applet: refresh failed after listener event"
+                                            );
+                                        }
+                                    }
                                 }
                             }
+                            Some(action) = action_rx.recv() => {
+                                handle_action(&provider, action, &out).await;
+                            }
+                            else => break,
                         }
                     }
 
@@ -163,8 +185,10 @@ impl Component for Bluetooth {
                 );
                 self.icon_name = if !powered {
                     "bluetooth-disabled-symbolic"
-                } else {
+                } else if connected_count > 0 {
                     "bluetooth-active-symbolic"
+                } else {
+                    "bluetooth-symbolic"
                 }
                 .into();
 
@@ -191,6 +215,13 @@ impl Component for Bluetooth {
             BluetoothMsg::ListenerChanged(reason) => {
                 tracing::info!(reason = %reason, "bluetooth applet: listener event");
             }
+            BluetoothMsg::PopoverOutput(output) => {
+                self.handle_popover_output(output);
+            }
+            BluetoothMsg::DeviceActionFinished { address } => {
+                self.popover
+                    .emit(BluetoothPopoverInput::FinishDeviceAction { address });
+            }
             BluetoothMsg::TogglePopover => {
                 self.popover.emit(BluetoothPopoverInput::Toggle);
             }
@@ -198,6 +229,46 @@ impl Component for Bluetooth {
                 tracing::warn!("bluetooth applet: daemon unavailable");
             }
         }
+    }
+}
+
+impl Bluetooth {
+    fn handle_popover_output(&self, output: BluetoothPopoverOutput) {
+        match output {
+            BluetoothPopoverOutput::Opened => {
+                tracing::info!("bluetooth applet: popover opened");
+                queue_action(&self.action_tx, BluetoothActionRequest::StartDiscovery);
+            }
+            BluetoothPopoverOutput::Closed => {
+                tracing::info!("bluetooth applet: popover closed");
+                queue_action(&self.action_tx, BluetoothActionRequest::StopDiscovery);
+            }
+            BluetoothPopoverOutput::SetPowered(powered) => {
+                tracing::info!(powered, "bluetooth applet: set power requested");
+                queue_action(&self.action_tx, BluetoothActionRequest::SetPowered(powered));
+            }
+            BluetoothPopoverOutput::DeviceAction {
+                address,
+                name,
+                action,
+            } => {
+                tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action requested");
+                queue_action(
+                    &self.action_tx,
+                    BluetoothActionRequest::DeviceAction {
+                        address,
+                        name,
+                        action,
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn queue_action(action_tx: &mpsc::Sender<BluetoothActionRequest>, action: BluetoothActionRequest) {
+    if let Err(error) = action_tx.try_send(action) {
+        tracing::warn!(error = %error, "bluetooth applet: failed to queue action");
     }
 }
 
@@ -213,6 +284,48 @@ async fn refresh_snapshot(
     });
     let _ = out.send(BluetoothMsg::DevicesUpdate(popover_devices(snapshot)));
     Ok(())
+}
+
+async fn handle_action(
+    provider: &BluetoothProvider,
+    action: BluetoothActionRequest,
+    out: &relm4::Sender<BluetoothMsg>,
+) {
+    match action {
+        BluetoothActionRequest::StartDiscovery => {
+            if let Err(error) = provider.start_discovery().await {
+                tracing::warn!(error = %error, "bluetooth applet: start discovery failed");
+            }
+        }
+        BluetoothActionRequest::StopDiscovery => {
+            if let Err(error) = provider.stop_discovery().await {
+                tracing::warn!(error = %error, "bluetooth applet: stop discovery failed");
+            }
+        }
+        BluetoothActionRequest::SetPowered(powered) => match provider.set_powered(powered).await {
+            Ok(()) => tracing::info!(powered, "bluetooth applet: set power succeeded"),
+            Err(error) => tracing::warn!(powered, error = %error, "bluetooth applet: set power failed"),
+        },
+        BluetoothActionRequest::DeviceAction {
+            address,
+            name,
+            action,
+        } => {
+            let result = match action {
+                BluetoothDeviceAction::Connect => provider.connect(&address).await,
+                BluetoothDeviceAction::Disconnect => provider.disconnect(&address).await,
+                BluetoothDeviceAction::Pair => provider.pair(&address).await,
+                BluetoothDeviceAction::Forget => provider.forget(&address).await,
+            };
+
+            match result {
+                Ok(()) => tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action succeeded"),
+                Err(error) => tracing::warn!(?action, address = %address, name = %name, error = %error, "bluetooth applet: device action failed"),
+            }
+
+            let _ = out.send(BluetoothMsg::DeviceActionFinished { address });
+        }
+    }
 }
 
 fn popover_devices(snapshot: BluetoothSnapshot) -> Vec<BtDevice> {
