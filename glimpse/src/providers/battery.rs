@@ -237,34 +237,6 @@ pub fn get_charge_threshold() -> u32 {
         .unwrap_or(0)
 }
 
-pub fn set_charge_threshold(value: u32) -> anyhow::Result<()> {
-    if value == 0 || value > 100 {
-        return Err(anyhow::anyhow!("threshold must be 1-100"));
-    }
-
-    if let Some(path) = threshold_path() {
-        if std::fs::write(&path, value.to_string()).is_ok() {
-            return Ok(());
-        }
-    }
-
-    let output = std::process::Command::new("pkexec")
-        .arg("/usr/lib/glimpse/glimpse-battery-helper")
-        .arg(value.to_string())
-        .output()
-        .map_err(|e| anyhow::anyhow!("failed to run pkexec: {e}"))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(anyhow::anyhow!(
-            "failed to set threshold: {}",
-            stderr.trim()
-        ))
-    }
-}
-
 fn threshold_path() -> Option<PathBuf> {
     let dir = std::fs::read_dir("/sys/class/power_supply/").ok()?;
     for entry in dir.flatten() {
