@@ -26,12 +26,14 @@ pub struct StatusData {
     pub items: Vec<StatusItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeroData {
-    #[serde(default)]
-    pub icon: Option<IconSource>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HeroNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
     pub title: String,
     pub subtitle: String,
+    #[serde(default)]
+    pub icon: Option<IconSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -220,6 +222,7 @@ pub struct GridNode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum TreeNode {
+    Hero(HeroNode),
     Box(BoxNode),
     Grid(GridNode),
     Scroll(ScrollNode),
@@ -238,8 +241,9 @@ pub enum TreeNode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChildMessage {
     Status(StatusData),
-    Hero(Option<HeroData>),
-    Tree(Option<TreeNode>),
+    Tree {
+        content: Option<TreeNode>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -249,9 +253,10 @@ pub enum PanelMessage {
     Callback(CallbackData),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InitData {
     pub instance: String,
+    pub options: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
@@ -297,18 +302,19 @@ impl<'de> Deserialize<'de> for ChildMessage {
             "status" => serde_json::from_value(raw.data)
                 .map(ChildMessage::Status)
                 .map_err(serde::de::Error::custom),
-            "hero" => serde_json::from_value(raw.data)
-                .map(ChildMessage::Hero)
-                .map_err(serde::de::Error::custom),
             "tree" => {
-                #[derive(Deserialize)]
+                #[derive(Deserialize, Default)]
                 struct TreePayload {
+                    #[serde(default)]
                     content: Option<TreeNode>,
                 }
 
-                serde_json::from_value::<TreePayload>(raw.data)
-                    .map(|payload| ChildMessage::Tree(payload.content))
-                    .map_err(serde::de::Error::custom)
+                let payload: TreePayload = if raw.data.is_null() {
+                    TreePayload::default()
+                } else {
+                    serde_json::from_value(raw.data).map_err(serde::de::Error::custom)?
+                };
+                Ok(ChildMessage::Tree { content: payload.content })
             }
             other => Err(serde::de::Error::custom(format!(
                 "unknown message type {other}"
@@ -326,7 +332,7 @@ impl fmt::Display for AlignValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        CallbackData, ChildMessage, HeroData, IconSource, PanelMessage, StatusData, StatusItem,
+        CallbackData, ChildMessage, IconSource, PanelMessage, StatusData, StatusItem,
         TreeNode,
     };
 
@@ -370,29 +376,41 @@ mod tests {
     }
 
     #[test]
-    fn child_hero_message_parses() {
+    fn child_tree_message_parses_hero_node_as_content() {
         let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
-            "type": "hero",
+            "type": "tree",
             "data": {
-                "icon": {"type": "name", "value": "weather-clear-symbolic"},
-                "title": "Weather",
-                "subtitle": "Sunny and 21C"
+                "content": {
+                    "type": "hero",
+                    "data": {
+                        "title": "Weather",
+                        "subtitle": "Sunny and 21C",
+                        "icon": {"type": "name", "value": "weather-clear-symbolic"}
+                    }
+                }
             }
         }))
-        .expect("hero message should parse");
+        .expect("tree message with hero node should parse");
 
-        assert_eq!(
-            message,
-            ChildMessage::Hero(Some(HeroData {
-                icon: Some(IconSource::Name("weather-clear-symbolic".into())),
-                title: "Weather".into(),
-                subtitle: "Sunny and 21C".into(),
-            }))
-        );
+        let ChildMessage::Tree { content } = message else {
+            panic!("expected tree message");
+        };
+        assert!(matches!(content, Some(TreeNode::Hero(_))));
     }
 
     #[test]
-    fn child_tree_message_parses_box_content() {
+    fn child_tree_message_clears_content_on_null_data() {
+        let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
+            "type": "tree",
+            "data": null
+        }))
+        .expect("tree clear should parse");
+
+        assert_eq!(message, ChildMessage::Tree { content: None });
+    }
+
+    #[test]
+    fn child_tree_message_accepts_box_with_hero_child() {
         let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
             "type": "tree",
             "data": {
@@ -402,48 +420,19 @@ mod tests {
                         "orientation": "vertical",
                         "spacing": 8,
                         "children": [
-                            {
-                                "type": "label",
-                                "data": {
-                                    "text": "Connected"
-                                }
-                            }
+                            {"type": "hero", "data": {"title": "Stats", "subtitle": "All good"}},
+                            {"type": "label", "data": {"text": "Connected"}}
                         ]
                     }
                 }
             }
         }))
-        .expect("tree message should parse");
+        .expect("tree with hero child should parse");
 
-        let ChildMessage::Tree(Some(tree)) = message else {
+        let ChildMessage::Tree { content } = message else {
             panic!("expected tree message");
         };
-
-        assert!(matches!(tree, TreeNode::Box(_)));
-    }
-
-    #[test]
-    fn child_hero_message_accepts_null_to_clear_hero() {
-        let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
-            "type": "hero",
-            "data": null
-        }))
-        .expect("hero clear should parse");
-
-        assert_eq!(message, ChildMessage::Hero(None));
-    }
-
-    #[test]
-    fn child_tree_message_accepts_null_content_to_clear_tree() {
-        let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
-            "type": "tree",
-            "data": {
-                "content": null
-            }
-        }))
-        .expect("tree clear should parse");
-
-        assert_eq!(message, ChildMessage::Tree(None));
+        assert!(matches!(content, Some(TreeNode::Box(_))));
     }
 
     #[test]

@@ -1,9 +1,10 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InitEvent {
     pub instance: String,
+    pub options: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +57,8 @@ pub(crate) struct IncomingMessage {
 #[derive(Debug, Deserialize)]
 struct InitPayload {
     instance: String,
+    #[serde(default)]
+    options: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,6 +79,7 @@ pub fn parse_init_event(data: Value) -> serde_json::Result<InitEvent> {
     let payload: InitPayload = serde_json::from_value(data)?;
     Ok(InitEvent {
         instance: payload.instance,
+        options: payload.options,
     })
 }
 

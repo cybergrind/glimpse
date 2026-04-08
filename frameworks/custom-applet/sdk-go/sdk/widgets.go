@@ -30,6 +30,17 @@ type TreeNode struct {
 	Data any    `json:"data"`
 }
 
+type Hero struct {
+	CommonProps
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	Icon     *Icon  `json:"icon,omitempty"`
+}
+
+func NewHero(title string, subtitle string) TreeNode {
+	return TreeNode{Type: "hero", Data: Hero{Title: title, Subtitle: subtitle}}
+}
+
 type Label struct {
 	CommonProps
 	Text       string  `json:"text"`

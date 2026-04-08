@@ -7,6 +7,7 @@ from typing import Any
 @dataclass(slots=True)
 class InitEvent:
     instance: str
+    options: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -41,7 +42,10 @@ class ToggleEvent(CallbackEvent):
 
 
 def parse_init_event(payload: dict[str, Any]) -> InitEvent:
-    return InitEvent(instance=str(payload.get("instance", "")))
+    return InitEvent(
+        instance=str(payload.get("instance", "")),
+        options=payload.get("options") or {},
+    )
 
 
 def parse_callback_event(payload: dict[str, Any]) -> CallbackEvent:

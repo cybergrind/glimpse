@@ -1,14 +1,21 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 fn default_restart_delay_ms() -> u64 {
     10_000
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+fn default_options() -> Value {
+    Value::Object(Default::default())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct ExecConfig {
     pub command: Vec<String>,
     pub restart_delay_ms: u64,
+    #[serde(default = "default_options")]
+    pub options: Value,
 }
 
 impl Default for ExecConfig {
@@ -16,6 +23,7 @@ impl Default for ExecConfig {
         Self {
             command: Vec::new(),
             restart_delay_ms: default_restart_delay_ms(),
+            options: default_options(),
         }
     }
 }

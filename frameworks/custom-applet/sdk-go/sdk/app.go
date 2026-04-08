@@ -12,7 +12,6 @@ import (
 
 type RenderResult struct {
 	Status []StatusItem
-	Hero   *Hero
 	Tree   *TreeNode
 }
 
@@ -62,6 +61,10 @@ func (a *BaseApplet[S]) Updates() <-chan struct{} {
 	return a.updates
 }
 
+type treePayload struct {
+	Content *TreeNode `json:"content"`
+}
+
 type Runtime[S any] struct {
 	applet Applet[S]
 	reader io.Reader
@@ -69,8 +72,7 @@ type Runtime[S any] struct {
 	mu     sync.Mutex
 
 	lastStatus []StatusItem
-	lastHero   *Hero
-	lastTree   *TreeNode
+	lastTree   *treePayload
 }
 
 func NewRuntime[S any](applet Applet[S], reader io.Reader, writer io.Writer) *Runtime[S] {
@@ -193,17 +195,12 @@ func (r *Runtime[S]) flush(ctx context.Context) error {
 		}
 		r.lastStatus = append([]StatusItem(nil), rendered.Status...)
 	}
-	if !heroEqual(r.lastHero, rendered.Hero) {
-		if err := r.writeMessage("hero", rendered.Hero); err != nil {
+	tree := &treePayload{Content: rendered.Tree}
+	if !treePayloadEqual(r.lastTree, tree) {
+		if err := r.writeMessage("tree", tree); err != nil {
 			return err
 		}
-		r.lastHero = rendered.Hero
-	}
-	if !treeEqual(r.lastTree, rendered.Tree) {
-		if err := r.writeMessage("tree", map[string]any{"content": rendered.Tree}); err != nil {
-			return err
-		}
-		r.lastTree = rendered.Tree
+		r.lastTree = tree
 	}
 	return nil
 }
@@ -231,13 +228,7 @@ func statusEqual(left, right []StatusItem) bool {
 	return string(encodedLeft) == string(encodedRight)
 }
 
-func heroEqual(left, right *Hero) bool {
-	encodedLeft, _ := json.Marshal(left)
-	encodedRight, _ := json.Marshal(right)
-	return string(encodedLeft) == string(encodedRight)
-}
-
-func treeEqual(left, right *TreeNode) bool {
+func treePayloadEqual(left, right *treePayload) bool {
 	encodedLeft, _ := json.Marshal(left)
 	encodedRight, _ := json.Marshal(right)
 	return string(encodedLeft) == string(encodedRight)

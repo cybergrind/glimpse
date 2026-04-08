@@ -1,5 +1,6 @@
 export interface InitEvent {
   instance: string;
+  options: Record<string, unknown>;
 }
 
 interface CallbackEventBase {
@@ -42,6 +43,7 @@ export type CallbackEvent =
 export function parseInitEvent(payload: Record<string, unknown>): InitEvent {
   return {
     instance: String(payload.instance ?? ""),
+    options: (payload.options ?? {}) as Record<string, unknown>,
   };
 }
 

@@ -30,12 +30,12 @@ impl Applet for CounterApplet {
             status: vec![StatusItem::new("counter")
                 .icon(Icon::name("view-refresh-symbolic"))
                 .text(self.state().count.to_string())],
-            hero: Some(
-                Hero::new("Counter", format!("Value: {}", self.state().count))
-                    .icon(Icon::name("view-refresh-symbolic")),
-            ),
             tree: Some(TreeNode::from(
                 BoxNode::vertical(vec![
+                    TreeNode::from(
+                        Hero::new("Counter", format!("Value: {}", self.state().count))
+                            .icon(Icon::name("view-refresh-symbolic")),
+                    ),
                     TreeNode::from(Label::new(format!("Count = {}", self.state().count))),
                     TreeNode::from(Button::new("increment").label("Increment")),
                 ])

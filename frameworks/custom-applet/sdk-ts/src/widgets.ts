@@ -294,6 +294,27 @@ export class Grid extends WidgetBase {
   }
 }
 
+export class Hero extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title: string;
+      subtitle: string;
+      icon?: Icon;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      title: this.options.title,
+      subtitle: this.options.subtitle,
+    });
+    if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
+    return { type: "hero", data: payload };
+  }
+}
+
 export class Box extends WidgetBase {
   constructor(
     private readonly options: CommonProps & {
@@ -326,6 +347,7 @@ export class Box extends WidgetBase {
 }
 
 export type TreeNode =
+  | Hero
   | Box
   | Grid
   | Scroll

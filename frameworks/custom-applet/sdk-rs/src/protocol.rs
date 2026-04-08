@@ -48,25 +48,3 @@ impl StatusItem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Hero {
-    pub title: String,
-    pub subtitle: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<Icon>,
-}
-
-impl Hero {
-    pub fn new(title: impl Into<String>, subtitle: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            subtitle: subtitle.into(),
-            icon: None,
-        }
-    }
-
-    pub fn icon(mut self, icon: Icon) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-}

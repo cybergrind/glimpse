@@ -4,6 +4,7 @@ import "encoding/json"
 
 type InitEvent struct {
 	Instance string
+	Options  map[string]any
 }
 
 type CallbackEvent interface {
@@ -57,7 +58,8 @@ type incomingMessage struct {
 }
 
 type initPayload struct {
-	Instance string `json:"instance"`
+	Instance string         `json:"instance"`
+	Options  map[string]any `json:"options"`
 }
 
 type callbackPayload struct {
@@ -74,7 +76,10 @@ func parseInitEvent(data []byte) (InitEvent, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return InitEvent{}, err
 	}
-	return InitEvent{Instance: payload.Instance}, nil
+	return InitEvent{
+		Instance: payload.Instance,
+		Options:  payload.Options,
+	}, nil
 }
 
 func parseCallbackEvent(data []byte) (CallbackEvent, error) {

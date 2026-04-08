@@ -11,7 +11,7 @@ import {
   parseCallbackEvent,
   parseInitEvent,
 } from "./events.js";
-import { Hero, StatusItem } from "./protocol.js";
+import { StatusItem } from "./protocol.js";
 import { type TreeNode } from "./widgets.js";
 
 type Handler<EventT> = (event: EventT) => void | Promise<void>;
@@ -25,17 +25,12 @@ export class RenderResult {
   constructor(
     public readonly options: {
       status?: StatusItem[];
-      hero?: Hero | null;
       tree?: TreeNode | null;
     } = {},
   ) {}
 
   get status(): StatusItem[] {
     return this.options.status ?? [];
-  }
-
-  get hero(): Hero | null {
-    return this.options.hero ?? null;
   }
 
   get tree(): TreeNode | null {
@@ -50,7 +45,6 @@ export abstract class Applet<State extends object> {
   private readonly outgoing: OutgoingMessage[] = [];
   private flushPromise: Promise<void> | null = null;
   private lastStatus: unknown[] | null = null;
-  private lastHero: Record<string, unknown> | null = null;
   private lastTree: Record<string, unknown> | null = null;
 
   protected constructor() {
@@ -156,16 +150,11 @@ export abstract class Applet<State extends object> {
   private async flushRender(): Promise<void> {
     const rendered = await this.render();
     const status = rendered.status.map((item) => item.toProtocol());
-    const hero = rendered.hero?.toProtocol() ?? null;
-    const tree = rendered.tree === null ? null : { content: rendered.tree?.toProtocol() ?? null };
+    const tree = { content: rendered.tree?.toProtocol() ?? null };
 
     if (!deepEqual(status, this.lastStatus)) {
       this.lastStatus = status;
       this.emit({ type: "status", data: { items: status } });
-    }
-    if (!deepEqual(hero, this.lastHero)) {
-      this.lastHero = hero;
-      this.emit({ type: "hero", data: hero });
     }
     if (!deepEqual(tree, this.lastTree)) {
       this.lastTree = tree;

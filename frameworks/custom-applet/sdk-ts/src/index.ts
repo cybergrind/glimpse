@@ -10,7 +10,7 @@ export {
   parseCallbackEvent,
   parseInitEvent,
 } from "./events.js";
-export { Hero, Icon, StatusItem } from "./protocol.js";
+export { Icon, StatusItem } from "./protocol.js";
 export {
   type Align,
   Box,
@@ -21,6 +21,7 @@ export {
   Entry,
   Grid,
   GridChild,
+  Hero,
   Image,
   Label,
   type Orientation,

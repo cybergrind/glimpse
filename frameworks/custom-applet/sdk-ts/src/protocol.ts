@@ -43,23 +43,3 @@ export class StatusItem {
   }
 }
 
-export class Hero {
-  constructor(
-    public readonly options: {
-      title: string;
-      subtitle: string;
-      icon?: Icon;
-    },
-  ) {}
-
-  toProtocol(): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      title: this.options.title,
-      subtitle: this.options.subtitle,
-    };
-    if (this.options.icon !== undefined) {
-      payload.icon = this.options.icon.toProtocol();
-    }
-    return payload;
-  }
-}

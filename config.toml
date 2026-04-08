@@ -4,7 +4,7 @@
 
 [[panels]]
 position = "top"
-applets = ["pager", "mpris", "spacer","clock_custom", "weather", "notifications", "privacy", "exec_demo", "spacer", "tray", "keyboard", "network", "bluetooth", "audio", "battery", "session"]
+applets = ["pager", "sysinfo", "mpris", "spacer","clock_custom", "weather", "notifications", "privacy", "exec_demo", "spacer", "tray", "keyboard", "network", "bluetooth", "audio", "battery", "session"]
 
 [applets.clock_custom]
 extends = "clock"
@@ -17,7 +17,7 @@ timezones = [
 
 [applets.sysinfo]
 extends = "exec"
-command = "/home/alex/projects/glimpse/var/sysstats/sysstats-applet"
+command = ["/home/alex/projects/glimpse/var/sysstats/sysstats-applet"]
 
 [applets.weather]
 extends = "weather"

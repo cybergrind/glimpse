@@ -45,11 +45,8 @@ class DemoApplet extends Applet<DemoState> {
           text: this.state.version,
         }),
       ],
-      hero: new Hero({
-        title: "Demo",
-        subtitle: this.state.version,
-      }),
       tree: Box.vertical([
+        new Hero({ title: "Demo", subtitle: this.state.version }),
         new Label(this.state.version),
         new Button({ id: "submit", label: "Submit" }),
       ]),
@@ -74,9 +71,9 @@ test("setState updates state and emits protocol messages", async () => {
     await applet.setState({ version: "v2" });
     const drained = await applet.drain();
     const types = drained.map((message: any) => message.type);
-    assert.deepEqual(types, ["status", "hero", "tree"]);
+    assert.deepEqual(types, ["status", "tree"]);
     assert.equal((drained[0] as any).data.items[0].text, "v2");
-    assert.equal(writes.length, 3);
+    assert.equal(writes.length, 2);
   } finally {
     process.stdout.write = originalWrite;
   }
@@ -102,9 +99,8 @@ test("dropdown serializes items", () => {
   assert.equal((payload.data as any).items[0].id, "prod");
 });
 
-test("RenderResult defaults to empty status and null hero/tree", () => {
+test("RenderResult defaults to empty status and null tree", () => {
   const result = new RenderResult();
   assert.deepEqual(result.status, []);
-  assert.equal(result.hero, null);
   assert.equal(result.tree, null);
 });

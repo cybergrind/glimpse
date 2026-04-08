@@ -59,6 +59,23 @@ class Widget(CommonProps):
 
 
 @dataclass(slots=True)
+class Hero(Widget):
+    title: str = ""
+    subtitle: str = ""
+    icon: Icon | None = None
+    widget_type: str = "hero"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({
+            "title": self.title,
+            "subtitle": self.subtitle,
+        })
+        if self.icon is not None:
+            payload["icon"] = self.icon.to_protocol()
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
 class Label(Widget):
     text: str = ""
     wrap: bool = False
@@ -291,7 +308,8 @@ class Box(Widget):
 
 
 TreeNode: TypeAlias = (
-    Box
+    Hero
+    | Box
     | Grid
     | Scroll
     | Separator

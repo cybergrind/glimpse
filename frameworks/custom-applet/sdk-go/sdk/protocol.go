@@ -19,8 +19,3 @@ type StatusItem struct {
 	Text string `json:"text,omitempty"`
 }
 
-type Hero struct {
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle"`
-	Icon     *Icon  `json:"icon,omitempty"`
-}

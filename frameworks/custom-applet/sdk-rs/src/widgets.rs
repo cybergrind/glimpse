@@ -421,8 +421,37 @@ impl BoxNode {
 with_common!(BoxNode);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Hero {
+    pub title: String,
+    pub subtitle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
+    #[serde(flatten)]
+    pub common: CommonProps,
+}
+
+impl Hero {
+    pub fn new(title: impl Into<String>, subtitle: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            subtitle: subtitle.into(),
+            icon: None,
+            common: CommonProps::default(),
+        }
+    }
+
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+}
+
+with_common!(Hero);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum TreeNode {
+    Hero(Hero),
     Box(BoxNode),
     Grid(Grid),
     Scroll(Scroll),
@@ -438,6 +467,9 @@ pub enum TreeNode {
     Checkbox(Checkbox),
 }
 
+impl From<Hero> for TreeNode {
+    fn from(value: Hero) -> Self { Self::Hero(value) }
+}
 impl From<BoxNode> for TreeNode {
     fn from(value: BoxNode) -> Self { Self::Box(value) }
 }

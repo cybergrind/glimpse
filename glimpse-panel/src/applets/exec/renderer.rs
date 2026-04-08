@@ -4,7 +4,7 @@ use relm4::gtk::{self, glib, prelude::*};
 
 use super::protocol::{
     AlignValue, BoxNode, ButtonNode, CallbackData, CheckboxNode, CommonProps, DropdownNode,
-    EntryNode, GridNode, IconSource, ImageNode, LabelNode, OrientationValue, ScaleNode,
+    EntryNode, GridNode, HeroNode, IconSource, ImageNode, LabelNode, OrientationValue, ScaleNode,
     SeparatorNode, SwitchNode, TreeNode,
 };
 
@@ -39,6 +39,7 @@ impl RenderCatalog {
 
     pub fn render(&self, node: &TreeNode) -> Result<gtk::Widget, RenderError> {
         match node {
+            TreeNode::Hero(data) => self.render_hero(data),
             TreeNode::Box(data) => self.render_box(data),
             TreeNode::Grid(data) => self.render_grid(data),
             TreeNode::Scroll(data) => {
@@ -59,6 +60,30 @@ impl RenderCatalog {
             TreeNode::Dropdown(data) => self.render_dropdown(data),
             TreeNode::Checkbox(data) => self.render_checkbox(data),
         }
+    }
+
+    fn render_hero(&self, data: &HeroNode) -> Result<gtk::Widget, RenderError> {
+        let hero_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        hero_box.add_css_class("exec-hero");
+        apply_common_props(&hero_box, &data.common);
+        if let Some(icon) = &data.icon {
+            let image = gtk::Image::new();
+            image.set_pixel_size(32);
+            apply_icon_to_image(&image, icon);
+            hero_box.append(&image);
+        }
+        let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        text_box.set_valign(gtk::Align::Center);
+        let title = gtk::Label::new(Some(&data.title));
+        title.set_halign(gtk::Align::Start);
+        title.add_css_class("exec-hero-title");
+        text_box.append(&title);
+        let subtitle = gtk::Label::new(Some(&data.subtitle));
+        subtitle.set_halign(gtk::Align::Start);
+        subtitle.add_css_class("exec-hero-subtitle");
+        text_box.append(&subtitle);
+        hero_box.append(&text_box);
+        Ok(hero_box.upcast())
     }
 
     fn render_box(&self, data: &BoxNode) -> Result<gtk::Widget, RenderError> {

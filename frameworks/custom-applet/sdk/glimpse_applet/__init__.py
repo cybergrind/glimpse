@@ -9,7 +9,7 @@ from .events import (
     ScrollEvent,
     ToggleEvent,
 )
-from .protocol import Hero, Icon, StatusItem
+from .protocol import Icon, StatusItem
 from .widgets import (
     Align,
     Box,
@@ -20,6 +20,7 @@ from .widgets import (
     Entry,
     Grid,
     GridChild,
+    Hero,
     Image,
     Label,
     Orientation,

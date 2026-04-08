@@ -27,7 +27,7 @@ func newDemoApplet() *demoApplet {
 	}
 }
 
-func (a *demoApplet) OnStart(context.Context) error { return nil }
+func (a *demoApplet) OnStart(context.Context) error           { return nil }
 func (a *demoApplet) OnInit(context.Context, InitEvent) error { return nil }
 
 func (a *demoApplet) OnCallback(_ context.Context, event CallbackEvent) error {
@@ -53,8 +53,8 @@ func (a *demoApplet) Render(context.Context) (RenderResult, error) {
 		Status: []StatusItem{
 			{ID: "demo", Icon: IconName("demo-symbolic"), Text: a.State().Version},
 		},
-		Hero: &Hero{Title: "Demo", Subtitle: a.State().Version},
 		Tree: ptr(BoxVertical([]TreeNode{
+			NewHero("Demo", a.State().Version),
 			NewLabel(a.State().Version),
 			NewButton("submit", "Submit"),
 		}, 0)),
@@ -100,8 +100,8 @@ func TestRuntimeFlushesRenderedMessages(t *testing.T) {
 	}
 
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(lines))
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(lines))
 	}
 }
 
@@ -143,7 +143,7 @@ func (a *asyncDemoApplet) OnStart(context.Context) error {
 	return nil
 }
 
-func (a *asyncDemoApplet) OnInit(context.Context, InitEvent) error { return nil }
+func (a *asyncDemoApplet) OnInit(context.Context, InitEvent) error         { return nil }
 func (a *asyncDemoApplet) OnCallback(context.Context, CallbackEvent) error { return nil }
 
 func (a *asyncDemoApplet) Render(context.Context) (RenderResult, error) {

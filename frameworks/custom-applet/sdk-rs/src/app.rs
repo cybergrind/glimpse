@@ -4,7 +4,7 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::{
     events::{CallbackEvent, IncomingMessage, InitEvent, parse_callback_event, parse_init_event},
-    protocol::{Hero, StatusItem},
+    protocol::StatusItem,
     widgets::TreeNode,
 };
 
@@ -15,8 +15,6 @@ pub type AppletResult<T> = Result<T, AppletError>;
 pub struct RenderResult {
     #[serde(default)]
     pub status: Vec<StatusItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hero: Option<Hero>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree: Option<TreeNode>,
 }
@@ -150,16 +148,6 @@ async fn flush_render(
         )
         .await?;
     }
-    if changed.map(|prev| prev.hero != next.hero).unwrap_or(true) {
-        write_message(
-            stdout,
-            &OutgoingMessage {
-                kind: "hero",
-                data: next.hero.clone(),
-            },
-        )
-        .await?;
-    }
     if changed.map(|prev| prev.tree != next.tree).unwrap_or(true) {
         write_message(
             stdout,
@@ -219,8 +207,8 @@ mod tests {
                 status: vec![StatusItem::new("demo")
                     .icon(Icon::name("demo-symbolic"))
                     .text(self.state().version.clone())],
-                hero: Some(crate::Hero::new("Demo", self.state().version.clone())),
                 tree: Some(TreeNode::from(BoxNode::vertical(vec![
+                    TreeNode::from(crate::Hero::new("Demo", self.state().version.clone())),
                     TreeNode::from(Label::new(self.state().version.clone())),
                     TreeNode::from(Button::new("submit").label("Submit")),
                 ]))),
@@ -245,7 +233,6 @@ mod tests {
     fn render_result_defaults_are_empty() {
         let result = RenderResult::default();
         assert!(result.status.is_empty());
-        assert!(result.hero.is_none());
         assert!(result.tree.is_none());
     }
 

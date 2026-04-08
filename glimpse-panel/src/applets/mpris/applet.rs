@@ -4,7 +4,7 @@ use std::time::Duration;
 use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
-    gtk::{self, glib, prelude::*},
+    gtk::{self, prelude::*},
 };
 use serde::Deserialize;
 
@@ -167,12 +167,6 @@ impl Component for Mpris {
             marquee_offset: 0,
         };
 
-        let tick_sender = sender.clone();
-        glib::timeout_add_local(Duration::from_millis(450), move || {
-            tick_sender.input(MprisMsg::TickMarquee);
-            glib::ControlFlow::Continue
-        });
-
         let client = init.client;
         sender.command(move |out, shutdown| {
             shutdown
@@ -187,9 +181,13 @@ impl Component for Mpris {
                         }
                     };
                     let mut players_sub = client.subscribe("mpris.players").await.ok();
+                    let mut ticker = tokio::time::interval(Duration::from_millis(450));
 
                     loop {
                         tokio::select! {
+                            _ = ticker.tick() => {
+                                let _ = out.send(MprisMsg::TickMarquee);
+                            }
                             Some(event) = current_sub.next() => {
                                 if event.data.is_null() {
                                     let _ = out.send(MprisMsg::ClearCurrent);

@@ -37,17 +37,3 @@ class StatusItem:
         return payload
 
 
-@dataclass(slots=True)
-class Hero:
-    title: str
-    subtitle: str
-    icon: Icon | None = None
-
-    def to_protocol(self) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "title": self.title,
-            "subtitle": self.subtitle,
-        }
-        if self.icon is not None:
-            payload["icon"] = self.icon.to_protocol()
-        return payload

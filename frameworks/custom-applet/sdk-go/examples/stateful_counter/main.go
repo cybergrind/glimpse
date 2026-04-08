@@ -38,12 +38,8 @@ func (a *counterApplet) Render(context.Context) (sdk.RenderResult, error) {
 		Status: []sdk.StatusItem{
 			{ID: "counter", Icon: sdk.IconName("view-refresh-symbolic"), Text: fmt.Sprintf("%d", a.State().Count)},
 		},
-		Hero: &sdk.Hero{
-			Title:    "Counter",
-			Subtitle: fmt.Sprintf("Value: %d", a.State().Count),
-			Icon:     sdk.IconName("view-refresh-symbolic"),
-		},
 		Tree: ptr(sdk.BoxVertical([]sdk.TreeNode{
+			sdk.NewHero("Counter", fmt.Sprintf("Value: %d", a.State().Count)),
 			sdk.NewLabel(fmt.Sprintf("Count = %d", a.State().Count)),
 			sdk.NewButton("increment", "Increment"),
 		}, 8)),

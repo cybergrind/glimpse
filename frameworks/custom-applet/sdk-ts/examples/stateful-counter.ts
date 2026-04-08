@@ -34,12 +34,12 @@ class CounterApplet extends Applet<CounterState> {
           text: String(this.state.count),
         }),
       ],
-      hero: new Hero({
-        icon: Icon.name("view-refresh-symbolic"),
-        title: "Counter",
-        subtitle: `Value: ${this.state.count}`,
-      }),
       tree: Box.vertical([
+        new Hero({
+          icon: Icon.name("view-refresh-symbolic"),
+          title: "Counter",
+          subtitle: `Value: ${this.state.count}`,
+        }),
         new Label(`Count = ${this.state.count}`),
         new Button({ id: "increment", label: "Increment" }),
       ], 8),

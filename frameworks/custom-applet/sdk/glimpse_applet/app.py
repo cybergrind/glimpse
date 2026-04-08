@@ -7,7 +7,7 @@ from dataclasses import dataclass, is_dataclass
 from typing import Any, Generic, TypeVar
 
 from .events import CallbackEvent, InitEvent, parse_callback_event, parse_init_event
-from .protocol import Hero, StatusItem
+from .protocol import StatusItem
 from .widgets import TreeNode
 
 StateT = TypeVar("StateT", bound="AppletState")
@@ -21,7 +21,6 @@ class AppletState:
 @dataclass(slots=True)
 class RenderResult:
     status: list[StatusItem] | None = None
-    hero: Hero | None = None
     tree: TreeNode | None = None
 
     def __post_init__(self) -> None:
@@ -37,7 +36,6 @@ class Applet(Generic[StateT]):
         self._handler_map = self._collect_handlers()
         self._render_task: asyncio.Task[None] | None = None
         self._last_status: list[dict[str, Any]] | None = None
-        self._last_hero: dict[str, Any] | None = None
         self._last_tree: dict[str, Any] | None = None
 
     def initial_state(self) -> StateT:
@@ -71,17 +69,12 @@ class Applet(Generic[StateT]):
         await asyncio.sleep(0)
         rendered = await self.render()
         status = [item.to_protocol() for item in rendered.status]
-        hero_obj = rendered.hero
-        hero = None if hero_obj is None else hero_obj.to_protocol()
-        tree_obj = rendered.tree
-        tree = None if tree_obj is None else {"content": tree_obj.to_protocol()}
+        content = None if rendered.tree is None else rendered.tree.to_protocol()
+        tree = {"content": content}
 
         if status != self._last_status:
             self._last_status = status
             await self._outgoing.put({"type": "status", "data": {"items": status}})
-        if hero != self._last_hero:
-            self._last_hero = hero
-            await self._outgoing.put({"type": "hero", "data": hero})
         if tree != self._last_tree:
             self._last_tree = tree
             await self._outgoing.put({"type": "tree", "data": tree})

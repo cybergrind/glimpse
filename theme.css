@@ -75,6 +75,26 @@
     background-color: rgba(255, 255, 255, 0.08);
 }
 
+.exec-trigger > button {
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+}
+
+.exec-trigger > button:hover {
+    background: none;
+}
+
+.exec-status-box>*:not(:last-child) {
+    margin-right: 12px;
+}
+
 .exec-status-item {
     padding: 0;
 }
@@ -83,7 +103,7 @@
     font-variant-numeric: tabular-nums;
 }
 
-.exec-popover contents > box {
+.exec-popover contents>box {
     margin: var(--popover-padding);
     min-width: 260px;
 }
@@ -254,13 +274,11 @@
 
 .world-clock-tz {
     padding-left: 8px;
-    ;
     font-variant-numeric: tabular-nums;
 }
 
 .battery-popover {
     min-width: 340px;
-    max-width: 340px;
 }
 
 .battery-popover contents>box {
@@ -337,7 +355,6 @@
 
 .bluetooth-popover {
     min-width: 360px;
-    max-width: 360px;
 }
 
 .bluetooth-popover contents>box {
@@ -405,7 +422,6 @@
 
 .network-popover {
     min-width: 360px;
-    max-width: 360px;
 }
 
 .network-popover contents>box {
@@ -559,7 +575,6 @@
 
 .audio-popover {
     min-width: 420px;
-    max-width: 420px;
 }
 
 .audio-popover contents>box {
@@ -621,7 +636,7 @@
 }
 
 .audio-popover .device-list {
-    margin-left: 24px;
+    margin-left: 8px;
     margin-top: 4px;
     margin-bottom: 6px;
 }
@@ -650,7 +665,9 @@
 }
 
 .audio-popover .stream-row {
+    margin-top: 6px;
     margin-bottom: 6px;
+    margin-left: 12px;
 }
 
 .audio-popover .stream-name {
@@ -682,7 +699,6 @@
 
 .brightness-popover {
     min-width: 360px;
-    max-width: 360px;
 }
 
 .brightness-popover contents>box {
@@ -734,7 +750,6 @@
 
 .mpris-popover {
     min-width: 520px;
-    max-width: 520px;
 }
 
 .mpris-popover contents>box {
@@ -750,7 +765,6 @@
     border-radius: 12px;
     background: color-mix(in srgb, currentColor 6%, transparent);
     transition: background 150ms ease, opacity 200ms ease;
-    overflow: hidden;
 }
 
 .mpris-popover .mpris-card:hover {
@@ -801,7 +815,6 @@
 
 .session-popover {
     min-width: 240px;
-    max-width: 240px;
 }
 
 .session-popover contents>box {
@@ -851,7 +864,6 @@
 
 .weather-popover {
     min-width: 400px;
-    max-width: 400px;
 }
 
 .weather-popover contents>box {
@@ -987,7 +999,6 @@
 
 .notifications-popover {
     min-width: 540px;
-    max-width: 540px;
     min-height: 600px;
 }
 
@@ -1248,7 +1259,6 @@
     font-weight: 600;
     opacity: 0.6;
     padding: 8px;
-    text-align: center;
 }
 
 /* pager */
