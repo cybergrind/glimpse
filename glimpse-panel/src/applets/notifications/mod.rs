@@ -1,3 +1,4 @@
+mod activation;
 mod applet;
 mod config;
 mod popover;

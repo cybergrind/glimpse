@@ -10,6 +10,8 @@ use relm4::{
 };
 use serde::Deserialize;
 
+use super::activation::{invoke_action_params, startup_notify_token};
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct NotifData {
     pub id: u32,
@@ -527,7 +529,7 @@ impl NotificationsPopover {
                     spawn_call(
                         &c,
                         "notifications.invoke_action",
-                        serde_json::json!({"id": nid, "action_key": k}),
+                        invoke_action_params(nid, &k, None),
                     );
                 });
                 actions_box.append(&action_btn);
@@ -542,12 +544,17 @@ impl NotificationsPopover {
             gesture.set_button(1);
             let c = self.client.clone();
             let id = notif.id;
+            let desktop_entry = notif.desktop_entry.clone();
             gesture.connect_pressed(move |g, _, _, _| {
                 g.set_state(gtk::EventSequenceState::Claimed);
                 spawn_call(
                     &c,
                     "notifications.invoke_action",
-                    serde_json::json!({"id": id, "action_key": "default"}),
+                    invoke_action_params(
+                        id,
+                        "default",
+                        startup_notify_token(desktop_entry.as_deref(), g.current_event_time()),
+                    ),
                 );
             });
             card.add_controller(gesture);

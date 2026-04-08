@@ -7,6 +7,7 @@ use glimpse_client::Client;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use relm4::gtk::{self, glib, prelude::*};
 
+use super::activation::{invoke_action_params, startup_notify_token};
 use super::popover::NotifData;
 
 struct PopupCard {
@@ -284,7 +285,7 @@ impl NotificationPopup {
                         let _ = cc
                             .call(
                                 "notifications.invoke_action",
-                                serde_json::json!({"id": nid, "action_key": kk}),
+                                invoke_action_params(nid, &kk, None),
                             )
                             .await;
                     });
@@ -305,6 +306,7 @@ impl NotificationPopup {
         let id = notif.id;
         let on_mark_seen = self.on_mark_seen.clone();
         let has_default = notif.actions.iter().any(|(k, _)| k == "default");
+        let desktop_entry = notif.desktop_entry.clone();
         let cards = self.cards.clone();
         let card_box = self.card_box.clone();
         let window = self.window.clone();
@@ -313,11 +315,13 @@ impl NotificationPopup {
             on_mark_seen(id);
             if has_default {
                 let cc = c.clone();
+                let activation_token =
+                    startup_notify_token(desktop_entry.as_deref(), g.current_event_time());
                 glib::spawn_future_local(async move {
                     let _ = cc
                         .call(
                             "notifications.invoke_action",
-                            serde_json::json!({"id": id, "action_key": "default"}),
+                            invoke_action_params(id, "default", activation_token),
                         )
                         .await;
                 });

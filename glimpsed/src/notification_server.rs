@@ -33,6 +33,7 @@ pub enum NotifyMessage {
     InvokeAction {
         id: u32,
         action_key: String,
+        activation_token: Option<String>,
         reply: tokio::sync::oneshot::Sender<anyhow::Result<serde_json::Value>>,
     },
     SetDnd {
@@ -299,10 +300,26 @@ pub async fn run(
                         emit(&notifications, &history, dnd, &broker_tx);
                         let _ = reply.send(Ok(serde_json::json!(null)));
                     }
-                    NotifyMessage::InvokeAction { id, action_key, reply } => {
+                    NotifyMessage::InvokeAction { id, action_key, activation_token, reply } => {
                         tracing::info!(id, action_key, "invoking action");
                         let signal_emitter = iface_ref.signal_emitter();
-                        let _ = NotificationServer::action_invoked(signal_emitter, id, &action_key).await;
+                        for signal in signal_plan_for_action(activation_token, &action_key) {
+                            match signal {
+                                PendingSignal::ActivationToken(token) => {
+                                    let _ = NotificationServer::activation_token(
+                                        signal_emitter,
+                                        id,
+                                        &token,
+                                    )
+                                    .await;
+                                }
+                                PendingSignal::ActionInvoked(action_key) => {
+                                    let _ =
+                                        NotificationServer::action_invoked(signal_emitter, id, &action_key)
+                                            .await;
+                                }
+                            }
+                        }
                         let resident = notifications.get(&id)
                             .and_then(|n| n["resident"].as_bool())
                             .unwrap_or(false);

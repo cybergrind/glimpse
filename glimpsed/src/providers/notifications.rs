@@ -110,12 +110,15 @@ impl NotificationsProvider {
                             let _ = reply.send(Err(anyhow::anyhow!("missing 'action_key'")));
                             return;
                         };
+                        let activation_token =
+                            params["activation_token"].as_str().map(ToOwned::to_owned);
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         let _ = self
                             .server_tx
                             .send(NotifyMessage::InvokeAction {
                                 id: id as u32,
                                 action_key: action_key.to_owned(),
+                                activation_token,
                                 reply: tx,
                             })
                             .await;
@@ -251,6 +254,46 @@ mod tests {
                 let _ = reply.send(Ok(serde_json::json!(null)));
             }
             _ => panic!("expected SetDnd"),
+        }
+
+        handle.await.unwrap();
+        assert!(reply_rx.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn invoke_action_forwards_optional_activation_token() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let provider = NotificationsProvider { server_tx: tx };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        let handle = tokio::spawn(async move {
+            provider
+                .handle_request(ProviderRequest::Call {
+                    method: "notifications.invoke_action".into(),
+                    params: serde_json::json!({
+                        "id": 7,
+                        "action_key": "default",
+                        "activation_token": "token-123",
+                    }),
+                    reply: reply_tx,
+                })
+                .await;
+        });
+
+        let msg = rx.recv().await.unwrap();
+        match msg {
+            NotifyMessage::InvokeAction {
+                id,
+                action_key,
+                activation_token,
+                reply,
+            } => {
+                assert_eq!(id, 7);
+                assert_eq!(action_key, "default");
+                assert_eq!(activation_token.as_deref(), Some("token-123"));
+                let _ = reply.send(Ok(serde_json::json!(null)));
+            }
+            _ => panic!("expected InvokeAction"),
         }
 
         handle.await.unwrap();
