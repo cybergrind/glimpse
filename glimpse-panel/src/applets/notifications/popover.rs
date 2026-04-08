@@ -10,7 +10,7 @@ use relm4::{
 };
 use serde::Deserialize;
 
-use super::activation::{invoke_action_params, startup_notify_token};
+use super::activation::{invoke_action_params, invoke_default_action};
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct NotifData {
@@ -545,17 +545,16 @@ impl NotificationsPopover {
             let c = self.client.clone();
             let id = notif.id;
             let desktop_entry = notif.desktop_entry.clone();
+            let app_name = notif.app_name.clone();
             gesture.connect_pressed(move |g, _, _, _| {
                 g.set_state(gtk::EventSequenceState::Claimed);
-                spawn_call(
-                    &c,
-                    "notifications.invoke_action",
-                    invoke_action_params(
-                        id,
-                        "default",
-                        startup_notify_token(desktop_entry.as_deref(), g.current_event_time()),
-                    ),
-                );
+                let cc = c.clone();
+                let desktop_entry = desktop_entry.clone();
+                let app_name = app_name.clone();
+                let timestamp = g.current_event_time();
+                glib::spawn_future_local(async move {
+                    invoke_default_action(cc, id, desktop_entry, app_name, timestamp).await;
+                });
             });
             card.add_controller(gesture);
         }

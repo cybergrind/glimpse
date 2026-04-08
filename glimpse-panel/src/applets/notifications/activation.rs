@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
+use glimpse_client::Client;
 use relm4::gtk::{gdk, gio, prelude::*};
+
+use crate::applets::pager::compositor::focus_notification_target;
 
 pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Option<String> {
     let display = gdk::Display::default()?;
@@ -25,6 +30,26 @@ pub fn invoke_action_params(
         params["activation_token"] = serde_json::Value::String(token);
     }
     params
+}
+
+pub async fn invoke_default_action(
+    client: Arc<Client>,
+    id: u32,
+    desktop_entry: Option<String>,
+    app_name: String,
+    timestamp: u32,
+) {
+    let activation_token = startup_notify_token(desktop_entry.as_deref(), timestamp);
+    if activation_token.is_none() {
+        let _ = focus_notification_target(desktop_entry.as_deref(), &app_name).await;
+    }
+
+    let _ = client
+        .call(
+            "notifications.invoke_action",
+            invoke_action_params(id, "default", activation_token),
+        )
+        .await;
 }
 
 #[cfg(test)]
