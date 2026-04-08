@@ -91,12 +91,11 @@ pub fn create_applet(
     tracing::debug!(name, applet_type, "creating applet");
     match applet_type {
         "audio" => {
-            let client = client.clone()?;
             let config: audio::AudioConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = audio::Audio::builder()
-                .launch(audio::AudioInit { config, client })
+                .launch(audio::AudioInit { config })
                 .detach();
             Some(AppletController::Audio(applet))
         }

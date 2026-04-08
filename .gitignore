@@ -18,4 +18,7 @@ node_modules
 dist/
 frameworks/custom-applet/sdk-go/stateful_counter
 .superpowers
-var
+var/
+!var/sysstats/
+!var/sysstats/**
+var/sysstats/sysstats-applet

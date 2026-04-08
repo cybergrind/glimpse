@@ -26,11 +26,16 @@ type Applet[S any] interface {
 }
 
 type BaseApplet[S any] struct {
-	state S
+	mu      sync.RWMutex
+	state   S
+	updates chan struct{}
 }
 
 func NewBaseApplet[S any](state S) BaseApplet[S] {
-	return BaseApplet[S]{state: state}
+	return BaseApplet[S]{
+		state:   state,
+		updates: make(chan struct{}, 1),
+	}
 }
 
 func (a *BaseApplet[S]) State() *S {
@@ -38,7 +43,23 @@ func (a *BaseApplet[S]) State() *S {
 }
 
 func (a *BaseApplet[S]) SetState(patch func(*S)) {
+	a.mu.Lock()
 	patch(&a.state)
+	a.mu.Unlock()
+	select {
+	case a.updates <- struct{}{}:
+	default:
+	}
+}
+
+func (a *BaseApplet[S]) Snapshot() S {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.state
+}
+
+func (a *BaseApplet[S]) Updates() <-chan struct{} {
+	return a.updates
 }
 
 type Runtime[S any] struct {
@@ -68,41 +89,96 @@ func (r *Runtime[S]) Run(ctx context.Context) error {
 		return err
 	}
 
+	eventCh := make(chan incomingMessage)
+	scanErrCh := make(chan error, 1)
+	go r.scanInput(ctx, eventCh, scanErrCh)
+
+	var updates <-chan struct{}
+	if notifier, ok := r.applet.(interface{ Updates() <-chan struct{} }); ok {
+		updates = notifier.Updates()
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err, ok := <-scanErrCh:
+			if ok && err != nil {
+				return err
+			}
+			scanErrCh = nil
+			eventCh = nil
+			if updates == nil {
+				return nil
+			}
+		case msg, ok := <-eventCh:
+			if !ok {
+				eventCh = nil
+				if scanErrCh == nil && updates == nil {
+					return nil
+				}
+				continue
+			}
+			switch msg.Type {
+			case "init":
+				event, err := parseInitEvent(msg.Data)
+				if err != nil {
+					return err
+				}
+				if err := r.applet.OnInit(ctx, event); err != nil {
+					return err
+				}
+			case "callback":
+				event, err := parseCallbackEvent(msg.Data)
+				if err != nil {
+					return err
+				}
+				if err := r.applet.OnCallback(ctx, event); err != nil {
+					return err
+				}
+			default:
+				continue
+			}
+			if err := r.flush(ctx); err != nil {
+				return err
+			}
+		case <-updates:
+			if err := r.flush(ctx); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (r *Runtime[S]) scanInput(
+	ctx context.Context,
+	eventCh chan<- incomingMessage,
+	errCh chan<- error,
+) {
+	defer close(eventCh)
+	defer close(errCh)
+
 	scanner := bufio.NewScanner(r.reader)
 	for scanner.Scan() {
-		line := scanner.Bytes()
+		line := append([]byte(nil), scanner.Bytes()...)
 		if len(line) == 0 {
 			continue
 		}
 		var msg incomingMessage
 		if err := json.Unmarshal(line, &msg); err != nil {
-			return err
+			errCh <- err
+			return
 		}
-		switch msg.Type {
-		case "init":
-			event, err := parseInitEvent(msg.Data)
-			if err != nil {
-				return err
-			}
-			if err := r.applet.OnInit(ctx, event); err != nil {
-				return err
-			}
-		case "callback":
-			event, err := parseCallbackEvent(msg.Data)
-			if err != nil {
-				return err
-			}
-			if err := r.applet.OnCallback(ctx, event); err != nil {
-				return err
-			}
-		default:
-			continue
-		}
-		if err := r.flush(ctx); err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return
+		case eventCh <- msg:
 		}
 	}
-	return scanner.Err()
+
+	if err := scanner.Err(); err != nil {
+		errCh <- err
+	}
 }
 
 func (r *Runtime[S]) flush(ctx context.Context) error {

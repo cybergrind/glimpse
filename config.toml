@@ -15,6 +15,10 @@ timezones = [
     {name="Tbilisi", timezone="Asia/Tbilisi"}
 ]
 
+[applets.sysinfo]
+extends = "exec"
+command = "/home/alex/projects/glimpse/var/sysstats/sysstats-applet"
+
 [applets.weather]
 extends = "weather"
 city_name = "Warsaw"

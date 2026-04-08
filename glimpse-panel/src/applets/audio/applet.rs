@@ -1,40 +1,36 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::providers::audio::{AudioEvent, AudioProvider, AudioStream, DeviceList, volume_icon};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, glib, prelude::*},
 };
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::config::AudioConfig;
-use super::popover::{AudioInput, AudioOutput, AudioStream, Popover, PopoverInit, PopoverInput};
+use super::popover::{AudioPopover, AudioPopoverInit, AudioPopoverInput};
 
 pub struct Audio {
     config: AudioConfig,
-    client: Arc<Client>,
     icon_name: String,
     label: String,
     tooltip: String,
     volume: u32,
     muted: bool,
     mic_muted: bool,
-    outputs: Vec<AudioOutput>,
-    popover: Controller<Popover>,
+    visible: bool,
+    popover: Controller<AudioPopover>,
 }
 
 pub struct AudioInit {
     pub config: AudioConfig,
-    pub client: Arc<Client>,
 }
 
 #[derive(Debug)]
 pub enum AudioMsg {
-    StatusUpdate(serde_json::Value),
-    OutputsUpdate(Vec<AudioOutput>),
-    InputsUpdate(Vec<AudioInput>),
-    StreamsUpdate(Vec<AudioStream>),
+    OutputsChanged(DeviceList),
+    InputsChanged(DeviceList),
+    StreamsChanged(Vec<AudioStream>),
     Scroll(f64),
-    ShiftScroll(f64),
     TogglePopover,
     ToggleMute,
     Unavailable,
@@ -54,6 +50,8 @@ impl Component for Audio {
             add_css_class: "applet",
             add_css_class: "audio",
             #[watch]
+            set_visible: model.visible,
+            #[watch]
             set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
 
             add_controller = gtk::GestureClick {
@@ -70,17 +68,11 @@ impl Component for Audio {
                 }
             },
 
-
             add_controller = gtk::EventControllerScroll::new(
-                gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::HORIZONTAL
+                gtk::EventControllerScrollFlags::VERTICAL
             ) {
-                connect_scroll[sender] => move |_ctrl, dx, dy| {
-                    if dx != 0.0 {
-                        // Horizontal scroll (shift+scroll on Wayland) → switch device.
-                        sender.input(AudioMsg::ShiftScroll(dx));
-                    } else {
-                        sender.input(AudioMsg::Scroll(dy));
-                    }
+                connect_scroll[sender] => move |_, _dx, dy| {
+                    sender.input(AudioMsg::Scroll(dy));
                     glib::Propagation::Stop
                 }
             },
@@ -98,7 +90,7 @@ impl Component for Audio {
                 set_pixel_size: 16,
                 add_css_class: "mic-muted-indicator",
                 #[watch]
-                set_visible: model.mic_muted,
+                set_visible: model.config.show_mic_indicator && model.mic_muted,
             },
 
             gtk::Label {
@@ -116,83 +108,47 @@ impl Component for Audio {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let popover = Popover::builder()
-            .launch(PopoverInit {
+        let popover = AudioPopover::builder()
+            .launch(AudioPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
                 config: init.config.clone(),
             })
             .detach();
 
         let model = Audio {
             config: init.config,
-            client: init.client.clone(),
             icon_name: "audio-volume-muted-symbolic".into(),
             label: String::new(),
             tooltip: String::new(),
             volume: 0,
             muted: false,
             mic_muted: false,
-            outputs: Vec::new(),
+            visible: false,
             popover,
         };
 
-        let client = init.client;
-        sender.command(move |out, shutdown| {
+        sender.command(|out, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("audio applet: subscribing");
-                    let mut status_sub = match client.subscribe("audio.status").await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("audio: subscribe failed: {e}");
-                            let _ = out.send(AudioMsg::Unavailable);
-                            return;
+                    let cancel = CancellationToken::new();
+                    let (tx, mut rx) = mpsc::channel::<AudioEvent>(8);
+                    tokio::spawn({
+                        let cancel = cancel.clone();
+                        async move {
+                            if let Err(e) = AudioProvider::new().run(tx, cancel).await {
+                                tracing::error!("audio provider: {e}");
+                            }
                         }
-                    };
-                    let mut outputs_sub = client.subscribe("audio.outputs").await.ok();
-                    let mut inputs_sub = client.subscribe("audio.inputs").await.ok();
-                    let mut streams_sub = client.subscribe("audio.streams").await.ok();
-
-                    loop {
-                        tokio::select! {
-                            Some(ev) = status_sub.next() => {
-                                let _ = out.send(AudioMsg::StatusUpdate(ev.data));
-                            }
-                            Some(ev) = async {
-                                match &mut outputs_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                if let Ok(outputs) = serde_json::from_value(ev.data) {
-                                    let _ = out.send(AudioMsg::OutputsUpdate(outputs));
-                                }
-                            }
-                            Some(ev) = async {
-                                match &mut inputs_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                if let Ok(inputs) = serde_json::from_value(ev.data) {
-                                    let _ = out.send(AudioMsg::InputsUpdate(inputs));
-                                }
-                            }
-                            Some(ev) = async {
-                                match &mut streams_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                if let Ok(streams) = serde_json::from_value(ev.data) {
-                                    let _ = out.send(AudioMsg::StreamsUpdate(streams));
-                                }
-                            }
-                            else => break,
-                        }
+                    });
+                    while let Some(event) = rx.recv().await {
+                        let msg = match event {
+                            AudioEvent::OutputsChanged(list) => AudioMsg::OutputsChanged(list),
+                            AudioEvent::InputsChanged(list) => AudioMsg::InputsChanged(list),
+                            AudioEvent::StreamsChanged(s) => AudioMsg::StreamsChanged(s),
+                            AudioEvent::Unavailable => AudioMsg::Unavailable,
+                        };
+                        let _ = out.send(msg);
                     }
-                    let _ = out.send(AudioMsg::Unavailable);
                 })
                 .drop_on_shutdown()
         });
@@ -212,105 +168,64 @@ impl Component for Audio {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            AudioMsg::StatusUpdate(data) => {
-                tracing::info!(volume = %data["volume"], muted = %data["muted"], "audio applet: status update");
-                self.volume = data["volume"].as_u64().unwrap_or(0) as u32;
-                self.muted = data["muted"].as_bool().unwrap_or(false);
-                self.icon_name = data["icon_name"]
-                    .as_str()
-                    .unwrap_or("audio-volume-muted-symbolic")
-                    .to_owned();
-
-                let device = data["default_output"].as_str().unwrap_or("");
-
-                self.label = if self.config.label_format.is_empty() {
-                    String::new()
-                } else {
-                    self.config
-                        .label_format
-                        .replace("{volume}", &self.volume.to_string())
-                        .replace("{device}", device)
-                };
-
-                self.tooltip = if self.config.tooltip_format.is_empty() {
-                    String::new()
-                } else {
-                    self.config
-                        .tooltip_format
-                        .replace("{volume}", &self.volume.to_string())
-                        .replace("{device}", device)
-                        .trim_end_matches([' ', ',', '-', '—'])
-                        .to_owned()
-                };
-
-                self.popover.emit(PopoverInput::UpdateStatus {
-                    icon: self.icon_name.clone(),
-                    description: device.to_owned(),
-                    volume: self.volume,
-                    muted: self.muted,
-                });
+            AudioMsg::OutputsChanged(outputs) => {
+                if let Some(d) = outputs.default_device() {
+                    self.volume = d.volume;
+                    self.muted = d.muted;
+                    self.icon_name = volume_icon(d.volume, d.muted).to_owned();
+                    self.visible = true;
+                    self.label = format_label(&self.config.label_format, d.volume, &d.description);
+                    self.tooltip =
+                        format_label(&self.config.tooltip_format, d.volume, &d.description);
+                }
+                self.popover.emit(AudioPopoverInput::UpdateOutputs(outputs));
             }
-            AudioMsg::OutputsUpdate(outputs) => {
-                self.outputs = outputs.clone();
-                self.popover.emit(PopoverInput::UpdateOutputs(outputs));
+            AudioMsg::InputsChanged(inputs) => {
+                self.mic_muted = inputs.default_device().map(|d| d.muted).unwrap_or(false);
+                self.popover.emit(AudioPopoverInput::UpdateInputs(inputs));
             }
-            AudioMsg::InputsUpdate(inputs) => {
-                self.mic_muted = inputs
-                    .iter()
-                    .find(|i| i.is_default)
-                    .map(|i| i.muted)
-                    .unwrap_or(false);
-                self.popover.emit(PopoverInput::UpdateInputs(inputs));
-            }
-            AudioMsg::StreamsUpdate(streams) => {
-                self.popover.emit(PopoverInput::UpdateStreams(streams));
+            AudioMsg::StreamsChanged(streams) => {
+                self.popover.emit(AudioPopoverInput::UpdateStreams(streams));
             }
             AudioMsg::Scroll(dy) => {
                 let step = self.config.scroll_step as i64;
                 let max = self.config.max_volume as i64;
                 let delta = if dy > 0.0 { -step } else { step };
                 let new_vol = (self.volume as i64 + delta).clamp(0, max) as u32;
-                let client = self.client.clone();
                 glib::spawn_future_local(async move {
-                    let _ = client
-                        .call("audio.set_volume", serde_json::json!({"volume": new_vol}))
-                        .await;
-                });
-            }
-            AudioMsg::ShiftScroll(dy) => {
-                // Cycle output device.
-                if self.outputs.len() < 2 {
-                    return;
-                }
-                let current_idx = self.outputs.iter().position(|o| o.is_default).unwrap_or(0);
-                let next_idx = if dy > 0.0 {
-                    (current_idx + 1) % self.outputs.len()
-                } else {
-                    (current_idx + self.outputs.len() - 1) % self.outputs.len()
-                };
-                let name = self.outputs[next_idx].name.clone();
-                let client = self.client.clone();
-                glib::spawn_future_local(async move {
-                    let _ = client
-                        .call(
-                            "audio.set_default_output",
-                            serde_json::json!({"name": name}),
-                        )
-                        .await;
+                    if let Err(e) = AudioProvider::new()
+                        .set_volume("@DEFAULT_SINK@", new_vol)
+                        .await
+                    {
+                        tracing::warn!("audio: set_volume: {e}");
+                    }
                 });
             }
             AudioMsg::TogglePopover => {
-                self.popover.emit(PopoverInput::Toggle);
+                self.popover.emit(AudioPopoverInput::Toggle);
             }
             AudioMsg::ToggleMute => {
-                let client = self.client.clone();
                 glib::spawn_future_local(async move {
-                    let _ = client.call("audio.set_mute", serde_json::json!({})).await;
+                    if let Err(e) = AudioProvider::new().toggle_mute("@DEFAULT_SINK@").await {
+                        tracing::warn!("audio: toggle_mute: {e}");
+                    }
                 });
             }
             AudioMsg::Unavailable => {
-                tracing::warn!("audio applet: daemon unavailable");
+                tracing::warn!("audio applet: pactl not available");
+                self.visible = false;
             }
         }
     }
+}
+
+fn format_label(template: &str, volume: u32, device: &str) -> String {
+    if template.is_empty() {
+        return String::new();
+    }
+    template
+        .replace("{volume}", &volume.to_string())
+        .replace("{device}", device)
+        .trim_end_matches([' ', ',', '-', '—'])
+        .to_owned()
 }

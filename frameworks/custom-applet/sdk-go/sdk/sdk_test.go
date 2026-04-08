@@ -1,10 +1,15 @@
 package sdk
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"strings"
 	"testing"
+	"time"
 )
 
 type demoState struct {
@@ -116,4 +121,91 @@ func TestSetStateUpdatesRenderedStatus(t *testing.T) {
 
 func ptr[T any](value T) *T {
 	return &value
+}
+
+type asyncDemoApplet struct {
+	BaseApplet[demoState]
+}
+
+func newAsyncDemoApplet() *asyncDemoApplet {
+	return &asyncDemoApplet{
+		BaseApplet: NewBaseApplet(demoState{Version: "v1"}),
+	}
+}
+
+func (a *asyncDemoApplet) OnStart(context.Context) error {
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		a.SetState(func(state *demoState) {
+			state.Version = "v2"
+		})
+	}()
+	return nil
+}
+
+func (a *asyncDemoApplet) OnInit(context.Context, InitEvent) error { return nil }
+func (a *asyncDemoApplet) OnCallback(context.Context, CallbackEvent) error { return nil }
+
+func (a *asyncDemoApplet) Render(context.Context) (RenderResult, error) {
+	return RenderResult{
+		Status: []StatusItem{
+			{ID: "demo", Icon: IconName("demo-symbolic"), Text: a.State().Version},
+		},
+	}, nil
+}
+
+func TestRuntimeFlushesWhenStateChangesWithoutInput(t *testing.T) {
+	inputReader, inputWriter := io.Pipe()
+	defer inputWriter.Close()
+	outputReader, outputWriter := io.Pipe()
+	defer outputReader.Close()
+
+	runtime := NewRuntime[demoState](newAsyncDemoApplet(), inputReader, outputWriter)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.Run(ctx)
+	}()
+
+	scanner := bufio.NewScanner(outputReader)
+	var sawV1 bool
+	var sawV2 bool
+	deadline := time.After(500 * time.Millisecond)
+
+	for !sawV2 {
+		select {
+		case <-deadline:
+			t.Fatalf("expected async state update to flush output; sawV1=%v sawV2=%v", sawV1, sawV2)
+		default:
+		}
+
+		if !scanner.Scan() {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		line := scanner.Text()
+		if !strings.Contains(line, "\"type\":\"status\"") {
+			continue
+		}
+		if strings.Contains(line, "\"text\":\"v1\"") {
+			sawV1 = true
+		}
+		if strings.Contains(line, "\"text\":\"v2\"") {
+			sawV2 = true
+		}
+	}
+
+	cancel()
+	inputWriter.Close()
+	outputWriter.Close()
+
+	err := <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("runtime returned unexpected error: %v", err)
+	}
+	if !sawV1 {
+		t.Fatal("expected initial render before async update")
+	}
 }

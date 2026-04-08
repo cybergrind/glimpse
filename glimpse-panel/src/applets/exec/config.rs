@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 fn default_restart_delay_ms() -> u64 {
     10_000

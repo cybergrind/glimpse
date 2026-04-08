@@ -5,10 +5,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use super::degraded::{DegradedWarning, DegradedWarningInput};
-use super::details::{BatteryDetails, BatteryDetailsInput};
-use super::hero::{BatteryHero, BatteryHeroInput};
-use super::profiles::{PowerProfileList, PowerProfileListInit, PowerProfileListInput};
+use super::components::degraded::{DegradedWarning, DegradedWarningInput};
+use super::components::details::{BatteryDetails, BatteryDetailsInput};
+use super::components::hero::{BatteryHero, BatteryHeroInput};
+use super::components::profiles::{PowerProfileList, PowerProfileListInit, PowerProfileListInput};
 
 pub struct BatteryPopover {
     popover: gtk::Popover,
@@ -93,7 +93,13 @@ impl SimpleComponent for BatteryPopover {
 
         root.set_child(Some(&vbox));
 
-        let model = BatteryPopover { popover: root.clone(), hero, details, profiles, degraded };
+        let model = BatteryPopover {
+            popover: root.clone(),
+            hero,
+            details,
+            profiles,
+            degraded,
+        };
         ComponentParts { model, widgets: () }
     }
 
@@ -111,7 +117,9 @@ impl SimpleComponent for BatteryPopover {
                 self.details.emit(BatteryDetailsInput::Update(status));
             }
             BatteryPopoverInput::UpdateProfiles(profiles) => {
-                self.degraded.emit(DegradedWarningInput::Update(profiles.performance_degraded.clone()));
+                self.degraded.emit(DegradedWarningInput::Update(
+                    profiles.performance_degraded.clone(),
+                ));
                 self.profiles.emit(PowerProfileListInput::Update(profiles));
             }
         }
