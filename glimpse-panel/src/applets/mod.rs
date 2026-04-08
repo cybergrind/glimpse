@@ -105,7 +105,11 @@ pub fn create_applet(
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = bluetooth::Bluetooth::builder()
-                .launch(bluetooth::BluetoothInit { config, client })
+                .launch(bluetooth::BluetoothInit {
+                    config,
+                    conn: system.clone(),
+                    client,
+                })
                 .detach();
             Some(AppletController::Bluetooth(applet))
         }
