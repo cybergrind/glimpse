@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use futures_util::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use zbus::zvariant::OwnedValue;
 
-use crate::dbus::DbusPropertyGroup;
+use crate::dbus::login1::Login1ManagerProxy;
+use crate::dbus::power_profiles::PowerProfilesDaemonProxy;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct PowerProfiles {
@@ -30,13 +28,15 @@ pub enum PowerEvent {
 }
 
 pub struct PowerProvider {
+    conn: zbus::Connection,
     profiles: PowerProfiles,
     actions: PowerActions,
 }
 
 impl PowerProvider {
-    pub fn new() -> Self {
+    pub fn new(conn: zbus::Connection) -> Self {
         Self {
+            conn,
             profiles: PowerProfiles::default(),
             actions: PowerActions::default(),
         }
@@ -44,38 +44,25 @@ impl PowerProvider {
 
     pub async fn run(
         &mut self,
-        conn: zbus::Connection,
         events: mpsc::Sender<PowerEvent>,
         cancel: CancellationToken,
     ) -> anyhow::Result<()> {
-        let logind = DbusPropertyGroup::new(
-            &conn,
-            "org.freedesktop.login1",
-            "/org/freedesktop/login1",
-            "org.freedesktop.login1.Manager",
-        )
-        .await?;
+        let logind = Login1ManagerProxy::new(&self.conn).await?;
 
         self.actions = PowerActions {
-            can_suspend: logind.call("CanSuspend", &()).await.unwrap_or_default(),
-            can_hibernate: logind.call("CanHibernate", &()).await.unwrap_or_default(),
-            can_reboot: logind.call("CanReboot", &()).await.unwrap_or_default(),
-            can_poweroff: logind.call("CanPowerOff", &()).await.unwrap_or_default(),
+            can_suspend: logind.can_suspend().await.unwrap_or_default(),
+            can_hibernate: logind.can_hibernate().await.unwrap_or_default(),
+            can_reboot: logind.can_reboot().await.unwrap_or_default(),
+            can_poweroff: logind.can_power_off().await.unwrap_or_default(),
         };
         let _ = events
             .send(PowerEvent::ActionsChanged(self.actions.clone()))
             .await;
 
-        let profiles_proxy = DbusPropertyGroup::new(
-            &conn,
-            "net.hadess.PowerProfiles",
-            "/net/hadess/PowerProfiles",
-            "net.hadess.PowerProfiles",
-        )
-        .await;
+        let pp = PowerProfilesDaemonProxy::new(&self.conn).await;
 
-        if let Ok(ref pp) = profiles_proxy {
-            read_profiles(&mut self.profiles, pp).await;
+        if let Ok(ref pp) = pp {
+            self.read_profiles(pp).await;
             tracing::info!(
                 active = %self.profiles.active,
                 available = ?self.profiles.available,
@@ -88,8 +75,8 @@ impl PowerProvider {
             tracing::warn!("power: power-profiles-daemon not available");
         }
 
-        let mut profile_changes = match &profiles_proxy {
-            Ok(pp) => Some(pp.stream_changes().await?),
+        let mut profile_changes = match &pp {
+            Ok(pp) => Some(pp.receive_active_profile_changed().await),
             Err(_) => None,
         };
 
@@ -102,8 +89,8 @@ impl PowerProvider {
                         None => std::future::pending().await,
                     }
                 } => {
-                    if let Ok(ref pp) = profiles_proxy {
-                        read_profiles(&mut self.profiles, pp).await;
+                    if let Ok(ref pp) = pp {
+                        self.read_profiles(pp).await;
                         if events.send(PowerEvent::ProfilesChanged(self.profiles.clone())).await.is_err() {
                             break;
                         }
@@ -114,82 +101,56 @@ impl PowerProvider {
 
         Ok(())
     }
-}
 
-async fn read_profiles(profiles: &mut PowerProfiles, pp: &DbusPropertyGroup) {
-    profiles.active = pp.get("ActiveProfile").await.unwrap_or_default();
-    profiles.performance_degraded = pp.get("PerformanceDegraded").await.unwrap_or_default();
+    pub async fn set_profile(&self, profile: &str) -> anyhow::Result<()> {
+        let pp = PowerProfilesDaemonProxy::new(&self.conn).await?;
+        pp.set_active_profile(profile)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 
-    let raw: Vec<HashMap<String, OwnedValue>> = pp.get("Profiles").await.unwrap_or_default();
-    profiles.available = raw
-        .iter()
-        .filter_map(|d| {
-            d.get("Profile").and_then(|v| {
-                use zbus::zvariant::Value;
-                match &**v {
-                    Value::Str(s) => Some(s.to_string()),
-                    _ => None,
-                }
+    pub async fn suspend(&self) -> anyhow::Result<()> {
+        self.logind().await?.suspend(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn hibernate(&self) -> anyhow::Result<()> {
+        self.logind().await?.hibernate(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn reboot(&self) -> anyhow::Result<()> {
+        self.logind().await?.reboot(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn poweroff(&self) -> anyhow::Result<()> {
+        self.logind().await?.power_off(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn lock(&self) -> anyhow::Result<()> {
+        self.logind().await?.lock_sessions().await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn logind(&self) -> anyhow::Result<Login1ManagerProxy<'_>> {
+        Login1ManagerProxy::new(&self.conn)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn read_profiles(&mut self, pp: &PowerProfilesDaemonProxy<'_>) {
+        self.profiles.active = pp.active_profile().await.unwrap_or_default();
+        self.profiles.performance_degraded = pp.performance_degraded().await.unwrap_or_default();
+
+        let raw = pp.profiles().await.unwrap_or_default();
+        self.profiles.available = raw
+            .iter()
+            .filter_map(|d| {
+                d.get("Profile").and_then(|v| {
+                    use zbus::zvariant::Value;
+                    match &**v {
+                        Value::Str(s) => Some(s.to_string()),
+                        _ => None,
+                    }
+                })
             })
-        })
-        .collect();
-}
-
-pub async fn set_profile(conn: &zbus::Connection, profile: &str) -> anyhow::Result<()> {
-    let pp = DbusPropertyGroup::new(
-        conn,
-        "net.hadess.PowerProfiles",
-        "/net/hadess/PowerProfiles",
-        "net.hadess.PowerProfiles",
-    )
-    .await?;
-    pp.set("ActiveProfile", profile.to_owned())
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
-}
-
-pub async fn suspend(conn: &zbus::Connection) -> anyhow::Result<()> {
-    logind_action(conn, "Suspend").await
-}
-
-pub async fn hibernate(conn: &zbus::Connection) -> anyhow::Result<()> {
-    logind_action(conn, "Hibernate").await
-}
-
-pub async fn reboot(conn: &zbus::Connection) -> anyhow::Result<()> {
-    logind_action(conn, "Reboot").await
-}
-
-pub async fn poweroff(conn: &zbus::Connection) -> anyhow::Result<()> {
-    logind_action(conn, "PowerOff").await
-}
-
-pub async fn lock(conn: &zbus::Connection) -> anyhow::Result<()> {
-    let logind = DbusPropertyGroup::new(
-        conn,
-        "org.freedesktop.login1",
-        "/org/freedesktop/login1",
-        "org.freedesktop.login1.Manager",
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-    logind
-        .call_void("LockSessions", &())
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
-}
-
-async fn logind_action(conn: &zbus::Connection, method: &str) -> anyhow::Result<()> {
-    let logind = DbusPropertyGroup::new(
-        conn,
-        "org.freedesktop.login1",
-        "/org/freedesktop/login1",
-        "org.freedesktop.login1.Manager",
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-    logind
-        .call_void(method, &(false,))
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect();
+    }
 }

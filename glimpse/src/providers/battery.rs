@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use zbus::zvariant::OwnedObjectPath;
 
-use crate::dbus::DbusPropertyGroup;
+use crate::dbus::upower::{UPowerDeviceProxy, UPowerProxy};
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -100,13 +100,15 @@ pub enum BatteryEvent {
 }
 
 pub struct BatteryProvider {
+    conn: zbus::Connection,
     status: BatteryStatus,
     devices: Vec<BatteryDevice>,
 }
 
 impl BatteryProvider {
-    pub fn new() -> Self {
+    pub fn new(conn: zbus::Connection) -> Self {
         Self {
+            conn,
             status: BatteryStatus::default(),
             devices: Vec::new(),
         }
@@ -114,48 +116,38 @@ impl BatteryProvider {
 
     pub async fn run(
         &mut self,
-        conn: zbus::Connection,
         events: mpsc::Sender<BatteryEvent>,
         cancel: CancellationToken,
     ) -> anyhow::Result<()> {
-        let upower = DbusPropertyGroup::new(
-            &conn,
-            "org.freedesktop.UPower",
-            "/org/freedesktop/UPower",
-            "org.freedesktop.UPower",
-        )
-        .await?;
+        let upower = UPowerProxy::new(&self.conn).await?;
 
-        let on_battery: bool = upower.get("OnBattery").await.unwrap_or(false);
-        let device_paths: Vec<OwnedObjectPath> = upower.call("EnumerateDevices", &()).await?;
+        let on_battery = upower.on_battery().await.unwrap_or(false);
+        let device_paths = upower.enumerate_devices().await?;
         tracing::info!(
             devices = device_paths.len(),
             on_battery,
             "battery: enumerating UPower devices"
         );
 
-        let mut battery_path: Option<String> = None;
+        let mut battery_path: Option<OwnedObjectPath> = None;
         self.devices.clear();
 
         for path in &device_paths {
-            let dev = DbusPropertyGroup::new(
-                &conn,
-                "org.freedesktop.UPower",
-                path.as_str(),
-                "org.freedesktop.UPower.Device",
-            )
-            .await?;
-            let type_id: u32 = dev.get("Type").await.unwrap_or(0);
+            let dev = UPowerDeviceProxy::builder(&self.conn)
+                .path(path.as_str())?
+                .build()
+                .await?;
+            let type_id = dev.device_type().await.unwrap_or(0);
             if type_id == DeviceType::Battery as u32 && battery_path.is_none() {
-                battery_path = Some(path.to_string());
+                battery_path = Some(path.clone());
             }
             self.devices.push(BatteryDevice {
                 path: path.to_string(),
                 device_type: DeviceType::from(type_id),
-                model: dev.get("Model").await.unwrap_or_default(),
-                percentage: dev.get("Percentage").await.unwrap_or(0.0),
-                state: BatteryState::from(dev.get::<u32>("State").await.unwrap_or(0)),
-                icon_name: dev.get("IconName").await.unwrap_or_default(),
+                model: dev.model().await.unwrap_or_default(),
+                percentage: dev.percentage().await.unwrap_or(0.0),
+                state: BatteryState::from(dev.state().await.unwrap_or(0)),
+                icon_name: dev.icon_name().await.unwrap_or_default(),
             });
         }
 
@@ -173,13 +165,10 @@ impl BatteryProvider {
             return Ok(());
         };
 
-        let bat = DbusPropertyGroup::new(
-            &conn,
-            "org.freedesktop.UPower",
-            &bat_path,
-            "org.freedesktop.UPower.Device",
-        )
-        .await?;
+        let bat = UPowerDeviceProxy::builder(&self.conn)
+            .path(bat_path.as_str())?
+            .build()
+            .await?;
 
         self.read_state(&bat, on_battery).await;
         tracing::info!(
@@ -193,21 +182,24 @@ impl BatteryProvider {
             .send(BatteryEvent::StatusChanged(self.status.clone()))
             .await;
 
-        let mut bat_changes = bat.stream_changes().await?;
-        let mut upower_changes = upower.stream_changes().await?;
+        let bat_props = zbus::fdo::PropertiesProxy::builder(&self.conn)
+            .destination("org.freedesktop.UPower")?
+            .path(bat_path.as_str())?
+            .build()
+            .await?;
+        let mut bat_changes = bat_props.receive_properties_changed().await?;
+        let mut upower_changes = upower.receive_on_battery_changed().await;
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
-                change = bat_changes.next() => {
-                    if change.is_none() { break; }
-                    let on_battery: bool = upower.get("OnBattery").await.unwrap_or(self.status.on_battery);
+                Some(_) = bat_changes.next() => {
+                    let on_battery = upower.on_battery().await.unwrap_or(self.status.on_battery);
                     self.read_state(&bat, on_battery).await;
                     if events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err() { break; }
                 }
-                change = upower_changes.next() => {
-                    if change.is_none() { break; }
-                    let on_battery: bool = upower.get("OnBattery").await.unwrap_or(self.status.on_battery);
+                Some(_) = upower_changes.next() => {
+                    let on_battery = upower.on_battery().await.unwrap_or(self.status.on_battery);
                     self.read_state(&bat, on_battery).await;
                     if events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err() { break; }
                 }
@@ -217,22 +209,22 @@ impl BatteryProvider {
         Ok(())
     }
 
-    async fn read_state(&mut self, bat: &DbusPropertyGroup, on_battery: bool) {
+    async fn read_state(&mut self, bat: &UPowerDeviceProxy<'_>, on_battery: bool) {
         self.status = BatteryStatus {
             present: true,
-            device_type: DeviceType::from(bat.get::<u32>("Type").await.unwrap_or(0)),
-            model: bat.get("Model").await.unwrap_or_default(),
-            percentage: bat.get::<f64>("Percentage").await.unwrap_or(0.0) as u8,
-            state: BatteryState::from(bat.get::<u32>("State").await.unwrap_or(0)),
+            device_type: DeviceType::from(bat.device_type().await.unwrap_or(0)),
+            model: bat.model().await.unwrap_or_default(),
+            percentage: bat.percentage().await.unwrap_or(0.0) as u8,
+            state: BatteryState::from(bat.state().await.unwrap_or(0)),
             icon_name: bat
-                .get("IconName")
+                .icon_name()
                 .await
-                .unwrap_or_else(|| "battery-missing-symbolic".into()),
+                .unwrap_or_else(|_| "battery-missing-symbolic".into()),
             on_battery,
-            time_to_empty: bat.get("TimeToEmpty").await.unwrap_or(0),
-            time_to_full: bat.get("TimeToFull").await.unwrap_or(0),
-            energy_rate: bat.get("EnergyRate").await.unwrap_or(0.0),
-            capacity: bat.get("Capacity").await.unwrap_or(100.0),
+            time_to_empty: bat.time_to_empty().await.unwrap_or(0),
+            time_to_full: bat.time_to_full().await.unwrap_or(0),
+            energy_rate: bat.energy_rate().await.unwrap_or(0.0),
+            capacity: bat.capacity().await.unwrap_or(100.0),
             charge_threshold: get_charge_threshold(),
         };
     }

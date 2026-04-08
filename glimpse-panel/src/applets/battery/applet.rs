@@ -108,8 +108,8 @@ impl Component for Battery {
                         let cancel = cancel.clone();
                         let conn = conn.clone();
                         async move {
-                            let mut provider = BatteryProvider::new();
-                            if let Err(e) = provider.run(conn, bat_tx, cancel).await {
+                            let mut provider = BatteryProvider::new(conn);
+                            if let Err(e) = provider.run(bat_tx, cancel).await {
                                 tracing::error!("battery provider: {e}");
                             }
                         }
@@ -119,8 +119,8 @@ impl Component for Battery {
                     tokio::spawn({
                         let cancel = cancel.clone();
                         async move {
-                            let mut provider = PowerProvider::new();
-                            if let Err(e) = provider.run(conn, pwr_tx, cancel).await {
+                            let mut provider = PowerProvider::new(conn);
+                            if let Err(e) = provider.run(pwr_tx, cancel).await {
                                 tracing::error!("power provider: {e}");
                             }
                         }
@@ -165,7 +165,7 @@ impl Component for Battery {
         self.update(msg, sender, root);
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             BatteryInput::Update(status) => {
                 tracing::info!(pct = status.percentage, state = ?status.state, "battery applet: update");
@@ -196,6 +196,16 @@ impl Component for Battery {
                 self.popover.emit(BatteryPopoverInput::UpdateStatus(status));
             }
             BatteryInput::UpdateProfiles(profiles) => {
+                if profiles.performance_degraded.is_empty() {
+                    root.remove_css_class("degraded");
+                    root.set_tooltip_text(None);
+                } else {
+                    root.add_css_class("degraded");
+                    root.set_tooltip_text(Some(&format!(
+                        "Performance degraded: {}",
+                        profiles.performance_degraded
+                    )));
+                }
                 self.popover
                     .emit(BatteryPopoverInput::UpdateProfiles(profiles));
             }

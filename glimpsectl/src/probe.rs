@@ -57,7 +57,7 @@ async fn run_battery(
     cancel: CancellationToken,
 ) -> anyhow::Result<()> {
     let conn = zbus::Connection::system().await?;
-    let mut provider = BatteryProvider::new();
+    let mut provider = BatteryProvider::new(conn);
     let (event_tx, mut event_rx) = mpsc::channel::<BatteryEvent>(64);
 
     let bridge = tokio::spawn(async move {
@@ -76,7 +76,7 @@ async fn run_battery(
         }
     });
 
-    provider.run(conn, event_tx, cancel).await?;
+    provider.run(event_tx, cancel).await?;
     bridge.await.ok();
     Ok(())
 }
