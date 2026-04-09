@@ -31,6 +31,7 @@ The panel applet becomes a thin Relm4 wrapper that:
 
 - loads typed provider state on startup;
 - renders the popover from that state;
+- receives typed UI intents emitted by the popover;
 - shows Adwaita confirmation dialogs before invoking any action;
 - calls provider methods asynchronously and logs failures without panicking.
 
@@ -63,6 +64,11 @@ The applet root keeps the current overall UX shape, but the data flow changes.
 - Replace `glimpse_client` in `SessionInit` with the system `zbus::Connection`.
 - Construct `SessionActions::with_connection(system_conn)` during applet startup.
 - Load provider snapshot asynchronously and push typed messages back into the component.
+- Own all action orchestration. The applet, not the popover, is responsible for:
+  - confirmation dialog presentation;
+  - provider method calls;
+  - error logging;
+  - closing the popover after confirmed actions.
 
 ### Panel root
 
@@ -86,6 +92,8 @@ Rows should be derived from config plus provider capabilities:
 - provider capabilities decide whether the action is enabled;
 - unavailable actions must never be clickable.
 
+The popover is UI-only. It must not call providers, open dialogs, or perform direct async work. Instead, button clicks emit typed output messages such as "LockRequested", "LogoutRequested", and similar action intents for the applet to handle.
+
 ## Confirmation Dialogs
 
 Every action must display an Adwaita confirmation dialog before execution.
@@ -99,7 +107,7 @@ This includes:
 - Restart
 - Shut Down
 
-The session applet should stop using `gtk::MessageDialog`. Confirmation should be handled through an Adwaita dialog attached to the applet’s UI host/root window so the UX matches the rest of the app’s dialog styling.
+The session applet should stop using `gtk::MessageDialog`. Confirmation should be handled through an Adwaita dialog attached to the applet’s UI host/root window so the UX matches the rest of the app’s dialog styling. The dialog flow belongs to the applet layer; the popover only emits the user's requested action.
 
 Behavior requirements:
 
