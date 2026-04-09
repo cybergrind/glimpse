@@ -113,7 +113,7 @@ fn is_visible_device(dev: &BtDevice) -> bool {
 
 fn looks_like_mac(s: &str) -> bool {
     let s = s.trim();
-    if s.len() < 11 {
+    if s.len() != 17 {
         return false;
     }
     let sep = if s.contains(':') {

@@ -10,8 +10,9 @@ applets = ["pager", "sysinfo", "mpris", "spacer","clock_custom", "weather", "not
 extends = "clock"
 format = "%a %b %d, %H:%M"
 timezones = [
-    {name= "Minsk", timezone= "Europe/Minsk", format= "%H:%M:%S"},
+    {name= "Minsk", timezone= "Europe/Minsk"},
     {name= "St. Gallen", timezone= "Europe/Zurich"},
+    {name="St. Petersburg", timezone="Europe/Moscow"},
     {name="Tbilisi", timezone="Asia/Tbilisi"}
 ]
 
@@ -60,3 +61,6 @@ per_window = true
 extends = "exec"
 command = ["/home/alex/.config/glimpse/bin/custom_applet"]
 restart_delay_ms = 10000
+
+[wallpaper]
+path = "/home/alex/wallpapers/tokyonight-02.jpg"

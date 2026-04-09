@@ -5,25 +5,27 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-gtk4 = { version = "0.8", package = "gtk4" }
-gtk4-layer-shell = { workspace = true }
-relm4 = { workspace = true, features = ["libadwaita"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-toml = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "net", "io-util", "process"] }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-chrono = { workspace = true }
-chrono-tz = { workspace = true }
-uuid = { workspace = true }
-zbus = { workspace = true }
-futures-util = { workspace = true }
-system-tray = { workspace = true }
+dirs.workspace = true
+gtk4.workspace = true
+gtk4-layer-shell.workspace = true
+relm4.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+uuid.workspace = true
+zbus.workspace = true
+futures-util.workspace = true
+system-tray.workspace = true
 glimpse-client = { path = "../glimpse-client" }
 glimpse = { path = "../glimpse" }
-glimpse_types = { package = "glimpse-types", path = "../glimpse-types" }
+glimpse-types = { package = "glimpse-types", path = "../glimpse-types" }
 image = "0.25"
-anyhow = "1"
-notify = { workspace = true }
-notify-debouncer-full = { workspace = true }
+anyhow.workspace = true
+notify.workspace = true
+notify-debouncer-full.workspace = true
+gio.workspace = true

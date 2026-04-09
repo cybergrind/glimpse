@@ -1,4 +1,4 @@
-use glimpse::providers::bluetooth::BluetoothSnapshot;
+use crate::providers::bluetooth::BluetoothSnapshot;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BluetoothPromptId(pub u64);

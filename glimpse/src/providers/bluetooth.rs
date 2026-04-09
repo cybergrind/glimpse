@@ -312,7 +312,15 @@ impl BluetoothDeviceType {
             | Self::Thermometer
             | Self::GlucoseMeter
             | Self::FitnessTracker => "heart-symbolic",
+            Self::Unknown => {
+                if connected {
+                    "bluetooth-active-symbolic"
+                } else {
+                    "bluetooth-symbolic"
+                }
+            }
             _ => {
+                tracing::warn!(device_type = ?self, "bluetooth: no icon mapping for device type, using generic");
                 if connected {
                     "bluetooth-active-symbolic"
                 } else {
@@ -497,7 +505,8 @@ impl BluetoothProvider {
                     .with_context(|| format!("failed to read device {path_str}"))?;
 
                 if device.address.is_empty() {
-                    bail!("device at {path_str} has no address");
+                    tracing::debug!(path = %path_str, "bluetooth: skipping transient device without address");
+                    continue;
                 }
 
                 devices.push(device);
@@ -937,10 +946,7 @@ impl BluetoothProvider {
     }
 
     async fn read_device(&self, path: &str, has_battery: bool) -> anyhow::Result<BluetoothDevice> {
-        let proxy = Device1Proxy::builder(&self.conn)
-            .path(path)?
-            .build()
-            .await?;
+        let proxy = self.device_proxy(path).await?;
         let address = proxy.address().await.unwrap_or_default();
         let alias = proxy.alias().await.unwrap_or_default();
         let icon = proxy.icon().await.unwrap_or_default();

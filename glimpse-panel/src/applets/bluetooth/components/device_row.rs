@@ -93,7 +93,7 @@ impl DeviceRow {
             });
         }
 
-        let menu = build_menu(dev.connected, dev.paired);
+        let menu = build_menu(dev.connected, dev.paired, dev.trusted);
         let popover_menu = gtk::PopoverMenu::from_model(Some(&menu));
         popover_menu.set_parent(&btn);
         popover_menu.set_has_arrow(false);
@@ -146,7 +146,7 @@ impl DeviceRow {
         apply_tooltip(&self.button, dev);
         apply_battery(&self.battery_label, dev.battery);
 
-        let menu = build_menu(dev.connected, dev.paired);
+        let menu = build_menu(dev.connected, dev.paired, dev.trusted);
         self.popover_menu.set_menu_model(Some(&menu));
 
         if self.connecting.get()
@@ -167,7 +167,7 @@ impl DeviceRow {
     }
 }
 
-fn build_menu(connected: bool, paired: bool) -> gtk::gio::Menu {
+fn build_menu(connected: bool, paired: bool, trusted: bool) -> gtk::gio::Menu {
     let menu = gtk::gio::Menu::new();
     if connected {
         menu.append(Some("Disconnect"), Some("bt.disconnect"));
@@ -176,6 +176,10 @@ fn build_menu(connected: bool, paired: bool) -> gtk::gio::Menu {
     }
     if !paired {
         menu.append(Some("Pair"), Some("bt.pair"));
+    } else if trusted {
+        menu.append(Some("Untrust"), Some("bt.untrust"));
+    } else {
+        menu.append(Some("Trust"), Some("bt.trust"));
     }
     menu.append(Some("Forget"), Some("bt.forget"));
     menu
@@ -194,6 +198,8 @@ fn setup_actions(
         ("disconnect", BluetoothDeviceAction::Disconnect),
         ("connect", BluetoothDeviceAction::Connect),
         ("pair", BluetoothDeviceAction::Pair),
+        ("trust", BluetoothDeviceAction::Trust(true)),
+        ("untrust", BluetoothDeviceAction::Trust(false)),
     ] {
         let addr = address.to_owned();
         let dev_name = name.to_owned();
@@ -274,6 +280,7 @@ fn action_observed_complete(action: BluetoothDeviceAction, dev: &BtDevice) -> bo
         BluetoothDeviceAction::Connect => dev.connected,
         BluetoothDeviceAction::Disconnect => !dev.connected,
         BluetoothDeviceAction::Pair => dev.paired,
+        BluetoothDeviceAction::Trust(trusted) => dev.trusted == trusted,
         BluetoothDeviceAction::Forget => !dev.paired && !dev.trusted,
     }
 }
@@ -349,6 +356,14 @@ mod tests {
         assert!(action_observed_complete(
             BluetoothDeviceAction::Pair,
             &device(false, true, true)
+        ));
+        assert!(action_observed_complete(
+            BluetoothDeviceAction::Trust(true),
+            &device(false, true, true)
+        ));
+        assert!(action_observed_complete(
+            BluetoothDeviceAction::Trust(false),
+            &device(false, true, false)
         ));
         assert!(!action_observed_complete(
             BluetoothDeviceAction::Forget,

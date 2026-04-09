@@ -24,6 +24,7 @@ pub enum BluetoothDeviceAction {
     Connect,
     Disconnect,
     Pair,
+    Trust(bool),
     Forget,
 }
 

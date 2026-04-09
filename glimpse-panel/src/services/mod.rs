@@ -1,8 +1,8 @@
-pub mod bluetooth;
+use glimpse::bluetooth::BluetoothServiceHandle;
 
 #[derive(Clone)]
 pub struct ServicesHandle {
-    pub bluetooth: bluetooth::BluetoothServiceHandle,
+    pub bluetooth: BluetoothServiceHandle,
 }
 
 pub struct Services {
@@ -11,7 +11,7 @@ pub struct Services {
 
 impl Services {
     pub fn new(system: zbus::Connection) -> Self {
-        let bluetooth = bluetooth::BluetoothServiceHandle::new_placeholder(system);
+        let bluetooth = BluetoothServiceHandle::new(system);
         Self {
             handle: ServicesHandle { bluetooth },
         }
