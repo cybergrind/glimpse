@@ -6,8 +6,7 @@ use relm4::{
 };
 
 use super::components::{
-    BluetoothCommand, BluetoothCommandSender, BluetoothPromptId, BluetoothPromptReply,
-    device_list::DeviceList, hero::BluetoothHero,
+    BluetoothCommand, BluetoothCommandSender, device_list::DeviceList, hero::BluetoothHero,
 };
 
 pub use super::components::{BluetoothDeviceAction, BtDevice};
@@ -30,7 +29,6 @@ pub enum BluetoothPopoverInput {
     UpdateDevices(Vec<BtDevice>),
     FinishDeviceAction { address: String },
     SetActivity(Option<String>),
-    SetConfirmPrompt(Option<(BluetoothPromptId, u32, String)>),
 }
 
 #[derive(Debug, Clone)]
@@ -42,10 +40,6 @@ pub enum BluetoothPopoverOutput {
         address: String,
         name: String,
         action: BluetoothDeviceAction,
-    },
-    PromptReply {
-        id: BluetoothPromptId,
-        reply: BluetoothPromptReply,
     },
 }
 
@@ -90,10 +84,6 @@ impl SimpleComponent for BluetoothPopover {
                     name,
                     action,
                 });
-            }
-            BluetoothCommand::PromptReply { id, reply } => {
-                tracing::info!(prompt_id = id.0, "bluetooth popover: prompt reply");
-                let _ = output.output(BluetoothPopoverOutput::PromptReply { id, reply });
             }
         });
 
@@ -156,10 +146,7 @@ impl SimpleComponent for BluetoothPopover {
                     self.popover.popup();
                 }
             }
-            BluetoothPopoverInput::UpdateStatus {
-                powered,
-                discovering,
-            } => {
+            BluetoothPopoverInput::UpdateStatus { powered, discovering } => {
                 self.hero.update_status(powered, discovering);
             }
             BluetoothPopoverInput::UpdateDevices(devices) => {
@@ -171,9 +158,6 @@ impl SimpleComponent for BluetoothPopover {
             }
             BluetoothPopoverInput::SetActivity(activity) => {
                 self.hero.set_activity(activity);
-            }
-            BluetoothPopoverInput::SetConfirmPrompt(prompt) => {
-                self.hero.set_confirm_prompt(prompt);
             }
         }
     }

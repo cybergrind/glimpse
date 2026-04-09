@@ -1,9 +1,10 @@
+use adw::prelude::{AdwDialogExt, AlertDialogExt};
 use glimpse::{
     bluetooth::{
         BluetoothServiceHandle,
         protocol::{
-            BluetoothActiveAction, BluetoothPrompt, BluetoothPromptKind,
-            BluetoothServiceCommand, BluetoothServiceState,
+            BluetoothActiveAction, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
+            BluetoothPromptReply, BluetoothServiceCommand, BluetoothServiceState,
         },
     },
     providers::bluetooth::{BluetoothDevice, BluetoothSnapshot},
@@ -23,6 +24,7 @@ pub struct Bluetooth {
     tooltip: String,
     service: BluetoothServiceHandle,
     active_device: Option<String>,
+    active_prompt_id: Option<BluetoothPromptId>,
     popover: Controller<BluetoothPopover>,
 }
 
@@ -37,6 +39,7 @@ pub enum BluetoothMsg {
     PopoverOutput(BluetoothPopoverOutput),
     TogglePopover,
     Unavailable,
+    PromptReply { id: BluetoothPromptId, reply: BluetoothPromptReply },
 }
 
 #[relm4::component(pub)]
@@ -86,6 +89,7 @@ impl Component for Bluetooth {
             tooltip: "Bluetooth".into(),
             service: init.service.clone(),
             active_device: None,
+            active_prompt_id: None,
             popover,
         };
 
@@ -123,7 +127,7 @@ impl Component for Bluetooth {
         self.update(msg, sender, root);
     }
 
-    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             BluetoothMsg::ServiceState(state) => {
                 let powered = state.snapshot.status.powered;
@@ -162,7 +166,7 @@ impl Component for Bluetooth {
                 });
                 self.popover
                     .emit(BluetoothPopoverInput::UpdateDevices(popover_devices(state.snapshot.clone())));
-                self.sync_activity(&state);
+                self.sync_activity(&state, &sender, root);
             }
             BluetoothMsg::PopoverOutput(output) => {
                 self.handle_popover_output(output, sender);
@@ -172,6 +176,10 @@ impl Component for Bluetooth {
             }
             BluetoothMsg::Unavailable => {
                 tracing::warn!("bluetooth applet: bluetooth service unavailable");
+            }
+            BluetoothMsg::PromptReply { id, reply } => {
+                tracing::info!(prompt_id = id.0, "bluetooth applet: prompt reply");
+                self.send_command(sender, BluetoothServiceCommand::PromptReply { id, reply });
             }
         }
     }
@@ -200,10 +208,6 @@ impl Bluetooth {
                 tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action requested");
                 self.send_command(sender, command_for_device_action(action, address));
             }
-            BluetoothPopoverOutput::PromptReply { id, reply } => {
-                tracing::info!(prompt_id = id.0, "bluetooth applet: prompt reply");
-                self.send_command(sender, BluetoothServiceCommand::PromptReply { id, reply });
-            }
         }
     }
 
@@ -220,7 +224,12 @@ impl Bluetooth {
         });
     }
 
-    fn sync_activity(&mut self, state: &BluetoothServiceState) {
+    fn sync_activity(
+        &mut self,
+        state: &BluetoothServiceState,
+        sender: &ComponentSender<Self>,
+        root: &gtk::Box,
+    ) {
         let next_active_device = active_device_address(state.active_action.as_ref());
 
         if let Some(previous) = self.active_device.take() {
@@ -233,20 +242,19 @@ impl Bluetooth {
 
         if let Some(prompt) = state.prompt.as_ref() {
             if let BluetoothPromptKind::Confirm { passkey } = &prompt.kind {
-                self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(Some((
-                    prompt.id,
-                    *passkey,
-                    prompt.device_label.clone(),
-                ))));
+                if self.active_prompt_id != Some(prompt.id) {
+                    self.active_prompt_id = Some(prompt.id);
+                    self.show_confirm_dialog(root, sender, prompt.id, *passkey, prompt.device_label.clone());
+                }
                 self.popover.emit(BluetoothPopoverInput::SetActivity(None));
             } else {
-                self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(None));
+                self.active_prompt_id = None;
                 self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
                     prompt_activity_status(prompt, &state.snapshot),
                 )));
             }
         } else {
-            self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(None));
+            self.active_prompt_id = None;
             if state.active_action.is_some() {
                 self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
                     service_activity_status(state),
@@ -257,6 +265,41 @@ impl Bluetooth {
         }
 
         self.active_device = next_active_device;
+    }
+
+    fn show_confirm_dialog(
+        &self,
+        root: &gtk::Box,
+        sender: &ComponentSender<Self>,
+        id: BluetoothPromptId,
+        passkey: u32,
+        device_label: String,
+    ) {
+        let dialog = adw::AlertDialog::new(
+            Some("Confirm Bluetooth Pairing"),
+            Some(&format!(
+                "Confirm pairing with {}?\n\nPasskey: {:06}",
+                device_label, passkey
+            )),
+        );
+        dialog.add_response("reject", "Reject");
+        dialog.add_response("confirm", "Confirm");
+        dialog.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("reject", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("confirm"));
+        dialog.set_close_response("reject");
+
+        let sender = sender.clone();
+        dialog.connect_response(None, move |_, response| {
+            let reply = if response == "confirm" {
+                BluetoothPromptReply::Confirm
+            } else {
+                BluetoothPromptReply::Cancel
+            };
+            sender.input(BluetoothMsg::PromptReply { id, reply });
+        });
+
+        dialog.present(Some(root));
     }
 }
 

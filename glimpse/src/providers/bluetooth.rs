@@ -297,7 +297,7 @@ impl BluetoothDeviceType {
             | Self::Handheld
             | Self::Pda
             | Self::WearableComputer => "computer-symbolic",
-            Self::Display | Self::VideoMonitor | Self::VideoConferencing => {
+            Self::Display | Self::VideoMonitor | Self::VideoConferencing | Self::SetTopBox => {
                 "video-display-symbolic"
             }
             Self::Watch | Self::Wearable | Self::Glasses | Self::Jacket | Self::Helmet => {
