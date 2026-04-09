@@ -77,11 +77,12 @@ mod tests {
 
     #[test]
     fn bluetooth_prompt_protocol_roundtrip() {
+        let prompt_id = BluetoothPromptId(7);
         let state = BluetoothServiceState {
             health: BluetoothServiceHealth::Starting,
             snapshot: BluetoothSnapshot::default(),
             prompt: Some(BluetoothPrompt {
-                id: BluetoothPromptId(7),
+                id: prompt_id,
                 device_path: "/org/bluez/hci0/dev_AA_BB".into(),
                 device_label: "Headphones".into(),
                 kind: BluetoothPromptKind::RequestPin,
@@ -90,8 +91,20 @@ mod tests {
         };
 
         let cloned = state.clone();
+        let reply = BluetoothPromptReply::Pin("1234".into());
+        let command = BluetoothServiceCommand::PromptReply {
+            id: cloned.prompt.as_ref().unwrap().id,
+            reply: reply.clone(),
+        };
 
         assert_eq!(cloned.prompt.as_ref().unwrap().id.0, 7);
         assert_eq!(cloned, state);
+        assert_eq!(
+            command,
+            BluetoothServiceCommand::PromptReply {
+                id: prompt_id,
+                reply,
+            }
+        );
     }
 }
