@@ -3,6 +3,7 @@ mod applets;
 mod config;
 mod panels;
 mod providers;
+mod services;
 use config::Config;
 use relm4::RelmApp;
 use tracing_subscriber::EnvFilter;

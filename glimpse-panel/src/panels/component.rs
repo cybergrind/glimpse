@@ -11,6 +11,7 @@ use glimpse_client::Client;
 use crate::{
     applets::{AppletController, create_applet},
     config::{AppletConfig, PanelConfig, PanelPosition},
+    services::ServicesHandle,
 };
 
 pub struct Panel {
@@ -23,6 +24,7 @@ pub struct Init {
     pub dbus: zbus::Connection,
     pub system: zbus::Connection,
     pub client: Option<Arc<Client>>,
+    pub services: ServicesHandle,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
 
@@ -64,7 +66,14 @@ impl SimpleComponent for Panel {
             let config = init.applet_configs.get(name);
             tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
             if let Some(applet) =
-                create_applet(config, name, init.dbus.clone(), init.system.clone(), init.client.clone())
+                create_applet(
+                    config,
+                    name,
+                    init.dbus.clone(),
+                    init.system.clone(),
+                    init.client.clone(),
+                    init.services.clone(),
+                )
             {
                 hbox.append(&applet.widget());
                 applets.push(applet);

@@ -30,6 +30,7 @@ use crate::{
         exec::{Exec, ExecConfig, ExecInit},
     },
     config::AppletConfig,
+    services::ServicesHandle,
 };
 use spacer::Spacer;
 
@@ -83,6 +84,7 @@ pub fn create_applet(
     dbus: zbus::Connection,
     system: zbus::Connection,
     client: Option<Arc<Client>>,
+    _services: ServicesHandle,
 ) -> Option<AppletController> {
     let applet_type = applet_config
         .map(|c| c.extends.as_str())

@@ -10,7 +10,12 @@ use relm4::{
 
 use glimpse_client::Client;
 
-use crate::{config::Config, panels, providers::dbus::DbusProvider};
+use crate::{
+    config::Config,
+    panels,
+    providers::dbus::DbusProvider,
+    services::{Services, ServicesHandle},
+};
 
 pub struct App {
     config: Config,
@@ -18,6 +23,7 @@ pub struct App {
     panels: Vec<Controller<panels::Panel>>,
     dbus: DbusProvider,
     client: Option<Arc<Client>>,
+    services: ServicesHandle,
 }
 
 #[derive(Debug)]
@@ -67,6 +73,7 @@ impl SimpleComponent for App {
         watch_for_config_changes(sender.clone());
 
         let dbus = DbusProvider::connect();
+        let services = Services::new(dbus.system.clone());
 
         let client = match tokio::runtime::Handle::current().block_on(Client::connect()) {
             Ok(c) => Some(Arc::new(c)),
@@ -76,7 +83,13 @@ impl SimpleComponent for App {
             }
         };
 
-        let panels = setup_panels(&config, dbus.session.clone(), dbus.system.clone(), client.clone());
+        let panels = setup_panels(
+            &config,
+            dbus.session.clone(),
+            dbus.system.clone(),
+            client.clone(),
+            services.handle.clone(),
+        );
 
         let model = App {
             panels,
@@ -84,6 +97,7 @@ impl SimpleComponent for App {
             config,
             dbus,
             client,
+            services: services.handle,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -100,6 +114,7 @@ impl SimpleComponent for App {
                     self.dbus.session.clone(),
                     self.dbus.system.clone(),
                     self.client.clone(),
+                    self.services.clone(),
                 );
                 self.config = new_config;
             }
@@ -115,6 +130,7 @@ fn setup_panels(
     dbus: zbus::Connection,
     system: zbus::Connection,
     client: Option<Arc<Client>>,
+    services: ServicesHandle,
 ) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
     for panel_config in &config.panels {
@@ -124,6 +140,7 @@ fn setup_panels(
             dbus: dbus.clone(),
             system: system.clone(),
             client: client.clone(),
+            services: services.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();
         panels.push(panel);
