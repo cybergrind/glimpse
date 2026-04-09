@@ -107,7 +107,11 @@ impl SimpleComponent for BluetoothPopover {
             btn.connect_clicked(move |_| {
                 let parts: Vec<&str> = cmd.split_whitespace().collect();
                 if let Some((&prog, args)) = parts.split_first() {
-                    let _ = std::process::Command::new(prog).args(args).spawn();
+                    if let Ok(mut child) = std::process::Command::new(prog).args(args).spawn() {
+                        std::thread::spawn(move || {
+                            let _ = child.wait();
+                        });
+                    }
                 }
             });
             body.append(&btn);

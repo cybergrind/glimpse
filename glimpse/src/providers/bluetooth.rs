@@ -613,7 +613,7 @@ impl BluetoothProvider {
                 }, if debounce_deadline.is_some() => {
                     let reason = pending_reason.take().unwrap_or(BluetoothChangeReason::Mixed);
                     debounce_deadline = None;
-                    tracing::info!(reason = %reason, "bluetooth: change event emitted");
+                    tracing::debug!(reason = %reason, "bluetooth: change event emitted");
                     if events.send(BluetoothProviderEvent::Changed { reason }).await.is_err() {
                         tracing::info!("bluetooth: listener receiver dropped");
                         break;
@@ -722,86 +722,82 @@ impl BluetoothProvider {
     }
 
     pub async fn start_discovery(&self) -> anyhow::Result<()> {
-        let previous = {
+        let needs_bluez_call = {
             let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-            let previous = *discovery;
-            if !discovery.start_popover() {
-                tracing::debug!("bluetooth: start discovery skipped; popover session already active");
-                return Ok(());
-            }
-            previous
+            discovery.start_popover()
         };
 
-        if let Err(error) = self.raw_start_discovery().await {
-            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
-            return Err(error);
+        if needs_bluez_call {
+            if let Err(error) = self.raw_start_discovery().await {
+                let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+                discovery.popover = false;
+                return Err(error);
+            }
+        } else {
+            tracing::debug!("bluetooth: popover discovery claimed (already active)");
         }
 
         Ok(())
     }
 
     pub async fn stop_discovery(&self) -> anyhow::Result<()> {
-        let (previous, stop_calls) = {
+        let needs_bluez_call = {
             let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-            let previous = *discovery;
-            let stop_calls = discovery.close_popover();
-            if stop_calls == 0 {
-                tracing::debug!("bluetooth: stop discovery skipped; no active sessions");
-                return Ok(());
-            }
-            (previous, stop_calls)
+            discovery.close_popover()
         };
 
-        if let Err(error) = self.raw_stop_discovery(stop_calls).await {
-            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
-            return Err(error);
+        if needs_bluez_call {
+            if let Err(error) = self.raw_stop_discovery_once().await {
+                tracing::warn!(error = %error, "bluetooth: stop discovery failed");
+                return Err(error);
+            }
+            tracing::info!("bluetooth: discovery stopped");
+        } else {
+            tracing::debug!("bluetooth: stop discovery skipped; no active sessions");
         }
 
         Ok(())
     }
 
     async fn begin_initial_discovery(&self) -> Option<tokio::time::Instant> {
-        let previous = {
+        let needs_bluez_call = {
             let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-            let previous = *discovery;
-            if !discovery.start_initial() {
-                return Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW);
-            }
-            previous
+            discovery.start_initial()
         };
 
-        match self.raw_start_discovery().await {
-            Ok(()) => {
-                tracing::info!(
-                    seconds = INITIAL_DISCOVERY_WINDOW.as_secs(),
-                    "bluetooth: initial discovery window started"
-                );
-                Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW)
+        if needs_bluez_call {
+            match self.raw_start_discovery().await {
+                Ok(()) => {
+                    tracing::info!(
+                        seconds = INITIAL_DISCOVERY_WINDOW.as_secs(),
+                        "bluetooth: initial discovery window started"
+                    );
+                }
+                Err(error) => {
+                    let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+                    discovery.initial = false;
+                    tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
+                    return None;
+                }
             }
-            Err(error) => {
-                *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
-                tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
-                None
-            }
+        } else {
+            tracing::debug!("bluetooth: initial discovery claimed (already active)");
         }
+
+        Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW)
     }
 
     async fn finish_initial_discovery(&self) -> anyhow::Result<()> {
-        let (previous, stop_calls) = {
+        let needs_bluez_call = {
             let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-            let previous = *discovery;
-            let stop_calls = discovery.finish_initial();
-            (previous, stop_calls)
+            discovery.finish_initial()
         };
 
-        if stop_calls == 0 {
-            tracing::debug!("bluetooth: initial discovery already cancelled");
-            return Ok(());
-        }
-
-        if let Err(error) = self.raw_stop_discovery(stop_calls).await {
-            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
-            return Err(error);
+        if needs_bluez_call {
+            self.raw_stop_discovery_once().await?;
+            tracing::info!("bluetooth: initial discovery stopped");
+        } else {
+            tracing::debug!("bluetooth: initial discovery ended; popover still active");
         }
 
         Ok(())
@@ -831,28 +827,20 @@ impl BluetoothProvider {
         Ok(())
     }
 
-    async fn raw_stop_discovery(&self, stop_calls: u8) -> anyhow::Result<()> {
+    async fn raw_stop_discovery_once(&self) -> anyhow::Result<()> {
         let adapter_paths = self.adapter_paths().await?;
         if adapter_paths.is_empty() {
-            tracing::info!("bluetooth: stop discovery skipped; no adapters found");
+            tracing::debug!("bluetooth: stop discovery skipped; no adapters found");
             return Ok(());
         }
 
-        tracing::info!(
-            adapters = adapter_paths.len(),
-            stop_calls,
-            "bluetooth: stop discovery requested"
-        );
-
-        for _ in 0..stop_calls {
-            for path in &adapter_paths {
-                let proxy = self.adapter_proxy(path).await?;
-                proxy
-                    .stop_discovery()
-                    .await
-                    .with_context(|| format!("failed to stop discovery on {path}"))?;
-                tracing::debug!(path = %path, "bluetooth: discovery stopped on adapter");
-            }
+        for path in &adapter_paths {
+            let proxy = self.adapter_proxy(path).await?;
+            proxy
+                .stop_discovery()
+                .await
+                .with_context(|| format!("failed to stop discovery on {path}"))?;
+            tracing::debug!(path = %path, "bluetooth: discovery stopped on adapter");
         }
 
         Ok(())
@@ -985,27 +973,34 @@ impl BluetoothProvider {
             .await
             .context("failed to read BlueZ managed objects for device lookup")?;
 
-        for (path, interfaces) in objects {
-            if !interfaces.contains_key("org.bluez.Device1") {
+        for (path, interfaces) in &objects {
+            let Some(props) = interfaces.get("org.bluez.Device1") else {
                 continue;
-            }
+            };
 
-            let path_str = path.to_string();
-            let proxy = self.device_proxy(&path_str).await?;
-            let current_address = proxy.address().await.unwrap_or_default();
+            let current_address = props
+                .get("Address")
+                .and_then(|v| String::try_from(v.clone()).ok())
+                .unwrap_or_default();
             if current_address != address {
                 continue;
             }
 
-            let name = proxy.alias().await.unwrap_or_default();
-            let adapter_path = proxy
-                .adapter()
-                .await
-                .map(|path| path.to_string())
+            let name = props
+                .get("Alias")
+                .and_then(|v| String::try_from(v.clone()).ok())
+                .unwrap_or_default();
+            let adapter_path = props
+                .get("Adapter")
+                .and_then(|v| {
+                    zbus::zvariant::ObjectPath::try_from(v.clone())
+                        .map(|p| p.to_string())
+                        .ok()
+                })
                 .unwrap_or_default();
 
             return Ok(ResolvedDevice {
-                path: path_str,
+                path: path.to_string(),
                 adapter_path,
                 address: current_address,
                 name: if name.is_empty() {
@@ -1034,44 +1029,52 @@ struct DiscoveryClaims {
 }
 
 impl DiscoveryClaims {
+    fn is_active(&self) -> bool {
+        self.initial || self.popover
+    }
+
+    /// Register initial discovery claim. Returns true if BlueZ StartDiscovery
+    /// needs to be called (no other claim was active).
     fn start_initial(&mut self) -> bool {
         if self.initial {
             return false;
         }
+        let was_active = self.is_active();
         self.initial = true;
-        true
+        !was_active
     }
 
+    /// Register popover discovery claim. Returns true if BlueZ StartDiscovery
+    /// needs to be called (no other claim was active).
     fn start_popover(&mut self) -> bool {
         if self.popover {
             return false;
         }
+        let was_active = self.is_active();
         self.popover = true;
-        true
+        !was_active
     }
 
-    fn finish_initial(&mut self) -> u8 {
+    /// Release initial claim. Returns true if BlueZ StopDiscovery needs to
+    /// be called (no claims remain).
+    fn finish_initial(&mut self) -> bool {
         if !self.initial {
-            return 0;
+            return false;
         }
         self.initial = false;
-        1
+        !self.is_active()
     }
 
-    fn close_popover(&mut self) -> u8 {
-        let mut stop_calls = 0;
-
-        if self.popover {
-            self.popover = false;
-            stop_calls += 1;
+    /// Release popover claim (and initial if still active, since the user
+    /// explicitly closed the popover). Returns true if BlueZ StopDiscovery
+    /// needs to be called (no claims remain).
+    fn close_popover(&mut self) -> bool {
+        if !self.popover && !self.initial {
+            return false;
         }
-
-        if self.initial {
-            self.initial = false;
-            stop_calls += 1;
-        }
-
-        stop_calls
+        self.popover = false;
+        self.initial = false;
+        !self.is_active() // always true here, but kept for clarity
     }
 }
 
@@ -1114,24 +1117,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn close_popover_cancels_popover_and_initial_discovery_claims() {
+    fn close_popover_cancels_both_claims_and_needs_stop() {
         let mut claims = DiscoveryClaims {
             initial: true,
             popover: true,
         };
 
-        assert_eq!(claims.close_popover(), 2);
+        assert!(claims.close_popover());
         assert_eq!(claims, DiscoveryClaims::default());
     }
 
     #[test]
-    fn finish_initial_only_releases_initial_claim() {
+    fn close_popover_noop_when_no_claims() {
+        let mut claims = DiscoveryClaims::default();
+        assert!(!claims.close_popover());
+    }
+
+    #[test]
+    fn finish_initial_does_not_stop_when_popover_active() {
         let mut claims = DiscoveryClaims {
             initial: true,
             popover: true,
         };
 
-        assert_eq!(claims.finish_initial(), 1);
+        assert!(!claims.finish_initial());
         assert_eq!(
             claims,
             DiscoveryClaims {
@@ -1139,6 +1148,35 @@ mod tests {
                 popover: true,
             }
         );
+    }
+
+    #[test]
+    fn finish_initial_stops_when_sole_claim() {
+        let mut claims = DiscoveryClaims {
+            initial: true,
+            popover: false,
+        };
+
+        assert!(claims.finish_initial());
+        assert_eq!(claims, DiscoveryClaims::default());
+    }
+
+    #[test]
+    fn start_popover_skips_bluez_when_initial_active() {
+        let mut claims = DiscoveryClaims {
+            initial: true,
+            popover: false,
+        };
+
+        assert!(!claims.start_popover());
+        assert!(claims.popover);
+    }
+
+    #[test]
+    fn start_popover_needs_bluez_when_nothing_active() {
+        let mut claims = DiscoveryClaims::default();
+        assert!(claims.start_popover());
+        assert!(claims.popover);
     }
 
     fn adapter(path: &str, powered: bool, discovering: bool) -> BluetoothAdapter {

@@ -80,6 +80,15 @@ impl DeviceList {
             } else {
                 let row = DeviceRow::new(dev, self.on_command.clone());
                 self.device_box.append(&row.button);
+                if i == 0 {
+                    self.device_box
+                        .reorder_child_after(&row.button, Option::<&gtk::Widget>::None);
+                } else if let Some(prev) = visible.get(i - 1) {
+                    if let Some(prev_row) = self.rows.get(&prev.address) {
+                        self.device_box
+                            .reorder_child_after(&row.button, Some(&prev_row.button));
+                    }
+                }
                 self.rows.insert(dev.address.clone(), row);
             }
         }
