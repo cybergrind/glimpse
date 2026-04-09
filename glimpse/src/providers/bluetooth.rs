@@ -708,6 +708,7 @@ impl BluetoothProvider {
             name = %device.name,
             path = %device.path,
             trusted,
+            action = trust_action(trusted),
             "bluetooth: trust requested"
         );
         let proxy = self.device_proxy(&device.path).await?;
@@ -719,6 +720,8 @@ impl BluetoothProvider {
             address = %device.address,
             name = %device.name,
             trusted,
+            action = trust_action(trusted),
+            status = trust_status(trusted),
             "bluetooth: trust succeeded"
         );
         Ok(())
@@ -1135,6 +1138,22 @@ fn is_bluez_properties_changed(message: &zbus::message::Message) -> bool {
     path.as_str().starts_with("/org/bluez")
 }
 
+fn trust_action(trusted: bool) -> &'static str {
+    if trusted {
+        "trust"
+    } else {
+        "untrust"
+    }
+}
+
+fn trust_status(trusted: bool) -> &'static str {
+    if trusted {
+        "trusted"
+    } else {
+        "untrusted"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1287,6 +1306,14 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn trust_helper_distinguishes_enable_and_disable_semantics() {
+        assert_eq!(trust_action(true), "trust");
+        assert_eq!(trust_action(false), "untrust");
+        assert_eq!(trust_status(true), "trusted");
+        assert_eq!(trust_status(false), "untrusted");
     }
 
     #[test]
