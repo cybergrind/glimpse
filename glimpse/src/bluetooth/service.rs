@@ -92,6 +92,7 @@ async fn run_bluetooth_service(
 ) {
     let provider = BluetoothProvider::new(system.clone());
     let mut attempt = 0u32;
+    let mut open_popovers = OpenPopoverCount::default();
 
     loop {
         attempt += 1;
@@ -103,7 +104,7 @@ async fn run_bluetooth_service(
             };
         });
 
-        match run_connected(system.clone(), provider.clone(), state_tx.clone(), &mut cmd_rx).await {
+        match run_connected(system.clone(), provider.clone(), state_tx.clone(), &mut cmd_rx, &mut open_popovers).await {
             Ok(()) => break,
             Err(error) => {
                 tracing::warn!(error = %error, attempt, "bluetooth service: worker failed");
@@ -123,6 +124,7 @@ async fn run_connected(
     provider: BluetoothProvider,
     state_tx: watch::Sender<BluetoothServiceState>,
     cmd_rx: &mut mpsc::Receiver<BluetoothServiceCommand>,
+    open_popovers: &mut OpenPopoverCount,
 ) -> ServiceResult<()> {
     let (prompt_tx, _) = watch::channel(None);
     let registry = Arc::new(Mutex::new(PromptRegistry::new(prompt_tx)));
@@ -146,9 +148,12 @@ async fn run_connected(
         let cancel = cancel.clone();
         async move { provider.listen(event_tx, cancel).await }
     });
-    let mut open_popovers = OpenPopoverCount::default();
 
     refresh_snapshot(&provider, &state_tx).await?;
+    if open_popovers.has_open_popovers() {
+        tracing::info!("bluetooth service: re-starting discovery after reconnect");
+        provider.start_discovery().await?;
+    }
     let _ = state_tx.send_modify(|state| state.health = BluetoothServiceHealth::Ready);
 
     let result = loop {
@@ -181,7 +186,7 @@ async fn run_connected(
             maybe_command = cmd_rx.recv() => {
                 match maybe_command {
                     Some(command) => {
-                        handle_command(&provider, &registry, &state_tx, &mut open_popovers, command).await?;
+                        handle_command(&provider, &registry, &state_tx, open_popovers, command).await?;
                     }
                     None => break Ok(()),
                 }

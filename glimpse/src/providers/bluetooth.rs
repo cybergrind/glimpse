@@ -765,7 +765,7 @@ impl BluetoothProvider {
         if needs_bluez_call {
             if let Err(error) = self.raw_start_discovery().await {
                 let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-                discovery.popover = false;
+                discovery.rollback_popover();
                 return Err(error);
             }
         } else {
@@ -810,7 +810,7 @@ impl BluetoothProvider {
                 }
                 Err(error) => {
                     let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
-                    discovery.initial = false;
+                    discovery.rollback_initial();
                     tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
                     return None;
                 }
@@ -1107,6 +1107,16 @@ impl DiscoveryClaims {
         self.popover = false;
         self.initial = false;
         !self.is_active() // always true here, but kept for clarity
+    }
+
+    /// Roll back a failed popover start without affecting other claims.
+    fn rollback_popover(&mut self) {
+        self.popover = false;
+    }
+
+    /// Roll back a failed initial start without affecting other claims.
+    fn rollback_initial(&mut self) {
+        self.initial = false;
     }
 }
 
