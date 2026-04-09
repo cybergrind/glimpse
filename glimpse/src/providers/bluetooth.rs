@@ -701,6 +701,29 @@ impl BluetoothProvider {
         Ok(())
     }
 
+    pub async fn trust(&self, address: &str, trusted: bool) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            trusted,
+            "bluetooth: trust requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .set_trusted(trusted)
+            .await
+            .with_context(|| format!("failed to set trust for {}", device.address))?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            trusted,
+            "bluetooth: trust succeeded"
+        );
+        Ok(())
+    }
+
     pub async fn forget(&self, address: &str) -> anyhow::Result<()> {
         let device = self.resolve_device(address).await?;
         tracing::info!(
@@ -1189,14 +1212,14 @@ mod tests {
         }
     }
 
-    fn device(address: &str, connected: bool) -> BluetoothDevice {
+    fn device(address: &str, connected: bool, trusted: bool) -> BluetoothDevice {
         BluetoothDevice {
             address: address.to_owned(),
             name: "Device".into(),
             device_type: BluetoothDeviceType::Unknown,
             paired: true,
             connected,
-            trusted: true,
+            trusted,
             battery: Some(80),
             rssi: Some(-42),
             adapter: "/org/bluez/hci0".into(),
@@ -1211,8 +1234,8 @@ mod tests {
                 adapter("/org/bluez/hci1", false, true),
             ],
             vec![
-                device("AA:BB:CC:DD:EE:FF", true),
-                device("11:22:33:44:55:66", false),
+                device("AA:BB:CC:DD:EE:FF", true, true),
+                device("11:22:33:44:55:66", false, false),
             ],
         );
 
@@ -1223,6 +1246,46 @@ mod tests {
                 discovering: true,
                 connected_count: 1,
             }
+        );
+    }
+
+    #[test]
+    fn snapshot_counts_trusted_device_without_affecting_connected_count() {
+        let snapshot = BluetoothSnapshot::new(
+            vec![adapter("/org/bluez/hci0", true, false)],
+            vec![
+                device("AA:BB:CC:DD:EE:FF", false, true),
+                device("11:22:33:44:55:66", true, false),
+            ],
+        );
+
+        assert_eq!(snapshot.status.connected_count, 1);
+        assert_eq!(
+            snapshot.devices,
+            vec![
+                BluetoothDevice {
+                    address: "11:22:33:44:55:66".into(),
+                    name: "Device".into(),
+                    device_type: BluetoothDeviceType::Unknown,
+                    paired: true,
+                    connected: true,
+                    trusted: false,
+                    battery: Some(80),
+                    rssi: Some(-42),
+                    adapter: "/org/bluez/hci0".into(),
+                },
+                BluetoothDevice {
+                    address: "AA:BB:CC:DD:EE:FF".into(),
+                    name: "Device".into(),
+                    device_type: BluetoothDeviceType::Unknown,
+                    paired: true,
+                    connected: false,
+                    trusted: true,
+                    battery: Some(80),
+                    rssi: Some(-42),
+                    adapter: "/org/bluez/hci0".into(),
+                },
+            ]
         );
     }
 

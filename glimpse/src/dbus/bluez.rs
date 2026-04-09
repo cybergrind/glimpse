@@ -36,6 +36,8 @@ pub trait Device1 {
     fn connected(&self) -> zbus::Result<bool>;
     #[zbus(property)]
     fn trusted(&self) -> zbus::Result<bool>;
+    #[zbus(property)]
+    fn set_trusted(&self, value: bool) -> zbus::Result<()>;
     #[zbus(property, name = "RSSI")]
     fn rssi(&self) -> zbus::Result<i16>;
     #[zbus(property, name = "Class")]
