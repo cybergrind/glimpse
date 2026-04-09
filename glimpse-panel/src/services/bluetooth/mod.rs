@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod agent;
 
 #[derive(Clone)]
 pub struct BluetoothServiceHandle;
