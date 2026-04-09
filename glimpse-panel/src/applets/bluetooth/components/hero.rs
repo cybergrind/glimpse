@@ -3,11 +3,15 @@ use std::rc::Rc;
 
 use relm4::gtk::{self, glib, prelude::*};
 
-use super::{BluetoothCommand, BluetoothCommandSender};
+use super::{BluetoothCommand, BluetoothCommandSender, BluetoothPromptId, BluetoothPromptReply};
 
 pub struct BluetoothHero {
     icon: gtk::Image,
     subtitle: gtk::Label,
+    confirm_box: gtk::Box,
+    passkey_label: gtk::Label,
+    confirm_device_label: gtk::Label,
+    active_prompt_id: Rc<Cell<Option<BluetoothPromptId>>>,
     power_switch: gtk::Switch,
     updating_power: Rc<Cell<bool>>,
     powered: bool,
@@ -39,6 +43,58 @@ impl BluetoothHero {
         subtitle.add_css_class("bt-subtitle");
         title_box.append(&subtitle);
 
+        // Confirm prompt UI — hidden until a Confirm pairing request arrives
+        let confirm_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        confirm_box.set_visible(false);
+
+        let confirm_device_label = gtk::Label::new(None);
+        confirm_device_label.set_halign(gtk::Align::Start);
+        confirm_device_label.add_css_class("bt-subtitle");
+        confirm_box.append(&confirm_device_label);
+
+        let passkey_label = gtk::Label::new(None);
+        passkey_label.set_halign(gtk::Align::Start);
+        passkey_label.add_css_class("bt-passkey");
+        confirm_box.append(&passkey_label);
+
+        let active_prompt_id: Rc<Cell<Option<BluetoothPromptId>>> = Rc::new(Cell::new(None));
+
+        let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        buttons_box.set_margin_top(4);
+
+        let confirm_btn = gtk::Button::with_label("Confirm");
+        confirm_btn.add_css_class("suggested-action");
+        confirm_btn.set_hexpand(true);
+        let on_cmd = on_command.clone();
+        let prompt_id = active_prompt_id.clone();
+        confirm_btn.connect_clicked(move |_| {
+            if let Some(id) = prompt_id.get() {
+                on_cmd(BluetoothCommand::PromptReply {
+                    id,
+                    reply: BluetoothPromptReply::Confirm,
+                });
+            }
+        });
+        buttons_box.append(&confirm_btn);
+
+        let reject_btn = gtk::Button::with_label("Reject");
+        reject_btn.add_css_class("destructive-action");
+        reject_btn.set_hexpand(true);
+        let on_cmd = on_command.clone();
+        let prompt_id = active_prompt_id.clone();
+        reject_btn.connect_clicked(move |_| {
+            if let Some(id) = prompt_id.get() {
+                on_cmd(BluetoothCommand::PromptReply {
+                    id,
+                    reply: BluetoothPromptReply::Reject,
+                });
+            }
+        });
+        buttons_box.append(&reject_btn);
+
+        confirm_box.append(&buttons_box);
+        title_box.append(&confirm_box);
+
         hero.append(&title_box);
 
         let power_switch = gtk::Switch::new();
@@ -60,6 +116,10 @@ impl BluetoothHero {
         let model = Self {
             icon,
             subtitle,
+            confirm_box,
+            passkey_label,
+            confirm_device_label,
+            active_prompt_id,
             power_switch,
             updating_power,
             powered: false,
@@ -99,6 +159,23 @@ impl BluetoothHero {
     pub fn set_activity(&mut self, activity: Option<String>) {
         self.activity = activity;
         self.refresh_subtitle();
+    }
+
+    pub fn set_confirm_prompt(&mut self, prompt: Option<(BluetoothPromptId, u32, String)>) {
+        match prompt {
+            Some((id, passkey, device)) => {
+                self.active_prompt_id.set(Some(id));
+                self.passkey_label.set_label(&format!("{:06}", passkey));
+                self.confirm_device_label.set_label(&device);
+                self.subtitle.set_visible(false);
+                self.confirm_box.set_visible(true);
+            }
+            None => {
+                self.active_prompt_id.set(None);
+                self.confirm_box.set_visible(false);
+                self.subtitle.set_visible(true);
+            }
+        }
     }
 
     fn refresh_subtitle(&self) {

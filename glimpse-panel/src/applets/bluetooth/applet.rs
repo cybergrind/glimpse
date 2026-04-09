@@ -200,6 +200,10 @@ impl Bluetooth {
                 tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action requested");
                 self.send_command(sender, command_for_device_action(action, address));
             }
+            BluetoothPopoverOutput::PromptReply { id, reply } => {
+                tracing::info!(prompt_id = id.0, "bluetooth applet: prompt reply");
+                self.send_command(sender, BluetoothServiceCommand::PromptReply { id, reply });
+            }
         }
     }
 
@@ -228,15 +232,28 @@ impl Bluetooth {
         }
 
         if let Some(prompt) = state.prompt.as_ref() {
-            self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
-                prompt_activity_status(prompt, &state.snapshot),
-            )));
-        } else if state.active_action.is_some() {
-            self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
-                service_activity_status(state),
-            )));
+            if let BluetoothPromptKind::Confirm { passkey } = &prompt.kind {
+                self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(Some((
+                    prompt.id,
+                    *passkey,
+                    prompt.device_label.clone(),
+                ))));
+                self.popover.emit(BluetoothPopoverInput::SetActivity(None));
+            } else {
+                self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(None));
+                self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
+                    prompt_activity_status(prompt, &state.snapshot),
+                )));
+            }
         } else {
-            self.popover.emit(BluetoothPopoverInput::SetActivity(None));
+            self.popover.emit(BluetoothPopoverInput::SetConfirmPrompt(None));
+            if state.active_action.is_some() {
+                self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
+                    service_activity_status(state),
+                )));
+            } else {
+                self.popover.emit(BluetoothPopoverInput::SetActivity(None));
+            }
         }
 
         self.active_device = next_active_device;

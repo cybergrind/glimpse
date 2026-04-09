@@ -6,6 +6,8 @@ use std::rc::Rc;
 
 use serde::Deserialize;
 
+pub use glimpse::bluetooth::protocol::{BluetoothPromptId, BluetoothPromptReply};
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct BtDevice {
     pub address: String,
@@ -35,6 +37,10 @@ pub enum BluetoothCommand {
         address: String,
         name: String,
         action: BluetoothDeviceAction,
+    },
+    PromptReply {
+        id: BluetoothPromptId,
+        reply: BluetoothPromptReply,
     },
 }
 
