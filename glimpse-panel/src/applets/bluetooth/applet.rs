@@ -14,6 +14,7 @@ use super::popover::{
     BluetoothDeviceAction, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput,
     BluetoothPopoverOutput, BtDevice,
 };
+use crate::services::bluetooth::BluetoothServiceHandle;
 
 pub struct Bluetooth {
     icon_name: String,
@@ -25,6 +26,7 @@ pub struct Bluetooth {
 pub struct BluetoothInit {
     pub config: BluetoothConfig,
     pub conn: zbus::Connection,
+    pub service: BluetoothServiceHandle,
 }
 
 #[derive(Debug)]
@@ -92,6 +94,7 @@ impl Component for Bluetooth {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let conn = init.conn;
+        let _service = init.service;
         let (action_tx, mut action_rx) = mpsc::channel::<BluetoothActionRequest>(16);
         let popover = BluetoothPopover::builder()
             .launch(BluetoothPopoverInit {

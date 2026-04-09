@@ -84,7 +84,7 @@ pub fn create_applet(
     dbus: zbus::Connection,
     system: zbus::Connection,
     client: Option<Arc<Client>>,
-    _services: ServicesHandle,
+    services: ServicesHandle,
 ) -> Option<AppletController> {
     let applet_type = applet_config
         .map(|c| c.extends.as_str())
@@ -109,6 +109,7 @@ pub fn create_applet(
                 .launch(bluetooth::BluetoothInit {
                     config,
                     conn: system.clone(),
+                    service: services.bluetooth.clone(),
                 })
                 .detach();
             Some(AppletController::Bluetooth(applet))

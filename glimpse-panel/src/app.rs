@@ -23,7 +23,7 @@ pub struct App {
     panels: Vec<Controller<panels::Panel>>,
     dbus: DbusProvider,
     client: Option<Arc<Client>>,
-    services: ServicesHandle,
+    services: Services,
 }
 
 #[derive(Debug)]
@@ -97,7 +97,7 @@ impl SimpleComponent for App {
             config,
             dbus,
             client,
-            services: services.handle,
+            services,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -114,7 +114,7 @@ impl SimpleComponent for App {
                     self.dbus.session.clone(),
                     self.dbus.system.clone(),
                     self.client.clone(),
-                    self.services.clone(),
+                    self.services.handle.clone(),
                 );
                 self.config = new_config;
             }
