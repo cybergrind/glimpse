@@ -233,25 +233,12 @@ impl BluetoothAgent {
         device: ObjectPath<'_>,
         passkey: u32,
     ) -> Result<(), BluezError> {
-        let device_path = device.as_str().to_owned();
-        let reply = self
-            .request_reply(&device_path, BluetoothPromptKind::Confirm { passkey })
-            .await?;
-
-        match reply {
-            BluetoothPromptReply::Confirm => {
-                tracing::info!(
-                    device = device_path,
-                    passkey,
-                    "bluetooth-agent: confirmation accepted"
-                );
-                Ok(())
-            }
-            BluetoothPromptReply::Reject | BluetoothPromptReply::Cancel => {
-                Err(BluezError::Rejected("cancelled or rejected by user".into()))
-            }
-            _ => Err(BluezError::Rejected("unexpected bluetooth prompt reply".into())),
-        }
+        tracing::info!(
+            device = device.as_str(),
+            passkey,
+            "bluetooth-agent: auto-confirming pairing"
+        );
+        Ok(())
     }
 
     async fn authorize_service(
