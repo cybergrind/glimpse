@@ -37,7 +37,9 @@ pub enum BluetoothMsg {
     DevicesUpdate(Vec<BtDevice>),
     ListenerChanged(BluetoothChangeReason),
     PopoverOutput(BluetoothPopoverOutput),
-    DeviceActionFinished { address: String },
+    DeviceActionFinished {
+        address: String,
+    },
     TogglePopover,
     Unavailable,
 }
@@ -110,7 +112,7 @@ impl Component for Bluetooth {
                 .register(async move {
                     tracing::info!("bluetooth applet: starting provider listener");
                     let cancel = CancellationToken::new();
-                    let provider = BluetoothProvider::new(conn.clone());
+                    let provider = BluetoothProvider::new(conn);
 
                     if let Err(error) = refresh_snapshot(&provider, &out).await {
                         tracing::warn!(error = %error, "bluetooth applet: initial scan failed");
@@ -119,7 +121,7 @@ impl Component for Bluetooth {
                     let (event_tx, mut event_rx) = mpsc::channel::<BluetoothProviderEvent>(16);
                     tokio::spawn({
                         let cancel = cancel.clone();
-                        let provider = BluetoothProvider::new(conn);
+                        let provider = provider.clone();
                         async move {
                             if let Err(error) = provider.listen(event_tx, cancel).await {
                                 tracing::error!(error = %error, "bluetooth applet: listener failed");
@@ -177,7 +179,7 @@ impl Component for Bluetooth {
                 discovering,
                 connected_count,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     powered,
                     discovering,
                     connected_count,
@@ -213,12 +215,13 @@ impl Component for Bluetooth {
                     .emit(BluetoothPopoverInput::UpdateDevices(devices));
             }
             BluetoothMsg::ListenerChanged(reason) => {
-                tracing::info!(reason = %reason, "bluetooth applet: listener event");
+                tracing::debug!(reason = %reason, "bluetooth applet: listener event");
             }
             BluetoothMsg::PopoverOutput(output) => {
                 self.handle_popover_output(output);
             }
             BluetoothMsg::DeviceActionFinished { address } => {
+                self.popover.emit(BluetoothPopoverInput::SetActivity(None));
                 self.popover
                     .emit(BluetoothPopoverInput::FinishDeviceAction { address });
             }
@@ -252,6 +255,9 @@ impl Bluetooth {
                 name,
                 action,
             } => {
+                self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
+                    device_action_status(action, &name),
+                )));
                 tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action requested");
                 queue_action(
                     &self.action_tx,
@@ -263,6 +269,15 @@ impl Bluetooth {
                 );
             }
         }
+    }
+}
+
+fn device_action_status(action: BluetoothDeviceAction, name: &str) -> String {
+    match action {
+        BluetoothDeviceAction::Connect => format!("Connecting {name}..."),
+        BluetoothDeviceAction::Disconnect => format!("Disconnecting {name}..."),
+        BluetoothDeviceAction::Pair => format!("Pairing {name}..."),
+        BluetoothDeviceAction::Forget => format!("Forgetting {name}..."),
     }
 }
 
@@ -304,7 +319,9 @@ async fn handle_action(
         }
         BluetoothActionRequest::SetPowered(powered) => match provider.set_powered(powered).await {
             Ok(()) => tracing::info!(powered, "bluetooth applet: set power succeeded"),
-            Err(error) => tracing::warn!(powered, error = %error, "bluetooth applet: set power failed"),
+            Err(error) => {
+                tracing::warn!(powered, error = %error, "bluetooth applet: set power failed")
+            }
         },
         BluetoothActionRequest::DeviceAction {
             address,
@@ -319,8 +336,12 @@ async fn handle_action(
             };
 
             match result {
-                Ok(()) => tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action succeeded"),
-                Err(error) => tracing::warn!(?action, address = %address, name = %name, error = %error, "bluetooth applet: device action failed"),
+                Ok(()) => {
+                    tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action succeeded")
+                }
+                Err(error) => {
+                    tracing::warn!(?action, address = %address, name = %name, error = %error, "bluetooth applet: device action failed")
+                }
             }
 
             let _ = out.send(BluetoothMsg::DeviceActionFinished { address });

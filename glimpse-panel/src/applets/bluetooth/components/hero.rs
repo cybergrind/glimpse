@@ -11,7 +11,9 @@ pub struct BluetoothHero {
     power_switch: gtk::Switch,
     updating_power: Rc<Cell<bool>>,
     powered: bool,
+    discovering: bool,
     connected_count: u32,
+    activity: Option<String>,
 }
 
 impl BluetoothHero {
@@ -61,14 +63,17 @@ impl BluetoothHero {
             power_switch,
             updating_power,
             powered: false,
+            discovering: false,
             connected_count: 0,
+            activity: None,
         };
 
         (model, hero)
     }
 
-    pub fn update_status(&mut self, powered: bool) {
+    pub fn update_status(&mut self, powered: bool, discovering: bool) {
         self.powered = powered;
+        self.discovering = discovering;
 
         if self.power_switch.is_active() != powered {
             self.updating_power.set(true);
@@ -91,14 +96,56 @@ impl BluetoothHero {
         self.refresh_subtitle();
     }
 
+    pub fn set_activity(&mut self, activity: Option<String>) {
+        self.activity = activity;
+        self.refresh_subtitle();
+    }
+
     fn refresh_subtitle(&self) {
-        let text = if !self.powered {
-            "Off".into()
-        } else if self.connected_count > 0 {
-            format!("On · {} connected", self.connected_count)
-        } else {
-            "On".into()
-        };
+        let text = hero_subtitle_text(
+            self.powered,
+            self.discovering,
+            self.connected_count,
+            self.activity.as_deref(),
+        );
         self.subtitle.set_label(&text);
+    }
+}
+
+fn hero_subtitle_text(
+    powered: bool,
+    discovering: bool,
+    connected_count: u32,
+    activity: Option<&str>,
+) -> String {
+    if let Some(activity) = activity {
+        return activity.to_owned();
+    }
+
+    if !powered {
+        "Off".into()
+    } else if discovering {
+        "Discovering".into()
+    } else if connected_count > 0 {
+        format!("{connected_count} connected")
+    } else {
+        "Ready".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtitle_prefers_activity_then_discovery_then_connection_state() {
+        assert_eq!(
+            hero_subtitle_text(true, true, 2, Some("Pairing Headphones...")),
+            "Pairing Headphones..."
+        );
+        assert_eq!(hero_subtitle_text(true, true, 2, None), "Discovering");
+        assert_eq!(hero_subtitle_text(true, false, 2, None), "2 connected");
+        assert_eq!(hero_subtitle_text(true, false, 0, None), "Ready");
+        assert_eq!(hero_subtitle_text(false, true, 2, None), "Off");
     }
 }

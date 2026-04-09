@@ -28,6 +28,7 @@ pub enum BluetoothPopoverInput {
     UpdateStatus { powered: bool, discovering: bool },
     UpdateDevices(Vec<BtDevice>),
     FinishDeviceAction { address: String },
+    SetActivity(Option<String>),
 }
 
 #[derive(Debug, Clone)]
@@ -146,9 +147,9 @@ impl SimpleComponent for BluetoothPopover {
             }
             BluetoothPopoverInput::UpdateStatus {
                 powered,
-                discovering: _,
+                discovering,
             } => {
-                self.hero.update_status(powered);
+                self.hero.update_status(powered, discovering);
             }
             BluetoothPopoverInput::UpdateDevices(devices) => {
                 let connected_count = self.device_list.update(devices);
@@ -156,6 +157,9 @@ impl SimpleComponent for BluetoothPopover {
             }
             BluetoothPopoverInput::FinishDeviceAction { address } => {
                 self.device_list.finish_action(&address);
+            }
+            BluetoothPopoverInput::SetActivity(activity) => {
+                self.hero.set_activity(activity);
             }
         }
     }

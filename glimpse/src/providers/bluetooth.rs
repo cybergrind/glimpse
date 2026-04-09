@@ -1,4 +1,4 @@
-use std::{fmt, time::Duration};
+use std::{fmt, sync::{Arc, Mutex}, time::Duration};
 
 use anyhow::{Context, bail};
 use futures_util::{StreamExt, future};
@@ -455,13 +455,18 @@ pub enum BluetoothProviderEvent {
     Changed { reason: BluetoothChangeReason },
 }
 
+#[derive(Clone)]
 pub struct BluetoothProvider {
     conn: zbus::Connection,
+    discovery: Arc<Mutex<DiscoveryClaims>>,
 }
 
 impl BluetoothProvider {
     pub fn new(conn: zbus::Connection) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            discovery: Arc::new(Mutex::new(DiscoveryClaims::default())),
+        }
     }
 
     pub async fn scan(&self) -> anyhow::Result<BluetoothSnapshot> {
@@ -550,7 +555,7 @@ impl BluetoothProvider {
                     }
                 }, if initial_discovery_deadline.is_some() => {
                     initial_discovery_deadline = None;
-                    match self.stop_discovery().await {
+                    match self.finish_initial_discovery().await {
                         Ok(()) => tracing::info!("bluetooth: initial discovery window finished"),
                         Err(error) => tracing::warn!(error = %error, "bluetooth: failed to stop initial discovery"),
                     }
@@ -717,6 +722,92 @@ impl BluetoothProvider {
     }
 
     pub async fn start_discovery(&self) -> anyhow::Result<()> {
+        let previous = {
+            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let previous = *discovery;
+            if !discovery.start_popover() {
+                tracing::debug!("bluetooth: start discovery skipped; popover session already active");
+                return Ok(());
+            }
+            previous
+        };
+
+        if let Err(error) = self.raw_start_discovery().await {
+            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    pub async fn stop_discovery(&self) -> anyhow::Result<()> {
+        let (previous, stop_calls) = {
+            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let previous = *discovery;
+            let stop_calls = discovery.close_popover();
+            if stop_calls == 0 {
+                tracing::debug!("bluetooth: stop discovery skipped; no active sessions");
+                return Ok(());
+            }
+            (previous, stop_calls)
+        };
+
+        if let Err(error) = self.raw_stop_discovery(stop_calls).await {
+            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    async fn begin_initial_discovery(&self) -> Option<tokio::time::Instant> {
+        let previous = {
+            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let previous = *discovery;
+            if !discovery.start_initial() {
+                return Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW);
+            }
+            previous
+        };
+
+        match self.raw_start_discovery().await {
+            Ok(()) => {
+                tracing::info!(
+                    seconds = INITIAL_DISCOVERY_WINDOW.as_secs(),
+                    "bluetooth: initial discovery window started"
+                );
+                Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW)
+            }
+            Err(error) => {
+                *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
+                tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
+                None
+            }
+        }
+    }
+
+    async fn finish_initial_discovery(&self) -> anyhow::Result<()> {
+        let (previous, stop_calls) = {
+            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let previous = *discovery;
+            let stop_calls = discovery.finish_initial();
+            (previous, stop_calls)
+        };
+
+        if stop_calls == 0 {
+            tracing::debug!("bluetooth: initial discovery already cancelled");
+            return Ok(());
+        }
+
+        if let Err(error) = self.raw_stop_discovery(stop_calls).await {
+            *self.discovery.lock().expect("bluetooth discovery mutex poisoned") = previous;
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    async fn raw_start_discovery(&self) -> anyhow::Result<()> {
         let adapter_paths = self.adapter_paths().await?;
         if adapter_paths.is_empty() {
             tracing::info!("bluetooth: start discovery skipped; no adapters found");
@@ -730,10 +821,6 @@ impl BluetoothProvider {
 
         for path in adapter_paths {
             let proxy = self.adapter_proxy(&path).await?;
-            if proxy.discovering().await.unwrap_or(false) {
-                tracing::debug!(path = %path, "bluetooth: start discovery skipped; adapter already discovering");
-                continue;
-            }
             proxy
                 .start_discovery()
                 .await
@@ -744,7 +831,7 @@ impl BluetoothProvider {
         Ok(())
     }
 
-    pub async fn stop_discovery(&self) -> anyhow::Result<()> {
+    async fn raw_stop_discovery(&self, stop_calls: u8) -> anyhow::Result<()> {
         let adapter_paths = self.adapter_paths().await?;
         if adapter_paths.is_empty() {
             tracing::info!("bluetooth: stop discovery skipped; no adapters found");
@@ -753,39 +840,22 @@ impl BluetoothProvider {
 
         tracing::info!(
             adapters = adapter_paths.len(),
+            stop_calls,
             "bluetooth: stop discovery requested"
         );
 
-        for path in adapter_paths {
-            let proxy = self.adapter_proxy(&path).await?;
-            if !proxy.discovering().await.unwrap_or(false) {
-                tracing::debug!(path = %path, "bluetooth: stop discovery skipped; adapter already idle");
-                continue;
+        for _ in 0..stop_calls {
+            for path in &adapter_paths {
+                let proxy = self.adapter_proxy(path).await?;
+                proxy
+                    .stop_discovery()
+                    .await
+                    .with_context(|| format!("failed to stop discovery on {path}"))?;
+                tracing::debug!(path = %path, "bluetooth: discovery stopped on adapter");
             }
-            proxy
-                .stop_discovery()
-                .await
-                .with_context(|| format!("failed to stop discovery on {path}"))?;
-            tracing::debug!(path = %path, "bluetooth: discovery stopped on adapter");
         }
 
         Ok(())
-    }
-
-    async fn begin_initial_discovery(&self) -> Option<tokio::time::Instant> {
-        match self.start_discovery().await {
-            Ok(()) => {
-                tracing::info!(
-                    seconds = INITIAL_DISCOVERY_WINDOW.as_secs(),
-                    "bluetooth: initial discovery window started"
-                );
-                Some(tokio::time::Instant::now() + INITIAL_DISCOVERY_WINDOW)
-            }
-            Err(error) => {
-                tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
-                None
-            }
-        }
     }
 
     async fn properties_changed_stream(&self) -> anyhow::Result<MessageStream> {
@@ -957,6 +1027,54 @@ struct ResolvedDevice {
     name: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DiscoveryClaims {
+    initial: bool,
+    popover: bool,
+}
+
+impl DiscoveryClaims {
+    fn start_initial(&mut self) -> bool {
+        if self.initial {
+            return false;
+        }
+        self.initial = true;
+        true
+    }
+
+    fn start_popover(&mut self) -> bool {
+        if self.popover {
+            return false;
+        }
+        self.popover = true;
+        true
+    }
+
+    fn finish_initial(&mut self) -> u8 {
+        if !self.initial {
+            return 0;
+        }
+        self.initial = false;
+        1
+    }
+
+    fn close_popover(&mut self) -> u8 {
+        let mut stop_calls = 0;
+
+        if self.popover {
+            self.popover = false;
+            stop_calls += 1;
+        }
+
+        if self.initial {
+            self.initial = false;
+            stop_calls += 1;
+        }
+
+        stop_calls
+    }
+}
+
 fn merge_change_reason(
     current: Option<BluetoothChangeReason>,
     next: BluetoothChangeReason,
@@ -994,6 +1112,34 @@ fn is_bluez_properties_changed(message: &zbus::message::Message) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn close_popover_cancels_popover_and_initial_discovery_claims() {
+        let mut claims = DiscoveryClaims {
+            initial: true,
+            popover: true,
+        };
+
+        assert_eq!(claims.close_popover(), 2);
+        assert_eq!(claims, DiscoveryClaims::default());
+    }
+
+    #[test]
+    fn finish_initial_only_releases_initial_claim() {
+        let mut claims = DiscoveryClaims {
+            initial: true,
+            popover: true,
+        };
+
+        assert_eq!(claims.finish_initial(), 1);
+        assert_eq!(
+            claims,
+            DiscoveryClaims {
+                initial: false,
+                popover: true,
+            }
+        );
+    }
 
     fn adapter(path: &str, powered: bool, discovering: bool) -> BluetoothAdapter {
         BluetoothAdapter {

@@ -117,7 +117,7 @@ pub async fn run_supervisor(
                                 let _ = out.send(ExecMsg::ChildMessage(message));
                             }
                             Err(error) => {
-                                tracing::warn!(%error, raw = %line, applet = %name, "exec applet: invalid child message");
+                                tracing::debug!(%error, raw = %line, applet = %name, "exec applet: invalid child message");
                             }
                         },
                         Ok(None) => break,
