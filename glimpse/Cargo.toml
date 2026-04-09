@@ -13,3 +13,4 @@ tokio = { workspace = true, features = ["sync", "macros", "process", "io-util"] 
 tokio-util = "0.7"
 anyhow = "1"
 tracing = { workspace = true }
+gio = "0.20.12"

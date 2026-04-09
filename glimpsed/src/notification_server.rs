@@ -125,6 +125,13 @@ impl NotificationServer {
         id: u32,
         action_key: &str,
     ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn activation_token(
+        signal_ctxt: &zbus::object_server::SignalEmitter<'_>,
+        id: u32,
+        token: &str,
+    ) -> zbus::Result<()>;
 }
 
 async fn close_notification(
@@ -376,6 +383,24 @@ fn resolve_timeout(expire_timeout: i32) -> i32 {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PendingSignal {
+    ActivationToken(String),
+    ActionInvoked(String),
+}
+
+fn signal_plan_for_action(
+    activation_token: Option<String>,
+    action_key: &str,
+) -> Vec<PendingSignal> {
+    let mut signals = Vec::with_capacity(2);
+    if let Some(token) = activation_token {
+        signals.push(PendingSignal::ActivationToken(token));
+    }
+    signals.push(PendingSignal::ActionInvoked(action_key.to_owned()));
+    signals
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,5 +526,28 @@ mod tests {
         assert_eq!(status["dnd"], false);
         assert!(status.get("count").is_none());
         assert!(status.get("badge_count").is_none());
+    }
+
+    #[test]
+    fn activation_signal_order_prefers_token_before_action() {
+        let signals = signal_plan_for_action(Some("token-123".into()), "default");
+
+        assert_eq!(
+            signals,
+            vec![
+                PendingSignal::ActivationToken("token-123".into()),
+                PendingSignal::ActionInvoked("default".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn action_without_token_emits_only_action_invoked() {
+        let signals = signal_plan_for_action(None, "default");
+
+        assert_eq!(
+            signals,
+            vec![PendingSignal::ActionInvoked("default".into())]
+        );
     }
 }
