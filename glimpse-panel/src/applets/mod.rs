@@ -136,12 +136,14 @@ pub fn create_applet(
             Some(AppletController::Network(applet))
         }
         "mpris" => {
-            let client = client.clone()?;
             let config: mpris::MprisConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = mpris::Mpris::builder()
-                .launch(mpris::MprisInit { config, client })
+                .launch(mpris::MprisInit {
+                    config,
+                    service: services.mpris.clone(),
+                })
                 .detach();
             Some(AppletController::Mpris(applet))
         }

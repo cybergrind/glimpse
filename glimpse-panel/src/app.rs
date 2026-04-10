@@ -1,4 +1,10 @@
-use std::{cell::{Cell, RefCell}, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    path::PathBuf,
+    rc::Rc,
+    sync::Arc,
+    time::Duration,
+};
 
 use adw::prelude::*;
 use gtk4_layer_shell::LayerShell;
@@ -286,8 +292,10 @@ impl SimpleComponent for App {
                 });
             }
             Input::NetworkState(state) => {
-                let prompt_changed =
-                    network_prompt_changed(self.network_state.prompt.as_ref(), state.prompt.as_ref());
+                let prompt_changed = network_prompt_changed(
+                    self.network_state.prompt.as_ref(),
+                    state.prompt.as_ref(),
+                );
                 self.network_state = state;
                 if prompt_changed {
                     self.network_dialog
@@ -412,7 +420,8 @@ impl NetworkPromptDialog {
     }
 
     fn update(&mut self, prompt: Option<&NetworkPrompt>) {
-        let reset_form = should_reset_network_prompt_form(self.current_prompt.borrow().as_ref(), prompt);
+        let reset_form =
+            should_reset_network_prompt_form(self.current_prompt.borrow().as_ref(), prompt);
 
         let Some(prompt) = prompt.cloned() else {
             *self.current_prompt.borrow_mut() = None;
@@ -468,9 +477,8 @@ fn build_network_prompt_dialog(
     let submitting_state = submitting.clone();
     let connect_button_for_change = connect_button.clone();
     entry.connect_changed(move |entry| {
-        connect_button_for_change.set_sensitive(
-            !submitting_state.get() && !entry.text().trim().is_empty()
-        );
+        connect_button_for_change
+            .set_sensitive(!submitting_state.get() && !entry.text().trim().is_empty());
     });
     entry.grab_focus();
     content.append(&entry);
@@ -570,9 +578,9 @@ fn update_network_prompt_widgets(widgets: &NetworkPromptWidgets, prompt: &Networ
     let error_text = prompt.error_message.as_deref().unwrap_or_default();
     widgets.error_label.set_label(error_text);
     widgets.error_label.set_visible(!error_text.is_empty());
-    widgets.connect_button.set_sensitive(
-        !prompt.submitting && !widgets.entry.text().trim().is_empty()
-    );
+    widgets
+        .connect_button
+        .set_sensitive(!prompt.submitting && !widgets.entry.text().trim().is_empty());
     if was_submitting && !prompt.submitting {
         widgets.entry.grab_focus();
     }
@@ -912,7 +920,10 @@ mod tests {
             submitting: false,
         };
 
-        assert!(!should_reset_network_prompt_form(Some(&current), Some(&next)));
+        assert!(!should_reset_network_prompt_form(
+            Some(&current),
+            Some(&next)
+        ));
     }
 
     #[test]
@@ -935,7 +946,10 @@ mod tests {
         let current = network_prompt(1, "Skylink");
         let next = network_prompt(2, "Office");
 
-        assert!(!should_update_network_prompt_in_place(Some(&current), &next));
+        assert!(!should_update_network_prompt_in_place(
+            Some(&current),
+            &next
+        ));
     }
 
     #[test]
@@ -972,7 +986,10 @@ mod tests {
         let current = network_prompt(1, "Skylink");
         let next = network_prompt(2, "Office");
 
-        assert!(should_reset_network_prompt_form(Some(&current), Some(&next)));
+        assert!(should_reset_network_prompt_form(
+            Some(&current),
+            Some(&next)
+        ));
     }
 
     #[test]

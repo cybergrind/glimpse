@@ -1,104 +1,55 @@
-use std::sync::Arc;
-use std::time::Duration;
-
-use glimpse_client::Client;
+use glimpse::mpris::{
+    MprisServiceHandle,
+    protocol::{MprisPlayer, MprisServiceCommand, MprisServiceState},
+};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
-use serde::Deserialize;
 
 use super::config::MprisConfig;
-use super::popover::{MprisPopover, MprisPopoverInit, MprisPopoverInput, PlayerRow};
-
-#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
-#[serde(default)]
-pub struct CurrentPlayer {
-    pub player_id: String,
-    pub identity: String,
-    pub artist: String,
-    pub track: String,
-    pub album: String,
-    pub status: String,
-    pub art_url: String,
-    pub can_go_previous: bool,
-    pub can_play_pause: bool,
-    pub can_go_next: bool,
-    pub last_active: u64,
-}
+use super::popover::{
+    MprisPopover, MprisPopoverInit, MprisPopoverInput, MprisPopoverOutput,
+};
 
 pub struct Mpris {
     config: MprisConfig,
-    current: Option<CurrentPlayer>,
+    service: MprisServiceHandle,
     label: String,
-    displayed_label: String,
+    tooltip: String,
     hidden: bool,
     popover: Controller<MprisPopover>,
-    marquee_offset: usize,
 }
 
 pub struct MprisInit {
     pub config: MprisConfig,
-    pub client: Arc<Client>,
+    pub service: MprisServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MprisMsg {
-    CurrentUpdate(CurrentPlayer),
-    PlayersUpdate(Vec<PlayerRow>),
-    ClearCurrent,
-    TickMarquee,
+    ServiceState(MprisServiceState),
+    PopoverOutput(MprisPopoverOutput),
     TogglePopover,
     Unavailable,
 }
 
-const MARQUEE_THRESHOLD_CHARS: usize = 120;
-const MARQUEE_WINDOW_CHARS: usize = 32;
-const MARQUEE_GAP: &str = "      ";
-const MARQUEE_HOLD_TICKS: usize = 6;
-
-fn panel_label(player: &CurrentPlayer, format: &str) -> String {
+fn panel_label(player: &MprisPlayer, format: &str) -> String {
     let label = format
         .replace("{artist}", &player.artist)
-        .replace("{track}", &player.track)
+        .replace("{track}", &player.title)
+        .replace("{title}", &player.title)
         .trim_matches([' ', '-', '—'])
         .trim()
         .to_string();
 
     if !label.is_empty() {
         label
-    } else if !player.track.is_empty() {
-        player.track.clone()
+    } else if !player.panel_label.is_empty() {
+        player.panel_label.clone()
     } else {
         player.identity.clone()
     }
-}
-
-fn marquee_frame(text: &str, offset: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= MARQUEE_WINDOW_CHARS {
-        return text.to_string();
-    }
-
-    let looped: Vec<char> = chars
-        .iter()
-        .copied()
-        .chain(MARQUEE_GAP.chars())
-        .collect();
-    let len = looped.len();
-
-    (0..MARQUEE_WINDOW_CHARS)
-        .map(|index| looped[(offset + index) % len])
-        .collect()
-}
-
-fn should_marquee(text: &str) -> bool {
-    text.chars().count() > MARQUEE_THRESHOLD_CHARS
-}
-
-fn next_marquee_offset(text: &str, offset: usize) -> usize {
-    let loop_len = text.chars().count() + MARQUEE_GAP.chars().count() + MARQUEE_HOLD_TICKS;
-    (offset + 1) % loop_len
 }
 
 #[relm4::component(pub)]
@@ -112,13 +63,13 @@ impl Component for Mpris {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
-            set_hexpand: false,
-            set_halign: gtk::Align::Start,
             add_css_class: "applet",
             add_css_class: "mpris",
-
+            add_css_class: "hoverable",
             #[watch]
             set_visible: !model.hidden,
+            #[watch]
+            set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
 
             add_controller = gtk::GestureClick {
                 set_button: 1,
@@ -129,17 +80,16 @@ impl Component for Mpris {
 
             gtk::Label {
                 #[watch]
-                set_label: &model.displayed_label,
-                set_hexpand: false,
+                set_label: &model.label,
                 set_halign: gtk::Align::Start,
                 set_valign: gtk::Align::Center,
                 set_xalign: 0.0,
                 set_wrap: false,
                 set_single_line_mode: true,
-                set_ellipsize: gtk::pango::EllipsizeMode::None,
+                set_ellipsize: gtk::pango::EllipsizeMode::End,
                 add_css_class: "mpris-label",
                 #[watch]
-                set_visible: !model.displayed_label.is_empty(),
+                set_visible: !model.label.is_empty(),
             },
         }
     }
@@ -152,72 +102,37 @@ impl Component for Mpris {
         let popover = MprisPopover::builder()
             .launch(MprisPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
                 max_rows: init.config.max_rows,
+                show_artwork: init.config.show_artwork,
             })
-            .detach();
+            .forward(sender.input_sender(), MprisMsg::PopoverOutput);
 
         let model = Mpris {
             config: init.config,
-            current: None,
+            service: init.service.clone(),
             label: String::new(),
-            displayed_label: String::new(),
+            tooltip: String::new(),
             hidden: true,
             popover,
-            marquee_offset: 0,
         };
 
-        let client = init.client;
+        let service = init.service;
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("mpris applet: subscribing");
-                    let mut current_sub = match client.subscribe("mpris.current").await {
-                        Ok(subscription) => subscription,
-                        Err(error) => {
-                            tracing::error!("mpris: subscribe failed: {error}");
-                            let _ = out.send(MprisMsg::Unavailable);
-                            return;
-                        }
-                    };
-                    let mut players_sub = client.subscribe("mpris.players").await.ok();
-                    let mut ticker = tokio::time::interval(Duration::from_millis(450));
+                    tracing::info!("mpris applet: subscribing to mpris service");
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(MprisMsg::ServiceState(state_rx.borrow().clone()));
 
                     loop {
-                        tokio::select! {
-                            _ = ticker.tick() => {
-                                let _ = out.send(MprisMsg::TickMarquee);
-                            }
-                            Some(event) = current_sub.next() => {
-                                if event.data.is_null() {
-                                    let _ = out.send(MprisMsg::ClearCurrent);
-                                } else if let Ok(player) =
-                                    serde_json::from_value::<CurrentPlayer>(event.data)
-                                {
-                                    let _ = out.send(MprisMsg::CurrentUpdate(player));
-                                } else {
-                                    tracing::warn!("mpris: invalid current payload");
-                                }
-                            }
-                            Some(event) = async {
-                                match &mut players_sub {
-                                    Some(sub) => sub.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                match serde_json::from_value::<Vec<PlayerRow>>(event.data) {
-                                    Ok(players) => {
-                                        let _ = out.send(MprisMsg::PlayersUpdate(players));
-                                    }
-                                    Err(error) => tracing::warn!(%error, "mpris: invalid players payload"),
-                                }
-                            }
-                            else => {
-                                let _ = out.send(MprisMsg::Unavailable);
-                                break;
-                            }
+                        if state_rx.changed().await.is_err() {
+                            break;
                         }
+                        let _ = out.send(MprisMsg::ServiceState(state_rx.borrow().clone()));
                     }
+
+                    tracing::warn!("mpris applet: mpris service state channel closed");
+                    let _ = out.send(MprisMsg::Unavailable);
                 })
                 .drop_on_shutdown()
         });
@@ -235,92 +150,115 @@ impl Component for Mpris {
         self.update(message, sender, root);
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            MprisMsg::CurrentUpdate(player) => {
-                self.label = panel_label(&player, &self.config.label_format);
-                self.marquee_offset = 0;
-                self.displayed_label = self.label.clone();
-                self.hidden = false;
-                self.current = Some(player);
+            MprisMsg::ServiceState(state) => {
+                self.sync_from_state(&state);
+                self.popover
+                    .emit(MprisPopoverInput::UpdatePlayers(state.snapshot.players));
             }
-            MprisMsg::PlayersUpdate(players) => {
-                self.popover.emit(MprisPopoverInput::UpdatePlayers(players));
-            }
-            MprisMsg::TickMarquee => {
-                if should_marquee(&self.label) {
-                    self.marquee_offset = next_marquee_offset(&self.label, self.marquee_offset);
-                    self.displayed_label = marquee_frame(&self.label, self.marquee_offset);
-                } else if self.displayed_label != self.label {
-                    self.displayed_label = self.label.clone();
-                }
-            }
-            MprisMsg::ClearCurrent | MprisMsg::Unavailable => {
-                self.current = None;
-                self.label.clear();
-                self.displayed_label.clear();
-                self.marquee_offset = 0;
-                self.hidden = self.config.hide_when_empty;
-                self.popover.emit(MprisPopoverInput::UpdatePlayers(Vec::new()));
+            MprisMsg::PopoverOutput(output) => {
+                self.handle_popover_output(output, sender);
             }
             MprisMsg::TogglePopover => {
                 self.popover.emit(MprisPopoverInput::Toggle);
             }
+            MprisMsg::Unavailable => {
+                tracing::warn!("mpris applet: mpris service unavailable");
+                self.label.clear();
+                self.tooltip.clear();
+                self.hidden = self.config.hide_when_empty;
+                self.popover.emit(MprisPopoverInput::UpdatePlayers(Vec::new()));
+            }
         }
+    }
+}
+
+impl Mpris {
+    fn sync_from_state(&mut self, state: &MprisServiceState) {
+        self.label = state
+            .snapshot
+            .current_player
+            .as_ref()
+            .map(|player| panel_label(player, &self.config.label_format))
+            .unwrap_or_default();
+        self.tooltip = self.label.clone();
+        self.hidden = self.config.hide_when_empty && state.snapshot.players.is_empty();
+    }
+
+    fn handle_popover_output(&self, output: MprisPopoverOutput, sender: ComponentSender<Self>) {
+        let command = match output {
+            MprisPopoverOutput::Previous { player_id } => {
+                MprisServiceCommand::Previous { player_id }
+            }
+            MprisPopoverOutput::PlayPause { player_id } => {
+                MprisServiceCommand::PlayPause { player_id }
+            }
+            MprisPopoverOutput::Next { player_id } => MprisServiceCommand::Next { player_id },
+            MprisPopoverOutput::Raise { player_id } => MprisServiceCommand::Raise { player_id },
+        };
+
+        self.send_command(sender, command);
+    }
+
+    fn send_command(&self, sender: ComponentSender<Self>, command: MprisServiceCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(error = %error, "mpris applet: failed to send mpris service command");
+                    }
+                })
+                .drop_on_shutdown()
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus};
 
-    #[test]
-    fn formats_artist_and_track() {
-        let player = CurrentPlayer {
-            artist: "Nils Frahm".into(),
-            track: "Says".into(),
+    fn player() -> MprisPlayer {
+        MprisPlayer {
+            player_id: "spotify".into(),
+            bus_name: "org.mpris.MediaPlayer2.spotify".into(),
             identity: "Spotify".into(),
-            ..CurrentPlayer::default()
-        };
-
-        assert_eq!(panel_label(&player, "{artist} - {track}"), "Nils Frahm - Says");
+            playback_status: MprisPlaybackStatus::Playing,
+            title: "Says".into(),
+            artist: "Nils Frahm".into(),
+            album: "Spaces".into(),
+            panel_label: "Nils Frahm - Says".into(),
+            subtitle: "Nils Frahm".into(),
+            artwork: MprisArtwork::None,
+            position: None,
+            length: None,
+            progress_visible: false,
+            can_play_pause: true,
+            can_go_previous: true,
+            can_go_next: true,
+            can_raise: true,
+            last_active: 1,
+        }
     }
 
     #[test]
-    fn falls_back_to_track_when_format_renders_empty() {
-        let player = CurrentPlayer {
-            track: "Says".into(),
-            identity: "Spotify".into(),
-            ..CurrentPlayer::default()
-        };
+    fn formats_artist_and_track() {
+        assert_eq!(panel_label(&player(), "{artist} - {track}"), "Nils Frahm - Says");
+    }
 
-        assert_eq!(panel_label(&player, "{artist}"), "Says");
+    #[test]
+    fn falls_back_to_panel_label_when_format_renders_empty() {
+        assert_eq!(panel_label(&player(), ""), "Nils Frahm - Says");
     }
 
     #[test]
     fn falls_back_to_identity_when_metadata_is_missing() {
-        let player = CurrentPlayer {
-            identity: "Firefox".into(),
-            ..CurrentPlayer::default()
-        };
-
-        assert_eq!(panel_label(&player, "{artist} - {track}"), "Firefox");
-    }
-
-    #[test]
-    fn marquee_frame_keeps_short_labels_unchanged() {
-        assert_eq!(marquee_frame("short", 3), "short");
-    }
-
-    #[test]
-    fn marquee_stays_disabled_for_labels_up_to_120_chars() {
-        let text = "a".repeat(120);
-        assert!(!should_marquee(&text));
-    }
-
-    #[test]
-    fn marquee_starts_only_after_120_chars() {
-        let text = "a".repeat(121);
-        assert!(should_marquee(&text));
+        let mut player = player();
+        player.artist.clear();
+        player.title.clear();
+        player.panel_label.clear();
+        assert_eq!(panel_label(&player, "{artist} - {track}"), "Spotify");
     }
 }

@@ -1,46 +1,35 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, gdk, gio, glib, prelude::*},
 };
-use serde::Deserialize;
-
-#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
-#[serde(default)]
-pub struct PlayerRow {
-    pub player_id: String,
-    pub identity: String,
-    pub artist: String,
-    pub track: String,
-    pub album: String,
-    pub status: String,
-    pub art_url: String,
-    pub can_go_previous: bool,
-    pub can_play_pause: bool,
-    pub can_go_next: bool,
-    pub last_active: u64,
-}
 
 pub struct MprisPopover {
     popover: gtk::Popover,
-    client: Arc<Client>,
     rows_box: gtk::Box,
     empty_label: gtk::Label,
     max_rows: usize,
+    show_artwork: bool,
 }
 
 pub struct MprisPopoverInit {
     pub parent: gtk::Box,
-    pub client: Arc<Client>,
     pub max_rows: usize,
+    pub show_artwork: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MprisPopoverInput {
     Toggle,
-    UpdatePlayers(Vec<PlayerRow>),
+    UpdatePlayers(Vec<MprisPlayer>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MprisPopoverOutput {
+    Previous { player_id: String },
+    PlayPause { player_id: String },
+    Next { player_id: String },
+    Raise { player_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,60 +40,52 @@ enum ArtSource {
     Fallback,
 }
 
-fn spawn_call(client: &Arc<Client>, method: &'static str, player_id: String) {
-    let client = client.clone();
-    glib::spawn_future_local(async move {
-        let _ = client
-            .call(method, serde_json::json!({ "player_id": player_id }))
-            .await;
-    });
+fn artwork_source(artwork: &MprisArtwork) -> ArtSource {
+    match artwork {
+        MprisArtwork::FilePath(path) => ArtSource::FilePath(path.clone()),
+        MprisArtwork::FileUri(uri) => ArtSource::FileUri(uri.clone()),
+        MprisArtwork::RemoteUrl(url) => ArtSource::Remote(url.clone()),
+        MprisArtwork::None => ArtSource::Fallback,
+    }
 }
 
-fn row_subtitle(player: &PlayerRow) -> String {
-    if !player.artist.is_empty() {
-        player.artist.clone()
-    } else if !player.album.is_empty() {
-        player.album.clone()
+fn player_title(player: &MprisPlayer) -> String {
+    if !player.title.is_empty() {
+        player.title.clone()
     } else {
         player.identity.clone()
     }
 }
 
-fn parse_art_source(value: &str) -> ArtSource {
-    if value.starts_with("file://") {
-        ArtSource::FileUri(value.to_string())
-    } else if value.starts_with("http://") || value.starts_with("https://") {
-        ArtSource::Remote(value.to_string())
-    } else if value.starts_with('/') {
-        ArtSource::FilePath(value.to_string())
-    } else {
-        ArtSource::Fallback
+fn play_pause_icon(status: MprisPlaybackStatus) -> &'static str {
+    match status {
+        MprisPlaybackStatus::Playing => "media-playback-pause-symbolic",
+        MprisPlaybackStatus::Paused | MprisPlaybackStatus::Stopped => {
+            "media-playback-start-symbolic"
+        }
     }
 }
 
-fn sorted_players(mut players: Vec<PlayerRow>, max_rows: usize) -> Vec<PlayerRow> {
-    players.sort_by(|a, b| {
-        b.last_active
-            .cmp(&a.last_active)
-            .then_with(|| a.player_id.cmp(&b.player_id))
-    });
-    players.truncate(max_rows);
-    players
+fn visible_players(players: Vec<MprisPlayer>, max_rows: usize) -> Vec<MprisPlayer> {
+    players.into_iter().take(max_rows).collect()
 }
 
-fn play_pause_icon(status: &str) -> &'static str {
-    if status == "Playing" {
-        "media-playback-pause-symbolic"
-    } else {
-        "media-playback-start-symbolic"
-    }
+fn shows_progress(player: &MprisPlayer) -> bool {
+    matches!((player.position, player.length), (Some(_), Some(length)) if player.progress_visible && length > 0)
 }
 
-fn player_title(player: &PlayerRow) -> String {
-    if !player.track.is_empty() {
-        player.track.clone()
+fn format_duration(value_micros: u64) -> String {
+    let total_seconds = value_micros / 1_000_000;
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    format!("{minutes}:{seconds:02}")
+}
+
+fn progress_fraction(position: u64, length: u64) -> f64 {
+    if length == 0 {
+        0.0
     } else {
-        player.identity.clone()
+        (position as f64 / length as f64).clamp(0.0, 1.0)
     }
 }
 
@@ -130,8 +111,8 @@ fn set_picture_art(picture: &gtk::Picture, fallback: &gtk::Image, texture: &gdk:
     fallback.set_visible(false);
 }
 
-fn load_player_art(picture: &gtk::Picture, fallback: &gtk::Image, art_url: &str) {
-    match parse_art_source(art_url) {
+fn load_player_art(picture: &gtk::Picture, fallback: &gtk::Image, artwork: &MprisArtwork) {
+    match artwork_source(artwork) {
         ArtSource::FilePath(path) => {
             let file = gio::File::for_path(path);
             match gdk::Texture::from_file(&file) {
@@ -168,104 +149,154 @@ fn load_player_art(picture: &gtk::Picture, fallback: &gtk::Image, art_url: &str)
     }
 }
 
-fn build_row(player: &PlayerRow, client: &Arc<Client>) -> gtk::Box {
-    let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
+fn build_row(
+    player: &MprisPlayer,
+    sender: &ComponentSender<MprisPopover>,
+    show_artwork: bool,
+) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     card.add_css_class("mpris-card");
 
-    let shell = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    shell.set_valign(gtk::Align::Fill);
+    if show_artwork {
+        let artwork_box = gtk::Overlay::new();
+        artwork_box.add_css_class("mpris-card-art");
+        artwork_box.set_valign(gtk::Align::Fill);
 
-    let art_slot = gtk::Overlay::new();
-    art_slot.add_css_class("mpris-card-art");
+        let artwork = gtk::Picture::new();
+        artwork.set_halign(gtk::Align::Fill);
+        artwork.set_valign(gtk::Align::Fill);
+        artwork.set_can_shrink(true);
+        artwork.set_keep_aspect_ratio(false);
+        artwork_box.set_child(Some(&artwork));
 
-    let art = gtk::Picture::new();
-    art.set_halign(gtk::Align::Fill);
-    art.set_valign(gtk::Align::Fill);
-    art.set_can_shrink(true);
-    art.set_keep_aspect_ratio(false);
-    art_slot.set_child(Some(&art));
+        let fallback = gtk::Image::from_icon_name("audio-x-generic-symbolic");
+        fallback.set_halign(gtk::Align::Center);
+        fallback.set_valign(gtk::Align::Center);
+        fallback.add_css_class("mpris-card-art-fallback");
+        artwork_box.add_overlay(&fallback);
 
-    let art_fallback = gtk::Image::from_icon_name("audio-x-generic-symbolic");
-    art_fallback.set_halign(gtk::Align::Center);
-    art_fallback.set_valign(gtk::Align::Center);
-    art_fallback.add_css_class("mpris-card-art-fallback");
-    art_slot.add_overlay(&art_fallback);
+        load_player_art(&artwork, &fallback, &player.artwork);
+        card.append(&artwork_box);
+    }
 
-    load_player_art(&art, &art_fallback, &player.art_url);
-    shell.append(&art_slot);
-
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
     content.set_hexpand(true);
-    content.set_valign(gtk::Align::Center);
     content.add_css_class("mpris-card-content");
+
+    let top = gtk::Box::new(gtk::Orientation::Horizontal, 12);
 
     let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_hexpand(true);
-    text.set_valign(gtk::Align::Center);
     text.add_css_class("mpris-card-copy");
 
     let title = gtk::Label::new(Some(&player_title(player)));
     title.set_halign(gtk::Align::Start);
     title.set_xalign(0.0);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    title.set_max_width_chars(22);
     title.set_wrap(true);
     title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     title.add_css_class("mpris-card-title");
     text.append(&title);
 
-    let subtitle = gtk::Label::new(Some(&row_subtitle(player)));
-    subtitle.set_halign(gtk::Align::Start);
-    subtitle.set_xalign(0.0);
-    subtitle.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    subtitle.set_max_width_chars(24);
-    subtitle.set_wrap(true);
-    subtitle.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    subtitle.add_css_class("mpris-card-subtitle");
-    text.append(&subtitle);
+    let artist = gtk::Label::new(Some(&player.subtitle));
+    artist.set_halign(gtk::Align::Start);
+    artist.set_xalign(0.0);
+    artist.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    artist.set_wrap(true);
+    artist.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    artist.add_css_class("mpris-card-subtitle");
+    artist.set_visible(!player.subtitle.is_empty());
+    text.append(&artist);
 
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    controls.set_halign(gtk::Align::End);
     controls.set_valign(gtk::Align::Center);
     controls.add_css_class("mpris-card-controls");
 
+    let output = sender.clone();
     let player_id = player.player_id.clone();
-    let prev = media_button(
-        "media-skip-backward-symbolic",
-        player.can_go_previous,
-        {
-            let client = client.clone();
-            let player_id = player_id.clone();
-            move || spawn_call(&client, "mpris.previous", player_id.clone())
-        },
-    );
-    controls.append(&prev);
-
-    let play_pause = media_button(play_pause_icon(&player.status), player.can_play_pause, {
-        let client = client.clone();
+    let previous = media_button("media-skip-backward-symbolic", player.can_go_previous, {
+        let output = output.clone();
         let player_id = player_id.clone();
-        move || spawn_call(&client, "mpris.play_pause", player_id.clone())
+        move || {
+            let _ = output.output(MprisPopoverOutput::Previous {
+                player_id: player_id.clone(),
+            });
+        }
+    });
+    controls.append(&previous);
+
+    let play_pause = media_button(play_pause_icon(player.playback_status), player.can_play_pause, {
+        let output = output.clone();
+        let player_id = player_id.clone();
+        move || {
+            let _ = output.output(MprisPopoverOutput::PlayPause {
+                player_id: player_id.clone(),
+            });
+        }
     });
     controls.append(&play_pause);
 
     let next = media_button("media-skip-forward-symbolic", player.can_go_next, {
-        let client = client.clone();
-        let player_id = player.player_id.clone();
-        move || spawn_call(&client, "mpris.next", player_id.clone())
+        let output = output.clone();
+        let player_id = player_id.clone();
+        move || {
+            let _ = output.output(MprisPopoverOutput::Next {
+                player_id: player_id.clone(),
+            });
+        }
     });
     controls.append(&next);
 
-    content.append(&text);
-    content.append(&controls);
-    shell.append(&content);
-    card.append(&shell);
+    let open = gtk::Button::with_label("Open");
+    open.add_css_class("flat");
+    open.set_sensitive(player.can_raise);
+    open.connect_clicked({
+        let output = output.clone();
+        let player_id = player.player_id.clone();
+        move |_| {
+            let _ = output.output(MprisPopoverOutput::Raise {
+                player_id: player_id.clone(),
+            });
+        }
+    });
+    controls.append(&open);
+
+    top.append(&text);
+    top.append(&controls);
+    content.append(&top);
+
+    if shows_progress(player) {
+        let progress = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        progress.add_css_class("mpris-card-progress");
+
+        let start = gtk::Label::new(Some(&format_duration(player.position.unwrap_or(0))));
+        start.set_xalign(0.0);
+        progress.append(&start);
+
+        let bar = gtk::ProgressBar::new();
+        bar.set_hexpand(true);
+        bar.set_valign(gtk::Align::Center);
+        bar.set_fraction(progress_fraction(
+            player.position.unwrap_or(0),
+            player.length.unwrap_or(0),
+        ));
+        progress.append(&bar);
+
+        let end = gtk::Label::new(Some(&format_duration(player.length.unwrap_or(0))));
+        end.set_xalign(1.0);
+        progress.append(&end);
+
+        content.append(&progress);
+    }
+
+    card.append(&content);
     card
 }
 
 impl SimpleComponent for MprisPopover {
     type Init = MprisPopoverInit;
     type Input = MprisPopoverInput;
-    type Output = ();
+    type Output = MprisPopoverOutput;
     type Root = gtk::Popover;
     type Widgets = ();
 
@@ -296,15 +327,15 @@ impl SimpleComponent for MprisPopover {
 
         let model = MprisPopover {
             popover: root.clone(),
-            client: init.client,
             rows_box,
             empty_label,
             max_rows: init.max_rows,
+            show_artwork: init.show_artwork,
         };
         ComponentParts { model, widgets: () }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             MprisPopoverInput::Toggle => {
                 if self.popover.is_visible() {
@@ -314,7 +345,7 @@ impl SimpleComponent for MprisPopover {
                 }
             }
             MprisPopoverInput::UpdatePlayers(players) => {
-                let players = sorted_players(players, self.max_rows);
+                let players = visible_players(players, self.max_rows);
                 self.empty_label.set_visible(players.is_empty());
 
                 while let Some(child) = self.rows_box.first_child() {
@@ -322,7 +353,8 @@ impl SimpleComponent for MprisPopover {
                 }
 
                 for player in &players {
-                    self.rows_box.append(&build_row(player, &self.client));
+                    self.rows_box
+                        .append(&build_row(player, &sender, self.show_artwork));
                 }
             }
         }
@@ -333,54 +365,52 @@ impl SimpleComponent for MprisPopover {
 mod tests {
     use super::*;
 
-    #[test]
-    fn artwork_source_parses_file_urls() {
-        assert_eq!(
-            parse_art_source("file:///tmp/cover.jpg"),
-            ArtSource::FileUri("file:///tmp/cover.jpg".into())
-        );
+    fn player(position: Option<u64>, length: Option<u64>) -> MprisPlayer {
+        MprisPlayer {
+            player_id: "spotify".into(),
+            bus_name: "org.mpris.MediaPlayer2.spotify".into(),
+            identity: "Spotify".into(),
+            playback_status: MprisPlaybackStatus::Playing,
+            title: "Says".into(),
+            artist: "Nils Frahm".into(),
+            album: "Spaces".into(),
+            panel_label: "Nils Frahm - Says".into(),
+            subtitle: "Nils Frahm".into(),
+            artwork: MprisArtwork::None,
+            position,
+            length,
+            progress_visible: true,
+            can_play_pause: true,
+            can_go_previous: true,
+            can_go_next: true,
+            can_raise: true,
+            last_active: 1,
+        }
     }
 
     #[test]
-    fn artwork_source_parses_https_urls() {
+    fn progress_row_is_hidden_when_length_is_missing() {
+        assert!(!shows_progress(&player(Some(1), None)));
+    }
+
+    #[test]
+    fn progress_row_is_visible_when_position_and_length_exist() {
+        assert!(shows_progress(&player(Some(1), Some(2))));
+    }
+
+    #[test]
+    fn remote_artwork_stays_typed() {
         assert_eq!(
-            parse_art_source("https://example.com/cover.jpg"),
+            artwork_source(&MprisArtwork::RemoteUrl("https://example.com/cover.jpg".into())),
             ArtSource::Remote("https://example.com/cover.jpg".into())
         );
     }
 
     #[test]
-    fn artwork_source_falls_back_for_unknown_values() {
-        assert_eq!(parse_art_source(""), ArtSource::Fallback);
-    }
-
-    #[test]
-    fn subtitle_falls_back_to_album_then_identity() {
-        let player = PlayerRow {
-            album: "Promises".into(),
-            identity: "Spotify".into(),
-            ..PlayerRow::default()
-        };
-
-        assert_eq!(row_subtitle(&player), "Promises");
-    }
-
-    #[test]
-    fn sort_players_newest_first() {
-        let players = vec![
-            PlayerRow {
-                player_id: "a".into(),
-                last_active: 1,
-                ..PlayerRow::default()
-            },
-            PlayerRow {
-                player_id: "b".into(),
-                last_active: 9,
-                ..PlayerRow::default()
-            },
-        ];
-
-        let sorted = sorted_players(players, 6);
-        assert_eq!(sorted[0].player_id, "b");
+    fn file_uri_artwork_stays_typed() {
+        assert_eq!(
+            artwork_source(&MprisArtwork::FileUri("file:///tmp/cover.jpg".into())),
+            ArtSource::FileUri("file:///tmp/cover.jpg".into())
+        );
     }
 }
