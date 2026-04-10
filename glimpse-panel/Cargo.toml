@@ -25,7 +25,6 @@ chrono-tz.workspace = true
 uuid.workspace = true
 zbus.workspace = true
 futures-util.workspace = true
-system-tray.workspace = true
 reqwest.workspace = true
 glimpse-client = { path = "../glimpse-client" }
 glimpse = { path = "../glimpse" }

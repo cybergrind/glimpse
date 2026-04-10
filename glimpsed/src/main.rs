@@ -49,7 +49,6 @@ fn register_providers(
         }),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::privacy::PrivacyProviderFactory),
-        Box::new(providers::tray::TrayProviderFactory),
     ]
 }
 

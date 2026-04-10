@@ -15,3 +15,4 @@ anyhow = "1"
 tracing = { workspace = true }
 gio = "0.20.12"
 secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
+system-tray.workspace = true

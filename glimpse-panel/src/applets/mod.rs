@@ -218,12 +218,14 @@ pub fn create_applet(
             Some(AppletController::Privacy(applet))
         }
         "tray" => {
-            let client = client.clone()?;
             let config: tray::TrayConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = tray::Tray::builder()
-                .launch(tray::TrayInit { config, client })
+                .launch(tray::TrayInit {
+                    config,
+                    service: services.tray.clone(),
+                })
                 .detach();
             Some(AppletController::Tray(applet))
         }
