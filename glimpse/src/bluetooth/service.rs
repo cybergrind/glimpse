@@ -226,6 +226,52 @@ async fn handle_command(
             );
             Ok(())
         }
+        BluetoothServiceCommand::SetAdapterPowered {
+            adapter_path,
+            powered,
+        } => {
+            spawn_action(
+                provider.clone(),
+                registry.clone(),
+                state_tx.clone(),
+                state_tx,
+                Some(BluetoothActiveAction::SetAdapterPowered {
+                    adapter_path: adapter_path.clone(),
+                    powered,
+                }),
+                move |provider| async move {
+                    provider
+                        .set_adapter_powered(&adapter_path, powered)
+                        .await
+                        .map_err(Into::into)
+                },
+                false,
+            );
+            Ok(())
+        }
+        BluetoothServiceCommand::SetAdapterDiscoverable {
+            adapter_path,
+            discoverable,
+        } => {
+            spawn_action(
+                provider.clone(),
+                registry.clone(),
+                state_tx.clone(),
+                state_tx,
+                Some(BluetoothActiveAction::SetAdapterDiscoverable {
+                    adapter_path: adapter_path.clone(),
+                    discoverable,
+                }),
+                move |provider| async move {
+                    provider
+                        .set_adapter_discoverable(&adapter_path, discoverable)
+                        .await
+                        .map_err(Into::into)
+                },
+                false,
+            );
+            Ok(())
+        }
         BluetoothServiceCommand::StartDiscovery => {
             let needs_start = open_popovers.open();
             if needs_start {

@@ -36,6 +36,15 @@ pub struct BluetoothAdapter {
     pub address: String,
     pub powered: bool,
     pub discovering: bool,
+    pub discoverable: bool,
+    pub pairable: bool,
+    pub address_type: String,
+    pub class: u32,
+    pub discoverable_timeout: u32,
+    pub pairable_timeout: u32,
+    pub modalias: String,
+    pub roles: Vec<String>,
+    pub uuids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -406,7 +415,9 @@ impl BluetoothDeviceType {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct BluetoothDevice {
+    pub path: String,
     pub address: String,
+    pub alias: String,
     pub name: String,
     pub device_type: BluetoothDeviceType,
     pub paired: bool,
@@ -414,6 +425,8 @@ pub struct BluetoothDevice {
     pub trusted: bool,
     pub battery: Option<u8>,
     pub rssi: Option<i16>,
+    pub class: u32,
+    pub appearance: u16,
     pub adapter: String,
 }
 
@@ -656,6 +669,40 @@ impl BluetoothProvider {
         }
 
         tracing::info!(powered, "bluetooth: set power succeeded");
+        Ok(())
+    }
+
+    pub async fn set_adapter_powered(&self, adapter_path: &str, powered: bool) -> anyhow::Result<()> {
+        tracing::info!(path = %adapter_path, powered, "bluetooth: set adapter power requested");
+        let proxy = self.adapter_proxy(adapter_path).await?;
+        proxy
+            .set_powered(powered)
+            .await
+            .with_context(|| format!("failed to set adapter power on {adapter_path}"))?;
+        tracing::info!(path = %adapter_path, powered, "bluetooth: set adapter power succeeded");
+        Ok(())
+    }
+
+    pub async fn set_adapter_discoverable(
+        &self,
+        adapter_path: &str,
+        discoverable: bool,
+    ) -> anyhow::Result<()> {
+        tracing::info!(
+            path = %adapter_path,
+            discoverable,
+            "bluetooth: set adapter discoverable requested"
+        );
+        let proxy = self.adapter_proxy(adapter_path).await?;
+        proxy
+            .set_discoverable(discoverable)
+            .await
+            .with_context(|| format!("failed to set adapter discoverable on {adapter_path}"))?;
+        tracing::info!(
+            path = %adapter_path,
+            discoverable,
+            "bluetooth: set adapter discoverable succeeded"
+        );
         Ok(())
     }
 
@@ -938,10 +985,26 @@ impl BluetoothProvider {
         let proxy = self.adapter_proxy(path).await?;
         Ok(BluetoothAdapter {
             path: path.to_owned(),
-            name: proxy.alias().await.unwrap_or_default(),
+            name: {
+                let alias = proxy.alias().await.unwrap_or_default();
+                if alias.is_empty() {
+                    proxy.name().await.unwrap_or_default()
+                } else {
+                    alias
+                }
+            },
             address: proxy.address().await.unwrap_or_default(),
             powered: proxy.powered().await.unwrap_or(false),
             discovering: proxy.discovering().await.unwrap_or(false),
+            discoverable: proxy.discoverable().await.unwrap_or(false),
+            pairable: proxy.pairable().await.unwrap_or(false),
+            address_type: proxy.address_type().await.unwrap_or_default(),
+            class: proxy.class().await.unwrap_or_default(),
+            discoverable_timeout: proxy.discoverable_timeout().await.unwrap_or_default(),
+            pairable_timeout: proxy.pairable_timeout().await.unwrap_or_default(),
+            modalias: proxy.modalias().await.unwrap_or_default(),
+            roles: proxy.roles().await.unwrap_or_default(),
+            uuids: proxy.uuids().await.unwrap_or_default(),
         })
     }
 
@@ -968,7 +1031,7 @@ impl BluetoothProvider {
         };
 
         let name = if !alias.is_empty() {
-            alias
+            alias.clone()
         } else if !address.is_empty() {
             address.clone()
         } else {
@@ -976,7 +1039,9 @@ impl BluetoothProvider {
         };
 
         Ok(BluetoothDevice {
+            path: path.to_owned(),
             address,
+            alias,
             name,
             device_type: BluetoothDeviceType::from_hints(appearance, class, &icon),
             paired,
@@ -984,6 +1049,8 @@ impl BluetoothProvider {
             trusted,
             battery,
             rssi,
+            class,
+            appearance,
             adapter,
         })
     }
@@ -1244,14 +1311,27 @@ mod tests {
             address: "00:11:22:33:44:55".into(),
             powered,
             discovering,
+            discoverable: false,
+            pairable: true,
+            address_type: "public".into(),
+            class: 0,
+            discoverable_timeout: 0,
+            pairable_timeout: 0,
+            modalias: String::new(),
+            roles: Vec::new(),
+            uuids: Vec::new(),
         }
     }
 
     fn device(address: &str, connected: bool, trusted: bool) -> BluetoothDevice {
         BluetoothDevice {
+            path: format!("/org/bluez/hci0/dev_{}", address.replace(':', "_")),
             address: address.to_owned(),
             name: "Device".into(),
+            alias: "Device".into(),
             device_type: BluetoothDeviceType::Unknown,
+            class: 0,
+            appearance: 0,
             paired: true,
             connected,
             trusted,
@@ -1299,9 +1379,13 @@ mod tests {
             snapshot.devices,
             vec![
                 BluetoothDevice {
+                    path: "/org/bluez/hci0/dev_11_22_33_44_55_66".into(),
                     address: "11:22:33:44:55:66".into(),
                     name: "Device".into(),
+                    alias: "Device".into(),
                     device_type: BluetoothDeviceType::Unknown,
+                    class: 0,
+                    appearance: 0,
                     paired: true,
                     connected: true,
                     trusted: false,
@@ -1310,9 +1394,13 @@ mod tests {
                     adapter: "/org/bluez/hci0".into(),
                 },
                 BluetoothDevice {
+                    path: "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF".into(),
                     address: "AA:BB:CC:DD:EE:FF".into(),
                     name: "Device".into(),
+                    alias: "Device".into(),
                     device_type: BluetoothDeviceType::Unknown,
+                    class: 0,
+                    appearance: 0,
                     paired: true,
                     connected: false,
                     trusted: true,
