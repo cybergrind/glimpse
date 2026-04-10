@@ -176,7 +176,7 @@ impl SimpleComponent for App {
         watch_for_config_changes(sender.clone());
 
         let dbus = DbusProvider::connect();
-        let services = Services::new(dbus.system.clone());
+        let services = Services::new(dbus.session.clone(), dbus.system.clone());
         let bluetooth_state = services.handle.bluetooth.subscribe().borrow().clone();
         let network_state = services.handle.network.subscribe().borrow().clone();
         let bluetooth_dialog = BluetoothPromptDialog::new(&root, sender.clone());
