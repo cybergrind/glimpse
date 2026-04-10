@@ -7,3 +7,5 @@ pub mod power;
 pub mod power_policy;
 pub mod session_actions;
 pub mod tray;
+
+pub use crate::{calendar::CalendarServiceHandle, privacy::PrivacyServiceHandle};
