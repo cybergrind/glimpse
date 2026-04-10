@@ -1,32 +1,74 @@
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CalendarDate {
+    pub year: i32,
+    pub month: u32,
+    pub day: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarSource {
+    pub source_id: String,
+    pub display_name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarEvent {
+    pub event_id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub all_day: bool,
+    pub source: CalendarSource,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarToday {
+    pub date: CalendarDate,
+    pub events: Vec<CalendarEvent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarDaySnapshot {
+    pub date: CalendarDate,
+    pub events: Vec<CalendarEvent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarMonthSnapshot {
+    pub year: i32,
+    pub month: u32,
+    pub event_days: BTreeMap<u32, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CalendarServiceHealth {
-    #[default]
     Starting,
     Ready,
+    Reconnecting { attempt: u32 },
     Degraded { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CalendarEntry {
-    pub id: String,
-    pub calendar_id: String,
-    pub title: String,
-    pub start: String,
-    pub end: String,
-    pub all_day: bool,
-    pub location: String,
+impl Default for CalendarServiceHealth {
+    fn default() -> Self {
+        Self::Starting
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CalendarSnapshot {
-    pub selected_calendar_id: Option<String>,
-    pub entries: Vec<CalendarEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CalendarServiceState {
     pub health: CalendarServiceHealth,
-    pub snapshot: CalendarSnapshot,
+    pub today: Option<CalendarToday>,
+    pub day_cache: BTreeMap<CalendarDate, CalendarDaySnapshot>,
+    pub month_cache: BTreeMap<(i32, u32), CalendarMonthSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CalendarServiceCommand {
+    LoadMonth { year: i32, month: u32 },
+    LoadDay { date: CalendarDate },
+    Refresh,
 }
 
 #[cfg(test)]
@@ -34,19 +76,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn calendar_service_state_defaults_to_starting_with_empty_snapshot() {
+    fn calendar_state_defaults_to_empty_and_starting() {
         let state = CalendarServiceState::default();
 
+        assert!(state.today.is_none());
+        assert!(state.day_cache.is_empty());
+        assert!(state.month_cache.is_empty());
         assert_eq!(state.health, CalendarServiceHealth::Starting);
-        assert_eq!(state.snapshot, CalendarSnapshot::default());
     }
 
     #[test]
-    fn calendar_entry_defaults_are_empty_and_false() {
-        let entry = CalendarEntry::default();
+    fn calendar_today_and_day_snapshots_keep_typed_dates() {
+        let date = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 10,
+        };
+        let today = CalendarToday {
+            date,
+            events: Vec::new(),
+        };
+        let day = CalendarDaySnapshot {
+            date,
+            events: Vec::new(),
+        };
 
-        assert_eq!(entry.id, "");
-        assert!(!entry.all_day);
-        assert_eq!(entry.location, "");
+        assert_eq!(today.date, date);
+        assert_eq!(day.date, date);
     }
 }
