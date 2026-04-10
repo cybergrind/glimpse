@@ -7,7 +7,7 @@ mod exec;
 mod keyboard;
 mod mpris;
 mod network;
-mod notifications;
+pub(crate) mod notifications;
 mod pager;
 mod power;
 mod privacy;

@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::config::NotificationsConfig;
@@ -7,7 +5,6 @@ use super::NotificationActionCommand;
 use super::popover::{
     NotificationsPopover, NotificationsPopoverInit, NotificationsPopoverInput,
 };
-use super::popup::NotificationPopup;
 use glimpse::notifications::{NotificationEntry, NotificationsServiceHandle, NotificationsServiceState};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -25,8 +22,6 @@ pub struct Notifications {
     dnd: bool,
     started_at: u64,
     popover: Controller<NotificationsPopover>,
-    popup: Rc<RefCell<NotificationPopup>>,
-    surfaced_ids: HashSet<u32>,
     icon_widget: gtk::Image,
     badge_widget: gtk::Box,
     badge_value_label: gtk::Label,
@@ -40,7 +35,6 @@ pub struct NotificationsInit {
 #[derive(Debug)]
 pub enum NotificationsMsg {
     ServiceState(NotificationsServiceState),
-    MarkSeen(u32),
     TogglePopover,
     Command(NotificationActionCommand),
     Unavailable,
@@ -166,17 +160,6 @@ impl Component for Notifications {
             })
             .detach();
 
-        let popup = Rc::new(RefCell::new(NotificationPopup::new(
-            init.config.popup_timeout,
-            &init.config.popup_position,
-            init.config.popup_margin_top,
-            Rc::new({
-                let sender = sender.clone();
-                move |id| sender.input(NotificationsMsg::MarkSeen(id))
-            }),
-            emit_command,
-        )));
-
         let widgets = view_output!();
 
         let model = Notifications {
@@ -193,8 +176,6 @@ impl Component for Notifications {
                 .unwrap_or_default()
                 .as_millis() as u64,
             popover,
-            popup,
-            surfaced_ids: HashSet::new(),
             icon_widget: widgets.icon_widget.clone(),
             badge_widget: widgets.badge_widget.clone(),
             badge_value_label: widgets.badge_value_label.clone(),
@@ -246,20 +227,6 @@ impl Component for Notifications {
                 let fresh = filter_fresh_notifications(&state.notifications, self.started_at);
                 let (count, badge_count) = notification_counts(&fresh);
 
-                for notif in &fresh {
-                    let id = notif.id;
-                    if !self.surfaced_ids.contains(&id) {
-                        self.surfaced_ids.insert(id);
-                        if !self.dnd || notif.urgency == 2 {
-                            self.popup.borrow_mut().show(notif);
-                        }
-                    }
-                }
-
-                let current_ids: std::collections::HashSet<u32> =
-                    fresh.iter().map(|notification| notification.id).collect();
-                self.surfaced_ids.retain(|id| current_ids.contains(id));
-
                 self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
                 self.badge_count = badge_count;
                 self.badge_label = badge_presentation(&self.badge_style, badge_count).label;
@@ -273,9 +240,6 @@ impl Component for Notifications {
                 });
                 self.popover
                     .emit(NotificationsPopoverInput::UpdateList(fresh));
-            }
-            NotificationsMsg::MarkSeen(_id) => {
-                self.refresh_indicator_widgets(_root);
             }
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);

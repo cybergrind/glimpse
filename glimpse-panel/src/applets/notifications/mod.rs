@@ -8,7 +8,7 @@ mod popover;
 mod popup;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum NotificationActionCommand {
+pub enum NotificationActionCommand {
     Dismiss { id: u32 },
     DismissAll,
     InvokeAction {
@@ -20,7 +20,7 @@ pub(crate) enum NotificationActionCommand {
 }
 
 impl NotificationActionCommand {
-    fn into_service_command(self) -> NotificationsCommand {
+    pub(crate) fn into_service_command(self) -> NotificationsCommand {
         match self {
             Self::Dismiss { id } => NotificationsCommand::Dismiss { id },
             Self::DismissAll => NotificationsCommand::DismissAll,
@@ -40,3 +40,4 @@ impl NotificationActionCommand {
 
 pub use applet::{Notifications, NotificationsInit};
 pub use config::NotificationsConfig;
+pub use popup::{NotificationPopup, NotificationPopupInit};

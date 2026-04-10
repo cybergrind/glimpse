@@ -26,6 +26,7 @@ use glimpse::network::protocol::{
 use glimpse_client::Client;
 
 use crate::{
+    applets::notifications::{NotificationActionCommand, NotificationPopup, NotificationPopupInit, NotificationsConfig},
     config::Config,
     panels,
     providers::dbus::DbusProvider,
@@ -43,6 +44,7 @@ pub struct App {
     bluetooth_state: BluetoothServiceState,
     network_dialog: NetworkPromptDialog,
     network_state: NetworkServiceState,
+    notification_popup: Option<Controller<NotificationPopup>>,
 }
 
 #[derive(Debug)]
@@ -59,6 +61,7 @@ pub enum Input {
         id: NetworkPromptId,
         reply: NetworkPromptReply,
     },
+    NotificationCommand(NotificationActionCommand),
 }
 
 struct BluetoothPromptDialog {
@@ -203,6 +206,8 @@ impl SimpleComponent for App {
             client.clone(),
             services.handle.clone(),
         );
+        let notification_popup =
+            setup_notification_popup(&config, services.handle.notifications.clone(), sender.clone());
 
         let model = App {
             panels,
@@ -215,6 +220,7 @@ impl SimpleComponent for App {
             bluetooth_state,
             network_dialog,
             network_state,
+            notification_popup,
         };
 
         let bluetooth = model.services.handle.bluetooth.clone();
@@ -263,12 +269,20 @@ impl SimpleComponent for App {
                 for panel in self.panels.drain(..) {
                     panel.widget().close();
                 }
+                if let Some(popup) = self.notification_popup.take() {
+                    popup.widget().close();
+                }
                 self.panels = setup_panels(
                     &new_config,
                     self.dbus.session.clone(),
                     self.dbus.system.clone(),
                     self.client.clone(),
                     self.services.handle.clone(),
+                );
+                self.notification_popup = setup_notification_popup(
+                    &new_config,
+                    self.services.handle.notifications.clone(),
+                    _sender.clone(),
                 );
                 self.config = new_config;
             }
@@ -313,6 +327,14 @@ impl SimpleComponent for App {
                     }
                 });
             }
+            Input::NotificationCommand(command) => {
+                let notifications = self.services.handle.notifications.clone();
+                relm4::spawn(async move {
+                    if let Err(error) = notifications.send(command.into_service_command()).await {
+                        tracing::warn!(error = %error, "notifications app: failed to send command");
+                    }
+                });
+            }
         }
     }
 }
@@ -338,6 +360,44 @@ fn setup_panels(
         panels.push(panel);
     }
     panels
+}
+
+fn notifications_popup_config(config: &Config) -> Option<NotificationsConfig> {
+    for panel in &config.panels {
+        for name in &panel.applets {
+            let applet_config = config.applets.get(name);
+            let applet_type = applet_config
+                .map(|c| c.extends.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(name);
+            if applet_type != "notifications" {
+                continue;
+            }
+
+            let popup_config: NotificationsConfig = applet_config
+                .map(|c| c.settings.clone().try_into().unwrap_or_default())
+                .unwrap_or_default();
+            return popup_config.show_popup.then_some(popup_config);
+        }
+    }
+
+    None
+}
+
+fn setup_notification_popup(
+    config: &Config,
+    service: glimpse::notifications::NotificationsServiceHandle,
+    sender: ComponentSender<App>,
+) -> Option<Controller<NotificationPopup>> {
+    let popup_config = notifications_popup_config(config)?;
+    Some(
+        NotificationPopup::builder()
+            .launch(NotificationPopupInit {
+                config: popup_config,
+                service,
+            })
+            .forward(sender.input_sender(), Input::NotificationCommand),
+    )
 }
 
 fn load_css(provider: &CssProvider, path: &PathBuf) {
@@ -869,6 +929,8 @@ fn watch_for_config_changes(sender: ComponentSender<App>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AppletConfig, Config, PanelConfig, PanelPosition};
+    use toml::Value;
 
     fn network_prompt(id: u64, ssid: &str) -> NetworkPrompt {
         NetworkPrompt {
@@ -885,6 +947,22 @@ mod tests {
             device_path: "/org/bluez/hci0/dev_AA_BB".into(),
             device_label: "Headphones".into(),
             kind: BluetoothPromptKind::RequestPin,
+        }
+    }
+
+    fn panel(applets: &[&str]) -> PanelConfig {
+        PanelConfig {
+            position: PanelPosition::Top,
+            height: 36,
+            margin: Default::default(),
+            applets: applets.iter().map(|name| name.to_string()).collect(),
+        }
+    }
+
+    fn notifications_applet(settings: Value) -> AppletConfig {
+        AppletConfig {
+            extends: "notifications".to_string(),
+            settings,
         }
     }
 
@@ -997,5 +1075,38 @@ mod tests {
         let current = network_prompt(1, "Skylink");
 
         assert!(should_reset_network_prompt_form(Some(&current), None));
+    }
+
+    #[test]
+    fn popup_config_uses_first_notifications_applet_in_panel_order() {
+        let mut config = Config::default();
+        config.panels = vec![panel(&["clock", "notif-b", "notif-a"])];
+        config.applets.insert(
+            "notif-a".into(),
+            notifications_applet(toml::from_str(r#"popup_position = "top-left""#).unwrap()),
+        );
+        config.applets.insert(
+            "notif-b".into(),
+            notifications_applet(toml::from_str(r#"popup_position = "bottom-right""#).unwrap()),
+        );
+
+        let popup = notifications_popup_config(&config).expect("popup config");
+        assert_eq!(popup.popup_position, "bottom-right");
+    }
+
+    #[test]
+    fn popup_config_returns_none_when_first_notifications_applet_disables_popup() {
+        let mut config = Config::default();
+        config.panels = vec![panel(&["notif-a", "notif-b"])];
+        config.applets.insert(
+            "notif-a".into(),
+            notifications_applet(toml::from_str(r#"show_popup = false"#).unwrap()),
+        );
+        config.applets.insert(
+            "notif-b".into(),
+            notifications_applet(toml::from_str(r#"show_popup = true"#).unwrap()),
+        );
+
+        assert!(notifications_popup_config(&config).is_none());
     }
 }
