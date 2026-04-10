@@ -64,10 +64,8 @@ struct BluetoothPromptDialog {
 
 struct NetworkPromptDialog {
     parent: adw::ApplicationWindow,
-    sender: ComponentSender<App>,
-    dialog: Option<NetworkPromptWidgets>,
+    dialog: NetworkPromptWidgets,
     current_prompt: Rc<RefCell<Option<NetworkPrompt>>>,
-    draft_password: Rc<RefCell<String>>,
 }
 
 #[derive(Clone)]
@@ -124,6 +122,17 @@ fn network_prompt_changed(
     next_prompt: Option<&NetworkPrompt>,
 ) -> bool {
     current_prompt != next_prompt
+}
+
+fn should_reset_network_prompt_form(
+    current_prompt: Option<&NetworkPrompt>,
+    next_prompt: Option<&NetworkPrompt>,
+) -> bool {
+    let Some(next_prompt) = next_prompt else {
+        return true;
+    };
+
+    !should_update_network_prompt_in_place(current_prompt, next_prompt)
 }
 
 #[relm4::component(pub)]
@@ -393,133 +402,43 @@ impl BluetoothPromptDialog {
 
 impl NetworkPromptDialog {
     fn new(root: &adw::ApplicationWindow, sender: ComponentSender<App>) -> Self {
+        let current_prompt = Rc::new(RefCell::new(None));
+        let dialog = build_network_prompt_dialog(root, sender.clone(), current_prompt.clone());
         Self {
             parent: root.clone(),
-            sender,
-            dialog: None,
-            current_prompt: Rc::new(RefCell::new(None)),
-            draft_password: Rc::new(RefCell::new(String::new())),
+            dialog,
+            current_prompt,
         }
     }
 
     fn update(&mut self, prompt: Option<&NetworkPrompt>) {
+        let reset_form = should_reset_network_prompt_form(self.current_prompt.borrow().as_ref(), prompt);
+
         let Some(prompt) = prompt.cloned() else {
             *self.current_prompt.borrow_mut() = None;
-            self.draft_password.borrow_mut().clear();
-            if let Some(dialog) = self.dialog.take() {
-                dialog.dialog.force_close();
-            }
+            clear_network_prompt_form(&self.dialog);
+            self.dialog.dialog.force_close();
             return;
         };
 
-        if !should_preserve_network_prompt_draft(self.current_prompt.borrow().as_ref(), &prompt) {
-            self.draft_password.borrow_mut().clear();
-        }
-
-        if should_update_network_prompt_in_place(self.current_prompt.borrow().as_ref(), &prompt) {
-            *self.current_prompt.borrow_mut() = Some(prompt.clone());
-            if let Some(dialog) = &self.dialog {
-                update_network_prompt_widgets(dialog, &prompt);
-            }
-            return;
-        }
-
-        if let Some(dialog) = self.dialog.take() {
-            dialog.dialog.force_close();
-        }
-
-        let dialog = build_network_prompt_dialog(&prompt);
-        let response_prompt = self.current_prompt.clone();
-        let response_sender = self.sender.clone();
-        let response_dialog = dialog.dialog.clone();
-        let response_entry = dialog.entry.clone();
-        let draft_password = self.draft_password.clone();
-        let cancel_button = dialog.cancel_button.clone();
-        let response_button = dialog.connect_button.clone();
-        {
-            let response_prompt = response_prompt.clone();
-            let response_sender = response_sender.clone();
-            response_button.connect_clicked(move |_| {
-                let Some(active_prompt) = response_prompt.borrow().clone() else {
-                    return;
-                };
-                if let Some(reply) = network_submit_prompt_reply(&response_entry) {
-                    response_sender.input(Input::NetworkPromptReply {
-                        id: active_prompt.id,
-                        reply,
-                    });
-                }
-            });
-        }
-        {
-            let response_button = response_button.clone();
-            dialog.entry.connect_activate(move |_| {
-                response_button.emit_clicked();
-            });
-        }
-        {
-            let draft_password = draft_password.clone();
-            dialog.entry.connect_changed(move |entry| {
-                *draft_password.borrow_mut() = entry.text().to_string();
-            });
-        }
-        {
-            let response_prompt = response_prompt.clone();
-            let response_sender = response_sender.clone();
-            let draft_password = draft_password.clone();
-            let response_dialog = response_dialog.clone();
-            cancel_button.connect_clicked(move |_| {
-                let Some(active_prompt) = response_prompt.borrow().clone() else {
-                    return;
-                };
-                if active_prompt.submitting {
-                    return;
-                }
-                draft_password.borrow_mut().clear();
-                *response_prompt.borrow_mut() = None;
-                response_dialog.force_close();
-                response_sender.input(Input::NetworkPromptReply {
-                    id: active_prompt.id,
-                    reply: NetworkPromptReply::Cancel,
-                });
-            });
-        }
-        {
-            let response_prompt = response_prompt.clone();
-            let response_sender = response_sender.clone();
-            let draft_password = draft_password.clone();
-            response_dialog.connect_closed(move |_| {
-                let Some(active_prompt) = response_prompt.borrow().clone() else {
-                    return;
-                };
-                if active_prompt.submitting {
-                    return;
-                }
-                draft_password.borrow_mut().clear();
-                *response_prompt.borrow_mut() = None;
-                response_sender.input(Input::NetworkPromptReply {
-                    id: active_prompt.id,
-                    reply: NetworkPromptReply::Cancel,
-                });
-            });
+        if reset_form {
+            clear_network_prompt_form(&self.dialog);
         }
 
         *self.current_prompt.borrow_mut() = Some(prompt.clone());
-        initialize_network_prompt_draft(&dialog, &self.draft_password.borrow());
-        self.dialog = Some(dialog.clone());
-        dialog.dialog.present(Some(&self.parent));
+        update_network_prompt_widgets(&self.dialog, &prompt);
+        if reset_form {
+            self.dialog.dialog.present(Some(&self.parent));
+        }
     }
 }
 
-fn build_network_prompt_dialog(prompt: &NetworkPrompt) -> NetworkPromptWidgets {
-    let ssid = match &prompt.kind {
-        NetworkPromptKind::WifiPassword { ssid } => ssid,
-    };
-
-    let dialog = adw::AlertDialog::new(
-        Some("Wi-Fi Password"),
-        Some(&format!("Enter the password for {ssid}.")),
-    );
+fn build_network_prompt_dialog(
+    _parent: &adw::ApplicationWindow,
+    sender: ComponentSender<App>,
+    current_prompt: Rc<RefCell<Option<NetworkPrompt>>>,
+) -> NetworkPromptWidgets {
+    let dialog = adw::AlertDialog::new(Some("Wi-Fi Password"), Some(""));
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
     let entry = gtk::Entry::new();
@@ -570,12 +489,74 @@ fn build_network_prompt_dialog(prompt: &NetworkPrompt) -> NetworkPromptWidgets {
         spinner,
         submitting,
     };
-    update_network_prompt_widgets(&widgets, prompt);
+    {
+        let response_prompt = current_prompt.clone();
+        let response_sender = sender.clone();
+        let response_entry = widgets.entry.clone();
+        widgets.connect_button.connect_clicked(move |_| {
+            let Some(active_prompt) = response_prompt.borrow().clone() else {
+                return;
+            };
+            if let Some(reply) = network_submit_prompt_reply(&response_entry) {
+                response_sender.input(Input::NetworkPromptReply {
+                    id: active_prompt.id,
+                    reply,
+                });
+            }
+        });
+    }
+    {
+        let response_button = widgets.connect_button.clone();
+        widgets.entry.connect_activate(move |_| {
+            response_button.emit_clicked();
+        });
+    }
+    {
+        let response_prompt = current_prompt.clone();
+        let response_sender = sender.clone();
+        let response_dialog = widgets.dialog.clone();
+        widgets.cancel_button.connect_clicked(move |_| {
+            let Some(active_prompt) = response_prompt.borrow().clone() else {
+                return;
+            };
+            if active_prompt.submitting {
+                return;
+            }
+            *response_prompt.borrow_mut() = None;
+            response_dialog.force_close();
+            response_sender.input(Input::NetworkPromptReply {
+                id: active_prompt.id,
+                reply: NetworkPromptReply::Cancel,
+            });
+        });
+    }
+    {
+        let response_prompt = current_prompt.clone();
+        let response_sender = sender.clone();
+        widgets.dialog.connect_closed(move |_| {
+            let Some(active_prompt) = response_prompt.borrow().clone() else {
+                return;
+            };
+            if active_prompt.submitting {
+                return;
+            }
+            *response_prompt.borrow_mut() = None;
+            response_sender.input(Input::NetworkPromptReply {
+                id: active_prompt.id,
+                reply: NetworkPromptReply::Cancel,
+            });
+        });
+    }
     widgets
 }
 
 fn update_network_prompt_widgets(widgets: &NetworkPromptWidgets, prompt: &NetworkPrompt) {
     let was_submitting = widgets.submitting.get();
+    let body = match &prompt.kind {
+        NetworkPromptKind::WifiPassword { ssid } => format!("Enter the password for {ssid}."),
+    };
+    widgets.dialog.set_heading(Some("Wi-Fi Password"));
+    widgets.dialog.set_body(&body);
     widgets.submitting.set(prompt.submitting);
     widgets.dialog.set_can_close(!prompt.submitting);
     widgets.entry.set_sensitive(!prompt.submitting);
@@ -597,28 +578,8 @@ fn update_network_prompt_widgets(widgets: &NetworkPromptWidgets, prompt: &Networ
     }
 }
 
-fn should_preserve_network_prompt_draft(
-    current_prompt: Option<&NetworkPrompt>,
-    next_prompt: &NetworkPrompt,
-) -> bool {
-    let Some(current_prompt) = current_prompt else {
-        return false;
-    };
-
-    match (&current_prompt.kind, &next_prompt.kind) {
-        (
-            NetworkPromptKind::WifiPassword { ssid: current_ssid },
-            NetworkPromptKind::WifiPassword { ssid: next_ssid },
-        ) => current_ssid == next_ssid,
-    }
-}
-
-fn initialize_network_prompt_draft(widgets: &NetworkPromptWidgets, draft: &str) {
-    if draft.is_empty() {
-        return;
-    }
-
-    widgets.entry.set_text(draft);
+fn clear_network_prompt_form(widgets: &NetworkPromptWidgets) {
+    widgets.entry.set_text("");
     widgets.entry.set_position(-1);
 }
 
@@ -940,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn wifi_password_draft_is_preserved_for_same_ssid() {
+    fn wifi_password_form_state_is_preserved_for_same_ssid() {
         let current = network_prompt(1, "Skylink");
         let next = NetworkPrompt {
             id: NetworkPromptId(2),
@@ -951,7 +912,7 @@ mod tests {
             submitting: false,
         };
 
-        assert!(should_preserve_network_prompt_draft(Some(&current), &next));
+        assert!(!should_reset_network_prompt_form(Some(&current), Some(&next)));
     }
 
     #[test]
@@ -978,6 +939,13 @@ mod tests {
     }
 
     #[test]
+    fn wifi_password_form_state_is_reset_for_new_prompt() {
+        let next = network_prompt(1, "Skylink");
+
+        assert!(should_reset_network_prompt_form(None, Some(&next)));
+    }
+
+    #[test]
     fn unchanged_network_prompt_does_not_require_dialog_update() {
         let prompt = network_prompt(1, "Skylink");
 
@@ -1000,10 +968,17 @@ mod tests {
     }
 
     #[test]
-    fn wifi_password_draft_is_cleared_for_different_ssid() {
+    fn wifi_password_form_state_is_reset_for_different_ssid() {
         let current = network_prompt(1, "Skylink");
         let next = network_prompt(2, "Office");
 
-        assert!(!should_preserve_network_prompt_draft(Some(&current), &next));
+        assert!(should_reset_network_prompt_form(Some(&current), Some(&next)));
+    }
+
+    #[test]
+    fn wifi_password_form_state_is_reset_when_prompt_closes() {
+        let current = network_prompt(1, "Skylink");
+
+        assert!(should_reset_network_prompt_form(Some(&current), None));
     }
 }

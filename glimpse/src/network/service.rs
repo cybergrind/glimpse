@@ -10,8 +10,8 @@ use crate::{
     },
     network::secret_agent::NetworkSecretAgent,
     providers::network::{
-        NetworkFailureClassification, NetworkProvider, NetworkProviderEvent, NetworkSnapshot,
-        WifiAccessPoint,
+        NetworkChangeReason, NetworkFailureClassification, NetworkProvider, NetworkProviderEvent,
+        NetworkSnapshot, WifiAccessPoint,
     },
 };
 
@@ -197,7 +197,7 @@ async fn run_connected(
             maybe_event = event_rx.recv() => {
                 match maybe_event {
                     Some(NetworkProviderEvent::Changed { reason }) => {
-                        tracing::info!(reason = %reason, "network service: provider changed");
+                        log_network_provider_change(&reason);
                         if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
                             tracing::warn!(error = %error, "network service: refresh failed");
                             let _ = state_tx.send_modify(|state| {
@@ -838,6 +838,18 @@ fn set_scanning(state_tx: &watch::Sender<NetworkServiceState>, scanning: bool) {
     let _ = state_tx.send_modify(|state| state.scanning = scanning);
 }
 
+fn network_provider_change_logs_at_info(_reason: &NetworkChangeReason) -> bool {
+    false
+}
+
+fn log_network_provider_change(reason: &NetworkChangeReason) {
+    if network_provider_change_logs_at_info(reason) {
+        tracing::info!(reason = %reason, "network service: provider changed");
+    } else {
+        tracing::debug!(reason = %reason, "network service: provider changed");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -976,6 +988,14 @@ mod tests {
             saved: true,
             ..WifiAccessPoint::default()
         }));
+    }
+
+    #[test]
+    fn provider_change_logs_are_debug_only() {
+        assert!(!network_provider_change_logs_at_info(
+            &NetworkChangeReason::PropertiesChanged
+        ));
+        assert!(!network_provider_change_logs_at_info(&NetworkChangeReason::Mixed));
     }
 
     #[test]
