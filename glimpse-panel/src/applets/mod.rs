@@ -233,12 +233,14 @@ pub fn create_applet(
             Some(AppletController::Weather(applet))
         }
         "session" => {
-            let client = client.clone()?;
             let config: session::SessionConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = session::Session::builder()
-                .launch(session::SessionInit { config, client })
+                .launch(session::SessionInit {
+                    config,
+                    conn: system.clone(),
+                })
                 .detach();
             Some(AppletController::Session(applet))
         }
