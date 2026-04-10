@@ -1,10 +1,26 @@
 use std::collections::BTreeMap;
 
+use chrono::{Datelike, NaiveDate};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CalendarDate {
     pub year: i32,
     pub month: u32,
     pub day: u32,
+}
+
+impl CalendarDate {
+    pub fn from_naive_date(date: NaiveDate) -> Self {
+        Self {
+            year: date.year(),
+            month: date.month(),
+            day: date.day(),
+        }
+    }
+
+    pub fn to_naive_date(self) -> Option<NaiveDate> {
+        NaiveDate::from_ymd_opt(self.year, self.month, self.day)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -19,6 +35,10 @@ pub struct CalendarEvent {
     pub event_id: String,
     pub title: String,
     pub subtitle: String,
+    pub start: String,
+    pub end: String,
+    pub location: Option<String>,
+    pub description: Option<String>,
     pub all_day: bool,
     pub source: CalendarSource,
 }
@@ -39,7 +59,13 @@ pub struct CalendarDaySnapshot {
 pub struct CalendarMonthSnapshot {
     pub year: i32,
     pub month: u32,
-    pub event_days: BTreeMap<u32, usize>,
+    pub days: Vec<CalendarMonthDay>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalendarMonthDay {
+    pub date: CalendarDate,
+    pub colors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
