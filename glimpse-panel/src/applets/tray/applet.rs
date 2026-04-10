@@ -16,6 +16,8 @@ use crate::applets::tray::TrayConfig;
 
 struct TrayItemState {
     button: gtk::Button,
+    menu_path: String,
+    menu: Vec<TrayMenuItem>,
     popover: Option<gtk::PopoverMenu>,
 }
 
@@ -181,6 +183,8 @@ impl Tray {
 
                 let mut state = TrayItemState {
                     button,
+                    menu_path: String::new(),
+                    menu: Vec::new(),
                     popover: None,
                 };
                 rebuild_menu(&mut state, item, sender);
@@ -386,10 +390,21 @@ fn texture_from_pixmap(width: i32, height: i32, pixels: &[u8]) -> Option<gdk::Te
 }
 
 fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSender<Tray>) {
+    if !menu_state_changed(&state.menu_path, &state.menu, item) {
+        return;
+    }
+
+    let was_visible = state
+        .popover
+        .as_ref()
+        .is_some_and(gtk::prelude::WidgetExt::is_visible);
+
     state
         .button
         .insert_action_group("tray", Option::<&gio::SimpleActionGroup>::None);
     detach_popover(state.popover.take());
+    state.menu_path = item.menu_path.clone();
+    state.menu = item.menu.clone();
 
     if !has_visible_menu_items(&item.menu) {
         return;
@@ -409,6 +424,9 @@ fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSe
     let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
     popover.insert_action_group("tray", Some(&action_group));
     popover.set_parent(&state.button);
+    if was_visible {
+        popover.popup();
+    }
     state.popover = Some(popover);
 }
 
@@ -509,6 +527,10 @@ fn has_visible_menu_items(items: &[TrayMenuItem]) -> bool {
     })
 }
 
+fn menu_state_changed(menu_path: &str, menu: &[TrayMenuItem], item: &TrayItem) -> bool {
+    menu_path != item.menu_path || menu != item.menu
+}
+
 fn command_for_click(item: &TrayItem, click: ClickKind, x: i32, y: i32) -> ClickOutcome {
     match click {
         ClickKind::Primary if !item.item_is_menu => {
@@ -593,7 +615,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unchanged_menu_state_does_not_require_rebuild() {
+        let menu = vec![TrayMenuItem {
+            id: 1,
+            label: "Open".into(),
+            enabled: true,
+            visible: true,
+            kind: TrayMenuItemKind::Standard,
+            icon: None,
+            shortcut: None,
+            toggle_type: TrayMenuToggleType::CannotBeToggled,
+            toggle_state: TrayMenuToggleState::Indeterminate,
+            children_display: None,
+            disposition: TrayMenuDisposition::Normal,
+            children: Vec::new(),
+        }];
+
+        assert!(!menu_state_changed(
+            "/MenuBar",
+            &menu,
+            &test_item_with_menu("/MenuBar", menu.clone()),
+        ));
+    }
+
+    #[test]
+    fn changed_menu_state_requires_rebuild() {
+        assert!(menu_state_changed(
+            "/MenuBar",
+            &[],
+            &test_item_with_menu(
+                "/NewMenu",
+                vec![TrayMenuItem {
+                    id: 1,
+                    label: "Open".into(),
+                    enabled: true,
+                    visible: true,
+                    kind: TrayMenuItemKind::Standard,
+                    icon: None,
+                    shortcut: None,
+                    toggle_type: TrayMenuToggleType::CannotBeToggled,
+                    toggle_state: TrayMenuToggleState::Indeterminate,
+                    children_display: None,
+                    disposition: TrayMenuDisposition::Normal,
+                    children: Vec::new(),
+                }],
+            ),
+        ));
+    }
+
     fn test_item(item_is_menu: bool, menu: Vec<TrayMenuItem>) -> TrayItem {
+        test_item_with_menu_path(item_is_menu, "/MenuBar", menu)
+    }
+
+    fn test_item_with_menu(menu_path: &str, menu: Vec<TrayMenuItem>) -> TrayItem {
+        test_item_with_menu_path(true, menu_path, menu)
+    }
+
+    fn test_item_with_menu_path(
+        item_is_menu: bool,
+        menu_path: &str,
+        menu: Vec<TrayMenuItem>,
+    ) -> TrayItem {
         TrayItem {
             address: "org.example.App".into(),
             id: "example".into(),
@@ -601,7 +684,7 @@ mod tests {
             status: TrayStatus::Active,
             category: TrayCategory::ApplicationStatus,
             item_is_menu,
-            menu_path: "/MenuBar".into(),
+            menu_path: menu_path.into(),
             icon_theme_path: None,
             icon: Some(TrayIcon::Name("example-symbolic".into())),
             overlay_icon: None,
