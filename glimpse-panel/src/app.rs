@@ -13,6 +13,10 @@ use glimpse::bluetooth::protocol::{
     BluetoothPrompt, BluetoothPromptKind, BluetoothPromptReply, BluetoothServiceCommand,
     BluetoothServiceState,
 };
+use glimpse::network::protocol::{
+    NetworkPrompt, NetworkPromptId, NetworkPromptKind, NetworkPromptReply,
+    NetworkServiceCommand as PanelNetworkServiceCommand, NetworkServiceState,
+};
 use glimpse_client::Client;
 
 use crate::{
@@ -31,6 +35,8 @@ pub struct App {
     services: Services,
     bluetooth_dialog: BluetoothPromptDialog,
     bluetooth_state: BluetoothServiceState,
+    network_dialog: NetworkPromptDialog,
+    network_state: NetworkServiceState,
 }
 
 #[derive(Debug)]
@@ -42,6 +48,11 @@ pub enum Input {
         id: glimpse::bluetooth::protocol::BluetoothPromptId,
         reply: BluetoothPromptReply,
     },
+    NetworkState(NetworkServiceState),
+    NetworkPromptReply {
+        id: NetworkPromptId,
+        reply: NetworkPromptReply,
+    },
 }
 
 struct BluetoothPromptDialog {
@@ -51,12 +62,36 @@ struct BluetoothPromptDialog {
     current_prompt: Rc<RefCell<Option<BluetoothPrompt>>>,
 }
 
+struct NetworkPromptDialog {
+    parent: adw::ApplicationWindow,
+    sender: ComponentSender<App>,
+    dialog: Option<adw::AlertDialog>,
+    current_prompt: Rc<RefCell<Option<NetworkPrompt>>>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BluetoothPromptMode {
     Display,
     Confirm,
     Pin,
     Passkey,
+}
+
+const RESPONSE_CANCEL: &str = "cancel";
+const RESPONSE_ACCEPT: &str = "accept";
+
+fn should_replace_prompt<T: PartialEq>(current_prompt: Option<&T>, next_prompt: &T) -> bool {
+    current_prompt != Some(next_prompt)
+}
+
+fn clear_completed_prompt<T: PartialEq>(
+    current_prompt: &Rc<RefCell<Option<T>>>,
+    completed_prompt: &T,
+) {
+    let should_clear = current_prompt.borrow().as_ref() == Some(completed_prompt);
+    if should_clear {
+        *current_prompt.borrow_mut() = None;
+    }
 }
 
 #[relm4::component(pub)]
@@ -102,7 +137,9 @@ impl SimpleComponent for App {
         let dbus = DbusProvider::connect();
         let services = Services::new(dbus.system.clone());
         let bluetooth_state = services.handle.bluetooth.subscribe().borrow().clone();
+        let network_state = services.handle.network.subscribe().borrow().clone();
         let bluetooth_dialog = BluetoothPromptDialog::new(&root, sender.clone());
+        let network_dialog = NetworkPromptDialog::new(&root, sender.clone());
 
         let client = match tokio::runtime::Handle::current().block_on(Client::connect()) {
             Ok(c) => Some(Arc::new(c)),
@@ -129,6 +166,8 @@ impl SimpleComponent for App {
             services,
             bluetooth_dialog,
             bluetooth_state,
+            network_dialog,
+            network_state,
         };
 
         let bluetooth = model.services.handle.bluetooth.clone();
@@ -144,6 +183,24 @@ impl SimpleComponent for App {
                             break;
                         }
                         input.input(Input::BluetoothState(state_rx.borrow().clone()));
+                    }
+                })
+                .drop_on_shutdown()
+        });
+
+        let network = model.services.handle.network.clone();
+        let input = sender.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    let mut state_rx = network.subscribe();
+                    input.input(Input::NetworkState(state_rx.borrow().clone()));
+
+                    loop {
+                        if state_rx.changed().await.is_err() {
+                            break;
+                        }
+                        input.input(Input::NetworkState(state_rx.borrow().clone()));
                     }
                 })
                 .drop_on_shutdown()
@@ -184,6 +241,22 @@ impl SimpleComponent for App {
                         .await
                     {
                         tracing::warn!(error = %error, "bluetooth app: failed to send prompt reply");
+                    }
+                });
+            }
+            Input::NetworkState(state) => {
+                self.network_state = state;
+                self.network_dialog
+                    .update(self.network_state.prompt.as_ref());
+            }
+            Input::NetworkPromptReply { id, reply } => {
+                let network = self.services.handle.network.clone();
+                relm4::spawn(async move {
+                    if let Err(error) = network
+                        .send(PanelNetworkServiceCommand::PromptReply { id, reply })
+                        .await
+                    {
+                        tracing::warn!(error = %error, "network app: failed to send prompt reply");
                     }
                 });
             }
@@ -241,7 +314,7 @@ impl BluetoothPromptDialog {
             return;
         };
 
-        if self.current_prompt.borrow().as_ref() == Some(&prompt) {
+        if !should_replace_prompt(self.current_prompt.borrow().as_ref(), &prompt) {
             return;
         }
 
@@ -261,7 +334,9 @@ impl BluetoothPromptDialog {
 
         relm4::spawn_local(async move {
             let response = response_dialog.choose_future(&response_parent).await;
-            let Some(active_prompt) = response_prompt.borrow().clone() else {
+            let active_prompt = response_prompt.borrow().clone();
+            clear_completed_prompt(&response_prompt, &prompt);
+            let Some(active_prompt) = active_prompt else {
                 return;
             };
 
@@ -277,6 +352,112 @@ impl BluetoothPromptDialog {
                 });
             }
         });
+    }
+}
+
+impl NetworkPromptDialog {
+    fn new(root: &adw::ApplicationWindow, sender: ComponentSender<App>) -> Self {
+        Self {
+            parent: root.clone(),
+            sender,
+            dialog: None,
+            current_prompt: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    fn update(&mut self, prompt: Option<&NetworkPrompt>) {
+        let Some(prompt) = prompt.cloned() else {
+            *self.current_prompt.borrow_mut() = None;
+            if let Some(dialog) = self.dialog.take() {
+                dialog.force_close();
+            }
+            return;
+        };
+
+        if !should_replace_prompt(self.current_prompt.borrow().as_ref(), &prompt) {
+            return;
+        }
+
+        if let Some(dialog) = self.dialog.take() {
+            dialog.force_close();
+        }
+
+        let (dialog, entry) = build_network_prompt_dialog(&prompt);
+        let response_prompt = self.current_prompt.clone();
+        let response_parent = self.parent.clone();
+        let response_sender = self.sender.clone();
+        let response_dialog = dialog.clone();
+        let response_entry = entry.clone();
+
+        *self.current_prompt.borrow_mut() = Some(prompt.clone());
+        self.dialog = Some(dialog);
+
+        relm4::spawn_local(async move {
+            let response = response_dialog.choose_future(&response_parent).await;
+            let active_prompt = response_prompt.borrow().clone();
+            clear_completed_prompt(&response_prompt, &prompt);
+            let Some(active_prompt) = active_prompt else {
+                return;
+            };
+            if active_prompt.id != prompt.id {
+                return;
+            }
+            if let Some(reply) = network_prompt_reply(response.as_str(), &response_entry) {
+                response_sender.input(Input::NetworkPromptReply {
+                    id: active_prompt.id,
+                    reply,
+                });
+            }
+        });
+    }
+}
+
+fn build_network_prompt_dialog(prompt: &NetworkPrompt) -> (adw::AlertDialog, gtk::Entry) {
+    let ssid = match &prompt.kind {
+        NetworkPromptKind::WifiPassword { ssid } => ssid,
+    };
+
+    let dialog = adw::AlertDialog::new(
+        Some("Wi-Fi Password"),
+        Some(&format!("Enter the password for {ssid}.")),
+    );
+    dialog.add_response(RESPONSE_CANCEL, "Cancel");
+    dialog.add_response(RESPONSE_ACCEPT, "Connect");
+    dialog.set_close_response(RESPONSE_CANCEL);
+    dialog.set_default_response(Some(RESPONSE_ACCEPT));
+    dialog.set_response_appearance(RESPONSE_ACCEPT, adw::ResponseAppearance::Suggested);
+    dialog.set_response_enabled(RESPONSE_ACCEPT, false);
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    let entry = gtk::Entry::new();
+    entry.set_visibility(false);
+    entry.set_activates_default(true);
+    entry.set_placeholder_text(Some("Password"));
+    entry.set_input_purpose(gtk::InputPurpose::Password);
+    let validation_dialog = dialog.clone();
+    entry.connect_changed(move |entry| {
+        validation_dialog.set_response_enabled(RESPONSE_ACCEPT, !entry.text().trim().is_empty());
+    });
+    entry.grab_focus();
+    content.append(&entry);
+    dialog.set_extra_child(Some(&content));
+
+    (dialog, entry)
+}
+
+fn network_prompt_reply(response: &str, entry: &gtk::Entry) -> Option<NetworkPromptReply> {
+    match response {
+        RESPONSE_CANCEL => Some(NetworkPromptReply::Cancel),
+        RESPONSE_ACCEPT => {
+            let value = entry.text().trim().to_string();
+            if value.is_empty() {
+                tracing::warn!("network dialog: empty password submitted");
+                None
+            } else {
+                Some(NetworkPromptReply::SubmitPassword(value))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -326,7 +507,10 @@ fn bluetooth_dialog_content(
     }
 }
 
-fn bluetooth_prompt_device_label(prompt: &BluetoothPrompt, state: &BluetoothServiceState) -> String {
+fn bluetooth_prompt_device_label(
+    prompt: &BluetoothPrompt,
+    state: &BluetoothServiceState,
+) -> String {
     if !prompt.device_label.is_empty() && prompt.device_label != prompt.device_path {
         return prompt.device_label.clone();
     }
@@ -540,4 +724,45 @@ fn watch_for_config_changes(sender: ComponentSender<App>) {
 
         std::future::pending::<()>().await;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn network_prompt(id: u64, ssid: &str) -> NetworkPrompt {
+        NetworkPrompt {
+            id: NetworkPromptId(id),
+            kind: NetworkPromptKind::WifiPassword { ssid: ssid.into() },
+        }
+    }
+
+    fn bluetooth_prompt(id: u64) -> BluetoothPrompt {
+        BluetoothPrompt {
+            id: glimpse::bluetooth::protocol::BluetoothPromptId(id),
+            device_path: "/org/bluez/hci0/dev_AA_BB".into(),
+            device_label: "Headphones".into(),
+            kind: BluetoothPromptKind::RequestPin,
+        }
+    }
+
+    #[test]
+    fn completed_network_prompt_is_cleared_for_replacement() {
+        let prompt = network_prompt(1, "Skylink");
+        let current = Rc::new(RefCell::new(Some(prompt.clone())));
+
+        clear_completed_prompt(&current, &prompt);
+
+        assert!(should_replace_prompt(current.borrow().as_ref(), &prompt));
+    }
+
+    #[test]
+    fn completed_bluetooth_prompt_is_cleared_for_replacement() {
+        let prompt = bluetooth_prompt(7);
+        let current = Rc::new(RefCell::new(Some(prompt.clone())));
+
+        clear_completed_prompt(&current, &prompt);
+
+        assert!(should_replace_prompt(current.borrow().as_ref(), &prompt));
+    }
 }

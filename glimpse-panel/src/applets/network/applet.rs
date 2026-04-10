@@ -1,13 +1,16 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::network::{
+    NetworkServiceHandle,
+    protocol::{NetworkActiveAction, NetworkServiceCommand, NetworkServiceState},
+};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
 
 use super::config::NetworkConfig;
-use super::popover::{NetworkPopover, NetworkPopoverInit, NetworkPopoverInput};
+use super::popover::{
+    NetworkPopover, NetworkPopoverInit, NetworkPopoverInput, NetworkPopoverOutput,
+};
 
 pub struct Network {
     primary_icon: String,
@@ -15,31 +18,21 @@ pub struct Network {
     connecting: bool,
     tooltip: String,
     show_vpn_icon: bool,
+    settings_command: String,
+    scan_interval: u64,
+    service: NetworkServiceHandle,
     popover: Controller<NetworkPopover>,
 }
 
 pub struct NetworkInit {
     pub config: NetworkConfig,
-    pub client: Arc<Client>,
+    pub service: NetworkServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NetworkMsg {
-    StatusUpdate {
-        icon: String,
-        primary_connection: String,
-        primary_type: String,
-        speed: u32,
-        metered: bool,
-        wifi_enabled: bool,
-        connectivity: String,
-    },
-    ConnectionsUpdate {
-        has_vpn: bool,
-    },
-    WifiUpdate(serde_json::Value),
-    DevicesUpdate(serde_json::Value),
-    SavedVpnsUpdate(serde_json::Value),
+    ServiceState(NetworkServiceState),
+    PopoverOutput(NetworkPopoverOutput),
     TogglePopover,
     Unavailable,
 }
@@ -69,7 +62,7 @@ impl Component for Network {
             gtk::Image {
                 #[watch]
                 set_icon_name: Some(if model.connecting {
-                    "network-wireless-acquiring-symbolic"
+                    connecting_icon_name(&model.primary_icon)
                 } else {
                     &model.primary_icon
                 }),
@@ -95,11 +88,9 @@ impl Component for Network {
         let popover = NetworkPopover::builder()
             .launch(NetworkPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
-                settings_command: init.config.settings_command.clone(),
-                scan_interval: init.config.scan_interval,
+                show_settings_button: !init.config.settings_command.is_empty(),
             })
-            .detach();
+            .forward(sender.input_sender(), NetworkMsg::PopoverOutput);
 
         let model = Network {
             primary_icon: "network-offline-symbolic".into(),
@@ -107,84 +98,28 @@ impl Component for Network {
             connecting: false,
             tooltip: String::new(),
             show_vpn_icon: init.config.show_vpn_icon,
+            settings_command: init.config.settings_command,
+            scan_interval: init.config.scan_interval,
+            service: init.service.clone(),
             popover,
         };
 
-        let client = init.client;
+        let service = init.service;
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("network applet: subscribing");
-                    let mut status_sub = match client.subscribe("network.status").await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("network: subscribe failed: {e}");
-                            let _ = out.send(NetworkMsg::Unavailable);
-                            return;
-                        }
-                    };
-                    let mut connections_sub = client.subscribe("network.connections").await.ok();
-                    let mut wifi_sub = client.subscribe("network.wifi").await.ok();
-                    let mut devices_sub = client.subscribe("network.devices").await.ok();
-                    let mut vpns_sub = client.subscribe("network.saved_vpns").await.ok();
+                    tracing::info!("network applet: subscribing to network service");
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(NetworkMsg::ServiceState(state_rx.borrow().clone()));
 
                     loop {
-                        tokio::select! {
-                            Some(ev) = status_sub.next() => {
-                                let icon = ev.data["icon"].as_str().unwrap_or("network-offline-symbolic").to_string();
-                                let primary_connection = ev.data["primary_connection"].as_str().unwrap_or("").to_string();
-                                let primary_type = ev.data["primary_type"].as_str().unwrap_or("").to_string();
-                                let speed = ev.data["speed"].as_u64().unwrap_or(0) as u32;
-                                let metered = ev.data["metered"].as_bool().unwrap_or(false);
-                                let wifi_enabled = ev.data["wifi_enabled"].as_bool().unwrap_or(false);
-                                let connectivity = ev.data["connectivity"].as_str().unwrap_or("unknown").to_string();
-                                let _ = out.send(NetworkMsg::StatusUpdate {
-                                    icon, primary_connection, primary_type, speed, metered, wifi_enabled, connectivity,
-                                });
-                            }
-                            Some(ev) = async {
-                                match &mut connections_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                let has_vpn = ev.data.as_array()
-                                    .map(|arr| arr.iter().any(|c| {
-                                        let ct = c["connection_type"].as_str().unwrap_or("");
-                                        ct == "vpn" || ct == "wireguard"
-                                    }))
-                                    .unwrap_or(false);
-                                let _ = out.send(NetworkMsg::ConnectionsUpdate { has_vpn });
-                            }
-                            Some(ev) = async {
-                                match &mut wifi_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                let count = ev.data.as_array().map(|a| a.len()).unwrap_or(0);
-                                tracing::info!(count, "network applet: received wifi event");
-                                let _ = out.send(NetworkMsg::WifiUpdate(ev.data));
-                            }
-                            Some(ev) = async {
-                                match &mut devices_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                let _ = out.send(NetworkMsg::DevicesUpdate(ev.data));
-                            }
-                            Some(ev) = async {
-                                match &mut vpns_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                let _ = out.send(NetworkMsg::SavedVpnsUpdate(ev.data));
-                            }
-                            else => break,
+                        if state_rx.changed().await.is_err() {
+                            break;
                         }
+                        let _ = out.send(NetworkMsg::ServiceState(state_rx.borrow().clone()));
                     }
+
+                    tracing::warn!("network applet: network service state channel closed");
                     let _ = out.send(NetworkMsg::Unavailable);
                 })
                 .drop_on_shutdown()
@@ -203,93 +138,215 @@ impl Component for Network {
         self.update(msg, sender, root);
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            NetworkMsg::StatusUpdate {
-                icon,
-                primary_connection,
-                primary_type,
-                speed,
-                metered,
-                wifi_enabled,
-                connectivity,
-            } => {
-                tracing::info!(
-                    primary_connection,
-                    primary_type,
-                    speed,
-                    metered,
-                    wifi_enabled,
-                    connectivity,
-                    "network applet: status update"
-                );
-                self.primary_icon = icon.clone();
-
-                // Connecting state: WiFi enabled but no primary connection yet
-                self.connecting =
-                    wifi_enabled && primary_connection.is_empty() && connectivity != "full";
-
-                self.tooltip = if self.connecting {
-                    "Connecting\u{2026}".into()
-                } else if connectivity == "none" || primary_connection.is_empty() {
-                    "Network offline".into()
-                } else {
-                    let base = match primary_type.as_str() {
-                        "wifi" => {
-                            if speed > 0 {
-                                format!("{primary_connection} \u{b7} {speed} Mbps")
-                            } else {
-                                primary_connection.clone()
-                            }
-                        }
-                        "ethernet" => {
-                            if speed > 0 {
-                                format!("Wired \u{b7} {speed} Mbps")
-                            } else {
-                                "Wired".into()
-                            }
-                        }
-                        _ => primary_connection.clone(),
-                    };
-                    let mut parts = vec![base];
-                    if metered {
-                        parts.push("Metered".into());
-                    }
-                    if self.vpn_icon_visible {
-                        parts.push("VPN".into());
-                    }
-                    parts.join(" \u{b7} ")
-                };
-
-                self.popover.emit(NetworkPopoverInput::UpdateStatus {
-                    primary_connection,
-                    primary_type,
-                    speed,
-                    metered,
-                    wifi_enabled,
-                    connectivity,
-                    icon,
+            NetworkMsg::ServiceState(state) => {
+                self.vpn_icon_visible = has_active_vpn(&state);
+                self.connecting = is_connecting(&state);
+                self.primary_icon = state.snapshot.status.icon.clone();
+                self.tooltip = tooltip_text(&state, self.vpn_icon_visible, self.connecting);
+                self.popover.emit(NetworkPopoverInput::UpdateState {
+                    snapshot: state.snapshot,
+                    active_action: state.active_action,
+                    scanning: state.scanning,
                 });
             }
-            NetworkMsg::ConnectionsUpdate { has_vpn } => {
-                self.vpn_icon_visible = has_vpn;
-            }
-            NetworkMsg::WifiUpdate(data) => {
-                self.popover.emit(NetworkPopoverInput::UpdateWifi(data));
-            }
-            NetworkMsg::DevicesUpdate(data) => {
-                self.popover.emit(NetworkPopoverInput::UpdateDevices(data));
-            }
-            NetworkMsg::SavedVpnsUpdate(data) => {
-                self.popover
-                    .emit(NetworkPopoverInput::UpdateSavedVpns(data));
-            }
+            NetworkMsg::PopoverOutput(output) => self.handle_popover_output(output, sender),
             NetworkMsg::TogglePopover => {
                 self.popover.emit(NetworkPopoverInput::Toggle);
             }
             NetworkMsg::Unavailable => {
-                tracing::warn!("network applet: daemon unavailable");
+                tracing::warn!("network applet: network service unavailable");
             }
         }
+    }
+}
+
+impl Network {
+    fn handle_popover_output(&self, output: NetworkPopoverOutput, sender: ComponentSender<Self>) {
+        match output {
+            NetworkPopoverOutput::Opened => {
+                self.send_command(
+                    sender,
+                    NetworkServiceCommand::StartScanning {
+                        interval_secs: self.scan_interval,
+                    },
+                );
+            }
+            NetworkPopoverOutput::Closed => {
+                self.send_command(sender, NetworkServiceCommand::StopScanning);
+            }
+            NetworkPopoverOutput::ToggleWifi(enabled) => {
+                self.send_command(sender, NetworkServiceCommand::SetWifiEnabled(enabled));
+            }
+            NetworkPopoverOutput::ConnectWifi { ssid } => {
+                self.send_command(sender, NetworkServiceCommand::ConnectWifi { ssid });
+            }
+            NetworkPopoverOutput::ConnectSaved { uuid } => {
+                self.send_command(sender, NetworkServiceCommand::ConnectSaved { uuid });
+            }
+            NetworkPopoverOutput::Disconnect { uuid } => {
+                self.send_command(sender, NetworkServiceCommand::Disconnect { uuid });
+            }
+            NetworkPopoverOutput::Forget { uuid } => {
+                self.send_command(sender, NetworkServiceCommand::Forget { uuid });
+            }
+            NetworkPopoverOutput::OpenSettings => {
+                spawn_settings_command(&self.settings_command);
+            }
+        }
+    }
+
+    fn send_command(&self, sender: ComponentSender<Self>, command: NetworkServiceCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(error = %error, "network applet: failed to send network service command");
+                    }
+                })
+                .drop_on_shutdown()
+        });
+    }
+}
+
+fn has_active_vpn(state: &NetworkServiceState) -> bool {
+    state.snapshot.connections.iter().any(|connection| {
+        (connection.connection_type == "vpn" || connection.connection_type == "wireguard")
+            && connection.state == "activated"
+    }) || state.snapshot.saved_vpns.iter().any(|vpn| vpn.active)
+}
+
+fn is_connecting(state: &NetworkServiceState) -> bool {
+    matches!(
+        state.active_action,
+        Some(NetworkActiveAction::ConnectWifi { .. })
+            | Some(NetworkActiveAction::ConnectSaved { .. })
+    ) || state.snapshot.connections.iter().any(|connection| {
+        (connection.connection_type == "wifi" || connection.connection_type == "ethernet")
+            && connection.state == "activating"
+    })
+}
+
+fn tooltip_text(state: &NetworkServiceState, has_vpn: bool, connecting: bool) -> String {
+    let status = &state.snapshot.status;
+    if connecting {
+        return "Connecting…".into();
+    }
+    if status.connectivity == "none" || status.primary_connection.is_empty() {
+        return "Network offline".into();
+    }
+
+    let base = match status.primary_type.as_str() {
+        "wifi" => {
+            if status.speed > 0 {
+                format!("{} · {} Mbps", status.primary_connection, status.speed)
+            } else {
+                status.primary_connection.clone()
+            }
+        }
+        "ethernet" => {
+            if status.speed > 0 {
+                format!("Wired · {} Mbps", status.speed)
+            } else {
+                "Wired".into()
+            }
+        }
+        _ => status.primary_connection.clone(),
+    };
+
+    let mut parts = vec![base];
+    if status.metered {
+        parts.push("Metered".into());
+    }
+    if has_vpn {
+        parts.push("VPN".into());
+    }
+    parts.join(" · ")
+}
+
+fn connecting_icon_name(primary_icon: &str) -> &str {
+    if primary_icon == "network-wired-symbolic" {
+        "network-wired-acquiring-symbolic"
+    } else {
+        "network-wireless-acquiring-symbolic"
+    }
+}
+
+fn spawn_settings_command(command: &str) {
+    if command.trim().is_empty() {
+        return;
+    }
+
+    let command = command.to_owned();
+    if let Ok(mut child) = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .spawn()
+    {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glimpse::providers::network::{
+        NetworkConnection, NetworkSnapshot, NetworkStatus, SavedVpn,
+    };
+
+    #[test]
+    fn tooltip_includes_speed_metered_and_vpn() {
+        let state = NetworkServiceState {
+            health: glimpse::network::protocol::NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                status: NetworkStatus {
+                    connectivity: "full".into(),
+                    primary_connection: "Home".into(),
+                    primary_type: "wifi".into(),
+                    speed: 585,
+                    metered: true,
+                    ..NetworkStatus::default()
+                },
+                saved_vpns: vec![SavedVpn {
+                    active: true,
+                    ..SavedVpn::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: None,
+            active_action: None,
+            scanning: false,
+        };
+
+        assert_eq!(
+            tooltip_text(&state, true, false),
+            "Home · 585 Mbps · Metered · VPN"
+        );
+    }
+
+    #[test]
+    fn connecting_detects_pending_action_or_activating_connection() {
+        let mut state = NetworkServiceState {
+            health: glimpse::network::protocol::NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot::default(),
+            prompt: None,
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Cafe".into(),
+            }),
+            scanning: false,
+        };
+        assert!(is_connecting(&state));
+
+        state.active_action = None;
+        state.snapshot.connections.push(NetworkConnection {
+            connection_type: "wifi".into(),
+            state: "activating".into(),
+            ..NetworkConnection::default()
+        });
+        assert!(is_connecting(&state));
     }
 }

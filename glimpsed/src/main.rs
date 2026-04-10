@@ -3,7 +3,6 @@ mod notification_server;
 mod pattern;
 mod provider;
 mod providers;
-mod secret_agent;
 mod server;
 
 use tokio::net::{UnixListener, UnixStream};
@@ -83,14 +82,6 @@ async fn main() -> anyhow::Result<()> {
             notification_server::run(notif_cancel, notif_broker_tx, notify_rx, notify_tx).await
         {
             tracing::warn!("notification-server: {e}");
-        }
-    });
-
-    // NM SecretAgent — retrieves WiFi passwords from gnome-keyring
-    let agent_cancel = cancel.clone();
-    tokio::spawn(async move {
-        if let Err(e) = secret_agent::run(agent_cancel).await {
-            tracing::warn!("secret-agent: {e}");
         }
     });
 

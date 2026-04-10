@@ -124,12 +124,14 @@ pub fn create_applet(
             Some(AppletController::Brightness(applet))
         }
         "network" => {
-            let client = client.clone()?;
             let config: network::NetworkConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = network::Network::builder()
-                .launch(network::NetworkInit { config, client })
+                .launch(network::NetworkInit {
+                    config,
+                    service: services.network.clone(),
+                })
                 .detach();
             Some(AppletController::Network(applet))
         }
