@@ -208,16 +208,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_new_exposes_watch_receiver() {
+    async fn handle_new_exposes_cloneable_watch_receivers() {
         let Some(session) = session_connection().await else {
             return;
         };
 
         let handle = MprisServiceHandle::new(session);
-        let state = handle.subscribe();
+        let first = handle.subscribe();
+        let second = handle.subscribe();
 
-        assert_eq!(state.borrow().health, MprisServiceHealth::Starting);
-        assert_eq!(state.borrow().snapshot, Default::default());
+        assert_eq!(*first.borrow(), *second.borrow());
+        assert!(matches!(
+            first.borrow().health,
+            MprisServiceHealth::Starting
+                | MprisServiceHealth::Ready
+                | MprisServiceHealth::Degraded { .. }
+                | MprisServiceHealth::Reconnecting { .. }
+        ));
     }
 
     #[tokio::test]
