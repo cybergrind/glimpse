@@ -1,6 +1,8 @@
 use glimpse::{
-    bluetooth::BluetoothServiceHandle, network::NetworkServiceHandle, tray::TrayServiceHandle,
-use glimpse::notifications::NotificationsServiceHandle;
+    bluetooth::BluetoothServiceHandle,
+    network::NetworkServiceHandle,
+    notifications::NotificationsServiceHandle,
+    tray::TrayServiceHandle,
 };
 
 #[derive(Clone)]
