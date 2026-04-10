@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use super::config::NotificationsConfig;
+use super::NotificationActionCommand;
 use super::popover::{
-    NotifData, NotificationsPopover, NotificationsPopoverInit, NotificationsPopoverInput,
+    NotificationsPopover, NotificationsPopoverInit, NotificationsPopoverInput,
 };
 use super::popup::NotificationPopup;
-use glimpse_client::Client;
+use glimpse::notifications::{NotificationEntry, NotificationsServiceHandle, NotificationsServiceState};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
@@ -20,6 +20,7 @@ pub struct Notifications {
     badge_visible: bool,
     badge_style: String, // "count", "dot", ""
     tooltip: String,
+    service: NotificationsServiceHandle,
     dnd: bool,
     started_at: u64,
     popover: Controller<NotificationsPopover>,
@@ -30,34 +31,34 @@ pub struct Notifications {
 
 pub struct NotificationsInit {
     pub config: NotificationsConfig,
-    pub client: Arc<Client>,
+    pub service: NotificationsServiceHandle,
 }
 
 #[derive(Debug)]
 pub enum NotificationsMsg {
-    StatusUpdate { dnd: bool },
-    ListUpdate(serde_json::Value),
+    ServiceState(NotificationsServiceState),
     MarkSeen(u32),
     TogglePopover,
+    Command(NotificationActionCommand),
     Unavailable,
 }
 
 fn filter_fresh_notifications(
-    notifications: &[serde_json::Value],
+    notifications: &[NotificationEntry],
     started_at: u64,
-) -> Vec<serde_json::Value> {
+) -> Vec<NotificationEntry> {
     notifications
         .iter()
-        .filter(|n| n["timestamp"].as_u64().unwrap_or(0) >= started_at)
+        .filter(|notification| notification.timestamp >= started_at)
         .cloned()
         .collect()
 }
 
-fn notification_counts(notifications: &[serde_json::Value]) -> (u32, u32) {
+fn notification_counts(notifications: &[NotificationEntry]) -> (u32, u32) {
     let count = notifications.len() as u32;
     let badge_count = notifications
         .iter()
-        .filter(|n| n["urgency"].as_u64().unwrap_or(1) > 0)
+        .filter(|notification| notification.urgency > 0)
         .count() as u32;
     (count, badge_count)
 }
@@ -140,15 +141,18 @@ impl Component for Notifications {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         tracing::info!("notifications applet: initializing");
+        let emit_command = Rc::new({
+            let sender = sender.clone();
+            move |command| sender.input(NotificationsMsg::Command(command))
+        });
         let popover = NotificationsPopover::builder()
             .launch(NotificationsPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
+                emit_command: emit_command.clone(),
             })
             .detach();
 
         let popup = Rc::new(RefCell::new(NotificationPopup::new(
-            init.client.clone(),
             init.config.popup_timeout,
             &init.config.popup_position,
             init.config.popup_margin_top,
@@ -156,6 +160,7 @@ impl Component for Notifications {
                 let sender = sender.clone();
                 move |id| sender.input(NotificationsMsg::MarkSeen(id))
             }),
+            emit_command,
         )));
 
         let model = Notifications {
@@ -164,6 +169,7 @@ impl Component for Notifications {
             badge_visible: false,
             badge_style: init.config.badge_style.clone(),
             tooltip: "Notifications".into(),
+            service: init.service.clone(),
             dnd: false,
             started_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -175,38 +181,18 @@ impl Component for Notifications {
             unread: HashMap::new(),
         };
 
-        let client = init.client;
+        let service = init.service;
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("notifications applet: subscribing");
-                    let mut status_sub = match client.subscribe("notifications.status").await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("notifications: subscribe failed: {e}");
-                            let _ = out.send(NotificationsMsg::Unavailable);
-                            return;
-                        }
-                    };
-                    let mut list_sub = client.subscribe("notifications.list").await.ok();
+                    tracing::info!("notifications applet: subscribing to shared service");
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(NotificationsMsg::ServiceState(state_rx.borrow().clone()));
 
-                    loop {
-                        tokio::select! {
-                            Some(ev) = status_sub.next() => {
-                                let dnd = ev.data["dnd"].as_bool().unwrap_or(false);
-                                let _ = out.send(NotificationsMsg::StatusUpdate { dnd });
-                            }
-                            Some(ev) = async {
-                                match &mut list_sub {
-                                    Some(s) => s.next().await,
-                                    None => std::future::pending().await,
-                                }
-                            } => {
-                                let _ = out.send(NotificationsMsg::ListUpdate(ev.data));
-                            }
-                            else => break,
-                        }
+                    while state_rx.changed().await.is_ok() {
+                        let _ = out.send(NotificationsMsg::ServiceState(state_rx.borrow().clone()));
                     }
+
                     let _ = out.send(NotificationsMsg::Unavailable);
                 })
                 .drop_on_shutdown()
@@ -227,7 +213,8 @@ impl Component for Notifications {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            NotificationsMsg::StatusUpdate { dnd } => {
+            NotificationsMsg::ServiceState(state) => {
+                let dnd = state.dnd;
                 tracing::info!(dnd, "notifications applet: status update");
                 self.dnd = dnd;
                 self.icon_name = if dnd {
@@ -236,53 +223,37 @@ impl Component for Notifications {
                     "preferences-system-notifications-symbolic"
                 }
                 .into();
-            }
-            NotificationsMsg::ListUpdate(data) => {
-                if let Some(arr) = data.as_array() {
-                    let fresh = filter_fresh_notifications(arr, self.started_at);
-                    let (count, _) = notification_counts(&fresh);
 
-                    // Show popups for newly surfaced notifications and mark them unread.
-                    for notif_val in &fresh {
-                        if let Some(id) = notif_val["id"].as_u64() {
-                            let id = id as u32;
-                            if !self.surfaced_ids.contains(&id) {
-                                self.surfaced_ids.insert(id);
-                                let urgency = notif_val["urgency"].as_u64().unwrap_or(1) as u8;
-                                self.unread.entry(id).or_insert(urgency);
-                                if !self.dnd || urgency == 2 {
-                                    if let Ok(notif) =
-                                        serde_json::from_value::<NotifData>(notif_val.clone())
-                                    {
-                                        self.popup.borrow_mut().show(&notif);
-                                    }
-                                }
-                            }
+                let fresh = filter_fresh_notifications(&state.notifications, self.started_at);
+                let (count, _) = notification_counts(&fresh);
+
+                for notif in &fresh {
+                    let id = notif.id;
+                    if !self.surfaced_ids.contains(&id) {
+                        self.surfaced_ids.insert(id);
+                        self.unread.entry(id).or_insert(notif.urgency);
+                        if !self.dnd || notif.urgency == 2 {
+                            self.popup.borrow_mut().show(notif);
                         }
                     }
-
-                    // Clean up seen_ids
-                    let current_ids: std::collections::HashSet<u32> = fresh
-                        .iter()
-                        .filter_map(|n| n["id"].as_u64().map(|id| id as u32))
-                        .collect();
-                    self.surfaced_ids.retain(|id| current_ids.contains(id));
-
-                    let badge_count = unread_badge_count(&self.unread);
-                    self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
-                    self.badge_label = badge_label(&self.badge_style, badge_count);
-                    self.tooltip = tooltip_text(self.dnd, count);
-
-                    // Forward only fresh notifications to popover
-                    self.popover.emit(NotificationsPopoverInput::UpdateStatus {
-                        dnd: self.dnd,
-                        count,
-                        badge_count,
-                    });
-                    self.popover.emit(NotificationsPopoverInput::UpdateList(
-                        serde_json::Value::Array(fresh),
-                    ));
                 }
+
+                let current_ids: std::collections::HashSet<u32> =
+                    fresh.iter().map(|notification| notification.id).collect();
+                self.surfaced_ids.retain(|id| current_ids.contains(id));
+
+                let badge_count = unread_badge_count(&self.unread);
+                self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
+                self.badge_label = badge_label(&self.badge_style, badge_count);
+                self.tooltip = tooltip_text(self.dnd, count);
+
+                self.popover.emit(NotificationsPopoverInput::UpdateStatus {
+                    dnd: self.dnd,
+                    count,
+                    badge_count,
+                });
+                self.popover
+                    .emit(NotificationsPopoverInput::UpdateList(fresh));
             }
             NotificationsMsg::MarkSeen(id) => {
                 self.unread.remove(&id);
@@ -293,8 +264,16 @@ impl Component for Notifications {
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);
             }
+            NotificationsMsg::Command(command) => {
+                let service = self.service.clone();
+                relm4::spawn(async move {
+                    if let Err(error) = service.send(command.into_service_command()).await {
+                        tracing::warn!(error = %error, "notifications applet: command failed");
+                    }
+                });
+            }
             NotificationsMsg::Unavailable => {
-                tracing::warn!("notifications applet: daemon unavailable");
+                tracing::warn!("notifications applet: service unavailable");
             }
         }
     }
@@ -303,13 +282,22 @@ impl Component for Notifications {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glimpse::notifications::protocol::{NotificationEntry, NotificationsCommand};
 
-    fn notif(id: u32, timestamp: u64, urgency: u64) -> serde_json::Value {
-        serde_json::json!({
-            "id": id,
-            "timestamp": timestamp,
-            "urgency": urgency,
-        })
+    fn notif(id: u32, timestamp: u64, urgency: u8) -> NotificationEntry {
+        NotificationEntry {
+            id,
+            app_name: format!("app-{id}"),
+            app_icon: String::new(),
+            desktop_entry: None,
+            summary: format!("summary-{id}"),
+            body: String::new(),
+            urgency,
+            actions: Vec::new(),
+            image: None,
+            timestamp,
+            resident: false,
+        }
     }
 
     #[test]
@@ -319,8 +307,8 @@ mod tests {
         let fresh = filter_fresh_notifications(&notifications, 100);
 
         assert_eq!(fresh.len(), 2);
-        assert_eq!(fresh[0]["id"], 2);
-        assert_eq!(fresh[1]["id"], 3);
+        assert_eq!(fresh[0].id, 2);
+        assert_eq!(fresh[1].id, 3);
     }
 
     #[test]
@@ -352,5 +340,15 @@ mod tests {
         assert_eq!(badge_label("count", 10), "9+");
         assert_eq!(badge_label("count", 1), "1");
         assert_eq!(badge_label("dot", 4), "");
+    }
+
+    #[test]
+    fn notification_action_command_maps_to_service_command() {
+        let command = NotificationActionCommand::Dismiss { id: 42 };
+
+        assert_eq!(
+            command.into_service_command(),
+            NotificationsCommand::Dismiss { id: 42 }
+        );
     }
 }

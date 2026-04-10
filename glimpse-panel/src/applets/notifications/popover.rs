@@ -1,34 +1,21 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use glimpse_client::Client;
+use glimpse::notifications::NotificationEntry;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
-use serde::Deserialize;
 
-use super::activation::{invoke_action_params, invoke_default_action};
+use super::NotificationActionCommand;
+use super::activation::{default_action_command, invoke_action_command};
 
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct NotifData {
-    pub id: u32,
-    pub app_name: String,
-    pub app_icon: String,
-    pub desktop_entry: Option<String>,
-    pub summary: String,
-    pub body: String,
-    pub urgency: u8,
-    pub actions: Vec<(String, String)>,
-    pub image: Option<String>,
-    pub timestamp: u64,
-}
+pub type NotifData = NotificationEntry;
 
 pub struct NotificationsPopover {
     popover: gtk::Popover,
-    client: Arc<Client>,
+    emit_command: Rc<dyn Fn(NotificationActionCommand)>,
     hero_icon: gtk::Image,
     subtitle: gtk::Label,
     dnd_switch: gtk::Switch,
@@ -44,7 +31,7 @@ pub struct NotificationsPopover {
 
 pub struct NotificationsPopoverInit {
     pub parent: gtk::Box,
-    pub client: Arc<Client>,
+    pub emit_command: Rc<dyn Fn(NotificationActionCommand)>,
 }
 
 #[derive(Debug)]
@@ -55,7 +42,7 @@ pub enum NotificationsPopoverInput {
         count: u32,
         badge_count: u32,
     },
-    UpdateList(serde_json::Value),
+    UpdateList(Vec<NotifData>),
     ToggleStack(String),
 }
 
@@ -70,13 +57,6 @@ fn resolve_notif_icon(notif: &NotifData) -> &str {
         }
     }
     "dialog-information-symbolic"
-}
-
-fn spawn_call(client: &Arc<Client>, method: &'static str, params: serde_json::Value) {
-    let c = client.clone();
-    glib::spawn_future_local(async move {
-        let _ = c.call(method, params).await;
-    });
 }
 
 fn format_time_diff(diff_secs: u64) -> String {
@@ -186,17 +166,13 @@ impl SimpleComponent for NotificationsPopover {
         dnd_switch.set_tooltip_text(Some("Notifications"));
         let updating_dnd = Rc::new(Cell::new(false));
         let guard = updating_dnd.clone();
-        let c = init.client.clone();
+        let emit_command = init.emit_command.clone();
         dnd_switch.connect_state_set(move |_, active| {
             if guard.get() {
                 return glib::Propagation::Stop;
             }
             // active=true → notifications ON (dnd=false), active=false → DnD (dnd=true)
-            spawn_call(
-                &c,
-                "notifications.set_dnd",
-                serde_json::json!({"enabled": !active}),
-            );
+            emit_command(NotificationActionCommand::SetDnd(!active));
             glib::Propagation::Stop
         });
         hero.append(&dnd_switch);
@@ -230,9 +206,9 @@ impl SimpleComponent for NotificationsPopover {
         clear_btn.set_child(Some(&clear_lbl));
         clear_btn.add_css_class("flat");
         clear_btn.add_css_class("settings-btn");
-        let c = init.client.clone();
+        let emit_command = init.emit_command.clone();
         clear_btn.connect_clicked(move |_| {
-            spawn_call(&c, "notifications.dismiss_all", serde_json::json!({}));
+            emit_command(NotificationActionCommand::DismissAll);
         });
         vbox.append(&clear_btn);
 
@@ -240,7 +216,7 @@ impl SimpleComponent for NotificationsPopover {
 
         let model = NotificationsPopover {
             popover: root.clone(),
-            client: init.client,
+            emit_command: init.emit_command,
             hero_icon,
             subtitle,
             dnd_switch,
@@ -295,10 +271,8 @@ impl SimpleComponent for NotificationsPopover {
                 });
             }
             NotificationsPopoverInput::UpdateList(data) => {
-                let notifications: Vec<NotifData> =
-                    serde_json::from_value(data).unwrap_or_default();
-                self.last_notifications = notifications.clone();
-                self.rebuild_list(notifications, &sender);
+                self.last_notifications = data.clone();
+                self.rebuild_list(data, &sender);
             }
             NotificationsPopoverInput::ToggleStack(app_name) => {
                 let current = *self.stack_state.get(&app_name).unwrap_or(&true);
@@ -479,10 +453,10 @@ impl NotificationsPopover {
         dismiss.add_css_class("flat");
         dismiss.add_css_class("notif-dismiss");
         dismiss.set_valign(gtk::Align::Center);
-        let c = self.client.clone();
+        let emit_command = self.emit_command.clone();
         let id = notif.id;
         dismiss.connect_clicked(move |_| {
-            spawn_call(&c, "notifications.dismiss", serde_json::json!({"id": id}));
+            emit_command(NotificationActionCommand::Dismiss { id });
         });
         header.append(&dismiss);
 
@@ -522,15 +496,11 @@ impl NotificationsPopover {
                 let action_btn = gtk::Button::with_label(label);
                 action_btn.add_css_class("flat");
                 action_btn.add_css_class("notif-action-btn");
-                let c = self.client.clone();
                 let nid = notif.id;
                 let k = key.clone();
+                let emit_command = self.emit_command.clone();
                 action_btn.connect_clicked(move |_| {
-                    spawn_call(
-                        &c,
-                        "notifications.invoke_action",
-                        invoke_action_params(nid, &k, None),
-                    );
+                    emit_command(invoke_action_command(nid, &k, None));
                 });
                 actions_box.append(&action_btn);
             }
@@ -542,18 +512,18 @@ impl NotificationsPopover {
         if has_default {
             let gesture = gtk::GestureClick::new();
             gesture.set_button(1);
-            let c = self.client.clone();
             let id = notif.id;
             let desktop_entry = notif.desktop_entry.clone();
             let app_name = notif.app_name.clone();
+            let emit_command = self.emit_command.clone();
             gesture.connect_pressed(move |g, _, _, _| {
                 g.set_state(gtk::EventSequenceState::Claimed);
-                let cc = c.clone();
                 let desktop_entry = desktop_entry.clone();
                 let app_name = app_name.clone();
+                let emit_command = emit_command.clone();
                 let timestamp = g.current_event_time();
                 glib::spawn_future_local(async move {
-                    invoke_default_action(cc, id, desktop_entry, app_name, timestamp).await;
+                    emit_command(default_action_command(id, desktop_entry, app_name, timestamp).await);
                 });
             });
             card.add_controller(gesture);

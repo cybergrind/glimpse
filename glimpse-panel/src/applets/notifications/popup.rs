@@ -1,14 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use glimpse_client::Client;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use relm4::gtk::{self, glib, prelude::*};
 
-use super::activation::{invoke_action_params, invoke_default_action};
-use super::popover::NotifData;
+use glimpse::notifications::NotificationEntry;
+
+use super::NotificationActionCommand;
+use super::activation::{default_action_command, invoke_action_command};
+
+type NotifData = NotificationEntry;
 
 struct PopupCard {
     card_widget: gtk::Box,
@@ -21,18 +23,18 @@ pub struct NotificationPopup {
     card_box: gtk::Box,
     cards: Rc<RefCell<HashMap<u32, PopupCard>>>,
     overflow_label: gtk::Label,
-    client: Arc<Client>,
     popup_timeout: u32,
     on_mark_seen: Rc<dyn Fn(u32)>,
+    on_command: Rc<dyn Fn(NotificationActionCommand)>,
 }
 
 impl NotificationPopup {
     pub fn new(
-        client: Arc<Client>,
         popup_timeout: u32,
         position: &str,
         margin_top: i32,
         on_mark_seen: Rc<dyn Fn(u32)>,
+        on_command: Rc<dyn Fn(NotificationActionCommand)>,
     ) -> Self {
         let window = gtk::Window::new();
         window.set_decorated(false);
@@ -90,9 +92,9 @@ impl NotificationPopup {
             card_box,
             cards: Rc::new(RefCell::new(HashMap::new())),
             overflow_label,
-            client,
             popup_timeout,
             on_mark_seen,
+            on_command,
         }
     }
 
@@ -217,18 +219,13 @@ impl NotificationPopup {
         let dismiss_btn = gtk::Button::from_icon_name("window-close-symbolic");
         dismiss_btn.add_css_class("flat");
         dismiss_btn.add_css_class("popup-dismiss");
-        let c = self.client.clone();
         let id = notif.id;
         let cards = self.cards.clone();
         let card_box = self.card_box.clone();
         let window = self.window.clone();
+        let on_command = self.on_command.clone();
         dismiss_btn.connect_clicked(move |_| {
-            let cc = c.clone();
-            glib::spawn_future_local(async move {
-                let _ = cc
-                    .call("notifications.dismiss", serde_json::json!({"id": id}))
-                    .await;
-            });
+            on_command(NotificationActionCommand::Dismiss { id });
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {
                     source.remove();
@@ -275,20 +272,11 @@ impl NotificationPopup {
                 let action_btn = gtk::Button::with_label(label);
                 action_btn.add_css_class("flat");
                 action_btn.add_css_class("popup-action-btn");
-                let c = self.client.clone();
                 let nid = notif.id;
                 let k = key.clone();
+                let on_command = self.on_command.clone();
                 action_btn.connect_clicked(move |_| {
-                    let cc = c.clone();
-                    let kk = k.clone();
-                    glib::spawn_future_local(async move {
-                        let _ = cc
-                            .call(
-                                "notifications.invoke_action",
-                                invoke_action_params(nid, &kk, None),
-                            )
-                            .await;
-                    });
+                    on_command(invoke_action_command(nid, &k, None));
                 });
                 actions_box.append(&action_btn);
             }
@@ -302,9 +290,9 @@ impl NotificationPopup {
         // Click card → dismiss (and invoke default action if available)
         let gesture = gtk::GestureClick::new();
         gesture.set_button(1);
-        let c = self.client.clone();
         let id = notif.id;
         let on_mark_seen = self.on_mark_seen.clone();
+        let on_command = self.on_command.clone();
         let has_default = notif.actions.iter().any(|(k, _)| k == "default");
         let desktop_entry = notif.desktop_entry.clone();
         let app_name = notif.app_name.clone();
@@ -315,20 +303,15 @@ impl NotificationPopup {
             g.set_state(gtk::EventSequenceState::Claimed);
             on_mark_seen(id);
             if has_default {
-                let cc = c.clone();
                 let desktop_entry = desktop_entry.clone();
                 let app_name = app_name.clone();
+                let on_command = on_command.clone();
                 let timestamp = g.current_event_time();
                 glib::spawn_future_local(async move {
-                    invoke_default_action(cc, id, desktop_entry, app_name, timestamp).await;
+                    on_command(default_action_command(id, desktop_entry, app_name, timestamp).await);
                 });
             }
-            let cc = c.clone();
-            glib::spawn_future_local(async move {
-                let _ = cc
-                    .call("notifications.dismiss", serde_json::json!({"id": id}))
-                    .await;
-            });
+            on_command(NotificationActionCommand::Dismiss { id });
             // Remove the card
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {
@@ -345,19 +328,14 @@ impl NotificationPopup {
         // Right-click: dismiss without triggering action
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
-        let c = self.client.clone();
         let cards = self.cards.clone();
         let card_box = self.card_box.clone();
         let window = self.window.clone();
         let id = notif.id;
+        let on_command = self.on_command.clone();
         right_click.connect_pressed(move |g, _, _, _| {
             g.set_state(gtk::EventSequenceState::Claimed);
-            let cc = c.clone();
-            glib::spawn_future_local(async move {
-                let _ = cc
-                    .call("notifications.dismiss", serde_json::json!({"id": id}))
-                    .await;
-            });
+            on_command(NotificationActionCommand::Dismiss { id });
             if let Some(card) = cards.borrow_mut().remove(&id) {
                 if let Some(source) = card.timeout_source {
                     source.remove();

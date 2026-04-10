@@ -162,12 +162,14 @@ pub fn create_applet(
             Some(AppletController::Exec(applet))
         }
         "notifications" => {
-            let client = client.clone()?;
             let config: notifications::NotificationsConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = notifications::Notifications::builder()
-                .launch(notifications::NotificationsInit { config, client })
+                .launch(notifications::NotificationsInit {
+                    config,
+                    service: services.notifications.clone(),
+                })
                 .detach();
             Some(AppletController::Notifications(applet))
         }

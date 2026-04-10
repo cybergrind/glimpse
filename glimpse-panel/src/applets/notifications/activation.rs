@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
 use relm4::gtk::{gdk, gio, prelude::*};
 
+use super::NotificationActionCommand;
 use crate::applets::pager::compositor::focus_notification_target;
 
 pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Option<String> {
@@ -17,65 +15,57 @@ pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Opti
         .map(|token| token.to_string())
 }
 
-pub fn invoke_action_params(
+pub fn invoke_action_command(
     id: u32,
     action_key: &str,
     activation_token: Option<String>,
-) -> serde_json::Value {
-    let mut params = serde_json::json!({
-        "id": id,
-        "action_key": action_key,
-    });
-    if let Some(token) = activation_token {
-        params["activation_token"] = serde_json::Value::String(token);
+) -> NotificationActionCommand {
+    NotificationActionCommand::InvokeAction {
+        id,
+        action_key: action_key.to_string(),
+        activation_token,
     }
-    params
 }
 
-pub async fn invoke_default_action(
-    client: Arc<Client>,
+pub async fn default_action_command(
     id: u32,
     desktop_entry: Option<String>,
     app_name: String,
     timestamp: u32,
-) {
+) -> NotificationActionCommand {
     let activation_token = startup_notify_token(desktop_entry.as_deref(), timestamp);
     if activation_token.is_none() {
         let _ = focus_notification_target(desktop_entry.as_deref(), &app_name).await;
     }
-
-    let _ = client
-        .call(
-            "notifications.invoke_action",
-            invoke_action_params(id, "default", activation_token),
-        )
-        .await;
+    invoke_action_command(id, "default", activation_token)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::invoke_action_params;
+    use super::invoke_action_command;
+    use crate::applets::notifications::NotificationActionCommand;
 
     #[test]
-    fn invoke_action_params_omits_activation_token_when_missing() {
+    fn invoke_action_command_omits_activation_token_when_missing() {
         assert_eq!(
-            invoke_action_params(7, "default", None),
-            serde_json::json!({
-                "id": 7,
-                "action_key": "default",
-            })
+            invoke_action_command(7, "default", None),
+            NotificationActionCommand::InvokeAction {
+                id: 7,
+                action_key: "default".into(),
+                activation_token: None,
+            }
         );
     }
 
     #[test]
-    fn invoke_action_params_includes_activation_token_when_present() {
+    fn invoke_action_command_includes_activation_token_when_present() {
         assert_eq!(
-            invoke_action_params(7, "default", Some("token-123".into())),
-            serde_json::json!({
-                "id": 7,
-                "action_key": "default",
-                "activation_token": "token-123",
-            })
+            invoke_action_command(7, "default", Some("token-123".into())),
+            NotificationActionCommand::InvokeAction {
+                id: 7,
+                action_key: "default".into(),
+                activation_token: Some("token-123".into()),
+            }
         );
     }
 }
