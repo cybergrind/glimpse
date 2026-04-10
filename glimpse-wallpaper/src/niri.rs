@@ -108,26 +108,16 @@ fn run_event_loop(
         match event {
             NiriEvent::WorkspacesChanged { workspaces } => {
                 workspace_map.clear();
-
-                for ws in &workspaces {
-                    if ws.is_active {
-                        if let Some(ref output) = ws.output {
-                            on_change(output.clone(), ws.idx);
-                        }
-                    }
-                }
-
                 for ws in workspaces {
                     workspace_map.insert(ws.id, ws);
                 }
-
-                debug!("niri: workspaces refreshed");
+                debug!("niri: workspace map refreshed ({} workspaces)", workspace_map.len());
             }
 
             NiriEvent::WorkspaceActivated { id, .. } => {
                 if let Some(ws) = workspace_map.get(&id) {
                     if let Some(ref output) = ws.output {
-                        info!("niri: workspace {} activated on {output}", ws.idx);
+                        debug!("niri: workspace {} activated on {output}", ws.idx);
                         on_change(output.clone(), ws.idx);
                     }
                 }
