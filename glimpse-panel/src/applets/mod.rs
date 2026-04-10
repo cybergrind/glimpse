@@ -212,12 +212,14 @@ pub fn create_applet(
             Some(AppletController::Power(applet))
         }
         "privacy" => {
-            let client = client.clone()?;
             let config: privacy::PrivacyConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = privacy::Privacy::builder()
-                .launch(privacy::PrivacyInit { config, client })
+                .launch(privacy::PrivacyInit {
+                    config,
+                    service: services.privacy.clone(),
+                })
                 .detach();
             Some(AppletController::Privacy(applet))
         }

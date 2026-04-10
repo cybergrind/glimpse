@@ -1,17 +1,18 @@
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use glimpse_client::Client;
+use glimpse::privacy::{
+    PrivacyServiceHandle,
+    protocol::{PrivacyServiceCommand, PrivacyServiceState},
+};
 use relm4::{
     Component, ComponentParts, ComponentSender,
     gtk::{self, prelude::*},
 };
-use serde::Deserialize;
 
 use super::config::PrivacyConfig;
 
 pub struct Privacy {
-    client: Arc<Client>,
+    service: PrivacyServiceHandle,
     visible: bool,
     mic_active: bool,
     camera_active: bool,
@@ -22,31 +23,22 @@ pub struct Privacy {
 
 pub struct PrivacyInit {
     pub config: PrivacyConfig,
-    pub client: Arc<Client>,
+    pub service: PrivacyServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PrivacyMsg {
-    IndicatorsUpdate(PrivacyIndicators),
+    ServiceState(PrivacyServiceState),
     Tick,
     StopScreenCapture,
     Unavailable,
 }
 
-#[derive(Debug)]
-pub enum CommandOutput {
-    IndicatorsUpdate(PrivacyIndicators),
+#[derive(Debug, Clone)]
+pub enum PrivacyCommandOutput {
+    ServiceState(PrivacyServiceState),
     Tick,
     Unavailable,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
-pub(crate) struct PrivacyIndicators {
-    mic_active: bool,
-    camera_active: bool,
-    screen_capture_active: bool,
-    screen_capture_started_at: Option<u64>,
-    screen_capture_count: u32,
 }
 
 #[relm4::component(pub)]
@@ -54,7 +46,7 @@ impl Component for Privacy {
     type Init = PrivacyInit;
     type Input = PrivacyMsg;
     type Output = ();
-    type CommandOutput = CommandOutput;
+    type CommandOutput = PrivacyCommandOutput;
 
     view! {
         gtk::Box {
@@ -118,7 +110,7 @@ impl Component for Privacy {
         let _ = init.config;
 
         let model = Privacy {
-            client: init.client.clone(),
+            service: init.service.clone(),
             visible: false,
             mic_active: false,
             camera_active: false,
@@ -127,40 +119,32 @@ impl Component for Privacy {
             recording_label: String::new(),
         };
 
-        let client = init.client;
+        let service = init.service;
         sender.command(move |out, shutdown| {
-            out.send(CommandOutput::Tick).ok();
+            out.send(PrivacyCommandOutput::Tick).ok();
             shutdown
                 .register(async move {
-                    let mut sub = match client.subscribe("privacy.indicators").await {
-                        Ok(sub) => sub,
-                        Err(error) => {
-                            tracing::error!("privacy: subscribe failed: {error}");
-                            let _ = out.send(CommandOutput::Unavailable);
-                            return;
-                        }
-                    };
+                    tracing::info!("privacy applet: subscribing to privacy service");
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(PrivacyCommandOutput::ServiceState(state_rx.borrow().clone()));
 
                     loop {
                         tokio::select! {
-                            Some(event) = sub.next() => {
-                                match serde_json::from_value::<PrivacyIndicators>(event.data) {
-                                    Ok(indicators) => {
-                                        let _ = out.send(CommandOutput::IndicatorsUpdate(indicators));
-                                    }
-                                    Err(error) => tracing::warn!(%error, "privacy applet: invalid payload"),
+                            changed = state_rx.changed() => {
+                                if changed.is_err() {
+                                    break;
                                 }
+                                let _ = out.send(PrivacyCommandOutput::ServiceState(state_rx.borrow().clone()));
                             }
                             _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                                if out.send(CommandOutput::Tick).is_err() {
+                                if out.send(PrivacyCommandOutput::Tick).is_err() {
                                     break;
                                 }
                             }
-                            else => break,
                         }
                     }
 
-                    let _ = out.send(CommandOutput::Unavailable);
+                    let _ = out.send(PrivacyCommandOutput::Unavailable);
                 })
                 .drop_on_shutdown()
         });
@@ -176,21 +160,21 @@ impl Component for Privacy {
         root: &Self::Root,
     ) {
         match msg {
-            CommandOutput::IndicatorsUpdate(indicators) => {
-                self.update(PrivacyMsg::IndicatorsUpdate(indicators), sender, root);
+            PrivacyCommandOutput::ServiceState(state) => {
+                self.update(PrivacyMsg::ServiceState(state), sender, root);
             }
-            CommandOutput::Tick => self.update(PrivacyMsg::Tick, sender, root),
-            CommandOutput::Unavailable => self.update(PrivacyMsg::Unavailable, sender, root),
+            PrivacyCommandOutput::Tick => self.update(PrivacyMsg::Tick, sender, root),
+            PrivacyCommandOutput::Unavailable => self.update(PrivacyMsg::Unavailable, sender, root),
         }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            PrivacyMsg::IndicatorsUpdate(indicators) => {
-                self.mic_active = indicators.mic_active;
-                self.camera_active = indicators.camera_active;
-                self.screen_capture_active = indicators.screen_capture_active;
-                self.screen_capture_started_at = indicators.screen_capture_started_at;
+            PrivacyMsg::ServiceState(state) => {
+                self.mic_active = state.snapshot.mic_active;
+                self.camera_active = state.snapshot.camera_active;
+                self.screen_capture_active = state.snapshot.screen_capture_active;
+                self.screen_capture_started_at = state.snapshot.oldest_screen_capture_started_at;
                 self.recording_label =
                     format_elapsed_label(self.screen_capture_started_at, now_unix_secs());
                 self.visible = should_show(
@@ -207,22 +191,29 @@ impl Component for Privacy {
             }
             PrivacyMsg::StopScreenCapture => {
                 if should_stop_screen_capture_on_click(self.screen_capture_active, 1) {
-                    let client = self.client.clone();
-                    tokio::spawn(async move {
-                        if let Err(error) = client
-                            .call("privacy.stop_screen_capture", serde_json::json!({}))
-                            .await
-                        {
-                            tracing::warn!(%error, "privacy applet: failed to stop screen capture");
-                        }
-                    });
+                    self.send_command(sender, PrivacyServiceCommand::StopAllScreenCapture);
                 }
             }
             PrivacyMsg::Unavailable => {
-                tracing::warn!("privacy applet: daemon unavailable");
+                tracing::warn!("privacy applet: privacy service unavailable");
                 self.visible = false;
             }
         }
+    }
+}
+
+impl Privacy {
+    fn send_command(&self, sender: ComponentSender<Self>, command: PrivacyServiceCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(%error, "privacy applet: failed to send privacy service command");
+                    }
+                })
+                .drop_on_shutdown()
+        });
     }
 }
 

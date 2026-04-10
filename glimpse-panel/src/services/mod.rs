@@ -4,6 +4,7 @@ use glimpse::{
     mpris::MprisServiceHandle,
     network::NetworkServiceHandle,
     notifications::NotificationsServiceHandle,
+    privacy::PrivacyServiceHandle,
     tray::TrayServiceHandle,
 };
 
@@ -15,6 +16,7 @@ pub struct ServicesHandle {
     pub network: NetworkServiceHandle,
     pub tray: TrayServiceHandle,
     pub notifications: NotificationsServiceHandle,
+    pub privacy: PrivacyServiceHandle,
 }
 
 pub struct Services {
@@ -27,6 +29,7 @@ impl Services {
         let calendar = CalendarServiceHandle::new(session.clone());
         let mpris = MprisServiceHandle::new(session.clone());
         let network = NetworkServiceHandle::new(system.clone());
+        let privacy = PrivacyServiceHandle::new(session.clone());
         let tray = TrayServiceHandle::new();
         let notifications = NotificationsServiceHandle::new(session);
         Self {
@@ -37,6 +40,7 @@ impl Services {
                 network,
                 tray,
                 notifications,
+                privacy,
             },
         }
     }
