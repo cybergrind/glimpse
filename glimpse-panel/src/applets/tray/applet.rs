@@ -187,6 +187,15 @@ impl Tray {
                 self.items.insert(item.address.clone(), state);
             }
         }
+
+        let mut previous: Option<gtk::Widget> = None;
+        for item in &self.snapshot.items {
+            let Some(state) = self.items.get(&item.address) else {
+                continue;
+            };
+            root.reorder_child_after(&state.button, previous.as_ref());
+            previous = Some(state.button.clone().upcast());
+        }
     }
 
     fn handle_click(
@@ -243,7 +252,7 @@ impl Tray {
 fn build_button(item: &TrayItem, size: i32, sender: &ComponentSender<Tray>) -> gtk::Button {
     let image = gtk::Image::new();
     image.set_pixel_size(size);
-    set_image_icon(&image, item.icon.as_ref(), size);
+    set_image_icon(&image, item, size);
 
     let button = gtk::Button::new();
     button.set_child(Some(&image));
@@ -282,7 +291,7 @@ fn build_button(item: &TrayItem, size: i32, sender: &ComponentSender<Tray>) -> g
 
 fn update_button(button: &gtk::Button, item: &TrayItem, size: i32) {
     if let Some(image) = button.child().and_downcast::<gtk::Image>() {
-        set_image_icon(&image, item.icon.as_ref(), size);
+        set_image_icon(&image, item, size);
     }
     button.set_tooltip_text(button_tooltip(item).as_deref());
 }
@@ -300,13 +309,46 @@ fn button_tooltip(item: &TrayItem) -> Option<String> {
     (!item.title.is_empty()).then(|| item.title.clone())
 }
 
-fn set_image_icon(image: &gtk::Image, icon: Option<&TrayIcon>, size: i32) {
+fn set_image_icon(image: &gtk::Image, item: &TrayItem, size: i32) {
     image.set_pixel_size(size);
 
-    match icon.and_then(icon_to_gicon) {
-        Some(gicon) => image.set_from_gicon(&gicon),
-        None => image.set_icon_name(Some("image-missing-symbolic")),
+    match item_icon_paintable(item, size) {
+        Some(paintable) => image.set_paintable(Some(&paintable)),
+        None => match item.icon.as_ref().and_then(icon_to_gicon) {
+            Some(gicon) => image.set_from_gicon(&gicon),
+            None => image.set_icon_name(Some("image-missing-symbolic")),
+        },
     }
+}
+
+fn item_icon_paintable(item: &TrayItem, size: i32) -> Option<gdk::Paintable> {
+    let TrayIcon::Name(name) = item.icon.as_ref()? else {
+        return None;
+    };
+
+    let icon_theme_path = item
+        .icon_theme_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())?;
+    let display = gdk::Display::default()?;
+    let theme = gtk::IconTheme::for_display(&display);
+    let theme_path = std::path::Path::new(icon_theme_path);
+    if !theme.search_path().iter().any(|existing| existing == theme_path) {
+        theme.add_search_path(theme_path);
+    }
+
+    Some(
+        theme
+            .lookup_icon(
+                name,
+                &[],
+                size,
+                1,
+                gtk::TextDirection::None,
+                gtk::IconLookupFlags::empty(),
+            )
+            .upcast(),
+    )
 }
 
 fn icon_to_gicon(icon: &TrayIcon) -> Option<gio::Icon> {
