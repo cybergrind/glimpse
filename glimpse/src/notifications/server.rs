@@ -7,45 +7,27 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::OwnedValue;
 
 use crate::notifications::protocol::NotificationEntry;
-use crate::notifications::service::{NotificationsServiceHandle, NotificationsSignal};
+use crate::notifications::service::{NotificationsServerDispatcher, NotificationsSignal};
 
 pub(crate) const NOTIFICATIONS_BUS_NAME: &str = "org.freedesktop.Notifications";
 pub(crate) const NOTIFICATIONS_OBJECT_PATH: &str = "/org/freedesktop/Notifications";
 
 #[derive(Clone)]
 pub struct NotificationServer {
-    service: NotificationsServiceHandle,
+    dispatcher: NotificationsServerDispatcher,
     next_id: Arc<AtomicU32>,
 }
 
 impl NotificationServer {
-    pub(crate) fn new(service: NotificationsServiceHandle) -> Self {
+    pub(crate) fn new(dispatcher: NotificationsServerDispatcher) -> Self {
         Self {
-            service,
+            dispatcher,
             next_id: Arc::new(AtomicU32::new(1)),
         }
     }
 
     fn next_notification_id(&self, replaces_id: u32) -> u32 {
-        if replaces_id == 0 {
-            return self.next_id.fetch_add(1, Ordering::Relaxed);
-        }
-
-        let target = replaces_id.saturating_add(1);
-        let mut current = self.next_id.load(Ordering::Relaxed);
-        while current < target {
-            match self.next_id.compare_exchange(
-                current,
-                target,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(observed) => current = observed,
-            }
-        }
-
-        replaces_id
+        allocate_notification_id(&self.next_id, replaces_id)
     }
 }
 
@@ -66,7 +48,7 @@ impl NotificationServer {
         let entry =
             notification_entry_from_dbus(id, app_name, app_icon, summary, body, actions, hints);
 
-        self.service
+        self.dispatcher
             .inject(entry)
             .await
             .map_err(map_service_error)?;
@@ -75,7 +57,7 @@ impl NotificationServer {
     }
 
     async fn close_notification(&self, id: u32) -> zbus::fdo::Result<()> {
-        self.service
+        self.dispatcher
             .close_from_server(id)
             .await
             .map_err(map_service_error)
@@ -127,7 +109,7 @@ impl NotificationServer {
 
 pub(crate) async fn register_server(
     session: &zbus::Connection,
-    service: NotificationsServiceHandle,
+    dispatcher: NotificationsServerDispatcher,
 ) -> zbus::Result<SignalEmitter<'static>> {
     let _ = session
         .object_server()
@@ -135,7 +117,10 @@ pub(crate) async fn register_server(
         .await;
     session
         .object_server()
-        .at(NOTIFICATIONS_OBJECT_PATH, NotificationServer::new(service))
+        .at(
+            NOTIFICATIONS_OBJECT_PATH,
+            NotificationServer::new(dispatcher),
+        )
         .await?;
     session
         .request_name_with_flags(
@@ -204,6 +189,38 @@ fn notification_entry_from_dbus(
     }
 }
 
+fn allocate_notification_id(next_id: &AtomicU32, replaces_id: u32) -> u32 {
+    if replaces_id != 0 {
+        if let Some(target) = replaces_id.checked_add(1) {
+            let mut current = next_id.load(Ordering::Relaxed);
+            while current < target {
+                match next_id.compare_exchange(
+                    current,
+                    target,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(observed) => current = observed,
+                }
+            }
+        }
+
+        return replaces_id;
+    }
+
+    loop {
+        let current = next_id.load(Ordering::Relaxed);
+        let allocated = if current == 0 { 1 } else { current };
+        let next = allocated.checked_add(1).unwrap_or(1);
+
+        match next_id.compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return allocated,
+            Err(_) => continue,
+        }
+    }
+}
+
 fn hint_as<T>(hints: &HashMap<String, OwnedValue>, key: &str) -> Option<T>
 where
     T: TryFrom<OwnedValue>,
@@ -228,4 +245,25 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_notification_id_wraps_back_to_one_after_u32_max() {
+        let next_id = AtomicU32::new(u32::MAX);
+
+        assert_eq!(allocate_notification_id(&next_id, 0), u32::MAX);
+        assert_eq!(allocate_notification_id(&next_id, 0), 1);
+    }
+
+    #[test]
+    fn replaces_id_never_forces_zero_allocation() {
+        let next_id = AtomicU32::new(7);
+
+        assert_eq!(allocate_notification_id(&next_id, u32::MAX), u32::MAX);
+        assert_eq!(allocate_notification_id(&next_id, 0), 7);
+    }
 }

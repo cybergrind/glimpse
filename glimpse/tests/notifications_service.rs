@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use glimpse::notifications::protocol::{NotificationEntry, NotificationsCommand};
@@ -119,4 +120,71 @@ async fn invoke_action_emits_signals_and_closes_non_resident_notification() {
         NotificationsSignal::NotificationClosed { id: 9, reason: 2 }
     );
     assert!(handle.subscribe().borrow().notifications.is_empty());
+}
+
+#[tokio::test]
+async fn service_stops_once_last_external_handle_is_dropped() {
+    let (handle, shutdown) = NotificationsServiceHandle::new_for_tests_with_shutdown_probe();
+    let clone = handle.clone();
+
+    drop(handle);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!*shutdown.borrow());
+
+    drop(clone);
+    let mut shutdown = shutdown;
+    tokio::time::timeout(Duration::from_secs(1), shutdown.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(*shutdown.borrow());
+}
+
+#[tokio::test]
+async fn dismiss_all_keeps_local_mutation_when_signal_emission_fails() {
+    let handle = NotificationsServiceHandle::new_for_tests_with_signal_failure();
+
+    handle
+        .inject(notification_entry(1, "first", false))
+        .await
+        .unwrap();
+    handle
+        .inject(notification_entry(2, "second", false))
+        .await
+        .unwrap();
+
+    handle.send(NotificationsCommand::DismissAll).await.unwrap();
+
+    let state = handle.subscribe().borrow().clone();
+    assert!(state.notifications.is_empty());
+    assert!(matches!(
+        state.health,
+        glimpse::notifications::protocol::NotificationsServiceHealth::Degraded { .. }
+    ));
+}
+
+#[tokio::test]
+async fn invoke_action_keeps_local_close_when_signal_emission_fails() {
+    let handle = NotificationsServiceHandle::new_for_tests_with_signal_failure();
+
+    handle
+        .inject(notification_entry(11, "actionable", false))
+        .await
+        .unwrap();
+
+    handle
+        .send(NotificationsCommand::InvokeAction {
+            id: 11,
+            action_key: "default".into(),
+            activation_token: Some("broken-signal".into()),
+        })
+        .await
+        .unwrap();
+
+    let state = handle.subscribe().borrow().clone();
+    assert!(state.notifications.is_empty());
+    assert!(matches!(
+        state.health,
+        glimpse::notifications::protocol::NotificationsServiceHealth::Degraded { .. }
+    ));
 }
