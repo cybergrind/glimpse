@@ -1,18 +1,19 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 
-pub fn notifications_state_path() -> PathBuf {
-    cache_dir()
-        .expect("notifications state path requires HOME or XDG_CACHE_HOME")
-        .join("glimpse")
-        .join("state.json")
+pub fn notifications_state_path() -> Option<PathBuf> {
+    cache_dir().map(|dir| dir.join("glimpse").join("state.json"))
 }
 
 pub fn load_notifications_dnd() -> bool {
-    load_notifications_dnd_from(notifications_state_path())
+    notifications_state_path()
+        .map(|path| load_notifications_dnd_from(path))
+        .unwrap_or(false)
 }
 
 pub fn load_notifications_dnd_from(path: impl AsRef<Path>) -> bool {
@@ -29,7 +30,13 @@ pub fn load_notifications_dnd_from(path: impl AsRef<Path>) -> bool {
 }
 
 pub fn save_notifications_dnd(dnd: bool) -> io::Result<()> {
-    save_notifications_dnd_to(notifications_state_path(), dnd)
+    let path = notifications_state_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "notifications state path requires an absolute XDG_CACHE_HOME or HOME",
+        )
+    })?;
+    save_notifications_dnd_to(path, dnd)
 }
 
 pub fn save_notifications_dnd_to(path: impl AsRef<Path>, dnd: bool) -> io::Result<()> {
@@ -49,15 +56,25 @@ pub fn save_notifications_dnd_to(path: impl AsRef<Path>, dnd: bool) -> io::Resul
 
     let contents = serde_json::to_string(&Value::Object(root))
         .expect("serializing the notifications persistence state cannot fail");
-    fs::write(path, contents)
+    write_atomic(path, contents.as_bytes())
 }
 
 fn cache_dir() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("XDG_CACHE_HOME") {
-        return Some(PathBuf::from(path));
+    if let Some(path) = usable_absolute_dir(std::env::var_os("XDG_CACHE_HOME")) {
+        return Some(path);
     }
 
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache"))
+    usable_absolute_dir(std::env::var_os("HOME")).map(|home| home.join(".cache"))
+}
+
+fn usable_absolute_dir(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let path = value?;
+    if path.is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(path);
+    path.is_absolute().then_some(path)
 }
 
 fn read_state_value(path: &Path) -> Option<Value> {
@@ -73,4 +90,39 @@ fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
     value
         .as_object_mut()
         .expect("value was just converted to an object")
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "state file path must have a parent directory",
+        )
+    })?;
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_path = parent.join(format!(
+        ".{}.tmp-{}-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("state"),
+        std::process::id(),
+        unique
+    ));
+
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_path)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    drop(file);
+
+    fs::rename(&temp_path, path).or_else(|error| {
+        let _ = fs::remove_file(&temp_path);
+        Err(error)
+    })
 }
