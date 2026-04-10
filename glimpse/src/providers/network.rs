@@ -18,6 +18,7 @@ use crate::dbus::network_manager::{
 
 const NM_SERVICE: &str = "org.freedesktop.NetworkManager";
 const LISTENER_DEBOUNCE: Duration = Duration::from_millis(300);
+const NM_UPDATE2_FLAG_TO_DISK: u32 = 0x1;
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct NetworkStatus {
@@ -45,11 +46,13 @@ pub struct WifiAccessPoint {
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct NetworkConnection {
+    pub active_path: String,
     pub id: String,
     pub uuid: String,
     pub connection_type: String,
     pub device: String,
     pub state: String,
+    pub failure: Option<NetworkFailureClassification>,
     pub vpn: bool,
     pub ip4_address: Option<String>,
     pub gateway: Option<String>,
@@ -62,6 +65,7 @@ pub struct NetworkDevice {
     pub interface: String,
     pub device_type: String,
     pub state: String,
+    pub failure: Option<NetworkFailureClassification>,
     pub speed: u32,
     pub carrier: Option<bool>,
 }
@@ -73,6 +77,24 @@ pub struct SavedVpn {
     pub connection_type: String,
     pub active: bool,
     pub state: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum NetworkFailureClassification {
+    AuthenticationFailed,
+    MissingSecrets,
+    Timeout,
+    NetworkNotFound,
+    ConfigurationFailed,
+    ConnectionRemoved,
+    Disconnected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WifiActivationTarget {
+    pub active_path: String,
+    pub connection_uuid: Option<String>,
+    pub settings_path: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -307,7 +329,11 @@ impl NetworkProvider {
         Ok(())
     }
 
-    pub async fn connect(&self, ssid: &str, password: Option<&str>) -> anyhow::Result<()> {
+    pub async fn connect(
+        &self,
+        ssid: &str,
+        password: Option<&str>,
+    ) -> anyhow::Result<WifiActivationTarget> {
         let manager = self.manager_proxy().await?;
         let device_paths = manager.get_devices().await?;
         let mut wifi_device_path = None;
@@ -361,10 +387,20 @@ impl NetworkProvider {
 
         let device = ObjectPath::try_from(wifi_device_path.as_str())?;
         let access_point = ObjectPath::try_from(ap_path.as_str())?;
-        let _ = manager
-            .add_and_activate_connection(settings, device, access_point)
+        let mut options = HashMap::new();
+        if password.is_some() {
+            options.insert("persist".into(), owned_value("volatile"));
+        }
+        let (connection_path, active_path, _) = manager
+            .add_and_activate_connection2(settings, device, access_point, options)
             .await?;
-        Ok(())
+        Ok(WifiActivationTarget {
+            active_path: active_path.to_string(),
+            connection_uuid: self
+                .connection_uuid_for_settings_path(connection_path.as_str())
+                .await?,
+            settings_path: connection_path.to_string(),
+        })
     }
 
     pub async fn connect_uuid(&self, uuid: &str) -> anyhow::Result<()> {
@@ -455,6 +491,23 @@ impl NetworkProvider {
             .map_err(Into::into)
     }
 
+    pub async fn delete_connection_path(&self, path: &str) -> anyhow::Result<()> {
+        self.settings_connection_proxy(path)
+            .await?
+            .delete()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn save_connection_path(&self, path: &str) -> anyhow::Result<()> {
+        self.settings_connection_proxy(path)
+            .await?
+            .update2(HashMap::new(), NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
+            .await
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
     async fn read_devices(&self, status: &mut NetworkStatus) -> anyhow::Result<Vec<NetworkDevice>> {
         let mut devices = Vec::new();
         let device_paths = self.manager_proxy().await?.get_devices().await?;
@@ -466,6 +519,7 @@ impl NetworkProvider {
             }
 
             let state = device.state().await.unwrap_or(0);
+            let state_reason = device.state_reason().await.unwrap_or(0);
             let interface = device.interface().await.unwrap_or_default();
             let (speed, carrier) = match device_type {
                 "ethernet" => {
@@ -487,6 +541,7 @@ impl NetworkProvider {
                 interface,
                 device_type: device_type.into(),
                 state: device_state_str(state).into(),
+                failure: device_failure_classification(device_type, state, state_reason),
                 speed,
                 carrier,
             });
@@ -507,6 +562,7 @@ impl NetworkProvider {
             let uuid = active.uuid().await.unwrap_or_default();
             let raw_type = active.kind().await.unwrap_or_default();
             let state = active.state().await.unwrap_or(0);
+            let state_reason = active.state_reason().await.unwrap_or(0);
             let vpn = active.vpn().await.unwrap_or(false);
 
             let mut device_name = String::new();
@@ -561,11 +617,13 @@ impl NetworkProvider {
             }
 
             connections.push(NetworkConnection {
+                active_path: path.to_string(),
                 id,
                 uuid,
                 connection_type: connection_type.into(),
                 device: device_name,
                 state: connection_state_str(state).into(),
+                failure: active_connection_failure_classification(state, state_reason),
                 vpn,
                 ip4_address,
                 gateway,
@@ -767,6 +825,22 @@ impl NetworkProvider {
             .map(|profile| profile.uuid.clone()))
     }
 
+    async fn connection_uuid_for_settings_path(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let settings = match self.settings_connection_proxy(path).await {
+            Ok(proxy) => proxy.get_settings().await.unwrap_or_default(),
+            Err(_) => return Ok(None),
+        };
+
+        Ok(settings
+            .get("connection")
+            .and_then(|connection| connection.get("uuid"))
+            .and_then(owned_value_to_string)
+            .filter(|uuid| !uuid.is_empty()))
+    }
+
     async fn wifi_profile_paths_for_ssid(&self, ssid: &str) -> anyhow::Result<Vec<String>> {
         let mut paths = Vec::new();
         for path in self.settings_proxy().await?.list_connections().await? {
@@ -941,6 +1015,46 @@ fn connection_state_str(value: u32) -> &'static str {
         2 => "activated",
         3 => "deactivating",
         _ => "unknown",
+    }
+}
+
+fn device_failure_classification(
+    device_type: &str,
+    state: u32,
+    state_reason: u32,
+) -> Option<NetworkFailureClassification> {
+    if state != 120 {
+        return None;
+    }
+
+    match state_reason {
+        4 => Some(NetworkFailureClassification::ConfigurationFailed),
+        7 => Some(NetworkFailureClassification::MissingSecrets),
+        8 => Some(NetworkFailureClassification::Disconnected),
+        9..=10 => Some(NetworkFailureClassification::AuthenticationFailed),
+        11 => Some(NetworkFailureClassification::Timeout),
+        39 => Some(NetworkFailureClassification::Disconnected),
+        53 if device_type == "wifi" => Some(NetworkFailureClassification::NetworkNotFound),
+        _ => None,
+    }
+}
+
+fn active_connection_failure_classification(
+    state: u32,
+    state_reason: u32,
+) -> Option<NetworkFailureClassification> {
+    if state == 2 {
+        return None;
+    }
+
+    match state_reason {
+        3 => Some(NetworkFailureClassification::Disconnected),
+        5 => Some(NetworkFailureClassification::ConfigurationFailed),
+        6 => Some(NetworkFailureClassification::Timeout),
+        9 => Some(NetworkFailureClassification::MissingSecrets),
+        10 => Some(NetworkFailureClassification::AuthenticationFailed),
+        11 => Some(NetworkFailureClassification::ConnectionRemoved),
+        _ => None,
     }
 }
 
@@ -1134,6 +1248,42 @@ mod tests {
         assert_eq!(connection_state_str(2), "activated");
         assert_eq!(connection_state_str(3), "deactivating");
         assert_eq!(connection_state_str(0), "unknown");
+    }
+
+    #[test]
+    fn wifi_device_failures_are_classified() {
+        assert_eq!(
+            device_failure_classification("wifi", 120, 7),
+            Some(NetworkFailureClassification::MissingSecrets)
+        );
+        assert_eq!(
+            device_failure_classification("wifi", 120, 8),
+            Some(NetworkFailureClassification::Disconnected)
+        );
+        assert_eq!(
+            device_failure_classification("wifi", 120, 9),
+            Some(NetworkFailureClassification::AuthenticationFailed)
+        );
+        assert_eq!(
+            device_failure_classification("wifi", 120, 53),
+            Some(NetworkFailureClassification::NetworkNotFound)
+        );
+    }
+
+    #[test]
+    fn active_connection_failures_are_classified() {
+        assert_eq!(
+            active_connection_failure_classification(4, 9),
+            Some(NetworkFailureClassification::MissingSecrets)
+        );
+        assert_eq!(
+            active_connection_failure_classification(4, 10),
+            Some(NetworkFailureClassification::AuthenticationFailed)
+        );
+        assert_eq!(
+            active_connection_failure_classification(4, 6),
+            Some(NetworkFailureClassification::Timeout)
+        );
     }
 
     #[test]

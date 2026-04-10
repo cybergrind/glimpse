@@ -164,6 +164,10 @@ impl Component for Network {
 
 impl Network {
     fn handle_popover_output(&self, output: NetworkPopoverOutput, sender: ComponentSender<Self>) {
+        if should_close_popover_before_output(&output) {
+            self.popover.emit(NetworkPopoverInput::Close);
+        }
+
         match output {
             NetworkPopoverOutput::Opened => {
                 self.send_command(
@@ -227,6 +231,15 @@ fn is_connecting(state: &NetworkServiceState) -> bool {
         (connection.connection_type == "wifi" || connection.connection_type == "ethernet")
             && connection.state == "activating"
     })
+}
+
+fn should_close_popover_before_output(output: &NetworkPopoverOutput) -> bool {
+    matches!(
+        output,
+        NetworkPopoverOutput::ConnectWifi { .. }
+            | NetworkPopoverOutput::ConnectSaved { .. }
+            | NetworkPopoverOutput::OpenSettings
+    )
 }
 
 fn tooltip_text(state: &NetworkServiceState, has_vpn: bool, connecting: bool) -> String {
@@ -348,5 +361,25 @@ mod tests {
             ..NetworkConnection::default()
         });
         assert!(is_connecting(&state));
+    }
+
+    #[test]
+    fn connect_and_settings_outputs_close_the_popover_first() {
+        assert!(should_close_popover_before_output(
+            &NetworkPopoverOutput::ConnectWifi {
+                ssid: "Skylink".into(),
+            }
+        ));
+        assert!(should_close_popover_before_output(
+            &NetworkPopoverOutput::ConnectSaved {
+                uuid: "uuid-1".into(),
+            }
+        ));
+        assert!(should_close_popover_before_output(&NetworkPopoverOutput::OpenSettings));
+        assert!(!should_close_popover_before_output(
+            &NetworkPopoverOutput::Forget {
+                uuid: "uuid-1".into(),
+            }
+        ));
     }
 }

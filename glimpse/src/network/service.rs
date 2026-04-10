@@ -9,7 +9,10 @@ use crate::{
         NetworkServiceCommand, NetworkServiceHealth, NetworkServiceState,
     },
     network::secret_agent::NetworkSecretAgent,
-    providers::network::{NetworkProvider, NetworkProviderEvent, NetworkSnapshot, WifiAccessPoint},
+    providers::network::{
+        NetworkFailureClassification, NetworkProvider, NetworkProviderEvent, NetworkSnapshot,
+        WifiAccessPoint,
+    },
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;
@@ -99,6 +102,10 @@ impl OpenPopoverCount {
 struct PendingPrompt {
     id: NetworkPromptId,
     ssid: String,
+    submitting: bool,
+    active_connection_path: Option<String>,
+    connection_uuid: Option<String>,
+    settings_path: Option<String>,
 }
 
 async fn run_network_service(
@@ -199,6 +206,26 @@ async fn run_connected(
                                 };
                             });
                         } else {
+                            if let Some(reconciliation) =
+                                reconcile_pending_prompt(&state_tx, &mut pending_prompt)
+                            {
+                                match reconciliation {
+                                    PendingPromptReconciliation::Save { settings_path } => {
+                                        if let Err(error) = provider.save_connection_path(&settings_path).await {
+                                            tracing::warn!(error = %error, path = settings_path, "network service: failed to persist wifi profile");
+                                        } else if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
+                                            tracing::warn!(error = %error, "network service: failed to refresh after profile save");
+                                        }
+                                    }
+                                    PendingPromptReconciliation::Delete { settings_path } => {
+                                        if let Err(error) = provider.delete_connection_path(&settings_path).await {
+                                            tracing::warn!(error = %error, path = settings_path, "network service: failed to delete invalid wifi profile");
+                                        } else if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
+                                            tracing::warn!(error = %error, "network service: failed to refresh after profile cleanup");
+                                        }
+                                    }
+                                }
+                            }
                             reconcile_active_action(&state_tx);
                             let _ = state_tx.send_modify(|state| state.health = NetworkServiceHealth::Ready);
                         }
@@ -319,14 +346,18 @@ async fn handle_command(
                     *pending_prompt = Some(PendingPrompt {
                         id: prompt_id,
                         ssid: access_point.ssid.clone(),
+                        submitting: false,
+                        active_connection_path: None,
+                        connection_uuid: None,
+                        settings_path: None,
                     });
                     let _ = state_tx.send_modify(|state| {
-                        state.prompt = Some(NetworkPrompt {
-                            id: prompt_id,
-                            kind: NetworkPromptKind::WifiPassword {
-                                ssid: access_point.ssid.clone(),
-                            },
-                        });
+                        state.prompt = Some(network_password_prompt(
+                            prompt_id,
+                            access_point.ssid.clone(),
+                            None,
+                            false,
+                        ));
                     });
                     Ok(())
                 }
@@ -337,7 +368,11 @@ async fn handle_command(
                         state_tx.clone(),
                         Some(NetworkActiveAction::ConnectWifi { ssid: ssid.clone() }),
                         move |provider| async move {
-                            provider.connect(&ssid, None).await.map_err(Into::into)
+                            provider
+                                .connect(&ssid, None)
+                                .await
+                                .map(|_| ())
+                                .map_err(Into::into)
                         },
                     );
                     Ok(())
@@ -373,7 +408,7 @@ async fn handle_command(
             Ok(())
         }
         NetworkServiceCommand::PromptReply { id, reply } => {
-            let Some(pending) = pending_prompt.take() else {
+            let Some(pending) = pending_prompt.as_mut() else {
                 tracing::warn!(
                     prompt_id = id.0,
                     "network service: prompt reply with no pending prompt"
@@ -386,27 +421,74 @@ async fn handle_command(
                     expected = pending.id.0,
                     "network service: prompt id mismatch"
                 );
-                *pending_prompt = Some(pending);
                 return Ok(());
             }
 
-            let _ = state_tx.send_modify(|state| state.prompt = None);
             match reply {
                 NetworkPromptReply::SubmitPassword(password) => {
                     let ssid = pending.ssid.clone();
-                    spawn_action(
-                        provider.clone(),
-                        state_tx.clone(),
-                        Some(NetworkActiveAction::ConnectWifi { ssid: ssid.clone() }),
-                        move |provider| async move {
-                            provider
-                                .connect(&ssid, Some(password.as_str()))
-                                .await
-                                .map_err(Into::into)
-                        },
-                    );
+                    let prompt_id = pending.id;
+                    pending.submitting = true;
+                    pending.active_connection_path = None;
+                    pending.connection_uuid = None;
+                    pending.settings_path = None;
+                    let _ = state_tx.send_modify(|state| {
+                        state.prompt = Some(network_password_prompt(
+                            prompt_id,
+                            ssid.clone(),
+                            None,
+                            true,
+                        ));
+                        state.active_action = Some(NetworkActiveAction::ConnectWifi {
+                            ssid: ssid.clone(),
+                        });
+                    });
+                    match provider
+                        .connect(&ssid, Some(password.as_str()))
+                        .await
+                        .map_err(|error| -> ServiceError { error.into() })
+                    {
+                        Ok(target) => {
+                            pending.active_connection_path = Some(target.active_path);
+                            pending.connection_uuid = target.connection_uuid;
+                            pending.settings_path = Some(target.settings_path);
+                        }
+                        Err(error) => {
+                            tracing::warn!(error = %error, "network service: action failed");
+                            restore_pending_prompt_after_submit_error(
+                                state_tx,
+                                pending,
+                                "Failed to start connection. Try again.",
+                            );
+                        }
+                    }
+                    if let Err(error) = refresh_snapshot(provider, state_tx).await {
+                        tracing::warn!(error = %error, "network service: failed to refresh after action");
+                    }
+                    if let Some(reconciliation) = reconcile_pending_prompt(state_tx, pending_prompt) {
+                        match reconciliation {
+                            PendingPromptReconciliation::Save { settings_path } => {
+                                if let Err(error) = provider.save_connection_path(&settings_path).await {
+                                    tracing::warn!(error = %error, path = settings_path, "network service: failed to persist wifi profile");
+                                } else if let Err(error) = refresh_snapshot(provider, state_tx).await {
+                                    tracing::warn!(error = %error, "network service: failed to refresh after profile save");
+                                }
+                            }
+                            PendingPromptReconciliation::Delete { settings_path } => {
+                                if let Err(error) = provider.delete_connection_path(&settings_path).await {
+                                    tracing::warn!(error = %error, path = settings_path, "network service: failed to delete invalid wifi profile");
+                                } else if let Err(error) = refresh_snapshot(provider, state_tx).await {
+                                    tracing::warn!(error = %error, "network service: failed to refresh after profile cleanup");
+                                }
+                            }
+                        }
+                    }
+                    reconcile_active_action(state_tx);
                 }
-                NetworkPromptReply::Cancel => {}
+                NetworkPromptReply::Cancel => {
+                    *pending_prompt = None;
+                    let _ = state_tx.send_modify(|state| state.prompt = None);
+                }
             }
             Ok(())
         }
@@ -545,6 +627,20 @@ fn needs_password_prompt(access_point: &WifiAccessPoint) -> bool {
     !access_point.saved && access_point.security != "open" && !access_point.security.is_empty()
 }
 
+fn network_password_prompt(
+    id: NetworkPromptId,
+    ssid: String,
+    error_message: Option<String>,
+    submitting: bool,
+) -> NetworkPrompt {
+    NetworkPrompt {
+        id,
+        kind: NetworkPromptKind::WifiPassword { ssid },
+        error_message,
+        submitting,
+    }
+}
+
 fn should_startup_scan(snapshot: &NetworkSnapshot, open_popovers: &OpenPopoverCount) -> bool {
     !open_popovers.has_open_popovers() && startup_scan_supported(snapshot)
 }
@@ -556,6 +652,151 @@ fn startup_scan_supported(snapshot: &NetworkSnapshot) -> bool {
             .devices
             .iter()
             .any(|device| device.device_type == "wifi")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PendingPromptReconciliation {
+    Save { settings_path: String },
+    Delete { settings_path: String },
+}
+
+fn reconcile_pending_prompt(
+    state_tx: &watch::Sender<NetworkServiceState>,
+    pending_prompt: &mut Option<PendingPrompt>,
+) -> Option<PendingPromptReconciliation> {
+    let Some(pending) = pending_prompt.as_mut() else {
+        return None;
+    };
+    if !pending.submitting {
+        return None;
+    }
+
+    let snapshot = state_tx.borrow().snapshot.clone();
+    if wifi_connection_visible(&snapshot, pending) {
+        let settings_path = pending.settings_path.clone();
+        *pending_prompt = None;
+        let _ = state_tx.send_modify(|state| state.prompt = None);
+        return settings_path.map(|settings_path| PendingPromptReconciliation::Save { settings_path });
+    }
+
+    let Some(classification) = pending_prompt_failure(&snapshot, pending) else {
+        if pending_prompt_disappeared(&snapshot, pending) {
+            let settings_path = pending.settings_path.clone();
+            restore_pending_prompt_after_submit_error(
+                state_tx,
+                pending,
+                "Connection failed. Check the password and try again.",
+            );
+            return settings_path.map(|settings_path| PendingPromptReconciliation::Delete { settings_path });
+        }
+        return None;
+    };
+
+    let cleanup_path = pending.settings_path.clone();
+    restore_pending_prompt_after_submit_error(
+        state_tx,
+        pending,
+        prompt_error_message(&classification),
+    );
+    cleanup_path.map(|settings_path| PendingPromptReconciliation::Delete { settings_path })
+}
+
+fn wifi_connection_visible(snapshot: &NetworkSnapshot, pending: &PendingPrompt) -> bool {
+    snapshot.connections.iter().any(|connection| {
+        pending_prompt_matches_connection(pending, connection)
+            && connection.state == "activated"
+    }) || snapshot
+        .wifi_access_points
+        .iter()
+        .any(|access_point| access_point.ssid == pending.ssid && access_point.connected)
+}
+
+fn pending_prompt_failure(
+    snapshot: &NetworkSnapshot,
+    pending: &PendingPrompt,
+) -> Option<NetworkFailureClassification> {
+    snapshot
+        .connections
+        .iter()
+        .find(|connection| pending_prompt_matches_connection(pending, connection))
+        .and_then(|connection| connection.failure.clone())
+}
+
+fn pending_prompt_disappeared(snapshot: &NetworkSnapshot, pending: &PendingPrompt) -> bool {
+    let has_tracked_identity =
+        pending.active_connection_path.is_some() || pending.connection_uuid.is_some();
+    has_tracked_identity
+        && !snapshot
+            .connections
+            .iter()
+            .any(|connection| pending_prompt_matches_connection(pending, connection))
+        && !snapshot
+            .wifi_access_points
+            .iter()
+            .any(|access_point| access_point.ssid == pending.ssid && access_point.connected)
+}
+
+fn pending_prompt_matches_connection(
+    pending: &PendingPrompt,
+    connection: &crate::providers::network::NetworkConnection,
+) -> bool {
+    if connection.connection_type != "wifi" {
+        return false;
+    }
+
+    if let Some(active_path) = pending.active_connection_path.as_deref() {
+        if connection.active_path == active_path {
+            return true;
+        }
+    }
+
+    if let Some(connection_uuid) = pending.connection_uuid.as_deref() {
+        if connection.uuid == connection_uuid {
+            return true;
+        }
+    }
+
+    connection.id == pending.ssid
+}
+
+fn restore_pending_prompt_after_submit_error(
+    state_tx: &watch::Sender<NetworkServiceState>,
+    pending: &mut PendingPrompt,
+    message: impl Into<String>,
+) {
+    pending.submitting = false;
+    pending.active_connection_path = None;
+    pending.connection_uuid = None;
+    pending.settings_path = None;
+    let prompt_id = pending.id;
+    let ssid = pending.ssid.clone();
+    let message = message.into();
+    let _ = state_tx.send_modify(|state| {
+        state.prompt = Some(network_password_prompt(
+            prompt_id,
+            ssid.clone(),
+            Some(message.clone()),
+            false,
+        ));
+        if matches!(
+            state.active_action.as_ref(),
+            Some(NetworkActiveAction::ConnectWifi { ssid: active_ssid }) if active_ssid == &ssid
+        ) {
+            state.active_action = None;
+        }
+    });
+}
+
+fn prompt_error_message(classification: &NetworkFailureClassification) -> &'static str {
+    match classification {
+        NetworkFailureClassification::AuthenticationFailed => "Incorrect password. Try again.",
+        NetworkFailureClassification::MissingSecrets => "Password required. Try again.",
+        NetworkFailureClassification::Timeout => "Connection timed out. Try again.",
+        NetworkFailureClassification::NetworkNotFound => "Network not found. Refresh and try again.",
+        NetworkFailureClassification::ConfigurationFailed => "Connection failed. Check the password and try again.",
+        NetworkFailureClassification::ConnectionRemoved => "Connection was removed. Try again.",
+        NetworkFailureClassification::Disconnected => "Connection was interrupted. Try again.",
+    }
 }
 
 fn reconcile_active_action(state_tx: &watch::Sender<NetworkServiceState>) {
@@ -746,5 +987,401 @@ mod tests {
 
         assert_eq!(first, NetworkPromptId(1));
         assert_eq!(second, NetworkPromptId(2));
+    }
+
+    #[test]
+    fn submitting_prompt_turns_auth_failure_into_inline_error() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                connections: vec![crate::providers::network::NetworkConnection {
+                    active_path: "/active/1".into(),
+                    id: "Skylink".into(),
+                    connection_type: "wifi".into(),
+                    failure: Some(NetworkFailureClassification::AuthenticationFailed),
+                    ..crate::providers::network::NetworkConnection::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: None,
+            settings_path: Some("/settings/1".into()),
+        });
+
+        reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(
+            state.prompt,
+            Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                Some("Incorrect password. Try again.".into()),
+                false,
+            ))
+        );
+        assert_eq!(state.active_action, None);
+        assert!(pending_prompt.is_some());
+        assert!(!pending_prompt.as_ref().unwrap().submitting);
+    }
+
+    #[test]
+    fn submitting_prompt_ignores_unscoped_wifi_device_failures() {
+        let original_prompt = network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                devices: vec![crate::providers::network::NetworkDevice {
+                    device_type: "wifi".into(),
+                    failure: Some(NetworkFailureClassification::AuthenticationFailed),
+                    ..crate::providers::network::NetworkDevice::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(original_prompt.clone()),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: None,
+            connection_uuid: None,
+            settings_path: None,
+        });
+
+        reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(state.prompt, Some(original_prompt));
+        assert_eq!(
+            state.active_action,
+            Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            })
+        );
+        assert_eq!(
+            pending_prompt,
+            Some(PendingPrompt {
+                id: NetworkPromptId(1),
+                ssid: "Skylink".into(),
+                submitting: true,
+                active_connection_path: None,
+                connection_uuid: None,
+                settings_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn submitting_prompt_stays_open_while_connection_is_only_activating() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                connections: vec![crate::providers::network::NetworkConnection {
+                    active_path: "/active/1".into(),
+                    id: "Skylink".into(),
+                    connection_type: "wifi".into(),
+                    state: "activating".into(),
+                    ..crate::providers::network::NetworkConnection::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: None,
+            settings_path: Some("/settings/1".into()),
+        });
+
+        reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(
+            state.prompt,
+            Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            ))
+        );
+        assert_eq!(
+            pending_prompt,
+            Some(PendingPrompt {
+                id: NetworkPromptId(1),
+                ssid: "Skylink".into(),
+                submitting: true,
+                active_connection_path: Some("/active/1".into()),
+                connection_uuid: None,
+                settings_path: Some("/settings/1".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn submitting_prompt_clears_after_connection_is_activated() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                connections: vec![crate::providers::network::NetworkConnection {
+                    active_path: "/active/1".into(),
+                    id: "Skylink".into(),
+                    connection_type: "wifi".into(),
+                    state: "activated".into(),
+                    ..crate::providers::network::NetworkConnection::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: None,
+            settings_path: Some("/settings/1".into()),
+        });
+
+        let reconciliation = reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(
+            reconciliation,
+            Some(PendingPromptReconciliation::Save {
+                settings_path: "/settings/1".into(),
+            })
+        );
+        assert_eq!(state.prompt, None);
+        assert_eq!(pending_prompt, None);
+    }
+
+    #[test]
+    fn retryable_auth_failure_requests_cleanup_of_created_profile() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                connections: vec![crate::providers::network::NetworkConnection {
+                    active_path: "/active/1".into(),
+                    id: "Skylink".into(),
+                    connection_type: "wifi".into(),
+                    state: "unknown".into(),
+                    failure: Some(NetworkFailureClassification::AuthenticationFailed),
+                    ..crate::providers::network::NetworkConnection::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: Some("uuid-1".into()),
+            settings_path: Some("/settings/1".into()),
+        });
+
+        let reconciliation = reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        assert_eq!(
+            reconciliation,
+            Some(PendingPromptReconciliation::Delete {
+                settings_path: "/settings/1".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn disappearing_tracked_connection_finishes_prompt_with_retryable_error() {
+        let original_prompt = network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot::default(),
+            prompt: Some(original_prompt),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: Some("uuid-1".into()),
+            settings_path: Some("/settings/1".into()),
+        });
+
+        let reconciliation = reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(
+            reconciliation,
+            Some(PendingPromptReconciliation::Delete {
+                settings_path: "/settings/1".into(),
+            })
+        );
+        assert_eq!(
+            state.prompt,
+            Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                Some("Connection failed. Check the password and try again.".into()),
+                false,
+            ))
+        );
+        assert_eq!(state.active_action, None);
+    }
+
+    #[test]
+    fn activated_prompt_requests_profile_persistence() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot {
+                connections: vec![crate::providers::network::NetworkConnection {
+                    active_path: "/active/1".into(),
+                    id: "Skylink".into(),
+                    connection_type: "wifi".into(),
+                    state: "activated".into(),
+                    ..crate::providers::network::NetworkConnection::default()
+                }],
+                ..NetworkSnapshot::default()
+            },
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending_prompt = Some(PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: None,
+            settings_path: Some("/settings/1".into()),
+        });
+
+        let reconciliation = reconcile_pending_prompt(&state_tx, &mut pending_prompt);
+
+        assert_eq!(
+            reconciliation,
+            Some(PendingPromptReconciliation::Save {
+                settings_path: "/settings/1".into(),
+            })
+        );
+        assert_eq!(state_tx.borrow().prompt, None);
+        assert_eq!(pending_prompt, None);
+    }
+
+    #[test]
+    fn restoring_retryable_prompt_clears_pending_submission_state() {
+        let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
+            health: NetworkServiceHealth::Ready,
+            snapshot: NetworkSnapshot::default(),
+            prompt: Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                None,
+                true,
+            )),
+            active_action: Some(NetworkActiveAction::ConnectWifi {
+                ssid: "Skylink".into(),
+            }),
+            scanning: false,
+        });
+        let mut pending = PendingPrompt {
+            id: NetworkPromptId(1),
+            ssid: "Skylink".into(),
+            submitting: true,
+            active_connection_path: Some("/active/1".into()),
+            connection_uuid: Some("uuid-1".into()),
+            settings_path: Some("/settings/1".into()),
+        };
+
+        restore_pending_prompt_after_submit_error(
+            &state_tx,
+            &mut pending,
+            "Failed to start connection. Try again.",
+        );
+
+        let state = state_tx.borrow().clone();
+        assert_eq!(
+            state.prompt,
+            Some(network_password_prompt(
+                NetworkPromptId(1),
+                "Skylink".into(),
+                Some("Failed to start connection. Try again.".into()),
+                false,
+            ))
+        );
+        assert_eq!(state.active_action, None);
+        assert_eq!(
+            pending,
+            PendingPrompt {
+                id: NetworkPromptId(1),
+                ssid: "Skylink".into(),
+                submitting: false,
+                active_connection_path: None,
+                connection_uuid: None,
+                settings_path: None,
+            }
+        );
     }
 }

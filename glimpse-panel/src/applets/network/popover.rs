@@ -27,6 +27,7 @@ pub struct NetworkPopoverInit {
 #[derive(Debug, Clone)]
 pub enum NetworkPopoverInput {
     Toggle,
+    Close,
     UpdateState {
         snapshot: NetworkSnapshot,
         active_action: Option<NetworkActiveAction>,
@@ -144,6 +145,7 @@ impl SimpleComponent for NetworkPopover {
                     self.popover.popup();
                 }
             }
+            NetworkPopoverInput::Close => self.popover.popdown(),
             NetworkPopoverInput::UpdateState {
                 snapshot,
                 active_action,

@@ -22,6 +22,13 @@ pub trait NetworkManager {
         device: ObjectPath<'_>,
         specific_object: ObjectPath<'_>,
     ) -> zbus::Result<(OwnedObjectPath, OwnedObjectPath)>;
+    fn add_and_activate_connection2(
+        &self,
+        connection: HashMap<String, HashMap<String, OwnedValue>>,
+        device: ObjectPath<'_>,
+        specific_object: ObjectPath<'_>,
+        options: HashMap<String, OwnedValue>,
+    ) -> zbus::Result<(OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedValue>)>;
     fn deactivate_connection(&self, active_connection: ObjectPath<'_>) -> zbus::Result<()>;
 
     #[zbus(property)]
@@ -51,6 +58,8 @@ pub trait Device {
     fn device_type(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn state(&self) -> zbus::Result<u32>;
+    #[zbus(property, name = "StateReason")]
+    fn state_reason(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn interface(&self) -> zbus::Result<String>;
 }
@@ -110,6 +119,8 @@ pub trait ActiveConnection {
     fn kind(&self) -> zbus::Result<String>;
     #[zbus(property)]
     fn state(&self) -> zbus::Result<u32>;
+    #[zbus(property, name = "StateReason")]
+    fn state_reason(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn vpn(&self) -> zbus::Result<bool>;
     #[zbus(property)]
@@ -147,5 +158,12 @@ pub trait Settings {
 )]
 pub trait SettingsConnection {
     fn get_settings(&self) -> zbus::Result<HashMap<String, HashMap<String, OwnedValue>>>;
+    fn save(&self) -> zbus::Result<()>;
+    fn update2(
+        &self,
+        settings: HashMap<String, HashMap<String, OwnedValue>>,
+        flags: u32,
+        args: HashMap<String, OwnedValue>,
+    ) -> zbus::Result<HashMap<String, OwnedValue>>;
     fn delete(&self) -> zbus::Result<()>;
 }

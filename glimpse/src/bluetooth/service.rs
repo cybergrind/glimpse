@@ -168,7 +168,7 @@ async fn run_connected(
             maybe_event = event_rx.recv() => {
                 match maybe_event {
                     Some(BluetoothProviderEvent::Changed { reason }) => {
-                        tracing::info!(reason = %reason, "bluetooth service: provider changed");
+                        log_provider_change(reason);
                         if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
                             tracing::warn!(error = %error, "bluetooth service: refresh failed");
                             let _ = state_tx.send_modify(|state| {
@@ -204,6 +204,10 @@ async fn run_connected(
     cancel.cancel();
     let _ = agent.unregister(&system).await;
     result
+}
+
+fn log_provider_change(reason: crate::providers::bluetooth::BluetoothChangeReason) {
+    tracing::debug!(reason = %reason, "bluetooth service: provider changed");
 }
 
 async fn handle_command(
@@ -459,5 +463,11 @@ mod tests {
 
         assert!(!popovers.close());
         assert_eq!(popovers.count, 0);
+    }
+
+    #[test]
+    fn provider_change_logs_are_debug_only() {
+        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::PropertiesChanged);
+        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::Mixed);
     }
 }

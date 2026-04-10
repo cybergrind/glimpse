@@ -12,6 +12,8 @@ pub enum NetworkPromptKind {
 pub struct NetworkPrompt {
     pub id: NetworkPromptId,
     pub kind: NetworkPromptKind,
+    pub error_message: Option<String>,
+    pub submitting: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +90,8 @@ mod tests {
                 kind: NetworkPromptKind::WifiPassword {
                     ssid: "Office".into(),
                 },
+                error_message: Some("Incorrect password".into()),
+                submitting: true,
             }),
             active_action: Some(NetworkActiveAction::Scan),
             scanning: true,
@@ -107,6 +111,16 @@ mod tests {
                 id: prompt_id,
                 reply,
             }
+        );
+    }
+
+    #[test]
+    fn network_failure_classification_roundtrip() {
+        let classification =
+            crate::providers::network::NetworkFailureClassification::AuthenticationFailed;
+        assert_eq!(
+            classification,
+            crate::providers::network::NetworkFailureClassification::AuthenticationFailed
         );
     }
 }
