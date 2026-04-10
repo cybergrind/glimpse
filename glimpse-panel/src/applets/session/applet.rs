@@ -132,6 +132,7 @@ impl Component for Session {
             }
             SessionMsg::PopoverOutput(SessionPopoverOutput::ActionRequested(action)) => {
                 if let Some(spec) = confirmation_spec(action) {
+                    self.popover.emit(SessionPopoverInput::Close);
                     show_confirmation(root, &sender, action, spec);
                 } else {
                     self.popover.emit(SessionPopoverInput::Close);
