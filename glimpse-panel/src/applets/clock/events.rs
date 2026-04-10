@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use chrono::{Local, NaiveDate};
-use glimpse_client::Client;
-use glimpse_types::CalendarDay;
+use glimpse::calendar::protocol::{CalendarDate, CalendarDaySnapshot};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
@@ -11,7 +8,6 @@ use relm4::{
 use crate::applets::clock::event_row::{EventRow, EventRowInit, EventRowInput};
 
 pub struct Events {
-    client: Option<Arc<Client>>,
     selected_date: NaiveDate,
     rows: Vec<Controller<EventRow>>,
     list_box: gtk::Box,
@@ -23,12 +19,16 @@ pub struct Events {
 pub enum EventsInput {
     Tick,
     SetDate(NaiveDate),
-    Data(CalendarDay),
+    Data(CalendarDaySnapshot),
     Clear,
 }
 
+#[derive(Debug)]
+pub enum EventsOutput {
+    LoadDay { date: NaiveDate },
+}
+
 pub struct EventsInit {
-    pub client: Option<Arc<Client>>,
     pub selected_date: NaiveDate,
 }
 
@@ -36,8 +36,8 @@ pub struct EventsInit {
 impl Component for Events {
     type Init = EventsInit;
     type Input = EventsInput;
-    type Output = ();
-    type CommandOutput = EventsInput;
+    type Output = EventsOutput;
+    type CommandOutput = ();
 
     view! {
         gtk::Box {
@@ -77,7 +77,6 @@ impl Component for Events {
         let widgets = view_output!();
 
         let model = Events {
-            client: init.client,
             selected_date: init.selected_date,
             rows: Vec::new(),
             list_box: widgets.list_box.clone(),
@@ -88,15 +87,6 @@ impl Component for Events {
         model.refresh_selected_day(&sender);
 
         ComponentParts { model, widgets }
-    }
-
-    fn update_cmd(
-        &mut self,
-        msg: Self::CommandOutput,
-        sender: ComponentSender<Self>,
-        root: &Self::Root,
-    ) {
-        self.update(msg, sender, root);
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
@@ -120,8 +110,8 @@ impl Component for Events {
                 self.last_refresh_minute = Some(current_minute_key());
             }
             EventsInput::Clear => {
-                self.replace_rows(CalendarDay {
-                    date: self.selected_date.format("%F").to_string(),
+                self.replace_rows(CalendarDaySnapshot {
+                    date: CalendarDate::from_naive_date(self.selected_date),
                     events: Vec::new(),
                 });
                 self.last_refresh_minute = Some(current_minute_key());
@@ -132,26 +122,8 @@ impl Component for Events {
 
 impl Events {
     fn refresh_selected_day(&self, sender: &ComponentSender<Self>) {
-        let Some(client) = self.client.clone() else {
-            sender.input(EventsInput::Clear);
-            return;
-        };
-        let date = self.selected_date.format("%F").to_string();
-        sender.command(move |out, _shutdown| async move {
-            let result = client
-                .call("calendar.day", serde_json::json!({ "date": date }))
-                .await
-                .and_then(|value| serde_json::from_value::<CalendarDay>(value).map_err(Into::into));
-
-            match result {
-                Ok(day) => {
-                    let _ = out.send(EventsInput::Data(day));
-                }
-                Err(e) => {
-                    tracing::warn!("clock events: failed to fetch day: {e}");
-                    let _ = out.send(EventsInput::Clear);
-                }
-            }
+        let _ = sender.output(EventsOutput::LoadDay {
+            date: self.selected_date,
         });
     }
 
@@ -168,7 +140,7 @@ impl Events {
         self.refresh_selected_day(sender);
     }
 
-    fn replace_rows(&mut self, day: CalendarDay) {
+    fn replace_rows(&mut self, day: CalendarDaySnapshot) {
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local, NaiveDate};
-use glimpse_types::CalendarEvent;
+use glimpse::calendar::protocol::CalendarEvent;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

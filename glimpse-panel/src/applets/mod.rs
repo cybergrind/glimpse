@@ -194,7 +194,7 @@ pub fn create_applet(
             let applet = Clock::builder()
                 .launch(ClockInit {
                     config,
-                    client: client.clone(),
+                    service: services.calendar.clone(),
                 })
                 .detach();
             Some(AppletController::Clock(applet))

@@ -1,16 +1,13 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use chrono::{Datelike, Days, Local, NaiveDate, Weekday};
-use glimpse_client::Client;
-use glimpse_types::CalendarMonth;
+use glimpse::calendar::protocol::CalendarMonthSnapshot;
 use relm4::{
     Component, ComponentParts, ComponentSender,
     gtk::{self, prelude::*},
 };
 
 pub struct Calendar {
-    client: Option<Arc<Client>>,
     selected_date: NaiveDate,
     visible_month: NaiveDate,
     month_label: gtk::Label,
@@ -19,7 +16,6 @@ pub struct Calendar {
 }
 
 pub struct CalendarInit {
-    pub client: Option<Arc<Client>>,
     pub selected_date: NaiveDate,
 }
 
@@ -29,13 +25,14 @@ pub enum Input {
     NextMonth,
     SelectDate(NaiveDate),
     SetDate(NaiveDate),
-    MonthData(CalendarMonth),
+    MonthData(CalendarMonthSnapshot),
     ClearMonth,
 }
 
 #[derive(Debug)]
 pub enum Output {
     SelectedDate(NaiveDate),
+    LoadMonth { year: i32, month: u32 },
 }
 
 #[relm4::component(pub)]
@@ -129,7 +126,6 @@ impl Component for Calendar {
         }
 
         let mut model = Calendar {
-            client: init.client,
             selected_date: init.selected_date,
             visible_month: month_start(init.selected_date),
             month_label,
@@ -190,17 +186,14 @@ impl Component for Calendar {
                 }
             }
             Input::MonthData(month) => {
-                if month.month != self.visible_month.format("%Y-%m").to_string() {
+                if month.year != self.visible_month.year() || month.month != self.visible_month.month()
+                {
                     return;
                 }
                 self.dots_by_day = month
                     .days
                     .into_iter()
-                    .filter_map(|day| {
-                        NaiveDate::parse_from_str(&day.date, "%Y-%m-%d")
-                            .ok()
-                            .map(|date| (date, day.colors))
-                    })
+                    .filter_map(|day| day.date.to_naive_date().map(|date| (date, day.colors)))
                     .collect();
                 self.render_days(&sender);
             }
@@ -214,28 +207,9 @@ impl Component for Calendar {
 
 impl Calendar {
     fn refresh_month(&self, sender: &ComponentSender<Self>) {
-        let Some(client) = self.client.clone() else {
-            sender.input(Input::ClearMonth);
-            return;
-        };
-        let month = self.visible_month.format("%Y-%m").to_string();
-        sender.command(move |out, _shutdown| async move {
-            let result = client
-                .call("calendar.month", serde_json::json!({ "month": month }))
-                .await
-                .and_then(|value| {
-                    serde_json::from_value::<CalendarMonth>(value).map_err(Into::into)
-                });
-
-            match result {
-                Ok(month) => {
-                    let _ = out.send(Input::MonthData(month));
-                }
-                Err(e) => {
-                    tracing::warn!("clock calendar: failed to fetch month: {e}");
-                    let _ = out.send(Input::ClearMonth);
-                }
-            }
+        let _ = sender.output(Output::LoadMonth {
+            year: self.visible_month.year(),
+            month: self.visible_month.month(),
         });
     }
 
