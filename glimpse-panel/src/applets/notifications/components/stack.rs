@@ -6,7 +6,7 @@ use relm4::{
 };
 
 use super::group_header::{GroupHeader, GroupHeaderInit, GroupHeaderInput};
-use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput};
+use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole};
 use super::stack_hint::{StackHint, StackHintInit, StackHintInput};
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 
@@ -17,11 +17,11 @@ pub struct NotificationGroup {
     stacked: bool,
     emit_command: NotificationCommandEmitter,
     header: Controller<GroupHeader>,
-    lead: Controller<NotificationCard>,
+    preview_top: Controller<NotificationCard>,
     hint: Controller<StackHint>,
     collapsed_body: gtk::Overlay,
     cards_box: gtk::Box,
-    child_cards: HashMap<u32, Controller<NotificationCard>>,
+    expanded_cards: HashMap<u32, Controller<NotificationCard>>,
 }
 
 pub struct NotificationGroupInit {
@@ -58,7 +58,7 @@ impl SimpleComponent for NotificationGroup {
             #[name(collapsed_body)]
             gtk::Overlay {
                 set_child: Some(&hint_widget),
-                add_overlay: &lead_widget,
+                add_overlay: &top_widget,
                 add_css_class: "notif-group-collapsed-body",
             },
 
@@ -77,6 +77,8 @@ impl SimpleComponent for NotificationGroup {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let sorted = sorted_group_notifications(&init.notifications);
+        let preview = collapsed_preview_notifications(&init.notifications);
+        let hint_depth = preview.len().saturating_sub(1).min(2);
 
         let header = GroupHeader::builder()
             .launch(GroupHeaderInit {
@@ -91,22 +93,26 @@ impl SimpleComponent for NotificationGroup {
         let header_widget = header.widget().clone();
 
         let hint = StackHint::builder()
-            .launch(StackHintInit {
-                depth: stack_depth_count(init.notifications.len()),
-            })
+            .launch(StackHintInit { depth: hint_depth })
             .detach();
         let hint_widget = hint.widget().clone();
 
-        let lead = NotificationCard::builder()
+        let preview_top = NotificationCard::builder()
             .launch(NotificationCardInit {
-                notif: sorted[0].clone(),
+                notif: preview[0].clone(),
                 emit_command: init.emit_command.clone(),
+                role: NotificationCardRole::Full,
             })
             .detach();
-        lead.widget().add_css_class("notif-group-lead");
-        let lead_widget = lead.widget().clone();
+        preview_top.widget().add_css_class("notif-group-lead");
+        preview_top.widget().set_halign(gtk::Align::Fill);
+        preview_top.widget().set_valign(gtk::Align::Start);
+        let top_widget = preview_top.widget().clone();
 
         let widgets = view_output!();
+        widgets
+            .collapsed_body
+            .set_measure_overlay(&top_widget, true);
 
         let mut model = NotificationGroup {
             root: widgets.root.clone(),
@@ -115,11 +121,11 @@ impl SimpleComponent for NotificationGroup {
             stacked: init.stacked,
             emit_command: init.emit_command,
             header,
-            lead,
+            preview_top,
             hint,
             collapsed_body: widgets.collapsed_body.clone(),
             cards_box: widgets.cards_box.clone(),
-            child_cards: HashMap::new(),
+            expanded_cards: HashMap::new(),
         };
         model.refresh();
 
@@ -163,42 +169,42 @@ impl NotificationGroup {
             stacked: self.stacked,
             dismiss_ids: group_dismiss_ids(&self.notifications),
         });
-        self.lead.emit(NotificationCardInput::Update(sorted[0].clone()));
 
-        let depth = stack_depth_count(self.notifications.len());
-        self.hint.emit(StackHintInput::SetDepth(depth));
+        let preview = collapsed_preview_notifications(&self.notifications);
+        let hint_depth = preview.len().saturating_sub(1).min(2);
+        self.hint.emit(StackHintInput::SetDepth(hint_depth));
+        self.preview_top
+            .emit(NotificationCardInput::Update(preview[0].clone()));
+        self.preview_top
+            .emit(NotificationCardInput::SetRole(NotificationCardRole::Full));
+        self.preview_top.widget().set_visible(self.stacked);
+        self.preview_top.widget().set_can_target(self.stacked);
+
         self.collapsed_body.set_visible(self.stacked);
-        self.hint.widget().set_visible(self.stacked && depth > 0);
-        if self.stacked && depth > 0 {
-            self.lead.widget().add_css_class("notif-group-lead-stacked");
-        } else {
-            self.lead.widget().remove_css_class("notif-group-lead-stacked");
-        }
 
         self.cards_box.set_visible(!self.stacked);
         clear_children(&self.cards_box);
 
         let mut seen = HashSet::new();
-        for notif in sorted.into_iter().skip(1) {
+        for notif in sorted {
             seen.insert(notif.id);
-            let ctrl = self
-                .child_cards
-                .entry(notif.id)
-                .or_insert_with(|| {
-                    NotificationCard::builder()
-                        .launch(NotificationCardInit {
-                            notif: notif.clone(),
-                            emit_command: self.emit_command.clone(),
-                        })
-                        .detach()
-                });
+            let ctrl = self.expanded_cards.entry(notif.id).or_insert_with(|| {
+                NotificationCard::builder()
+                    .launch(NotificationCardInit {
+                        notif: notif.clone(),
+                        emit_command: self.emit_command.clone(),
+                        role: NotificationCardRole::Full,
+                    })
+                    .detach()
+            });
             ctrl.emit(NotificationCardInput::Update(notif.clone()));
+            ctrl.emit(NotificationCardInput::SetRole(NotificationCardRole::Full));
             if !self.stacked {
                 self.cards_box.append(ctrl.widget());
             }
         }
 
-        self.child_cards.retain(|id, _| seen.contains(id));
+        self.expanded_cards.retain(|id, _| seen.contains(id));
     }
 }
 
@@ -216,26 +222,19 @@ fn sorted_group_notifications(notifs: &[NotifData]) -> Vec<NotifData> {
     sorted
 }
 
-fn sorted_group_notification_ids(notifs: &[NotifData]) -> Vec<u32> {
-    sorted_group_notifications(notifs)
-        .into_iter()
-        .map(|notif| notif.id)
-        .collect()
+fn collapsed_preview_notifications(notifs: &[NotifData]) -> Vec<NotifData> {
+    let mut sorted = sorted_group_notifications(notifs);
+    sorted.truncate(3);
+    sorted
 }
 
 fn group_dismiss_ids(notifs: &[NotifData]) -> Vec<u32> {
     notifs.iter().map(|notif| notif.id).collect()
 }
 
-pub fn stack_depth_count(notification_count: usize) -> usize {
-    notification_count.saturating_sub(1).min(2)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        NotifData, group_dismiss_ids, sorted_group_notification_ids, stack_depth_count,
-    };
+    use super::{NotifData, collapsed_preview_notifications, group_dismiss_ids};
 
     fn notif(id: u32) -> NotifData {
         notif_with_ts(id, 0)
@@ -259,27 +258,38 @@ mod tests {
 
     #[test]
     fn group_dismiss_ids_collects_all_notification_ids() {
-        assert_eq!(group_dismiss_ids(&[notif(4), notif(7), notif(9)]), vec![4, 7, 9]);
-    }
-
-    #[test]
-    fn sorted_group_notifications_put_newest_first() {
         assert_eq!(
-            sorted_group_notification_ids(&[
-                notif_with_ts(1, 100),
-                notif_with_ts(2, 300),
-                notif_with_ts(3, 200),
-            ]),
-            vec![2, 3, 1]
+            group_dismiss_ids(&[notif(4), notif(7), notif(9)]),
+            vec![4, 7, 9]
         );
     }
 
     #[test]
-    fn stack_depth_count_caps_at_two_background_layers() {
-        assert_eq!(stack_depth_count(0), 0);
-        assert_eq!(stack_depth_count(1), 0);
-        assert_eq!(stack_depth_count(2), 1);
-        assert_eq!(stack_depth_count(3), 2);
-        assert_eq!(stack_depth_count(8), 2);
+    fn collapsed_preview_notifications_put_newest_first() {
+        let sorted: Vec<u32> = collapsed_preview_notifications(&[
+            notif_with_ts(1, 100),
+            notif_with_ts(2, 300),
+            notif_with_ts(3, 200),
+        ])
+        .into_iter()
+        .map(|notif| notif.id)
+        .collect();
+
+        assert_eq!(sorted, vec![2, 3, 1]);
+    }
+
+    #[test]
+    fn collapsed_preview_notifications_cap_at_three_cards() {
+        let sorted: Vec<u32> = collapsed_preview_notifications(&[
+            notif_with_ts(1, 100),
+            notif_with_ts(2, 400),
+            notif_with_ts(3, 300),
+            notif_with_ts(4, 200),
+        ])
+        .into_iter()
+        .map(|notif| notif.id)
+        .collect();
+
+        assert_eq!(sorted, vec![2, 3, 4]);
     }
 }

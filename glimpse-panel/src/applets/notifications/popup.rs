@@ -162,15 +162,25 @@ impl Component for NotificationPopup {
                     self.show(notif, &sender);
                 }
             }
-            NotificationPopupInput::TimeoutElapsed(id) => {
-                self.remove_card_with_mode(id, PopupDismissMode::HideOnly);
-            }
+            NotificationPopupInput::TimeoutElapsed(id) => self.remove_card_with_mode(
+                id,
+                PopupDismissMode::HideOnly,
+                TimeoutSourcePolicy::Keep,
+            ),
             NotificationPopupInput::HideOnly(id) => {
-                self.remove_card_with_mode(id, PopupDismissMode::HideOnly);
+                self.remove_card_with_mode(
+                    id,
+                    PopupDismissMode::HideOnly,
+                    TimeoutSourcePolicy::RemoveIfPresent,
+                );
             }
             NotificationPopupInput::Dismiss(id) => {
                 sender.output(NotificationActionCommand::Dismiss { id }).ok();
-                self.remove_card_with_mode(id, PopupDismissMode::Dismiss);
+                self.remove_card_with_mode(
+                    id,
+                    PopupDismissMode::Dismiss,
+                    TimeoutSourcePolicy::RemoveIfPresent,
+                );
             }
             NotificationPopupInput::ActivateDefault(id, desktop_entry, app_name, timestamp) => {
                 let output_sender = sender.clone();
@@ -180,14 +190,22 @@ impl Component for NotificationPopup {
                         .ok();
                 });
                 sender.output(NotificationActionCommand::Dismiss { id }).ok();
-                self.remove_card_with_mode(id, PopupDismissMode::Dismiss);
+                self.remove_card_with_mode(
+                    id,
+                    PopupDismissMode::Dismiss,
+                    TimeoutSourcePolicy::RemoveIfPresent,
+                );
             }
             NotificationPopupInput::InvokeAction(id, action_key) => {
                 sender
                     .output(invoke_action_command(id, &action_key, None))
                     .ok();
                 sender.output(NotificationActionCommand::Dismiss { id }).ok();
-                self.remove_card_with_mode(id, PopupDismissMode::Dismiss);
+                self.remove_card_with_mode(
+                    id,
+                    PopupDismissMode::Dismiss,
+                    TimeoutSourcePolicy::RemoveIfPresent,
+                );
             }
             NotificationPopupInput::Unavailable => {
                 tracing::warn!("notifications popup: service unavailable");
@@ -198,12 +216,25 @@ impl Component for NotificationPopup {
 
 impl NotificationPopup {
     fn show(&mut self, notif: &NotifData, sender: &ComponentSender<Self>) {
-        self.remove_card_with_mode(notif.id, PopupDismissMode::HideOnly);
+        self.remove_card_with_mode(
+            notif.id,
+            PopupDismissMode::HideOnly,
+            TimeoutSourcePolicy::RemoveIfPresent,
+        );
 
         while self.cards.borrow().len() >= 20 {
-            let oldest = self.cards.borrow().keys().copied().min();
+            let oldest = self
+                .cards
+                .borrow()
+                .iter()
+                .min_by_key(|(_, card)| card.order)
+                .map(|(id, _)| *id);
             if let Some(id) = oldest {
-                self.remove_card_with_mode(id, PopupDismissMode::HideOnly);
+                self.remove_card_with_mode(
+                    id,
+                    PopupDismissMode::HideOnly,
+                    TimeoutSourcePolicy::RemoveIfPresent,
+                );
             } else {
                 break;
             }
@@ -238,10 +269,17 @@ impl NotificationPopup {
         self.window.set_visible(true);
     }
 
-    fn remove_card_with_mode(&self, id: u32, mode: PopupDismissMode) {
+    fn remove_card_with_mode(
+        &self,
+        id: u32,
+        mode: PopupDismissMode,
+        timeout_policy: TimeoutSourcePolicy,
+    ) {
         if let Some(card) = self.cards.borrow_mut().remove(&id) {
-            if let Some(source) = card.timeout_source {
-                source.remove();
+            if matches!(timeout_policy, TimeoutSourcePolicy::RemoveIfPresent) {
+                if let Some(source) = card.timeout_source {
+                    try_remove_source(source);
+                }
             }
             self.card_box.remove(&card.card_widget);
         }
@@ -422,6 +460,12 @@ impl NotificationPopup {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimeoutSourcePolicy {
+    Keep,
+    RemoveIfPresent,
+}
+
 fn configure_popup_window(window: &gtk::Window, position: &str, margin_top: i32) {
     window.set_decorated(false);
     window.set_resizable(false);
@@ -463,6 +507,12 @@ fn configure_popup_window(window: &gtk::Window, position: &str, margin_top: i32)
     window.set_margin(Edge::Bottom, 12);
 }
 
+fn try_remove_source(source: glib::SourceId) {
+    unsafe {
+        let _ = glib::ffi::g_source_remove(source.as_raw());
+    }
+}
+
 fn pending_popup_notifications<'a>(
     notifications: &'a [NotificationEntry],
     started_at: u64,
@@ -493,7 +543,9 @@ fn pending_popup_ids(
 
 #[cfg(test)]
 mod tests {
-    use super::{NotifData, PopupDismissMode, pending_popup_ids};
+    use super::{
+        NotifData, PopupDismissMode, TimeoutSourcePolicy, pending_popup_ids,
+    };
 
     #[test]
     fn popup_secondary_click_hides_only() {
@@ -503,6 +555,15 @@ mod tests {
     #[test]
     fn popup_primary_click_and_actions_dismiss() {
         assert_eq!(PopupDismissMode::Dismiss, PopupDismissMode::Dismiss);
+    }
+
+    #[test]
+    fn timeout_elapsed_keeps_expired_source_handle() {
+        assert_eq!(TimeoutSourcePolicy::Keep, TimeoutSourcePolicy::Keep);
+        assert_ne!(
+            TimeoutSourcePolicy::Keep,
+            TimeoutSourcePolicy::RemoveIfPresent
+        );
     }
 
     fn notif(id: u32, timestamp: u64, urgency: u8) -> NotifData {

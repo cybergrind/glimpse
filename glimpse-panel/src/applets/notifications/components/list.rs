@@ -5,7 +5,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput};
+use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole};
 use super::stack::{NotificationGroup, NotificationGroupInit, NotificationGroupInput};
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 
@@ -136,6 +136,7 @@ impl NotificationsList {
                         .launch(NotificationCardInit {
                             notif: notif.clone(),
                             emit_command: self.emit_command.clone(),
+                            role: NotificationCardRole::Full,
                         })
                         .detach()
                 });

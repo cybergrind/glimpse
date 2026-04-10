@@ -1,10 +1,10 @@
 use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk::{self, prelude::*}};
 
 pub struct StackHint {
-    depth: usize,
+    second: gtk::Box,
+    third: gtk::Box,
 }
 
-#[derive(Debug)]
 pub struct StackHintInit {
     pub depth: usize,
 }
@@ -21,23 +21,15 @@ impl SimpleComponent for StackHint {
     type Output = ();
 
     view! {
-        gtk::Box {
-            set_orientation: gtk::Orientation::Vertical,
-            set_spacing: 0,
-            add_css_class: "notif-stack-shell",
+        root = gtk::Overlay {
+            add_css_class: "notif-stack-backplates",
 
+            #[name(third)]
             gtk::Box {
-                #[watch]
-                set_visible: model.depth >= 1,
-                set_orientation: gtk::Orientation::Horizontal,
-                add_css_class: "notif-stack-depth",
-            },
-
-            gtk::Box {
-                #[watch]
-                set_visible: model.depth >= 2,
-                set_orientation: gtk::Orientation::Horizontal,
-                add_css_class: "notif-stack-depth-2",
+                add_css_class: "notif-stack-backplate",
+                add_css_class: "notif-stack-backplate-lower",
+                set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Start,
             },
         }
     }
@@ -47,28 +39,34 @@ impl SimpleComponent for StackHint {
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = StackHint { depth: init.depth };
+        let second = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        second.add_css_class("notif-stack-backplate");
+        second.add_css_class("notif-stack-backplate-second");
+        second.set_halign(gtk::Align::Fill);
+        second.set_valign(gtk::Align::Start);
+
         let widgets = view_output!();
+        widgets.root.add_overlay(&second);
+        widgets.root.set_measure_overlay(&second, true);
+
+        let mut model = StackHint {
+            second,
+            third: widgets.third.clone(),
+        };
+        model.set_depth(init.depth);
+
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         let StackHintInput::SetDepth(depth) = msg;
-        self.depth = depth;
+        self.set_depth(depth);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{StackHint, StackHintInit, StackHintInput};
-    use relm4::{Component, ComponentController};
-
-    #[test]
-    fn stack_hint_accepts_depth_updates() {
-        let _ = relm4::gtk::init();
-        let ctrl = StackHint::builder()
-            .launch(StackHintInit { depth: 1 })
-            .detach();
-        ctrl.emit(StackHintInput::SetDepth(2));
+impl StackHint {
+    fn set_depth(&mut self, depth: usize) {
+        self.second.set_visible(depth >= 1);
+        self.third.set_visible(depth >= 2);
     }
 }

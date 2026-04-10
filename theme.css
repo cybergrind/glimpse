@@ -773,8 +773,8 @@
 }
 
 .mpris-popover .mpris-card-art {
-    min-width: 84px;
-    min-height: 84px;
+    min-width: 42px;
+    min-height: 42px;
     border-radius: 10px;
     overflow: hidden;
     background: color-mix(in srgb, currentColor 4%, transparent);
@@ -1097,10 +1097,6 @@
     background: transparent;
 }
 
-.notifications-popover .notif-group-collapsed {
-    background: color-mix(in srgb, currentColor 4%, transparent);
-}
-
 .notifications-popover .notif-group-expanded {
     padding: 0;
 }
@@ -1109,8 +1105,14 @@
     margin-bottom: 0;
 }
 
+.notifications-popover .notif-group-collapsed .notif-group-lead {
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border-color: transparent;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
 .notifications-popover .notif-group-header {
-    padding: 2px 4px 10px 4px;
+    padding: 4px 12px 10px 12px;
 }
 
 .notifications-popover .notif-group-title {
@@ -1118,39 +1120,37 @@
 }
 
 .notifications-popover .notif-group-cards {
-    padding: 8px 0 0 0;
+    padding: 0;
 }
 
 .notifications-popover .notif-group-collapsed-body {
     margin-top: 0;
+    background: transparent;
 }
 
-.notifications-popover .notif-stack-shell {
-    margin: 0;
-    padding: 10px 0 20px 0;
+.notifications-popover .notif-stack-backplates {
+    background: transparent;
 }
 
-.notifications-popover .notif-stack-depth,
-.notifications-popover .notif-stack-depth-2 {
+.notifications-popover .notif-stack-backplate {
+    margin: 2px 0;
+    padding: 12px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid transparent;
 }
 
-.notifications-popover .notif-stack-depth {
-    margin: 0 6px;
-    min-height: 88px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+.notifications-popover .notif-stack-backplate-second {
+    min-height: 66px;
+    margin-top: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+    opacity: 0.75;
 }
 
-.notifications-popover .notif-stack-depth-2 {
-    margin: -78px 12px 0 12px;
-    min-height: 88px;
-    background: rgba(255, 255, 255, 0.06);
-}
-
-.notifications-popover .notif-group-lead-stacked {
-    margin: 0;
+.notifications-popover .notif-stack-backplate-lower {
+    min-height: 70px;
+    margin-top: 4px;
+    opacity: 0.5;
 }
 
 .notifications-popover .notif-expand-btn {
@@ -1193,8 +1193,8 @@
 }
 
 .notification-inline-image {
-    min-width: 72px;
-    min-height: 72px;
+    min-width: 48px;
+    min-height: 48px;
     border-radius: 10px;
     background: color-mix(in srgb, currentColor 4%, transparent);
 }

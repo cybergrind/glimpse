@@ -8,8 +8,8 @@ pub mod hero;
 pub mod group_header;
 pub mod list;
 pub mod row;
-pub mod stack_hint;
 pub mod stack;
+pub mod stack_hint;
 
 pub type NotifData = NotificationEntry;
 pub type NotificationCommandEmitter = Rc<dyn Fn(NotificationActionCommand)>;

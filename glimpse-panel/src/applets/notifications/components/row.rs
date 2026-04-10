@@ -15,6 +15,7 @@ pub struct NotificationCard {
     icon: gtk::Image,
     app_label: gtk::Label,
     time_label: gtk::Label,
+    dismiss_btn: gtk::Button,
     image: gtk::Picture,
     content: gtk::Box,
     copy: gtk::Box,
@@ -24,16 +25,26 @@ pub struct NotificationCard {
     emit_command: NotificationCommandEmitter,
     current: Rc<RefCell<NotifData>>,
     notif: NotifData,
+    role: NotificationCardRole,
 }
 
 pub struct NotificationCardInit {
     pub notif: NotifData,
     pub emit_command: NotificationCommandEmitter,
+    pub role: NotificationCardRole,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationCardRole {
+    Full,
+    SecondInStack,
+    LowerInStack,
 }
 
 #[derive(Debug)]
 pub enum NotificationCardInput {
     Update(NotifData),
+    SetRole(NotificationCardRole),
     ActivateDefault(u32, Option<String>, String, u32),
     Dismiss(u32),
     InvokeAction(u32, String),
@@ -187,6 +198,7 @@ impl SimpleComponent for NotificationCard {
             icon: widgets.icon.clone(),
             app_label: widgets.app_label.clone(),
             time_label: widgets.time_label.clone(),
+            dismiss_btn: widgets.dismiss_btn.clone(),
             image: widgets.image.clone(),
             content: widgets.content.clone(),
             copy: widgets.copy.clone(),
@@ -196,6 +208,7 @@ impl SimpleComponent for NotificationCard {
             emit_command: init.emit_command,
             current: current.clone(),
             notif: init.notif,
+            role: init.role,
         };
         model.refresh(&sender);
         ComponentParts { model, widgets }
@@ -206,6 +219,9 @@ impl SimpleComponent for NotificationCard {
             NotificationCardInput::Update(notif) => {
                 *self.current.borrow_mut() = notif.clone();
                 self.notif = notif;
+            }
+            NotificationCardInput::SetRole(role) => {
+                self.role = role;
             }
             NotificationCardInput::ActivateDefault(id, desktop_entry, app_name, timestamp) => {
                 let emit_command = self.emit_command.clone();
@@ -229,6 +245,18 @@ impl SimpleComponent for NotificationCard {
 
 impl NotificationCard {
     fn refresh(&mut self, sender: &ComponentSender<Self>) {
+        self.root.remove_css_class("notif-group-second");
+        self.root.remove_css_class("notif-group-lower");
+        match self.role {
+            NotificationCardRole::Full => {}
+            NotificationCardRole::SecondInStack => {
+                self.root.add_css_class("notif-group-second");
+            }
+            NotificationCardRole::LowerInStack => {
+                self.root.add_css_class("notif-group-lower");
+            }
+        }
+
         self.root.set_tooltip_text(Some(&self.notif.summary));
         self.icon
             .set_icon_name(Some(&resolve_notif_icon_name(&self.notif)));
@@ -242,9 +270,13 @@ impl NotificationCard {
         self.body_label.set_label(&self.notif.body);
         self.body_label.set_visible(!self.notif.body.is_empty());
 
-        let has_default = self.notif.actions.iter().any(|(key, _)| key == "default");
+        let interactive = self.role == NotificationCardRole::Full;
+        let has_default =
+            interactive && self.notif.actions.iter().any(|(key, _)| key == "default");
         self.root
             .set_cursor_from_name(if has_default { Some("pointer") } else { None });
+        self.root.set_can_target(interactive);
+        self.dismiss_btn.set_visible(interactive);
 
         let mut child = self.actions_box.first_child();
         while let Some(widget) = child {
@@ -258,23 +290,26 @@ impl NotificationCard {
             .iter()
             .filter(|(key, _)| key != "default")
             .collect();
-        self.actions_box.set_visible(!visible_actions.is_empty());
-        for (key, label) in visible_actions {
-            let action_btn = gtk::Button::with_label(label);
-            action_btn.add_css_class("flat");
-            action_btn.add_css_class("notif-action-btn");
-            let action_key = key.clone();
-            let id = self.notif.id;
-            action_btn.connect_clicked({
-                let sender = sender.clone();
-                move |_| sender.input(NotificationCardInput::InvokeAction(id, action_key.clone()))
-            });
-            self.actions_box.append(&action_btn);
+        self.actions_box
+            .set_visible(interactive && !visible_actions.is_empty());
+        if interactive {
+            for (key, label) in visible_actions {
+                let action_btn = gtk::Button::with_label(label);
+                action_btn.add_css_class("flat");
+                action_btn.add_css_class("notif-action-btn");
+                let action_key = key.clone();
+                let id = self.notif.id;
+                action_btn.connect_clicked({
+                    let sender = sender.clone();
+                    move |_| sender.input(NotificationCardInput::InvokeAction(id, action_key.clone()))
+                });
+                self.actions_box.append(&action_btn);
+            }
         }
 
         if let Some(texture) = load_notification_image_texture(&self.notif) {
             self.image.set_paintable(Some(&texture));
-            self.image.set_visible(true);
+            self.image.set_visible(interactive);
         } else {
             self.image.set_paintable(None::<&gdk::Paintable>);
             self.image.set_visible(false);
