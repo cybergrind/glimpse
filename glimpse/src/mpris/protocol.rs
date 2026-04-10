@@ -35,7 +35,6 @@ pub struct MprisPlayer {
     pub can_go_next: bool,
     pub can_raise: bool,
     pub last_active: u64,
-    pub is_current: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

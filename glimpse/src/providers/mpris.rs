@@ -1,6 +1,42 @@
-use crate::mpris::protocol::{MprisPlaybackStatus, MprisPlayer};
+use std::path::Path;
 
-pub fn subtitle_for(artist: &str, _title: &str, album: &str, identity: &str) -> String {
+use crate::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
+
+pub fn playback_status_from_raw(raw: &str) -> MprisPlaybackStatus {
+    let raw = raw.trim();
+
+    if raw.eq_ignore_ascii_case("playing") {
+        MprisPlaybackStatus::Playing
+    } else if raw.eq_ignore_ascii_case("paused") {
+        MprisPlaybackStatus::Paused
+    } else {
+        MprisPlaybackStatus::Stopped
+    }
+}
+
+pub fn artwork_from_raw(raw: &str) -> MprisArtwork {
+    let raw = raw.trim();
+
+    if raw.is_empty() {
+        return MprisArtwork::None;
+    }
+
+    if raw.starts_with("file://") {
+        return MprisArtwork::FileUri(raw.to_owned());
+    }
+
+    if raw.starts_with("http://") || raw.starts_with("https://") || raw.contains("://") {
+        return MprisArtwork::RemoteUrl(raw.to_owned());
+    }
+
+    if Path::new(raw).is_absolute() {
+        return MprisArtwork::FilePath(raw.to_owned());
+    }
+
+    MprisArtwork::FilePath(raw.to_owned())
+}
+
+pub fn subtitle_for(artist: &str, album: &str, identity: &str) -> String {
     if !artist.is_empty() {
         artist.to_owned()
     } else if !album.is_empty() {
@@ -65,8 +101,49 @@ mod tests {
             can_go_next: false,
             can_raise: false,
             last_active,
-            is_current: false,
         }
+    }
+
+    #[test]
+    fn maps_raw_playback_status_into_typed_status() {
+        assert_eq!(
+            playback_status_from_raw("Playing"),
+            MprisPlaybackStatus::Playing
+        );
+        assert_eq!(playback_status_from_raw("Paused"), MprisPlaybackStatus::Paused);
+        assert_eq!(
+            playback_status_from_raw("Stopped"),
+            MprisPlaybackStatus::Stopped
+        );
+        assert_eq!(
+            playback_status_from_raw(" playing "),
+            MprisPlaybackStatus::Playing
+        );
+        assert_eq!(
+            playback_status_from_raw("UnknownStatus"),
+            MprisPlaybackStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn maps_raw_artwork_values_into_typed_artwork() {
+        assert_eq!(artwork_from_raw(""), MprisArtwork::None);
+        assert_eq!(
+            artwork_from_raw("/tmp/cover.png"),
+            MprisArtwork::FilePath("/tmp/cover.png".into())
+        );
+        assert_eq!(
+            artwork_from_raw("file:///tmp/cover.png"),
+            MprisArtwork::FileUri("file:///tmp/cover.png".into())
+        );
+        assert_eq!(
+            artwork_from_raw("https://example.com/cover.png"),
+            MprisArtwork::RemoteUrl("https://example.com/cover.png".into())
+        );
+        assert_eq!(
+            artwork_from_raw("  file:///tmp/cover.png  "),
+            MprisArtwork::FileUri("file:///tmp/cover.png".into())
+        );
     }
 
     #[test]
@@ -82,8 +159,8 @@ mod tests {
 
     #[test]
     fn subtitle_falls_back_to_album_then_identity() {
-        assert_eq!(subtitle_for("", "", "Promises", "Spotify"), "Promises");
-        assert_eq!(subtitle_for("", "", "", "Spotify"), "Spotify");
+        assert_eq!(subtitle_for("", "Promises", "Spotify"), "Promises");
+        assert_eq!(subtitle_for("", "", "Spotify"), "Spotify");
     }
 
     #[test]
