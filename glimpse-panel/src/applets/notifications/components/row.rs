@@ -1,4 +1,4 @@
-use relm4::gtk::{self, glib, prelude::*};
+use relm4::gtk::{self, gdk, gio, glib, prelude::*};
 
 use super::{NotifData, NotificationCommandEmitter};
 use crate::applets::notifications::NotificationActionCommand;
@@ -14,6 +14,39 @@ pub fn resolve_notif_icon(notif: &NotifData) -> &str {
         }
     }
     "dialog-information-symbolic"
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NotificationImageSource {
+    FilePath(String),
+    FileUri(String),
+}
+
+fn parse_notification_image_source(value: Option<&str>) -> Option<NotificationImageSource> {
+    let value = value.map(str::trim).filter(|value| !value.is_empty())?;
+    if value.starts_with("file://") {
+        Some(NotificationImageSource::FileUri(value.to_string()))
+    } else if value.starts_with('/') {
+        Some(NotificationImageSource::FilePath(value.to_string()))
+    } else {
+        None
+    }
+}
+
+pub fn build_notification_image_widget(notif: &NotifData, css_class: &str) -> Option<gtk::Picture> {
+    let source = parse_notification_image_source(notif.image.as_deref())?;
+    let file = match source {
+        NotificationImageSource::FilePath(path) => gio::File::for_path(path),
+        NotificationImageSource::FileUri(uri) => gio::File::for_uri(&uri),
+    };
+    let texture = gdk::Texture::from_file(&file).ok()?;
+    let picture = gtk::Picture::new();
+    picture.set_paintable(Some(&texture));
+    picture.set_can_shrink(true);
+    picture.set_keep_aspect_ratio(true);
+    picture.set_valign(gtk::Align::Start);
+    picture.add_css_class(css_class);
+    Some(picture)
 }
 
 pub fn format_time_diff(diff_secs: u64) -> String {
@@ -77,12 +110,25 @@ pub fn build_notification_row(
 
     card.append(&header);
 
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    content.set_hexpand(true);
+    content.add_css_class("notif-content");
+
+    if let Some(image) = build_notification_image_widget(notif, "notification-inline-image") {
+        image.add_css_class("notif-inline-image");
+        content.append(&image);
+    }
+
+    let copy = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    copy.set_hexpand(true);
+    copy.add_css_class("notif-copy");
+
     let summary = gtk::Label::new(Some(&notif.summary));
     summary.set_halign(gtk::Align::Start);
     summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
     summary.set_max_width_chars(40);
     summary.add_css_class("notif-summary");
-    card.append(&summary);
+    copy.append(&summary);
 
     if !notif.body.is_empty() {
         let body = gtk::Label::new(Some(&notif.body));
@@ -93,7 +139,7 @@ pub fn build_notification_row(
         body.set_wrap(true);
         body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         body.add_css_class("notif-body");
-        card.append(&body);
+        copy.append(&body);
     }
 
     let visible_actions: Vec<&(String, String)> = notif
@@ -116,8 +162,11 @@ pub fn build_notification_row(
             });
             actions_box.append(&action_btn);
         }
-        card.append(&actions_box);
+        copy.append(&actions_box);
     }
+
+    content.append(&copy);
+    card.append(&content);
 
     let has_default = notif.actions.iter().any(|(k, _)| k == "default");
     if has_default {
@@ -126,11 +175,12 @@ pub fn build_notification_row(
         let id = notif.id;
         let desktop_entry = notif.desktop_entry.clone();
         let app_name = notif.app_name.clone();
+        let left_click_command = emit_command.clone();
         gesture.connect_pressed(move |g, _, _, _| {
             g.set_state(gtk::EventSequenceState::Claimed);
             let desktop_entry = desktop_entry.clone();
             let app_name = app_name.clone();
-            let action_command = emit_command.clone();
+            let action_command = left_click_command.clone();
             let timestamp = g.current_event_time();
             glib::spawn_future_local(async move {
                 action_command(default_action_command(id, desktop_entry, app_name, timestamp).await);
@@ -138,6 +188,16 @@ pub fn build_notification_row(
         });
         card.add_controller(gesture);
     }
+
+    let right_click = gtk::GestureClick::new();
+    right_click.set_button(3);
+    let id = notif.id;
+    let dismiss_command = emit_command.clone();
+    right_click.connect_pressed(move |g, _, _, _| {
+        g.set_state(gtk::EventSequenceState::Claimed);
+        dismiss_command(NotificationActionCommand::Dismiss { id });
+    });
+    card.add_controller(right_click);
 
     card.upcast()
 }
@@ -177,5 +237,28 @@ mod tests {
     fn time_diff_days() {
         assert_eq!(format_time_diff(172800), "2d");
         assert_eq!(format_time_diff(604800), "7d");
+    }
+
+    #[test]
+    fn notification_image_source_uses_file_path_for_absolute_paths() {
+        assert_eq!(
+            parse_notification_image_source(Some("/tmp/cover.png")),
+            Some(NotificationImageSource::FilePath("/tmp/cover.png".into()))
+        );
+    }
+
+    #[test]
+    fn notification_image_source_uses_file_uri_for_file_uris() {
+        assert_eq!(
+            parse_notification_image_source(Some("file:///tmp/cover.png")),
+            Some(NotificationImageSource::FileUri("file:///tmp/cover.png".into()))
+        );
+    }
+
+    #[test]
+    fn notification_image_source_ignores_empty_or_unknown_values() {
+        assert_eq!(parse_notification_image_source(None), None);
+        assert_eq!(parse_notification_image_source(Some("")), None);
+        assert_eq!(parse_notification_image_source(Some("https://example.com/cover.png")), None);
     }
 }

@@ -9,8 +9,15 @@ use glimpse::notifications::NotificationEntry;
 
 use super::NotificationActionCommand;
 use super::activation::{default_action_command, invoke_action_command};
+use super::components::row::build_notification_image_widget;
 
 type NotifData = NotificationEntry;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupDismissMode {
+    HideOnly,
+    Dismiss,
+}
 
 struct PopupCard {
     card_widget: gtk::Box,
@@ -150,11 +157,18 @@ impl NotificationPopup {
     }
 
     fn remove_card(&self, id: u32) {
+        self.remove_card_with_mode(id, PopupDismissMode::Dismiss);
+    }
+
+    fn remove_card_with_mode(&self, id: u32, mode: PopupDismissMode) {
         if let Some(card) = self.cards.borrow_mut().remove(&id) {
             if let Some(source) = card.timeout_source {
                 source.remove();
             }
             self.card_box.remove(&card.card_widget);
+        }
+        if matches!(mode, PopupDismissMode::Dismiss) {
+            (self.on_mark_seen)(id);
         }
         self.update_overflow();
         if self.cards.borrow().is_empty() {
@@ -220,32 +234,35 @@ impl NotificationPopup {
         dismiss_btn.add_css_class("flat");
         dismiss_btn.add_css_class("popup-dismiss");
         let id = notif.id;
-        let cards = self.cards.clone();
-        let card_box = self.card_box.clone();
-        let window = self.window.clone();
         let on_command = self.on_command.clone();
+        let popup = self.clone_handle();
         dismiss_btn.connect_clicked(move |_| {
             on_command(NotificationActionCommand::Dismiss { id });
-            if let Some(card) = cards.borrow_mut().remove(&id) {
-                if let Some(source) = card.timeout_source {
-                    source.remove();
-                }
-                card_box.remove(&card.card_widget);
-            }
-            if cards.borrow().is_empty() {
-                window.set_visible(false);
-            }
+            popup.remove_card_with_mode(id, PopupDismissMode::Dismiss);
         });
         header.append(&dismiss_btn);
 
         card.append(&header);
+
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        content.set_hexpand(true);
+        content.add_css_class("popup-card-content");
+
+        if let Some(image) = build_notification_image_widget(notif, "notification-inline-image") {
+            image.add_css_class("popup-inline-image");
+            content.append(&image);
+        }
+
+        let copy = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        copy.set_hexpand(true);
+        copy.add_css_class("popup-card-copy");
 
         let summary = gtk::Label::new(Some(&notif.summary));
         summary.set_halign(gtk::Align::Start);
         summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
         summary.set_max_width_chars(50);
         summary.add_css_class("popup-card-summary");
-        card.append(&summary);
+        copy.append(&summary);
 
         if !notif.body.is_empty() {
             let body = gtk::Label::new(Some(&notif.body));
@@ -256,7 +273,7 @@ impl NotificationPopup {
             body.set_wrap(true);
             body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
             body.add_css_class("popup-card-body");
-            card.append(&body);
+            copy.append(&body);
         }
 
         // Action buttons
@@ -275,13 +292,19 @@ impl NotificationPopup {
                 let nid = notif.id;
                 let k = key.clone();
                 let on_command = self.on_command.clone();
+                let popup = self.clone_handle();
                 action_btn.connect_clicked(move |_| {
                     on_command(invoke_action_command(nid, &k, None));
+                    on_command(NotificationActionCommand::Dismiss { id: nid });
+                    popup.remove_card_with_mode(nid, PopupDismissMode::Dismiss);
                 });
                 actions_box.append(&action_btn);
             }
-            card.append(&actions_box);
+            copy.append(&actions_box);
         }
+
+        content.append(&copy);
+        card.append(&content);
 
         if notif.urgency == 2 {
             card.add_css_class("popup-card-critical");
@@ -291,17 +314,13 @@ impl NotificationPopup {
         let gesture = gtk::GestureClick::new();
         gesture.set_button(1);
         let id = notif.id;
-        let on_mark_seen = self.on_mark_seen.clone();
         let on_command = self.on_command.clone();
         let has_default = notif.actions.iter().any(|(k, _)| k == "default");
         let desktop_entry = notif.desktop_entry.clone();
         let app_name = notif.app_name.clone();
-        let cards = self.cards.clone();
-        let card_box = self.card_box.clone();
-        let window = self.window.clone();
+        let popup = self.clone_handle();
         gesture.connect_pressed(move |g, _, _, _| {
             g.set_state(gtk::EventSequenceState::Claimed);
-            on_mark_seen(id);
             if has_default {
                 let desktop_entry = desktop_entry.clone();
                 let app_name = app_name.clone();
@@ -312,42 +331,93 @@ impl NotificationPopup {
                 });
             }
             on_command(NotificationActionCommand::Dismiss { id });
-            // Remove the card
-            if let Some(card) = cards.borrow_mut().remove(&id) {
-                if let Some(source) = card.timeout_source {
-                    source.remove();
-                }
-                card_box.remove(&card.card_widget);
-            }
-            if cards.borrow().is_empty() {
-                window.set_visible(false);
-            }
+            popup.remove_card_with_mode(id, PopupDismissMode::Dismiss);
         });
         card.add_controller(gesture);
 
-        // Right-click: dismiss without triggering action
+        // Right-click: hide the popup card locally, but keep the notification in the popover.
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
-        let cards = self.cards.clone();
-        let card_box = self.card_box.clone();
-        let window = self.window.clone();
         let id = notif.id;
-        let on_command = self.on_command.clone();
+        let popup = self.clone_handle();
         right_click.connect_pressed(move |g, _, _, _| {
             g.set_state(gtk::EventSequenceState::Claimed);
-            on_command(NotificationActionCommand::Dismiss { id });
-            if let Some(card) = cards.borrow_mut().remove(&id) {
-                if let Some(source) = card.timeout_source {
-                    source.remove();
-                }
-                card_box.remove(&card.card_widget);
-            }
-            if cards.borrow().is_empty() {
-                window.set_visible(false);
-            }
+            popup.remove_card_with_mode(id, PopupDismissMode::HideOnly);
         });
         card.add_controller(right_click);
 
         card
+    }
+
+    fn clone_handle(&self) -> NotificationPopupHandle {
+        NotificationPopupHandle {
+            window: self.window.clone(),
+            card_box: self.card_box.clone(),
+            cards: self.cards.clone(),
+            overflow_label: self.overflow_label.clone(),
+            on_mark_seen: self.on_mark_seen.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct NotificationPopupHandle {
+    window: gtk::Window,
+    card_box: gtk::Box,
+    cards: Rc<RefCell<HashMap<u32, PopupCard>>>,
+    overflow_label: gtk::Label,
+    on_mark_seen: Rc<dyn Fn(u32)>,
+}
+
+impl NotificationPopupHandle {
+    fn remove_card_with_mode(&self, id: u32, mode: PopupDismissMode) {
+        if let Some(card) = self.cards.borrow_mut().remove(&id) {
+            if let Some(source) = card.timeout_source {
+                source.remove();
+            }
+            self.card_box.remove(&card.card_widget);
+        }
+        if matches!(mode, PopupDismissMode::Dismiss) {
+            (self.on_mark_seen)(id);
+        }
+        update_overflow(&self.cards, &self.overflow_label);
+        if self.cards.borrow().is_empty() {
+            self.window.set_visible(false);
+        }
+    }
+}
+
+fn update_overflow(cards: &Rc<RefCell<HashMap<u32, PopupCard>>>, overflow_label: &gtk::Label) {
+    let cards = cards.borrow();
+    let total = cards.len();
+    if total > 5 {
+        let mut sorted: Vec<(&u32, &PopupCard)> = cards.iter().collect();
+        sorted.sort_by(|a, b| b.1.order.cmp(&a.1.order));
+        for (i, (_, card)) in sorted.iter().enumerate() {
+            card.card_widget.set_visible(i < 5);
+        }
+        let hidden = total - 5;
+        overflow_label.set_label(&format!("+ {} more", hidden));
+        overflow_label.set_visible(true);
+    } else {
+        for card in cards.values() {
+            card.card_widget.set_visible(true);
+        }
+        overflow_label.set_visible(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PopupDismissMode;
+
+    #[test]
+    fn popup_secondary_click_hides_only() {
+        assert_eq!(PopupDismissMode::HideOnly, PopupDismissMode::HideOnly);
+    }
+
+    #[test]
+    fn popup_primary_click_and_actions_dismiss() {
+        assert_eq!(PopupDismissMode::Dismiss, PopupDismissMode::Dismiss);
     }
 }

@@ -64,19 +64,33 @@ fn notification_counts(notifications: &[NotificationEntry]) -> (u32, u32) {
 }
 
 fn unread_badge_count(unread: &HashMap<u32, u8>) -> u32 {
-    unread.values().filter(|&&urgency| urgency > 0).count() as u32
+    unread.len() as u32
 }
 
-fn badge_label(style: &str, badge_count: u32) -> String {
-    match style {
-        "count" => {
-            if badge_count > 9 {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BadgePresentation {
+    css_class: &'static str,
+    label: String,
+    show_label: bool,
+}
+
+fn badge_presentation(style: &str, badge_count: u32) -> BadgePresentation {
+    if style == "count" {
+        BadgePresentation {
+            css_class: "notification-badge",
+            label: if badge_count > 9 {
                 "9+".into()
             } else {
                 badge_count.to_string()
-            }
+            },
+            show_label: true,
         }
-        "dot" | _ => String::new(),
+    } else {
+        BadgePresentation {
+            css_class: "notification-dot",
+            label: String::new(),
+            show_label: false,
+        }
     }
 }
 
@@ -118,19 +132,23 @@ impl Component for Notifications {
                 set_pixel_size: 16,
             },
 
-            gtk::Label {
-                #[watch]
-                set_label: &model.badge_label,
+            gtk::Box {
                 #[watch]
                 set_visible: model.badge_visible,
                 set_valign: gtk::Align::Center,
                 set_halign: gtk::Align::Center,
                 #[watch]
-                set_css_classes: if model.badge_style == "count" {
-                    &["notification-badge"]
-                } else {
-                    &["notification-dot"]
-                },
+                set_css_classes: &[badge_presentation(&model.badge_style, 0).css_class],
+
+                gtk::Label {
+                    add_css_class: "notification-badge-label",
+                    #[watch]
+                    set_visible: badge_presentation(&model.badge_style, 0).show_label,
+                    #[watch]
+                    set_label: &model.badge_label,
+                    set_valign: gtk::Align::Center,
+                    set_halign: gtk::Align::Center,
+                }
             },
         }
     }
@@ -244,7 +262,7 @@ impl Component for Notifications {
 
                 let badge_count = unread_badge_count(&self.unread);
                 self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
-                self.badge_label = badge_label(&self.badge_style, badge_count);
+                self.badge_label = badge_presentation(&self.badge_style, badge_count).label;
                 self.tooltip = tooltip_text(self.dnd, count);
 
                 self.popover.emit(NotificationsPopoverInput::UpdateStatus {
@@ -259,7 +277,7 @@ impl Component for Notifications {
                 self.unread.remove(&id);
                 let badge_count = unread_badge_count(&self.unread);
                 self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
-                self.badge_label = badge_label(&self.badge_style, badge_count);
+                self.badge_label = badge_presentation(&self.badge_style, badge_count).label;
             }
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);
@@ -329,17 +347,23 @@ mod tests {
     }
 
     #[test]
-    fn unread_badge_count_ignores_low_urgency_entries() {
+    fn unread_badge_count_includes_low_urgency_entries() {
         let unread = HashMap::from([(1, 0), (2, 1)]);
 
-        assert_eq!(unread_badge_count(&unread), 1);
+        assert_eq!(unread_badge_count(&unread), 2);
     }
 
     #[test]
     fn badge_label_clamps_at_nine_plus() {
-        assert_eq!(badge_label("count", 10), "9+");
-        assert_eq!(badge_label("count", 1), "1");
-        assert_eq!(badge_label("dot", 4), "");
+        assert_eq!(badge_presentation("count", 10).label, "9+");
+        assert_eq!(badge_presentation("count", 1).label, "1");
+        assert_eq!(badge_presentation("dot", 4).label, "");
+    }
+
+    #[test]
+    fn badge_presentation_uses_label_only_for_count_mode() {
+        assert!(badge_presentation("count", 3).show_label);
+        assert!(!badge_presentation("dot", 3).show_label);
     }
 
     #[test]

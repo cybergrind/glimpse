@@ -973,6 +973,9 @@
 /* notifications */
 
 .notification-badge {
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
     font-size: 9px;
     font-weight: 700;
     min-width: 16px;
@@ -987,7 +990,15 @@
     font-variant-numeric: tabular-nums;
 }
 
+.notification-badge-label {
+    color: var(--on-accent);
+    font-size: 9px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
 .notification-dot {
+    box-sizing: border-box;
     font-size: 0;
     min-width: 6px;
     min-height: 6px;
@@ -1129,6 +1140,19 @@
     font-size: 14px;
 }
 
+.notification-inline-image {
+    min-width: 72px;
+    min-height: 72px;
+    border-radius: 10px;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.notifications-popover .notif-inline-image,
+.popup-inline-image {
+    min-width: 72px;
+    min-height: 72px;
+}
+
 .notifications-popover .notif-body {
     font-size: 13px;
     opacity: 0.7;
@@ -1224,6 +1248,10 @@
     font-size: 14px;
     opacity: 0.7;
     margin-top: 2px;
+}
+
+.popup-card-copy {
+    min-width: 0;
 }
 
 .popup-dismiss {
