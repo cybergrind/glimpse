@@ -59,6 +59,25 @@ impl SessionActionCapabilities {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SessionSnapshot {
+    pub capabilities: SessionActionCapabilities,
+    pub user_name: String,
+    pub host_name: String,
+    pub subtitle: String,
+}
+
+impl Default for SessionSnapshot {
+    fn default() -> Self {
+        Self {
+            capabilities: SessionActionCapabilities::default(),
+            user_name: "user".into(),
+            host_name: "linux".into(),
+            subtitle: String::new(),
+        }
+    }
+}
+
 #[derive(Clone)]
 enum SessionConnectionSource {
     System,
@@ -109,11 +128,34 @@ impl SessionActions {
         })
     }
 
+    pub async fn snapshot(&self) -> anyhow::Result<SessionSnapshot> {
+        let host_name = read_hostname();
+        let uptime = read_uptime().map(format_uptime).unwrap_or_default();
+
+        Ok(SessionSnapshot {
+            capabilities: self.capabilities().await?,
+            user_name: std::env::var("USER").unwrap_or_else(|_| "user".into()),
+            subtitle: build_subtitle(&host_name, &uptime),
+            host_name,
+        })
+    }
+
     pub async fn lock(&self) -> anyhow::Result<()> {
         let conn = self.connection().await?;
         Login1ManagerProxy::new(&conn)
             .await?
             .lock_sessions()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn logout(&self) -> anyhow::Result<()> {
+        let session_id = resolve_logout_session_id(|key| std::env::var(key))
+            .ok_or_else(|| anyhow::anyhow!("session actions: XDG_SESSION_ID is required for logout"))?;
+        let conn = self.connection().await?;
+        Login1ManagerProxy::new(&conn)
+            .await?
+            .terminate_session(&session_id)
             .await
             .map_err(Into::into)
     }
@@ -172,9 +214,93 @@ fn capability_from_result(result: zbus::Result<String>) -> SessionActionAvailabi
     }
 }
 
+fn resolve_logout_session_id<F>(env: F) -> Option<String>
+where
+    F: for<'a> Fn(&'a str) -> Result<String, std::env::VarError>,
+{
+    env("XDG_SESSION_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn read_hostname() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .map(|value| value.trim().to_owned())
+        .unwrap_or_else(|_| "linux".into())
+}
+
+fn read_uptime() -> Option<u64> {
+    std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|value| value.split_whitespace().next()?.parse::<f64>().ok())
+        .map(|seconds| seconds as u64)
+}
+
+fn format_uptime(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let hours = (seconds % 86_400) / 3_600;
+    let mins = (seconds % 3_600) / 60;
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {mins}m")
+    } else {
+        format!("{mins}m")
+    }
+}
+
+fn build_subtitle(host_name: &str, uptime: &str) -> String {
+    if uptime.is_empty() {
+        host_name.to_owned()
+    } else {
+        format!("{host_name} · up {uptime}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_snapshot_default_is_unavailable() {
+        let snapshot = SessionSnapshot::default();
+
+        assert_eq!(snapshot.capabilities.backend, SessionBackendState::Unavailable);
+        assert_eq!(snapshot.user_name, "user");
+        assert_eq!(snapshot.host_name, "linux");
+        assert!(snapshot.subtitle.is_empty());
+    }
+
+    #[test]
+    fn format_uptime_displays_days_hours_and_minutes() {
+        assert_eq!(format_uptime(65), "1m");
+        assert_eq!(format_uptime(3720), "1h 2m");
+        assert_eq!(format_uptime(90061), "1d 1h");
+    }
+
+    #[test]
+    fn build_subtitle_uses_hostname_when_uptime_missing() {
+        assert_eq!(build_subtitle("workstation", ""), "workstation");
+        assert_eq!(
+            build_subtitle("workstation", "2h 5m"),
+            "workstation · up 2h 5m"
+        );
+    }
+
+    #[test]
+    fn resolve_logout_session_id_prefers_explicit_session() {
+        let env = [("XDG_SESSION_ID", "c2"), ("USER", "alex")];
+        assert_eq!(
+            resolve_logout_session_id(|key| {
+                env.iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| (*value).to_string())
+                    .ok_or(std::env::VarError::NotPresent)
+            })
+            .as_deref(),
+            Some("c2")
+        );
+    }
 
     #[test]
     fn session_action_availability_maps_login1_values() {

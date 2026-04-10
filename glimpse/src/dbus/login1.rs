@@ -13,4 +13,5 @@ pub trait Login1Manager {
     fn reboot(&self, interactive: bool) -> zbus::Result<()>;
     fn power_off(&self, interactive: bool) -> zbus::Result<()>;
     fn lock_sessions(&self) -> zbus::Result<()>;
+    fn terminate_session(&self, session_id: &str) -> zbus::Result<()>;
 }
