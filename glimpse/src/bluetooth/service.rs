@@ -168,7 +168,7 @@ async fn run_connected(
             maybe_event = event_rx.recv() => {
                 match maybe_event {
                     Some(BluetoothProviderEvent::Changed { reason }) => {
-                        tracing::info!(reason = %reason, "bluetooth service: provider changed");
+                        log_provider_change(reason);
                         if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
                             tracing::warn!(error = %error, "bluetooth service: refresh failed");
                             let _ = state_tx.send_modify(|state| {
@@ -206,6 +206,10 @@ async fn run_connected(
     result
 }
 
+fn log_provider_change(reason: crate::providers::bluetooth::BluetoothChangeReason) {
+    tracing::debug!(reason = %reason, "bluetooth service: provider changed");
+}
+
 async fn handle_command(
     provider: &BluetoothProvider,
     registry: &Arc<Mutex<PromptRegistry>>,
@@ -222,6 +226,52 @@ async fn handle_command(
                 state_tx,
                 Some(BluetoothActiveAction::SetPowered(powered)),
                 move |provider| async move { provider.set_powered(powered).await.map_err(Into::into) },
+                false,
+            );
+            Ok(())
+        }
+        BluetoothServiceCommand::SetAdapterPowered {
+            adapter_path,
+            powered,
+        } => {
+            spawn_action(
+                provider.clone(),
+                registry.clone(),
+                state_tx.clone(),
+                state_tx,
+                Some(BluetoothActiveAction::SetAdapterPowered {
+                    adapter_path: adapter_path.clone(),
+                    powered,
+                }),
+                move |provider| async move {
+                    provider
+                        .set_adapter_powered(&adapter_path, powered)
+                        .await
+                        .map_err(Into::into)
+                },
+                false,
+            );
+            Ok(())
+        }
+        BluetoothServiceCommand::SetAdapterDiscoverable {
+            adapter_path,
+            discoverable,
+        } => {
+            spawn_action(
+                provider.clone(),
+                registry.clone(),
+                state_tx.clone(),
+                state_tx,
+                Some(BluetoothActiveAction::SetAdapterDiscoverable {
+                    adapter_path: adapter_path.clone(),
+                    discoverable,
+                }),
+                move |provider| async move {
+                    provider
+                        .set_adapter_discoverable(&adapter_path, discoverable)
+                        .await
+                        .map_err(Into::into)
+                },
                 false,
             );
             Ok(())
@@ -413,5 +463,11 @@ mod tests {
 
         assert!(!popovers.close());
         assert_eq!(popovers.count, 0);
+    }
+
+    #[test]
+    fn provider_change_logs_are_debug_only() {
+        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::PropertiesChanged);
+        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::Mixed);
     }
 }

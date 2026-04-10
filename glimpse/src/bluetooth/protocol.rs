@@ -40,6 +40,8 @@ pub enum BluetoothServiceHealth {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BluetoothActiveAction {
     SetPowered(bool),
+    SetAdapterPowered { adapter_path: String, powered: bool },
+    SetAdapterDiscoverable { adapter_path: String, discoverable: bool },
     Connect { address: String },
     Disconnect { address: String },
     Pair { address: String },
@@ -58,6 +60,8 @@ pub struct BluetoothServiceState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BluetoothServiceCommand {
     SetPowered(bool),
+    SetAdapterPowered { adapter_path: String, powered: bool },
+    SetAdapterDiscoverable { adapter_path: String, discoverable: bool },
     StartDiscovery,
     StopDiscovery,
     Connect { address: String },

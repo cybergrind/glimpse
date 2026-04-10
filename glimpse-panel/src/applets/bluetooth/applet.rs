@@ -317,6 +317,20 @@ fn service_activity_status(state: &BluetoothServiceState) -> String {
     match state.active_action.as_ref() {
         Some(BluetoothActiveAction::SetPowered(true)) => "Turning Bluetooth on...".into(),
         Some(BluetoothActiveAction::SetPowered(false)) => "Turning Bluetooth off...".into(),
+        Some(BluetoothActiveAction::SetAdapterPowered { powered: true, .. }) => {
+            "Turning adapter on...".into()
+        }
+        Some(BluetoothActiveAction::SetAdapterPowered { powered: false, .. }) => {
+            "Turning adapter off...".into()
+        }
+        Some(BluetoothActiveAction::SetAdapterDiscoverable {
+            discoverable: true,
+            ..
+        }) => "Making adapter discoverable...".into(),
+        Some(BluetoothActiveAction::SetAdapterDiscoverable {
+            discoverable: false,
+            ..
+        }) => "Hiding adapter...".into(),
         Some(BluetoothActiveAction::Connect { address }) => {
             format!("Connecting {}...", device_name(&state.snapshot, address))
         }
@@ -347,7 +361,10 @@ fn active_device_address(action: Option<&BluetoothActiveAction>) -> Option<Strin
         | Some(BluetoothActiveAction::Pair { address })
         | Some(BluetoothActiveAction::Trust { address, .. })
         | Some(BluetoothActiveAction::Forget { address }) => Some(address.clone()),
-        Some(BluetoothActiveAction::SetPowered(_)) | None => None,
+        Some(BluetoothActiveAction::SetPowered(_))
+        | Some(BluetoothActiveAction::SetAdapterPowered { .. })
+        | Some(BluetoothActiveAction::SetAdapterDiscoverable { .. })
+        | None => None,
     }
 }
 
@@ -410,11 +427,14 @@ fn popover_device(device: BluetoothDevice) -> BtDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glimpse::bluetooth::protocol::BluetoothServiceHealth;
 
     #[test]
     fn popover_device_uses_provider_type_metadata() {
         let device = BluetoothDevice {
+            path: "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF".into(),
             address: "AA:BB:CC:DD:EE:FF".into(),
+            alias: "Headphones".into(),
             name: "Headphones".into(),
             device_type: glimpse::providers::bluetooth::BluetoothDeviceType::Headphones,
             paired: true,
@@ -422,6 +442,8 @@ mod tests {
             trusted: true,
             battery: Some(75),
             rssi: Some(-30),
+            class: 0,
+            appearance: 0,
             adapter: "/org/bluez/hci0".into(),
         };
 
@@ -431,6 +453,39 @@ mod tests {
         assert_eq!(mapped.device_type, "Headphones");
         assert!(mapped.connected);
         assert_eq!(mapped.battery, Some(75));
+    }
+
+    #[test]
+    fn adapter_actions_do_not_target_a_device() {
+        assert_eq!(
+            active_device_address(Some(&BluetoothActiveAction::SetAdapterPowered {
+                adapter_path: "/org/bluez/hci1".into(),
+                powered: true,
+            })),
+            None
+        );
+        assert_eq!(
+            active_device_address(Some(&BluetoothActiveAction::SetAdapterDiscoverable {
+                adapter_path: "/org/bluez/hci1".into(),
+                discoverable: true,
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn adapter_actions_have_panel_status_messages() {
+        let state = BluetoothServiceState {
+            health: BluetoothServiceHealth::Ready,
+            snapshot: BluetoothSnapshot::default(),
+            prompt: None,
+            active_action: Some(BluetoothActiveAction::SetAdapterDiscoverable {
+                adapter_path: "/org/bluez/hci1".into(),
+                discoverable: true,
+            }),
+        };
+
+        assert_eq!(service_activity_status(&state), "Making adapter discoverable...");
     }
 
 }

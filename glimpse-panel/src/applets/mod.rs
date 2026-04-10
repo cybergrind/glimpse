@@ -124,12 +124,14 @@ pub fn create_applet(
             Some(AppletController::Brightness(applet))
         }
         "network" => {
-            let client = client.clone()?;
             let config: network::NetworkConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = network::Network::builder()
-                .launch(network::NetworkInit { config, client })
+                .launch(network::NetworkInit {
+                    config,
+                    service: services.network.clone(),
+                })
                 .detach();
             Some(AppletController::Network(applet))
         }
@@ -216,12 +218,14 @@ pub fn create_applet(
             Some(AppletController::Privacy(applet))
         }
         "tray" => {
-            let client = client.clone()?;
             let config: tray::TrayConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = tray::Tray::builder()
-                .launch(tray::TrayInit { config, client })
+                .launch(tray::TrayInit {
+                    config,
+                    service: services.tray.clone(),
+                })
                 .detach();
             Some(AppletController::Tray(applet))
         }
@@ -233,12 +237,14 @@ pub fn create_applet(
             Some(AppletController::Weather(applet))
         }
         "session" => {
-            let client = client.clone()?;
             let config: session::SessionConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = session::Session::builder()
-                .launch(session::SessionInit { config, client })
+                .launch(session::SessionInit {
+                    config,
+                    conn: system.clone(),
+                })
                 .detach();
             Some(AppletController::Session(applet))
         }

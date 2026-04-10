@@ -125,7 +125,7 @@ impl PowerPolicySettings {
         if let Some(power) = &self.power {
             if snapshot.capabilities.sleep_inactive_battery_timeout {
                 snapshot.sleep_inactive_battery_timeout =
-                    power.settings.uint(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT);
+                    int_to_u32(power.settings.int(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT));
             }
 
             if snapshot.capabilities.sleep_inactive_battery_action {
@@ -135,7 +135,8 @@ impl PowerPolicySettings {
             }
 
             if snapshot.capabilities.sleep_inactive_ac_timeout {
-                snapshot.sleep_inactive_ac_timeout = power.settings.uint(KEY_SLEEP_INACTIVE_AC_TIMEOUT);
+                snapshot.sleep_inactive_ac_timeout =
+                    int_to_u32(power.settings.int(KEY_SLEEP_INACTIVE_AC_TIMEOUT));
             }
 
             if snapshot.capabilities.sleep_inactive_ac_action {
@@ -180,11 +181,13 @@ impl PowerPolicySettings {
             if self.capabilities.sleep_inactive_battery_timeout {
                 power
                     .settings
-                    .set_uint(
+                    .set_int(
                         KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT,
-                        snapshot.sleep_inactive_battery_timeout,
+                        u32_to_i32(snapshot.sleep_inactive_battery_timeout),
                     )
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT}: {error}"
+                    ))?;
             }
 
             if self.capabilities.sleep_inactive_battery_action {
@@ -194,14 +197,21 @@ impl PowerPolicySettings {
                         KEY_SLEEP_INACTIVE_BATTERY_TYPE,
                         snapshot.sleep_inactive_battery_action.as_gsettings().as_ref(),
                     )
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_SLEEP_INACTIVE_BATTERY_TYPE}: {error}"
+                    ))?;
             }
 
             if self.capabilities.sleep_inactive_ac_timeout {
                 power
                     .settings
-                    .set_uint(KEY_SLEEP_INACTIVE_AC_TIMEOUT, snapshot.sleep_inactive_ac_timeout)
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .set_int(
+                        KEY_SLEEP_INACTIVE_AC_TIMEOUT,
+                        u32_to_i32(snapshot.sleep_inactive_ac_timeout),
+                    )
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_SLEEP_INACTIVE_AC_TIMEOUT}: {error}"
+                    ))?;
             }
 
             if self.capabilities.sleep_inactive_ac_action {
@@ -211,7 +221,9 @@ impl PowerPolicySettings {
                         KEY_SLEEP_INACTIVE_AC_TYPE,
                         snapshot.sleep_inactive_ac_action.as_gsettings().as_ref(),
                     )
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_SLEEP_INACTIVE_AC_TYPE}: {error}"
+                    ))?;
             }
 
             if self.capabilities.power_saver_profile_on_low_battery {
@@ -221,7 +233,9 @@ impl PowerPolicySettings {
                         KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY,
                         snapshot.power_saver_profile_on_low_battery,
                     )
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY}: {error}"
+                    ))?;
             }
         }
 
@@ -230,7 +244,7 @@ impl PowerPolicySettings {
                 session
                     .settings
                     .set_uint(KEY_IDLE_DELAY, snapshot.idle_delay)
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!("{KEY_IDLE_DELAY}: {error}"))?;
             }
         }
 
@@ -239,21 +253,23 @@ impl PowerPolicySettings {
                 screensaver
                     .settings
                     .set_boolean(KEY_IDLE_ACTIVATION_ENABLED, snapshot.idle_activation_enabled)
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!(
+                        "{KEY_IDLE_ACTIVATION_ENABLED}: {error}"
+                    ))?;
             }
 
             if self.capabilities.lock_enabled {
                 screensaver
                     .settings
                     .set_boolean(KEY_LOCK_ENABLED, snapshot.lock_enabled)
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!("{KEY_LOCK_ENABLED}: {error}"))?;
             }
 
             if self.capabilities.lock_delay {
                 screensaver
                     .settings
                     .set_uint(KEY_LOCK_DELAY, snapshot.lock_delay)
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                    .map_err(|error| anyhow::anyhow!("{KEY_LOCK_DELAY}: {error}"))?;
             }
         }
 
@@ -302,31 +318,31 @@ impl PowerPolicySettings {
             capabilities: PowerPolicyCapabilities {
                 sleep_inactive_battery_timeout: power
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT)),
                 sleep_inactive_battery_action: power
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_SLEEP_INACTIVE_BATTERY_TYPE)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TYPE)),
                 sleep_inactive_ac_timeout: power
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_SLEEP_INACTIVE_AC_TIMEOUT)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_AC_TIMEOUT)),
                 sleep_inactive_ac_action: power
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_SLEEP_INACTIVE_AC_TYPE)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_AC_TYPE)),
                 power_saver_profile_on_low_battery: power.as_ref().is_some_and(|binding| {
-                    binding.supports(KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY)
+                    binding.supports_writable(KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY)
                 }),
                 idle_delay: session
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_IDLE_DELAY)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_IDLE_DELAY)),
                 idle_activation_enabled: screensaver
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_IDLE_ACTIVATION_ENABLED)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_IDLE_ACTIVATION_ENABLED)),
                 lock_enabled: screensaver
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_LOCK_ENABLED)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_LOCK_ENABLED)),
                 lock_delay: screensaver
                     .as_ref()
-                    .is_some_and(|binding| binding.supports(KEY_LOCK_DELAY)),
+                    .is_some_and(|binding| binding.supports_writable(KEY_LOCK_DELAY)),
             },
             power,
             session,
@@ -352,6 +368,18 @@ impl SettingsBinding {
     fn supports(&self, key: &str) -> bool {
         self.schema.has_key(key)
     }
+
+    fn supports_writable(&self, key: &str) -> bool {
+        self.supports(key) && self.settings.is_writable(key)
+    }
+}
+
+fn int_to_u32(value: i32) -> u32 {
+    value.max(0) as u32
+}
+
+fn u32_to_i32(value: u32) -> i32 {
+    value.min(i32::MAX as u32) as i32
 }
 
 #[derive(Default)]
@@ -430,5 +458,12 @@ mod tests {
 
         assert_eq!(snapshot, PowerPolicySnapshot::default());
         assert_eq!(provider.capabilities(), &PowerPolicyCapabilities::default());
+    }
+
+    #[test]
+    fn signed_timeout_conversion_round_trips_non_negative_values() {
+        assert_eq!(int_to_u32(-1), 0);
+        assert_eq!(int_to_u32(900), 900);
+        assert_eq!(u32_to_i32(900), 900);
     }
 }

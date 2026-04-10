@@ -1,0 +1,847 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.ApplicationWindow settings_window {
+  title: "Glimpse Settings";
+  default-width: 980;
+  default-height: 640;
+
+  content: Adw.NavigationSplitView split_view {
+    max-sidebar-width: 280;
+    min-sidebar-width: 240;
+    sidebar: Adw.NavigationPage {
+      title: "Sections";
+
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          show-title: false;
+          decoration-layout: "";
+
+          [start]
+          Gtk.ToggleButton search_button {
+            icon-name: "edit-find-symbolic";
+            tooltip-text: "Search";
+          }
+
+          title-widget: Adw.WindowTitle {
+            title: "Settings";
+            subtitle: "";
+          };
+
+          [end]
+          Gtk.MenuButton app_menu_button {
+            icon-name: "open-menu-symbolic";
+            tooltip-text: "Main Menu";
+          }
+        }
+
+        [top]
+        Gtk.SearchBar search_bar {
+          search-mode-enabled: bind search_button.active bidirectional;
+
+          child: Gtk.SearchEntry route_search {
+            hexpand: true;
+            placeholder-text: "Search settings";
+          };
+        }
+
+        content: Gtk.ScrolledWindow {
+          hscrollbar-policy: never;
+
+          child: Gtk.ListBox sidebar_list {
+            selection-mode: browse;
+            vexpand: true;
+            styles ["navigation-sidebar"]
+
+              Gtk.ListBoxRow row_appearance {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "preferences-desktop-appearance-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Appearance";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_displays {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "video-display-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Displays";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_sound {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "audio-speakers-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Sound";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_network {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "network-wireless-signal-excellent-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Wi-Fi & Network";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_bluetooth {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "bluetooth-active-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Bluetooth";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_power {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "battery-level-100-charged-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Power & Battery";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_keyboard {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "input-keyboard-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Keyboard & Input";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_startup {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "system-run-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Startup Applications";
+                  }
+                };
+              }
+
+              Gtk.ListBoxRow row_datetime {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "preferences-system-time-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "Date, Time & Locale";
+                  }
+                };
+              }
+
+            Gtk.ListBoxRow row_about {
+                child: Gtk.Box {
+                  spacing: 12;
+                  margin-top: 9;
+                  margin-bottom: 9;
+                  margin-start: 12;
+                  margin-end: 12;
+
+                  Gtk.Image {
+                    icon-name: "help-about-symbolic";
+                    pixel-size: 16;
+                  }
+
+                  Gtk.Label {
+                    xalign: 0;
+                    label: "About";
+                  }
+                };
+              }
+          };
+        };
+      };
+    };
+
+    content: Adw.NavigationPage content_page {
+      title: "Content";
+
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar content_header {
+          show-title: true;
+          decoration-layout: ":close";
+        }
+
+        [top]
+        Adw.HeaderBar displays_apply_header {
+          visible: false;
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          [start]
+          Gtk.Button displays_cancel_button {
+            use-underline: true;
+            label: "_Cancel";
+            can-shrink: true;
+          }
+
+          title-widget: Adw.WindowTitle displays_apply_title {};
+
+          [end]
+          Gtk.Button displays_apply_button {
+            use-underline: true;
+            label: "_Apply";
+            can-shrink: true;
+            styles ["suggested-action"]
+          }
+        }
+
+        [top]
+        Adw.HeaderBar appearance_apply_header {
+          visible: false;
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          [start]
+          Gtk.Button appearance_cancel_button {
+            use-underline: true;
+            label: "_Cancel";
+            can-shrink: true;
+          }
+
+          title-widget: Adw.WindowTitle appearance_apply_title {};
+
+          [end]
+          Gtk.Button appearance_apply_button {
+            use-underline: true;
+            label: "_Apply";
+            can-shrink: true;
+            styles ["suggested-action"]
+          }
+        }
+
+        [top]
+        Adw.HeaderBar power_apply_header {
+          visible: false;
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          [start]
+          Gtk.Button power_cancel_button {
+            use-underline: true;
+            label: "_Cancel";
+            can-shrink: true;
+          }
+
+          title-widget: Adw.WindowTitle power_apply_title {};
+
+          [end]
+          Gtk.Button power_apply_button {
+            use-underline: true;
+            label: "_Apply";
+            can-shrink: true;
+            styles ["suggested-action"]
+          }
+        }
+
+        [top]
+        Adw.Banner displays_validation_banner {
+          revealed: false;
+          title: "At least one display must remain enabled";
+        }
+
+        [top]
+        Adw.Banner appearance_banner {
+          revealed: false;
+          title: "Appearance settings could not be applied";
+        }
+
+        [top]
+        Adw.Banner power_banner {
+          revealed: false;
+          title: "Power settings could not be applied";
+        }
+
+        [top]
+        Adw.Banner bluetooth_banner {
+          revealed: false;
+          title: "Bluetooth is unavailable";
+        }
+
+        content: Adw.Clamp {
+          maximum-size: 920;
+
+          child: Adw.PreferencesPage {
+            margin-top: 18;
+            margin-bottom: 24;
+            margin-start: 18;
+            margin-end: 18;
+
+            Adw.PreferencesGroup stub_group {
+              title: "Preview";
+              description: "This first slice only establishes the shell, routing, and page chrome.";
+
+              Adw.ActionRow {
+                title: "Current route";
+
+                [suffix]
+                Gtk.Label route_label {
+                  selectable: true;
+                  label: "about";
+                  styles ["dim-label"]
+                }
+              }
+
+              Adw.ActionRow stub_status_row {
+                title: "Stub content";
+                subtitle: "This page shell is ready for implementation.";
+              }
+
+              Adw.ActionRow stub_details_row {
+                title: "Planned areas";
+                subtitle: "Category-specific controls will replace this placeholder.";
+              }
+            }
+
+            Adw.PreferencesGroup appearance_theme_group {
+              visible: false;
+              title: "Theme";
+              description: "Choose the preferred desktop color scheme and installed theme assets.";
+
+              Adw.ComboRow appearance_color_scheme_row {
+                title: "Color Scheme";
+              }
+
+              Adw.ComboRow appearance_accent_color_row {
+                title: "Accent Color";
+              }
+
+              Adw.ComboRow appearance_gtk_theme_row {
+                title: "GTK Theme";
+              }
+
+              Adw.ComboRow appearance_icon_theme_row {
+                title: "Icon Theme";
+              }
+
+              Adw.ComboRow appearance_cursor_theme_row {
+                title: "Cursor Theme";
+              }
+            }
+
+            Adw.PreferencesGroup appearance_typography_group {
+              visible: false;
+              title: "Typography";
+              description: "Adjust fonts and text scaling for the desktop interface.";
+
+              Adw.ActionRow appearance_interface_font_row {
+                title: "Interface Font";
+
+                [suffix]
+                Gtk.FontButton appearance_interface_font_button {
+                  valign: center;
+                  title: "Choose Interface Font";
+                  use-font: false;
+                  use-size: false;
+                }
+              }
+
+              Adw.ActionRow appearance_monospace_font_row {
+                title: "Monospace Font";
+
+                [suffix]
+                Gtk.FontButton appearance_monospace_font_button {
+                  valign: center;
+                  title: "Choose Monospace Font";
+                  use-font: false;
+                  use-size: false;
+                }
+              }
+
+              Adw.SpinRow appearance_text_scale_row {
+                title: "Text Scaling";
+                digits: 2;
+                adjustment: Gtk.Adjustment {
+                  lower: 0.50;
+                  upper: 3.00;
+                  step-increment: 0.05;
+                  page-increment: 0.25;
+                  value: 1.00;
+                };
+              }
+            }
+
+            Adw.PreferencesGroup bluetooth_general_group {
+              visible: false;
+              title: "General";
+              description: "Manage Bluetooth power, the active adapter, and discoverability.";
+
+              Adw.SwitchRow bluetooth_enabled_row {
+                title: "Bluetooth";
+              }
+
+              Adw.ComboRow bluetooth_active_adapter_row {
+                title: "Active Adapter";
+              }
+
+              Adw.SwitchRow bluetooth_discoverable_row {
+                title: "Discoverable";
+              }
+            }
+
+            Adw.PreferencesGroup bluetooth_devices_group {
+              visible: false;
+              title: "Devices";
+              description: "Devices for the selected adapter.";
+            }
+
+            Adw.PreferencesGroup bluetooth_adapters_group {
+              visible: false;
+              title: "Adapters";
+              description: "Available Bluetooth adapters and per-adapter controls.";
+            }
+
+            Adw.PreferencesGroup power_battery_group {
+              visible: false;
+              title: "Battery";
+              description: "Review battery status, health, and remaining runtime.";
+
+              Adw.ActionRow power_battery_status_row {
+                title: "Status";
+                subtitle: "Discharging • 74% • About 5 hours remaining";
+              }
+
+              Adw.ActionRow power_battery_health_row {
+                title: "Battery Health";
+                subtitle: "96% capacity • Charge threshold 80%";
+              }
+
+              Adw.ActionRow power_battery_devices_row {
+                title: "Power Source";
+                subtitle: "Internal battery";
+              }
+            }
+
+            Adw.PreferencesGroup power_mode_group {
+              visible: false;
+              title: "Power Mode";
+              description: "Choose the active performance profile and low-battery behavior.";
+
+              Adw.ComboRow power_profile_row {
+                title: "Power Profile";
+              }
+
+              Adw.SwitchRow power_low_battery_saver_row {
+                title: "Enable Power Saver on Low Battery";
+              }
+            }
+
+            Adw.PreferencesGroup power_sleep_group {
+              visible: false;
+              title: "Automatic Sleep";
+              description: "Control what happens after inactivity on battery and while plugged in.";
+
+              Adw.SpinRow power_battery_sleep_timeout_row {
+                title: "On Battery Timeout";
+                adjustment: Gtk.Adjustment {
+                  lower: 0;
+                  upper: 180;
+                  step-increment: 1;
+                  page-increment: 5;
+                  value: 20;
+                };
+              }
+
+              Adw.ComboRow power_battery_sleep_action_row {
+                title: "On Battery Action";
+              }
+
+              Adw.SpinRow power_ac_sleep_timeout_row {
+                title: "Plugged In Timeout";
+                adjustment: Gtk.Adjustment {
+                  lower: 0;
+                  upper: 180;
+                  step-increment: 1;
+                  page-increment: 5;
+                  value: 45;
+                };
+              }
+
+              Adw.ComboRow power_ac_sleep_action_row {
+                title: "Plugged In Action";
+              }
+            }
+
+            Adw.PreferencesGroup power_idle_group {
+              visible: false;
+              title: "Idle & Lock";
+              description: "Decide when the screen blanks and when the session locks.";
+
+              Adw.SpinRow power_idle_delay_row {
+                title: "Idle Delay";
+                adjustment: Gtk.Adjustment {
+                  lower: 0;
+                  upper: 120;
+                  step-increment: 1;
+                  page-increment: 5;
+                  value: 10;
+                };
+              }
+
+              Adw.SwitchRow power_blank_screen_row {
+                title: "Blank Screen When Idle";
+              }
+
+              Adw.SwitchRow power_lock_enabled_row {
+                title: "Lock Screen";
+              }
+
+              Adw.SpinRow power_lock_delay_row {
+                title: "Lock Delay";
+                adjustment: Gtk.Adjustment {
+                  lower: 0;
+                  upper: 60;
+                  step-increment: 1;
+                  page-increment: 5;
+                  value: 1;
+                };
+              }
+            }
+
+            Adw.PreferencesGroup displays_main_group {
+              visible: false;
+              title: "Displays";
+              description: "Arrange displays, choose the primary output, and adjust the selected monitor.";
+
+              Adw.PreferencesRow displays_arrangement_row {
+                activatable: false;
+
+                child: Gtk.Frame {
+                  height-request: 240;
+
+                  child: Adw.Bin displays_arrangement_bin {};
+                };
+              }
+
+              Adw.ComboRow displays_primary_row {
+                title: "Primary Display";
+              }
+
+              Adw.ComboRow displays_preset_row {
+                title: "Placement Presets";
+                subtitle: "Move the selected display around the primary display";
+              }
+            }
+
+            Adw.PreferencesGroup displays_selected_group {
+              visible: false;
+              title: "Selected Display";
+              description: "Drag displays above to rearrange them and adjust the selected output below.";
+
+              Adw.ActionRow displays_name_row {
+                title: "Display";
+                subtitle: "No display selected";
+              }
+
+              Adw.SwitchRow displays_enabled_row {
+                title: "Enabled";
+              }
+
+              Adw.SwitchRow displays_mirror_row {
+                title: "Mirror Display";
+              }
+
+              Adw.ComboRow displays_mirror_target_row {
+                title: "Mirror Source";
+              }
+
+              Adw.ComboRow displays_resolution_row {
+                title: "Resolution";
+              }
+
+              Adw.ComboRow displays_refresh_row {
+                title: "Refresh Rate";
+              }
+
+              Adw.SpinRow displays_scale_row {
+                title: "Scale";
+                digits: 2;
+                adjustment: Gtk.Adjustment {
+                  lower: 0.50;
+                  upper: 4.00;
+                  step-increment: 0.05;
+                  page-increment: 0.25;
+                  value: 1.00;
+                };
+              }
+
+              Adw.ComboRow displays_orientation_row {
+                title: "Orientation";
+              }
+
+              Adw.SwitchRow displays_vrr_row {
+                title: "Variable Refresh Rate";
+              }
+
+              Adw.SwitchRow displays_hdr_row {
+                title: "HDR";
+              }
+
+              Adw.SwitchRow displays_ten_bit_row {
+                title: "10-bit Color";
+              }
+
+              Adw.ExpanderRow displays_info_row {
+                title: "Monitor Information";
+                subtitle: "No display selected";
+
+                Adw.ActionRow displays_info_connector_row {
+                  title: "Connector";
+                }
+
+                Adw.ActionRow displays_info_make_row {
+                  title: "EDID Manufacturer";
+                }
+
+                Adw.ActionRow displays_info_model_row {
+                  title: "EDID Model";
+                }
+
+                Adw.ActionRow displays_info_serial_row {
+                  title: "EDID Serial";
+                }
+
+                Adw.ActionRow displays_info_physical_size_row {
+                  title: "Physical Size";
+                }
+
+                Adw.ActionRow displays_info_display_class_row {
+                  title: "Display Class";
+                }
+
+                Adw.ActionRow displays_info_manufacture_row {
+                  title: "Manufacture Date";
+                }
+
+                Adw.ActionRow displays_info_channel_depth_row {
+                  title: "Color Depth";
+                }
+
+                Adw.ActionRow displays_info_panel_technology_row {
+                  title: "Panel Technology";
+                }
+
+                Adw.ActionRow displays_info_input_formats_row {
+                  title: "Input Formats";
+                }
+
+                Adw.ActionRow displays_info_transport_depths_row {
+                  title: "Transport Depths";
+                }
+
+                Adw.ActionRow displays_info_color_capabilities_row {
+                  title: "Color Capabilities";
+                }
+
+                Adw.ActionRow displays_info_hdr_capabilities_row {
+                  title: "HDR Capabilities";
+                }
+              }
+            }
+
+            Adw.PreferencesGroup displays_backend_group {
+              visible: false;
+              title: "Compositor";
+
+              Adw.ActionRow displays_backend_row {
+                title: "Backend";
+              }
+
+              Adw.ActionRow displays_managed_path_row {
+                title: "Managed File";
+                subtitle-selectable: true;
+              }
+
+              Adw.ActionRow displays_managed_include_row {
+                title: "Managed Include";
+                subtitle-selectable: true;
+              }
+            }
+
+            Adw.PreferencesGroup sound_output_group {
+              visible: false;
+              title: "Output";
+              description: "Choose where sound plays and set the default output device.";
+
+              Adw.ExpanderRow sound_output_device_row {
+                title: "Default output";
+                subtitle: "Loading audio outputs…";
+              }
+
+              Adw.ActionRow sound_output_volume_row {
+                title: "Volume";
+
+                [suffix]
+                Gtk.Scale sound_output_volume_scale {
+                  orientation: horizontal;
+                  valign: center;
+                  width-request: 220;
+                  draw-value: false;
+                  hexpand: true;
+                  adjustment: Gtk.Adjustment {
+                    lower: 0;
+                    upper: 100;
+                    step-increment: 1;
+                    page-increment: 5;
+                    value: 0;
+                  };
+                }
+              }
+
+              Adw.SwitchRow sound_output_muted_row {
+                title: "Mute output";
+              }
+            }
+
+            Adw.PreferencesGroup sound_input_group {
+              visible: false;
+              title: "Input";
+              description: "Select the active microphone and review capture levels.";
+
+              Adw.ExpanderRow sound_input_device_row {
+                title: "Active microphone";
+                subtitle: "Loading audio inputs…";
+              }
+
+              Adw.ActionRow sound_input_volume_row {
+                title: "Input level";
+
+                [suffix]
+                Gtk.Scale sound_input_volume_scale {
+                  orientation: horizontal;
+                  valign: center;
+                  width-request: 220;
+                  draw-value: false;
+                  hexpand: true;
+                  adjustment: Gtk.Adjustment {
+                    lower: 0;
+                    upper: 100;
+                    step-increment: 1;
+                    page-increment: 5;
+                    value: 0;
+                  };
+                }
+              }
+
+              Adw.SwitchRow sound_input_muted_row {
+                title: "Mute input";
+              }
+            }
+
+            Adw.PreferencesGroup sound_apps_group {
+              visible: false;
+              title: "Applications";
+              description: "Adjust per-application playback volume and mute state.";
+            }
+          };
+        };
+      };
+    };
+  };
+}

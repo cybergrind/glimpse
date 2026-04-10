@@ -22,3 +22,4 @@ var/
 !var/sysstats/
 !var/sysstats/**
 var/sysstats/sysstats-applet
+config.toml

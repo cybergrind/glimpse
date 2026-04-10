@@ -1,26 +1,41 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use adw::prelude::{AdwDialogExt, AlertDialogExt};
+use glimpse::providers::session_actions::{SessionActions, SessionSnapshot};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
 
 use super::config::SessionConfig;
-use super::popover::{SessionPopover, SessionPopoverInit, SessionPopoverInput};
+use super::popover::{
+    SessionAction, SessionPopover, SessionPopoverInit, SessionPopoverInput, SessionPopoverOutput,
+};
 
 pub struct Session {
+    conn: zbus::Connection,
+    label: String,
     popover: Controller<SessionPopover>,
 }
 
 pub struct SessionInit {
     pub config: SessionConfig,
-    pub client: Arc<Client>,
+    pub conn: zbus::Connection,
 }
 
 #[derive(Debug)]
 pub enum SessionMsg {
     TogglePopover,
+    SnapshotLoaded(SessionSnapshot),
+    SnapshotUnavailable,
+    PopoverOutput(SessionPopoverOutput),
+    Confirmed(SessionAction),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ConfirmationSpec {
+    heading: &'static str,
+    body: &'static str,
+    accept_label: &'static str,
+    suggested: bool,
 }
 
 #[relm4::component(pub)]
@@ -28,15 +43,15 @@ impl Component for Session {
     type Init = SessionInit;
     type Input = SessionMsg;
     type Output = ();
-    type CommandOutput = ();
+    type CommandOutput = SessionMsg;
 
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
             add_css_class: "applet",
+            add_css_class: "hoverable",
             add_css_class: "session",
-            #[watch]
             set_tooltip_text: Some("Session"),
 
             add_controller = gtk::GestureClick {
@@ -47,7 +62,8 @@ impl Component for Session {
             },
 
             gtk::Label {
-                set_label: &std::env::var("USER").unwrap_or_else(|_| "user".into()),
+                #[watch]
+                set_label: &model.label,
                 add_css_class: "session-label",
             },
         }
@@ -61,22 +77,182 @@ impl Component for Session {
         let popover = SessionPopover::builder()
             .launch(SessionPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
                 config: init.config,
             })
-            .detach();
+            .forward(sender.input_sender(), SessionMsg::PopoverOutput);
 
-        let model = Session { popover };
+        let conn = init.conn;
+        let model = Session {
+            conn: conn.clone(),
+            label: std::env::var("USER").unwrap_or_else(|_| "user".into()),
+            popover,
+        };
+
+        sender.command(move |out, shutdown| {
+            shutdown
+                .register(async move {
+                    let provider = SessionActions::with_connection(conn);
+                    let msg = match provider.snapshot().await {
+                        Ok(snapshot) => SessionMsg::SnapshotLoaded(snapshot),
+                        Err(error) => {
+                            tracing::warn!(error = %error, "session applet: failed to load snapshot");
+                            SessionMsg::SnapshotUnavailable
+                        }
+                    };
+                    let _ = out.send(msg);
+                })
+                .drop_on_shutdown()
+        });
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update_cmd(
+        &mut self,
+        msg: Self::CommandOutput,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        self.update(msg, sender, root);
+    }
+
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             SessionMsg::TogglePopover => {
                 self.popover.emit(SessionPopoverInput::Toggle);
             }
+            SessionMsg::SnapshotLoaded(snapshot) => {
+                self.label = snapshot.user_name.clone();
+                self.popover.emit(SessionPopoverInput::Update(snapshot));
+            }
+            SessionMsg::SnapshotUnavailable => {
+                self.popover
+                    .emit(SessionPopoverInput::Update(SessionSnapshot::default()));
+            }
+            SessionMsg::PopoverOutput(SessionPopoverOutput::ActionRequested(action)) => {
+                if let Some(spec) = confirmation_spec(action) {
+                    self.popover.emit(SessionPopoverInput::Close);
+                    show_confirmation(root, &sender, action, spec);
+                } else {
+                    self.popover.emit(SessionPopoverInput::Close);
+                    run_action(self.conn.clone(), action);
+                }
+            }
+            SessionMsg::Confirmed(action) => {
+                self.popover.emit(SessionPopoverInput::Close);
+                run_action(self.conn.clone(), action);
+            }
+        }
+    }
+}
+
+fn confirmation_spec(action: SessionAction) -> Option<ConfirmationSpec> {
+    match action {
+        SessionAction::Lock => None,
+        SessionAction::Logout => Some(ConfirmationSpec {
+            heading: "Log Out",
+            body: "End the current session and log out now?",
+            accept_label: "Log Out",
+            suggested: false,
+        }),
+        SessionAction::Suspend => Some(ConfirmationSpec {
+            heading: "Suspend",
+            body: "Suspend the system now?",
+            accept_label: "Suspend",
+            suggested: false,
+        }),
+        SessionAction::Hibernate => Some(ConfirmationSpec {
+            heading: "Hibernate",
+            body: "Hibernate the system now?",
+            accept_label: "Hibernate",
+            suggested: false,
+        }),
+        SessionAction::Reboot => Some(ConfirmationSpec {
+            heading: "Restart",
+            body: "Restart the system now?",
+            accept_label: "Restart",
+            suggested: false,
+        }),
+        SessionAction::PowerOff => Some(ConfirmationSpec {
+            heading: "Shut Down",
+            body: "Shut down the system now?",
+            accept_label: "Shut Down",
+            suggested: false,
+        }),
+    }
+}
+
+fn show_confirmation(
+    root: &gtk::Box,
+    sender: &ComponentSender<Session>,
+    action: SessionAction,
+    spec: ConfirmationSpec,
+) {
+    let dialog = adw::AlertDialog::new(Some(spec.heading), Some(spec.body));
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("accept", spec.accept_label);
+    dialog.set_close_response("cancel");
+    dialog.set_default_response(Some("accept"));
+    dialog.set_response_appearance(
+        "accept",
+        if spec.suggested {
+            adw::ResponseAppearance::Suggested
+        } else {
+            adw::ResponseAppearance::Destructive
+        },
+    );
+
+    let sender = sender.clone();
+    dialog.connect_response(None, move |_, response| {
+        if response == "accept" {
+            sender.input(SessionMsg::Confirmed(action));
+        }
+    });
+
+    dialog.present(Some(root));
+}
+
+fn run_action(conn: zbus::Connection, action: SessionAction) {
+    relm4::spawn(async move {
+        let provider = SessionActions::with_connection(conn);
+        let result = match action {
+            SessionAction::Lock => provider.lock().await,
+            SessionAction::Logout => provider.logout().await,
+            SessionAction::Suspend => provider.suspend().await,
+            SessionAction::Hibernate => provider.hibernate().await,
+            SessionAction::Reboot => provider.reboot().await,
+            SessionAction::PowerOff => provider.power_off().await,
+        };
+
+        if let Err(error) = result {
+            tracing::warn!(?action, error = %error, "session applet: action failed");
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_screen_does_not_require_confirmation() {
+        assert!(confirmation_spec(SessionAction::Lock).is_none());
+    }
+
+    #[test]
+    fn session_ending_actions_require_confirmation() {
+        for action in [
+            SessionAction::Logout,
+            SessionAction::Suspend,
+            SessionAction::Hibernate,
+            SessionAction::Reboot,
+            SessionAction::PowerOff,
+        ] {
+            let spec = confirmation_spec(action).expect("confirmation spec");
+            assert!(!spec.heading.is_empty());
+            assert!(!spec.body.is_empty());
+            assert!(!spec.accept_label.is_empty());
         }
     }
 }
