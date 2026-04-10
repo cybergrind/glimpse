@@ -761,6 +761,7 @@
 }
 
 .mpris-popover .mpris-card {
+    padding: 10px 12px;
     margin: 2px 0;
     border-radius: 12px;
     background: color-mix(in srgb, currentColor 6%, transparent);
@@ -772,13 +773,15 @@
 }
 
 .mpris-popover .mpris-card-art {
-    min-width: 120px;
-    min-height: 160px;
+    min-width: 84px;
+    min-height: 84px;
+    border-radius: 10px;
+    overflow: hidden;
     background: color-mix(in srgb, currentColor 4%, transparent);
 }
 
 .mpris-popover .mpris-card-content {
-    padding: 14px;
+    min-width: 0;
 }
 
 .mpris-popover .mpris-card-copy {
@@ -798,11 +801,23 @@
     opacity: var(--dim-opacity);
 }
 
+.mpris-popover .mpris-card-progress {
+    font-variant-numeric: tabular-nums;
+}
+
+.mpris-popover .mpris-card-progress progressbar {
+    min-height: 8px;
+}
+
 .mpris-popover .mpris-card-controls button {
     min-width: 28px;
     min-height: 28px;
     padding: 0;
     border-radius: 999px;
+}
+
+.mpris-popover .mpris-card-controls button label {
+    font-weight: normal;
 }
 
 /* session */

@@ -39,7 +39,6 @@ fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
         Box::new(providers::brightness::BrightnessProviderFactory),
         Box::new(providers::calendar::CalendarProviderFactory),
         Box::new(providers::debug::DebugProviderFactory),
-        Box::new(providers::mpris::MprisProviderFactory),
         Box::new(providers::network::NetworkProviderFactory),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::privacy::PrivacyProviderFactory),
