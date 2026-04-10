@@ -9,7 +9,7 @@ use glimpse::notifications::NotificationEntry;
 
 use super::NotificationActionCommand;
 use super::activation::{default_action_command, invoke_action_command};
-use super::components::row::build_notification_image_widget;
+use super::components::row::{build_notification_icon, load_notification_image_texture};
 
 type NotifData = NotificationEntry;
 
@@ -203,20 +203,7 @@ impl NotificationPopup {
 
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
-        let icon_name = if !notif.app_icon.is_empty() {
-            &notif.app_icon
-        } else if let Some(ref de) = notif.desktop_entry {
-            if !de.is_empty() {
-                de
-            } else {
-                "dialog-information-symbolic"
-            }
-        } else {
-            "dialog-information-symbolic"
-        };
-        let icon = gtk::Image::from_icon_name(icon_name);
-        icon.set_pixel_size(16);
-        icon.add_css_class("popup-card-icon");
+        let icon = build_notification_icon(notif, "popup-card-icon");
         header.append(&icon);
 
         let app = if notif.app_name.is_empty() {
@@ -248,7 +235,13 @@ impl NotificationPopup {
         content.set_hexpand(true);
         content.add_css_class("popup-card-content");
 
-        if let Some(image) = build_notification_image_widget(notif, "notification-inline-image") {
+        if let Some(texture) = load_notification_image_texture(notif) {
+            let image = gtk::Picture::new();
+            image.set_paintable(Some(&texture));
+            image.set_can_shrink(true);
+            image.set_keep_aspect_ratio(true);
+            image.set_valign(gtk::Align::Start);
+            image.add_css_class("notification-inline-image");
             image.add_css_class("popup-inline-image");
             content.append(&image);
         }

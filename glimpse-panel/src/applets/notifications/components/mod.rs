@@ -5,8 +5,10 @@ use glimpse::notifications::NotificationEntry;
 use super::NotificationActionCommand;
 
 pub mod hero;
+pub mod group_header;
 pub mod list;
 pub mod row;
+pub mod stack_hint;
 pub mod stack;
 
 pub type NotifData = NotificationEntry;

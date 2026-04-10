@@ -1,93 +1,123 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use relm4::gtk::{self, glib, prelude::*};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, glib, prelude::*},
+};
 
 use super::NotificationCommandEmitter;
 use crate::applets::notifications::NotificationActionCommand;
 
 pub struct NotificationsHero {
-    root: gtk::Box,
-    icon: gtk::Image,
-    subtitle: gtk::Label,
-    dnd_switch: gtk::Switch,
+    emit_command: NotificationCommandEmitter,
     updating_dnd: Rc<Cell<bool>>,
+    dnd: bool,
+    count: u32,
 }
 
-impl NotificationsHero {
-    pub fn new(emit_command: NotificationCommandEmitter) -> Self {
-        let root = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        root.add_css_class("notif-hero");
+pub struct NotificationsHeroInit {
+    pub emit_command: NotificationCommandEmitter,
+}
 
-        let icon = gtk::Image::from_icon_name("preferences-system-notifications-symbolic");
-        icon.set_pixel_size(32);
-        root.append(&icon);
+#[derive(Debug)]
+pub enum NotificationsHeroInput {
+    UpdateStatus { dnd: bool, count: u32 },
+    ToggleDnd(bool),
+}
 
-        let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        text_box.set_hexpand(true);
-        text_box.set_valign(gtk::Align::Center);
+#[relm4::component(pub)]
+impl SimpleComponent for NotificationsHero {
+    type Init = NotificationsHeroInit;
+    type Input = NotificationsHeroInput;
+    type Output = ();
 
-        let title = gtk::Label::new(Some("Notifications"));
-        title.set_halign(gtk::Align::Start);
-        title.add_css_class("notif-title");
-        text_box.append(&title);
+    view! {
+        gtk::Box {
+            set_spacing: 12,
+            add_css_class: "notif-hero",
 
-        let subtitle = gtk::Label::new(Some("No notifications"));
-        subtitle.set_halign(gtk::Align::Start);
-        subtitle.add_css_class("notif-subtitle");
-        text_box.append(&subtitle);
-        root.append(&text_box);
+            gtk::Image {
+                #[watch]
+                set_icon_name: Some(if model.dnd {
+                    "notifications-disabled-symbolic"
+                } else {
+                    "preferences-system-notifications-symbolic"
+                }),
+                add_css_class: "notif-hero-icon",
+            },
 
-        let dnd_switch = gtk::Switch::new();
-        dnd_switch.set_active(true);
-        dnd_switch.set_valign(gtk::Align::Center);
-        dnd_switch.set_tooltip_text(Some("Notifications"));
-        let updating_dnd = Rc::new(Cell::new(false));
-        let guard = updating_dnd.clone();
-        dnd_switch.connect_state_set(move |_, active| {
-            if guard.get() {
-                return glib::Propagation::Stop;
-            }
-            emit_command(NotificationActionCommand::SetDnd(!active));
-            glib::Propagation::Stop
-        });
-        root.append(&dnd_switch);
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 2,
+                set_hexpand: true,
+                set_valign: gtk::Align::Center,
 
-        Self {
-            root,
-            icon,
-            subtitle,
-            dnd_switch,
-            updating_dnd,
+                gtk::Label {
+                    set_label: "Notifications",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "notif-title",
+                },
+
+                gtk::Label {
+                    #[watch]
+                    set_label: &hero_subtitle(model.count),
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "notif-subtitle",
+                },
+            },
+
+            gtk::Switch {
+                #[watch]
+                set_active: !model.dnd,
+                set_valign: gtk::Align::Center,
+                set_tooltip_text: Some("Notifications"),
+                connect_state_set[sender, updating_dnd = model.updating_dnd.clone()] => move |_, active| {
+                    if updating_dnd.get() {
+                        return glib::Propagation::Stop;
+                    }
+                    sender.input(NotificationsHeroInput::ToggleDnd(active));
+                    glib::Propagation::Stop
+                },
+            },
         }
     }
 
-    pub fn widget(&self) -> &gtk::Box {
-        &self.root
-    }
-
-    pub fn update_status(&self, dnd: bool, count: u32) {
-        let switch_active = !dnd;
-        if self.dnd_switch.is_active() != switch_active {
-            self.updating_dnd.set(true);
-            self.dnd_switch.set_active(switch_active);
-            self.dnd_switch.set_state(switch_active);
-            self.updating_dnd.set(false);
-        }
-
-        self.icon.set_icon_name(Some(if dnd {
-            "notifications-disabled-symbolic"
-        } else {
-            "preferences-system-notifications-symbolic"
-        }));
-
-        let subtitle = if count == 0 {
-            "No notifications".to_string()
-        } else if count == 1 {
-            "1 notification".to_string()
-        } else {
-            format!("{count} notifications")
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = NotificationsHero {
+            emit_command: init.emit_command,
+            updating_dnd: Rc::new(Cell::new(false)),
+            dnd: false,
+            count: 0,
         };
-        self.subtitle.set_label(&subtitle);
+
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            NotificationsHeroInput::UpdateStatus { dnd, count } => {
+                self.dnd = dnd;
+                self.count = count;
+            }
+            NotificationsHeroInput::ToggleDnd(active) => {
+                (self.emit_command)(NotificationActionCommand::SetDnd(!active));
+            }
+        }
+    }
+}
+
+fn hero_subtitle(count: u32) -> String {
+    if count == 0 {
+        "No notifications".to_string()
+    } else if count == 1 {
+        "1 notification".to_string()
+    } else {
+        format!("{count} notifications")
     }
 }

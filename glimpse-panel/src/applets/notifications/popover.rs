@@ -2,21 +2,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
 use super::NotificationActionCommand;
 use super::components::{
     NotifData, NotificationCommandEmitter, StackToggleEmitter,
-    hero::NotificationsHero,
-    list::NotificationsList,
+    hero::{NotificationsHero, NotificationsHeroInit, NotificationsHeroInput},
+    list::{NotificationsList, NotificationsListInit, NotificationsListInput},
 };
 
 pub struct NotificationsPopover {
     popover: gtk::Popover,
-    hero: NotificationsHero,
-    list: NotificationsList,
+    hero: Controller<NotificationsHero>,
+    list: Controller<NotificationsList>,
     emit_command: NotificationCommandEmitter,
     dnd: bool,
     count: u32,
@@ -39,56 +39,89 @@ pub enum NotificationsPopoverInput {
     },
     UpdateList(Vec<NotifData>),
     ToggleStack(String),
+    ClearAll,
 }
 
+#[relm4::component(pub)]
 impl SimpleComponent for NotificationsPopover {
     type Init = NotificationsPopoverInit;
     type Input = NotificationsPopoverInput;
     type Output = ();
-    type Root = gtk::Popover;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        gtk::Popover::new()
+    view! {
+        root = gtk::Popover {
+            #[name(body)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_hexpand: false,
+                set_overflow: gtk::Overflow::Hidden,
+
+                #[name(hero_slot)]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                },
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                #[name(list_slot)]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                },
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                gtk::Button {
+                    add_css_class: "flat",
+                    add_css_class: "settings-btn",
+                    connect_clicked[sender] => move |_| {
+                        sender.input(NotificationsPopoverInput::ClearAll);
+                    },
+
+                    gtk::Label {
+                        set_label: "Clear All",
+                        set_halign: gtk::Align::Start,
+                    }
+                }
+            }
+        }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
-        _sender: ComponentSender<Self>,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.set_parent(&init.parent);
-        root.set_autohide(true);
-        root.add_css_class("notifications-popover");
+        let widgets = view_output!();
 
-        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        vbox.set_hexpand(false);
-        vbox.set_overflow(gtk::Overflow::Hidden);
+        widgets.root.set_parent(&init.parent);
+        widgets.root.set_autohide(true);
+        widgets.root.add_css_class("notifications-popover");
 
-        let hero = NotificationsHero::new(init.emit_command.clone());
-        vbox.append(hero.widget());
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let hero = NotificationsHero::builder()
+            .launch(NotificationsHeroInit {
+                emit_command: init.emit_command.clone(),
+            })
+            .detach();
+        widgets.hero_slot.append(hero.widget());
 
-        let list = NotificationsList::new();
-        vbox.append(list.widget());
-
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        let clear_lbl = gtk::Label::new(Some("Clear All"));
-        clear_lbl.set_halign(gtk::Align::Start);
-        let clear_btn = gtk::Button::new();
-        clear_btn.set_child(Some(&clear_lbl));
-        clear_btn.add_css_class("flat");
-        clear_btn.add_css_class("settings-btn");
-        let emit_command = init.emit_command.clone();
-        clear_btn.connect_clicked(move |_| {
-            emit_command(NotificationActionCommand::DismissAll);
+        let on_toggle_stack: StackToggleEmitter = Rc::new({
+            let sender = sender.clone();
+            move |app_name| sender.input(NotificationsPopoverInput::ToggleStack(app_name))
         });
-        vbox.append(&clear_btn);
-
-        root.set_child(Some(&vbox));
+        let list = NotificationsList::builder()
+            .launch(NotificationsListInit {
+                emit_command: init.emit_command.clone(),
+                on_toggle_stack,
+            })
+            .detach();
+        widgets.list_slot.append(list.widget());
 
         let model = NotificationsPopover {
-            popover: root.clone(),
+            popover: widgets.root.clone(),
             hero,
             list,
             emit_command: init.emit_command,
@@ -98,7 +131,7 @@ impl SimpleComponent for NotificationsPopover {
             last_notifications: Vec::new(),
         };
 
-        ComponentParts { model, widgets: () }
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
@@ -117,7 +150,8 @@ impl SimpleComponent for NotificationsPopover {
             } => {
                 self.dnd = dnd;
                 self.count = count;
-                self.hero.update_status(dnd, count);
+                self.hero
+                    .emit(NotificationsHeroInput::UpdateStatus { dnd, count });
             }
             NotificationsPopoverInput::UpdateList(data) => {
                 self.last_notifications = data;
@@ -128,21 +162,19 @@ impl SimpleComponent for NotificationsPopover {
                 self.stack_state.insert(app_name, !current);
                 self.rebuild_list(&sender);
             }
+            NotificationsPopoverInput::ClearAll => {
+                (self.emit_command)(NotificationActionCommand::DismissAll);
+            }
         }
     }
 }
 
 impl NotificationsPopover {
     fn rebuild_list(&self, sender: &ComponentSender<Self>) {
-        let on_toggle_stack: StackToggleEmitter = Rc::new({
-            let sender = sender.clone();
-            move |app_name| sender.input(NotificationsPopoverInput::ToggleStack(app_name))
+        let _ = sender;
+        self.list.emit(NotificationsListInput::Sync {
+            notifications: self.last_notifications.clone(),
+            stack_state: self.stack_state.clone(),
         });
-        self.list.rebuild(
-            &self.last_notifications,
-            &self.stack_state,
-            self.emit_command.clone(),
-            on_toggle_stack,
-        );
     }
 }

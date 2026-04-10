@@ -75,7 +75,7 @@
     background-color: rgba(255, 255, 255, 0.08);
 }
 
-.exec-trigger > button {
+.exec-trigger>button {
     padding: 0;
     background: none;
     border: none;
@@ -87,7 +87,7 @@
     color: inherit;
 }
 
-.exec-trigger > button:hover {
+.exec-trigger>button:hover {
     background: none;
 }
 
@@ -978,33 +978,36 @@
     justify-content: center;
     font-size: 9px;
     font-weight: 700;
-    min-width: 16px;
-    min-height: 16px;
-    padding: 0;
-    margin-top: 6px;
-    margin-left: -2px;
-    margin-bottom: 6px;
-    border-radius: 50%;
+    min-width: 17px;
+    min-height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
     background: var(--accent-bg);
     color: var(--on-accent);
     font-variant-numeric: tabular-nums;
 }
 
+.notification-badge-anchor {
+    min-width: 0;
+    min-height: 0;
+    margin-left: 2px;
+}
+
 .notification-badge-label {
     color: var(--on-accent);
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
+    padding: 0;
     font-variant-numeric: tabular-nums;
 }
 
 .notification-dot {
     box-sizing: border-box;
     font-size: 0;
-    min-width: 6px;
-    min-height: 6px;
+    min-width: 8px;
+    min-height: 8px;
     padding: 0;
-    margin-left: 0px;
-    border-radius: 3px;
+    border-radius: 50%;
     background: var(--accent-bg);
 }
 
@@ -1072,45 +1075,67 @@
     font-weight: normal;
 }
 
-/* GNOME-style notification group */
 .notifications-popover .notif-group {
     margin-bottom: 4px;
-    border-radius: 12px;
-    background: color-mix(in srgb, currentColor 3%, transparent);
-    padding: 4px;
+    padding: 0;
+    border-radius: 14px;
+    background: transparent;
 }
 
-.notifications-popover .notif-group .notif-card {
+.notifications-popover .notif-group-collapsed {
     background: color-mix(in srgb, currentColor 4%, transparent);
 }
 
-.notifications-popover .notif-group-header-btn {
-    padding: 4px 8px;
-    font-weight: normal;
-    border-radius: 8px;
+.notifications-popover .notif-group-expanded {
+    padding: 0;
 }
 
-.notifications-popover .notif-group-header-btn label {
-    font-weight: normal;
+.notifications-popover .notif-group-lead {
+    margin-bottom: 0;
+}
+
+.notifications-popover .notif-group-header {
+    padding: 2px 4px 10px 4px;
+}
+
+.notifications-popover .notif-group-title {
+    font-weight: 600;
 }
 
 .notifications-popover .notif-group-cards {
-    padding: 0 2px;
+    padding: 8px 0 0 0;
 }
 
-/* Stack peek effect: offset cards behind top card */
+.notifications-popover .notif-group-collapsed-body {
+    margin-top: 0;
+}
+
+.notifications-popover .notif-stack-shell {
+    margin: 0;
+    padding: 10px 0 20px 0;
+}
+
+.notifications-popover .notif-stack-depth,
+.notifications-popover .notif-stack-depth-2 {
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .notifications-popover .notif-stack-depth {
-    margin: -4px 6px 0 6px;
-    min-height: 6px;
-    border-radius: 0 0 10px 10px;
-    background: color-mix(in srgb, currentColor 4%, transparent);
+    margin: 0 6px;
+    min-height: 88px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
 }
 
 .notifications-popover .notif-stack-depth-2 {
-    margin: -2px 12px 0 12px;
-    min-height: 4px;
-    border-radius: 0 0 8px 8px;
-    background: color-mix(in srgb, currentColor 3%, transparent);
+    margin: -78px 12px 0 12px;
+    min-height: 88px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.notifications-popover .notif-group-lead-stacked {
+    margin: 0;
 }
 
 .notifications-popover .notif-expand-btn {
@@ -1135,6 +1160,18 @@
     opacity: 0.7;
 }
 
+.notifications-popover .notif-hero-icon {
+    -gtk-icon-size: 32px;
+}
+
+.notifications-popover .notif-header-icon {
+    -gtk-icon-size: 16px;
+}
+
+.notifications-popover .notif-card-icon {
+    -gtk-icon-size: 20px;
+}
+
 .notifications-popover .notif-summary {
     font-weight: 600;
     font-size: 14px;
@@ -1149,8 +1186,10 @@
 
 .notifications-popover .notif-inline-image,
 .popup-inline-image {
-    min-width: 72px;
-    min-height: 72px;
+    min-width: 48px;
+    min-height: 48px;
+    max-width: 48px;
+    max-height: 48px;
 }
 
 .notifications-popover .notif-body {
@@ -1231,6 +1270,7 @@
 
 .popup-card-icon {
     opacity: 0.8;
+    -gtk-icon-size: 16px;
 }
 
 .popup-card-app {

@@ -1,56 +1,102 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use relm4::gtk::{self, prelude::*};
+use relm4::{
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    gtk::{self, prelude::*},
+};
 
-use super::row::build_notification_row;
-use super::stack::build_notification_group;
+use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput};
+use super::stack::{NotificationGroup, NotificationGroupInit, NotificationGroupInput};
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 
 pub struct NotificationsList {
-    root: gtk::Box,
     empty_label: gtk::Label,
     notif_box: gtk::Box,
+    emit_command: NotificationCommandEmitter,
+    on_toggle_stack: StackToggleEmitter,
+    groups: HashMap<String, Controller<NotificationGroup>>,
+    singles: HashMap<u32, Controller<NotificationCard>>,
 }
 
-impl NotificationsList {
-    pub fn new() -> Self {
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+pub struct NotificationsListInit {
+    pub emit_command: NotificationCommandEmitter,
+    pub on_toggle_stack: StackToggleEmitter,
+}
 
-        let empty_label = gtk::Label::new(Some("No notifications"));
-        empty_label.set_halign(gtk::Align::Center);
-        empty_label.set_valign(gtk::Align::Center);
-        empty_label.add_css_class("notif-empty");
-        root.append(&empty_label);
+#[derive(Debug)]
+pub enum NotificationsListInput {
+    Sync {
+        notifications: Vec<NotifData>,
+        stack_state: HashMap<String, bool>,
+    },
+}
 
-        let notif_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        notif_box.add_css_class("notif-list");
+#[relm4::component(pub)]
+impl SimpleComponent for NotificationsList {
+    type Init = NotificationsListInit;
+    type Input = NotificationsListInput;
+    type Output = ();
 
-        let scroll = gtk::ScrolledWindow::new();
-        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-        scroll.set_max_content_height(600);
-        scroll.set_propagate_natural_height(true);
-        scroll.set_vexpand(true);
-        scroll.set_child(Some(&notif_box));
-        root.append(&scroll);
+    view! {
+        root = gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
 
-        Self {
-            root,
-            empty_label,
-            notif_box,
+            #[name(empty_label)]
+            gtk::Label {
+                set_label: "No notifications",
+                set_halign: gtk::Align::Center,
+                set_valign: gtk::Align::Center,
+                add_css_class: "notif-empty",
+            },
+
+            #[name(scroll)]
+            gtk::ScrolledWindow {
+                set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                set_max_content_height: 600,
+                set_propagate_natural_height: true,
+                set_vexpand: true,
+
+                #[name(notif_box)]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 4,
+                    add_css_class: "notif-list",
+                }
+            }
         }
     }
 
-    pub fn widget(&self) -> &gtk::Box {
-        &self.root
+    fn init(
+        init: Self::Init,
+        _init_root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let widgets = view_output!();
+
+        let model = NotificationsList {
+            empty_label: widgets.empty_label.clone(),
+            notif_box: widgets.notif_box.clone(),
+            emit_command: init.emit_command,
+            on_toggle_stack: init.on_toggle_stack,
+            groups: HashMap::new(),
+            singles: HashMap::new(),
+        };
+
+        ComponentParts { model, widgets }
     }
 
-    pub fn rebuild(
-        &self,
-        notifications: &[NotifData],
-        stack_state: &HashMap<String, bool>,
-        emit_command: NotificationCommandEmitter,
-        on_toggle_stack: StackToggleEmitter,
-    ) {
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        let NotificationsListInput::Sync {
+            notifications,
+            stack_state,
+        } = msg;
+
+        self.sync(&notifications, &stack_state);
+    }
+}
+
+impl NotificationsList {
+    fn sync(&mut self, notifications: &[NotifData], stack_state: &HashMap<String, bool>) {
         clear_children(&self.notif_box);
         self.empty_label.set_visible(notifications.is_empty());
 
@@ -58,22 +104,48 @@ impl NotificationsList {
             return;
         }
 
+        let mut seen_groups = HashSet::new();
+        let mut seen_singles = HashSet::new();
+
         for (app_name, group) in grouped_notifications(notifications) {
             if group.len() > 1 {
+                seen_groups.insert(app_name.clone());
                 let stacked = *stack_state.get(&app_name).unwrap_or(&true);
-                let widget = build_notification_group(
-                    &app_name,
-                    &group,
+                let ctrl = self.groups.entry(app_name.clone()).or_insert_with(|| {
+                    NotificationGroup::builder()
+                        .launch(NotificationGroupInit {
+                            app_name: app_name.clone(),
+                            notifications: group.clone(),
+                            stacked,
+                            emit_command: self.emit_command.clone(),
+                            on_toggle_stack: self.on_toggle_stack.clone(),
+                        })
+                        .detach()
+                });
+                ctrl.emit(NotificationGroupInput::Update {
+                    app_name: app_name.clone(),
+                    notifications: group.clone(),
                     stacked,
-                    emit_command.clone(),
-                    on_toggle_stack.clone(),
-                );
-                self.notif_box.append(&widget);
+                });
+                self.notif_box.append(ctrl.widget());
             } else {
-                let row = build_notification_row(&group[0], emit_command.clone());
-                self.notif_box.append(&row);
+                let notif = group[0].clone();
+                seen_singles.insert(notif.id);
+                let ctrl = self.singles.entry(notif.id).or_insert_with(|| {
+                    NotificationCard::builder()
+                        .launch(NotificationCardInit {
+                            notif: notif.clone(),
+                            emit_command: self.emit_command.clone(),
+                        })
+                        .detach()
+                });
+                ctrl.emit(NotificationCardInput::Update(notif));
+                self.notif_box.append(ctrl.widget());
             }
         }
+
+        self.groups.retain(|name, _| seen_groups.contains(name));
+        self.singles.retain(|id, _| seen_singles.contains(id));
     }
 }
 

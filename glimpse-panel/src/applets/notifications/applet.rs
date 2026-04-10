@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::config::NotificationsConfig;
@@ -17,6 +17,7 @@ use relm4::{
 pub struct Notifications {
     icon_name: String,
     badge_label: String,
+    badge_count: u32,
     badge_visible: bool,
     badge_style: String, // "count", "dot", ""
     tooltip: String,
@@ -26,7 +27,9 @@ pub struct Notifications {
     popover: Controller<NotificationsPopover>,
     popup: Rc<RefCell<NotificationPopup>>,
     surfaced_ids: HashSet<u32>,
-    unread: HashMap<u32, u8>,
+    icon_widget: gtk::Image,
+    badge_widget: gtk::Box,
+    badge_value_label: gtk::Label,
 }
 
 pub struct NotificationsInit {
@@ -56,15 +59,8 @@ fn filter_fresh_notifications(
 
 fn notification_counts(notifications: &[NotificationEntry]) -> (u32, u32) {
     let count = notifications.len() as u32;
-    let badge_count = notifications
-        .iter()
-        .filter(|notification| notification.urgency > 0)
-        .count() as u32;
+    let badge_count = count;
     (count, badge_count)
-}
-
-fn unread_badge_count(unread: &HashMap<u32, u8>) -> u32 {
-    unread.len() as u32
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,11 +109,9 @@ impl Component for Notifications {
 
     view! {
         gtk::Box {
-            set_spacing: 4,
+            set_spacing: 3,
             add_css_class: "applet",
             add_css_class: "notifications",
-            #[watch]
-            set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
 
             add_controller = gtk::GestureClick {
                 set_button: 1,
@@ -126,28 +120,30 @@ impl Component for Notifications {
                 }
             },
 
-            gtk::Image {
-                #[watch]
-                set_icon_name: Some(&model.icon_name),
-                set_pixel_size: 16,
-            },
-
+            #[name = "indicator_box"]
             gtk::Box {
-                #[watch]
-                set_visible: model.badge_visible,
+                set_spacing: 3,
                 set_valign: gtk::Align::Center,
-                set_halign: gtk::Align::Center,
-                #[watch]
-                set_css_classes: &[badge_presentation(&model.badge_style, 0).css_class],
 
-                gtk::Label {
-                    add_css_class: "notification-badge-label",
-                    #[watch]
-                    set_visible: badge_presentation(&model.badge_style, 0).show_label,
-                    #[watch]
-                    set_label: &model.badge_label,
+                #[name = "icon_widget"]
+                gtk::Image {
+                    set_pixel_size: 16,
+                    set_valign: gtk::Align::Center,
+                },
+
+                #[name = "badge_widget"]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
                     set_valign: gtk::Align::Center,
                     set_halign: gtk::Align::Center,
+                    add_css_class: "notification-badge-anchor",
+
+                    #[name = "badge_value_label"]
+                    gtk::Label {
+                        add_css_class: "notification-badge-label",
+                        set_valign: gtk::Align::Center,
+                        set_halign: gtk::Align::Center,
+                    }
                 }
             },
         }
@@ -181,9 +177,12 @@ impl Component for Notifications {
             emit_command,
         )));
 
+        let widgets = view_output!();
+
         let model = Notifications {
             icon_name: "preferences-system-notifications-symbolic".into(),
             badge_label: String::new(),
+            badge_count: 0,
             badge_visible: false,
             badge_style: init.config.badge_style.clone(),
             tooltip: "Notifications".into(),
@@ -196,8 +195,11 @@ impl Component for Notifications {
             popover,
             popup,
             surfaced_ids: HashSet::new(),
-            unread: HashMap::new(),
+            icon_widget: widgets.icon_widget.clone(),
+            badge_widget: widgets.badge_widget.clone(),
+            badge_value_label: widgets.badge_value_label.clone(),
         };
+        model.refresh_indicator_widgets(&root);
 
         let service = init.service;
         sender.command(move |out, shutdown| {
@@ -216,7 +218,6 @@ impl Component for Notifications {
                 .drop_on_shutdown()
         });
 
-        let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
@@ -243,13 +244,12 @@ impl Component for Notifications {
                 .into();
 
                 let fresh = filter_fresh_notifications(&state.notifications, self.started_at);
-                let (count, _) = notification_counts(&fresh);
+                let (count, badge_count) = notification_counts(&fresh);
 
                 for notif in &fresh {
                     let id = notif.id;
                     if !self.surfaced_ids.contains(&id) {
                         self.surfaced_ids.insert(id);
-                        self.unread.entry(id).or_insert(notif.urgency);
                         if !self.dnd || notif.urgency == 2 {
                             self.popup.borrow_mut().show(notif);
                         }
@@ -260,10 +260,11 @@ impl Component for Notifications {
                     fresh.iter().map(|notification| notification.id).collect();
                 self.surfaced_ids.retain(|id| current_ids.contains(id));
 
-                let badge_count = unread_badge_count(&self.unread);
                 self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
+                self.badge_count = badge_count;
                 self.badge_label = badge_presentation(&self.badge_style, badge_count).label;
                 self.tooltip = tooltip_text(self.dnd, count);
+                self.refresh_indicator_widgets(_root);
 
                 self.popover.emit(NotificationsPopoverInput::UpdateStatus {
                     dnd: self.dnd,
@@ -273,11 +274,8 @@ impl Component for Notifications {
                 self.popover
                     .emit(NotificationsPopoverInput::UpdateList(fresh));
             }
-            NotificationsMsg::MarkSeen(id) => {
-                self.unread.remove(&id);
-                let badge_count = unread_badge_count(&self.unread);
-                self.badge_visible = badge_count > 0 && !self.badge_style.is_empty();
-                self.badge_label = badge_presentation(&self.badge_style, badge_count).label;
+            NotificationsMsg::MarkSeen(_id) => {
+                self.refresh_indicator_widgets(_root);
             }
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);
@@ -294,6 +292,24 @@ impl Component for Notifications {
                 tracing::warn!("notifications applet: service unavailable");
             }
         }
+    }
+}
+
+impl Notifications {
+    fn refresh_indicator_widgets(&self, root: &gtk::Box) {
+        root.set_tooltip_text(if self.tooltip.is_empty() {
+            None
+        } else {
+            Some(&self.tooltip)
+        });
+        self.icon_widget.set_icon_name(Some(&self.icon_name));
+
+        let presentation = badge_presentation(&self.badge_style, self.badge_count);
+        self.badge_widget
+            .set_css_classes(&["notification-badge-anchor", presentation.css_class]);
+        self.badge_widget.set_visible(self.badge_visible);
+        self.badge_value_label.set_visible(presentation.show_label);
+        self.badge_value_label.set_label(&self.badge_label);
     }
 }
 
@@ -336,21 +352,14 @@ mod tests {
         let (count, badge_count) = notification_counts(&notifications);
 
         assert_eq!(count, 3);
-        assert_eq!(badge_count, 2);
+        assert_eq!(badge_count, 3);
     }
 
     #[test]
-    fn unread_badge_count_uses_unread_state_not_active_list() {
-        let unread = HashMap::from([(1, 1), (2, 2)]);
+    fn badge_count_includes_low_urgency_entries() {
+        let notifications = vec![notif(1, 100, 0), notif(2, 101, 1)];
 
-        assert_eq!(unread_badge_count(&unread), 2);
-    }
-
-    #[test]
-    fn unread_badge_count_includes_low_urgency_entries() {
-        let unread = HashMap::from([(1, 0), (2, 1)]);
-
-        assert_eq!(unread_badge_count(&unread), 2);
+        assert_eq!(notification_counts(&notifications).1, 2);
     }
 
     #[test]
