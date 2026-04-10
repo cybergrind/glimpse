@@ -6,6 +6,5 @@ pub mod dbus_props;
 pub mod debug;
 pub mod mpris;
 pub mod network;
-pub mod notifications;
 pub mod power;
 pub mod privacy;

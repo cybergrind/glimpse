@@ -2,6 +2,7 @@ use glimpse::notifications::NotificationsCommand;
 
 mod activation;
 mod applet;
+mod components;
 mod config;
 mod popover;
 mod popup;

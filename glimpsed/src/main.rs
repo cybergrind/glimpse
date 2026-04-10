@@ -1,5 +1,4 @@
 mod broker;
-mod notification_server;
 mod pattern;
 mod provider;
 mod providers;
@@ -33,9 +32,7 @@ async fn bind_socket(path: &std::path::Path) -> anyhow::Result<UnixListener> {
     Ok(UnixListener::bind(path)?)
 }
 
-fn register_providers(
-    notify_tx: tokio::sync::mpsc::Sender<notification_server::NotifyMessage>,
-) -> Vec<Box<dyn provider::ProviderFactory>> {
+fn register_providers() -> Vec<Box<dyn provider::ProviderFactory>> {
     vec![
         Box::new(providers::audio::AudioProviderFactory),
         Box::new(providers::battery::BatteryProviderFactory),
@@ -44,9 +41,6 @@ fn register_providers(
         Box::new(providers::debug::DebugProviderFactory),
         Box::new(providers::mpris::MprisProviderFactory),
         Box::new(providers::network::NetworkProviderFactory),
-        Box::new(providers::notifications::NotificationsProviderFactory {
-            server_tx: notify_tx,
-        }),
         Box::new(providers::power::PowerProviderFactory),
         Box::new(providers::privacy::PrivacyProviderFactory),
     ]
@@ -67,22 +61,8 @@ async fn main() -> anyhow::Result<()> {
 
     let cancel = CancellationToken::new();
 
-    // Notification server channel — shared between standalone server and provider
-    let (notify_tx, notify_rx) = notification_server::create_channel();
-
-    let (broker, broker_tx) = Broker::new(register_providers(notify_tx.clone()));
+    let (broker, broker_tx) = Broker::new(register_providers());
     tokio::spawn(broker.run());
-
-    // Notification server — runs permanently, claims org.freedesktop.Notifications
-    let notif_cancel = cancel.clone();
-    let notif_broker_tx = broker_tx.clone();
-    tokio::spawn(async move {
-        if let Err(e) =
-            notification_server::run(notif_cancel, notif_broker_tx, notify_rx, notify_tx).await
-        {
-            tracing::warn!("notification-server: {e}");
-        }
-    });
 
     // Shutdown on SIGTERM / SIGINT.
     let shutdown = cancel.clone();
