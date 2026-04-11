@@ -1,13 +1,17 @@
 use glimpse::providers::audio::{AudioStream, DeviceList};
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
 };
 
-use super::components::devices::{DeviceSection, DeviceSectionInit, DeviceSectionInput};
+use super::components::devices::{
+    DeviceSection, DeviceSectionInit, DeviceSectionInput, DeviceSectionOutput,
+};
 use super::components::hero::{AudioHero, AudioHeroInput};
-use super::components::streams::{StreamList, StreamListInit, StreamListInput};
-use super::components::volume::{VolumeSection, VolumeSectionInit, VolumeSectionInput};
+use super::components::streams::{StreamList, StreamListInit, StreamListInput, StreamListOutput};
+use super::components::volume::{
+    VolumeSection, VolumeSectionInit, VolumeSectionInput, VolumeSectionOutput,
+};
 use super::config::AudioConfig;
 
 pub struct AudioPopover {
@@ -31,77 +35,117 @@ pub enum AudioPopoverInput {
     UpdateStreams(Vec<AudioStream>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AudioPopoverOutput {
+    ToggleOutputMute,
+    ToggleInputMute,
+    SetOutputVolume(u32),
+    SetInputVolume(u32),
+    SetDefaultOutput(String),
+    SetDefaultInput(String),
+    ToggleStreamMute(u64),
+    SetStreamVolume { stream_id: u64, volume: u32 },
+    OpenSettings,
+}
+
+#[relm4::component(pub)]
 impl SimpleComponent for AudioPopover {
     type Init = AudioPopoverInit;
     type Input = AudioPopoverInput;
-    type Output = ();
-    type Root = gtk::Popover;
-    type Widgets = ();
+    type Output = AudioPopoverOutput;
 
-    fn init_root() -> Self::Root {
-        gtk::Popover::new()
+    view! {
+        root = gtk::Popover {
+            add_css_class: "audio-popover",
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_hexpand: false,
+                set_overflow: gtk::Overflow::Hidden,
+
+                #[local_ref]
+                hero_widget -> gtk::Box {},
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                #[local_ref]
+                volume_widget -> gtk::Box {},
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                #[local_ref]
+                devices_widget -> gtk::Box {},
+
+                #[local_ref]
+                streams_widget -> gtk::Box {},
+
+                #[name(settings_sep)]
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_visible: !init.config.settings_command.is_empty(),
+                },
+
+                #[name(settings_button)]
+                gtk::Button {
+                    add_css_class: "flat",
+                    add_css_class: "settings-btn",
+                    set_visible: !init.config.settings_command.is_empty(),
+                    connect_clicked[sender] => move |_| {
+                        let _ = sender.output(AudioPopoverOutput::OpenSettings);
+                    },
+
+                    gtk::Label {
+                        set_label: "Audio Settings",
+                        set_halign: gtk::Align::Start,
+                    },
+                },
+            }
+        }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
-        _sender: ComponentSender<Self>,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.set_parent(&init.parent);
-        root.set_autohide(true);
-        root.add_css_class("audio-popover");
-
-        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        vbox.set_hexpand(false);
-        vbox.set_overflow(gtk::Overflow::Hidden);
-
         let hero = AudioHero::builder().launch(()).detach();
-        vbox.append(hero.widget());
-
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
         let volume = VolumeSection::builder()
-            .launch(VolumeSectionInit { max_volume: init.config.max_volume as f64 })
-            .detach();
-        vbox.append(volume.widget());
-
-        vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
+            .launch(VolumeSectionInit {
+                max_volume: init.config.max_volume as f64,
+            })
+            .forward(sender.output_sender(), map_volume_output);
         let devices = DeviceSection::builder()
             .launch(DeviceSectionInit)
-            .detach();
-        vbox.append(devices.widget());
-
+            .forward(sender.output_sender(), map_device_output);
         let streams = StreamList::builder()
             .launch(StreamListInit {
-                max_vol: init.config.max_volume as f64,
+                max_volume: init.config.max_volume as f64,
                 show_streams: init.config.show_streams,
             })
-            .detach();
-        vbox.append(streams.widget());
+            .forward(sender.output_sender(), map_stream_output);
 
-        if !init.config.settings_command.is_empty() {
-            vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-            let cmd = init.config.settings_command.clone();
-            let lbl = gtk::Label::new(Some("Audio Settings"));
-            lbl.set_halign(gtk::Align::Start);
-            let btn = gtk::Button::new();
-            btn.set_child(Some(&lbl));
-            btn.add_css_class("flat");
-            btn.add_css_class("settings-btn");
-            btn.connect_clicked(move |_| {
-                let parts: Vec<&str> = cmd.split_whitespace().collect();
-                if let Some((&prog, args)) = parts.split_first() {
-                    let _ = std::process::Command::new(prog).args(args).spawn();
-                }
-            });
-            vbox.append(&btn);
-        }
+        let hero_widget = hero.widget().clone();
+        let volume_widget = volume.widget().clone();
+        let devices_widget = devices.widget().clone();
+        let streams_widget = streams.widget().clone();
 
-        root.set_child(Some(&vbox));
+        let widgets = view_output!();
+        widgets.root.set_parent(&init.parent);
+        widgets.root.set_autohide(true);
 
-        let model = AudioPopover { popover: root.clone(), hero, volume, devices, streams };
-        ComponentParts { model, widgets: () }
+        let model = AudioPopover {
+            popover: widgets.root.clone(),
+            hero,
+            volume,
+            devices,
+            streams,
+        };
+
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
@@ -114,28 +158,59 @@ impl SimpleComponent for AudioPopover {
                 }
             }
             AudioPopoverInput::UpdateOutputs(outputs) => {
-                if let Some(d) = outputs.default_device() {
+                if let Some(device) = outputs.default_device() {
                     use glimpse::providers::audio::volume_icon;
-                    let subtitle = if d.muted {
-                        format!("{} — muted", d.description)
+
+                    let subtitle = if device.muted {
+                        format!("{} — muted", device.description)
                     } else {
-                        format!("{} — {}%", d.description, d.volume)
+                        format!("{} — {}%", device.description, device.volume)
                     };
+
                     self.hero.emit(AudioHeroInput::Update {
-                        icon_name: volume_icon(d.volume, d.muted).to_owned(),
+                        icon_name: volume_icon(device.volume, device.muted).to_owned(),
                         subtitle,
                     });
                 }
-                self.volume.emit(VolumeSectionInput::UpdateOutputs(outputs.clone()));
-                self.devices.emit(DeviceSectionInput::UpdateOutputs(outputs));
+
+                self.volume
+                    .emit(VolumeSectionInput::UpdateOutputs(outputs.clone()));
+                self.devices
+                    .emit(DeviceSectionInput::UpdateOutputs(outputs));
             }
             AudioPopoverInput::UpdateInputs(inputs) => {
-                self.volume.emit(VolumeSectionInput::UpdateInputs(inputs.clone()));
+                self.volume
+                    .emit(VolumeSectionInput::UpdateInputs(inputs.clone()));
                 self.devices.emit(DeviceSectionInput::UpdateInputs(inputs));
             }
             AudioPopoverInput::UpdateStreams(streams) => {
                 self.streams.emit(StreamListInput::Update(streams));
             }
+        }
+    }
+}
+
+fn map_volume_output(output: VolumeSectionOutput) -> AudioPopoverOutput {
+    match output {
+        VolumeSectionOutput::ToggleOutputMute => AudioPopoverOutput::ToggleOutputMute,
+        VolumeSectionOutput::ToggleInputMute => AudioPopoverOutput::ToggleInputMute,
+        VolumeSectionOutput::SetOutputVolume(volume) => AudioPopoverOutput::SetOutputVolume(volume),
+        VolumeSectionOutput::SetInputVolume(volume) => AudioPopoverOutput::SetInputVolume(volume),
+    }
+}
+
+fn map_device_output(output: DeviceSectionOutput) -> AudioPopoverOutput {
+    match output {
+        DeviceSectionOutput::SetDefaultOutput(name) => AudioPopoverOutput::SetDefaultOutput(name),
+        DeviceSectionOutput::SetDefaultInput(name) => AudioPopoverOutput::SetDefaultInput(name),
+    }
+}
+
+fn map_stream_output(output: StreamListOutput) -> AudioPopoverOutput {
+    match output {
+        StreamListOutput::ToggleMute(stream_id) => AudioPopoverOutput::ToggleStreamMute(stream_id),
+        StreamListOutput::SetVolume { stream_id, volume } => {
+            AudioPopoverOutput::SetStreamVolume { stream_id, volume }
         }
     }
 }

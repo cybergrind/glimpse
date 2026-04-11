@@ -1,11 +1,11 @@
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
+    ComponentParts, ComponentSender, SimpleComponent,
 };
 
 pub struct AudioHero {
-    icon: gtk::Image,
-    subtitle: gtk::Label,
+    icon_name: String,
+    subtitle: String,
 }
 
 #[derive(Debug)]
@@ -13,48 +13,57 @@ pub enum AudioHeroInput {
     Update { icon_name: String, subtitle: String },
 }
 
+#[relm4::component(pub)]
 impl SimpleComponent for AudioHero {
     type Init = ();
     type Input = AudioHeroInput;
     type Output = ();
-    type Root = gtk::Box;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        gtk::Box::new(gtk::Orientation::Horizontal, 12)
+    view! {
+        gtk::Box {
+            set_spacing: 12,
+            add_css_class: "audio-hero",
+
+            gtk::Image {
+                #[watch]
+                set_icon_name: Some(&model.icon_name),
+                set_pixel_size: 32,
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 2,
+                set_hexpand: true,
+                set_valign: gtk::Align::Center,
+
+                gtk::Label {
+                    set_label: "Audio",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "audio-hero-title",
+                },
+
+                gtk::Label {
+                    #[watch]
+                    set_label: &model.subtitle,
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "audio-hero-subtitle",
+                },
+            },
+        }
     }
 
     fn init(
         _init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.add_css_class("audio-hero");
+        let model = AudioHero {
+            icon_name: "audio-volume-high-symbolic".into(),
+            subtitle: String::new(),
+        };
+        let widgets = view_output!();
 
-        let icon = gtk::Image::from_icon_name("audio-volume-high-symbolic");
-        icon.set_pixel_size(32);
-        root.append(&icon);
-
-        let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        text_box.set_hexpand(true);
-        text_box.set_valign(gtk::Align::Center);
-
-        let title = gtk::Label::new(Some("Audio"));
-        title.set_halign(gtk::Align::Start);
-        title.add_css_class("audio-hero-title");
-        text_box.append(&title);
-
-        let subtitle = gtk::Label::new(None);
-        subtitle.set_halign(gtk::Align::Start);
-        subtitle.add_css_class("audio-hero-subtitle");
-        text_box.append(&subtitle);
-
-        root.append(&text_box);
-
-        ComponentParts {
-            model: AudioHero { icon, subtitle },
-            widgets: (),
-        }
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
@@ -62,7 +71,7 @@ impl SimpleComponent for AudioHero {
             icon_name,
             subtitle,
         } = msg;
-        self.icon.set_icon_name(Some(&icon_name));
-        self.subtitle.set_label(&subtitle);
+        self.icon_name = icon_name;
+        self.subtitle = subtitle;
     }
 }

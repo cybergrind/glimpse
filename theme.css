@@ -749,7 +749,7 @@
 .mpris {}
 
 .mpris-popover {
-    min-width: 520px;
+    min-width: 598px;
 }
 
 .mpris-popover contents>box {
@@ -772,12 +772,19 @@
     background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
-.mpris-popover .mpris-card-art {
-    min-width: 42px;
-    min-height: 42px;
+.mpris-popover .mpris-card-art-slot {
+    min-width: 48px;
+    min-height: 48px;
+    max-width: 48px;
+    max-height: 48px;
     border-radius: 10px;
     overflow: hidden;
     background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.mpris-popover .mpris-card-art {
+    min-width: 48px;
+    min-height: 48px;
 }
 
 .mpris-popover .mpris-card-content {
@@ -786,11 +793,6 @@
 
 .mpris-popover .mpris-card-copy {
     min-width: 0;
-}
-
-.mpris-popover .mpris-card-art-fallback {
-    -gtk-icon-size: 48px;
-    opacity: 0.55;
 }
 
 .mpris-popover .mpris-card-title {
