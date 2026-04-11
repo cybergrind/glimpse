@@ -1,4 +1,5 @@
 pub mod components;
+pub mod heic;
 
 pub use components::{MonitorWindow, MonitorWindowInit, MonitorWindowMsg};
 

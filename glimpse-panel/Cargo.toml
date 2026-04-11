@@ -32,3 +32,6 @@ tokio-util = "0.7"
 glimpse_types = { package = "glimpse-types", path = "../glimpse-types" }
 css-color.workspace = true
 gio.workspace = true
+anyhow.workspace = true
+image = "0.25"
+libheif-rs = "2.7.0"
