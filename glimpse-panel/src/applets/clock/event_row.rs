@@ -14,6 +14,7 @@ pub struct EventRowInit {
 pub struct EventRow {
     event: CalendarEvent,
     selected_date: NaiveDate,
+    parsed_times: Option<(DateTime<Local>, DateTime<Local>)>,
     timing_label: String,
 }
 
@@ -57,9 +58,11 @@ impl SimpleComponent for EventRow {
         _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let parsed_times = parse_event_times(&init.event);
         let mut model = EventRow {
             event: init.event,
             selected_date: init.selected_date,
+            parsed_times,
             timing_label: String::new(),
         };
         model.refresh_label();
@@ -77,7 +80,7 @@ impl SimpleComponent for EventRow {
 
 impl EventRow {
     fn refresh_label(&mut self) {
-        let Some((start, end)) = event_times(&self.event) else {
+        let Some((start, end)) = self.parsed_times else {
             self.timing_label.clear();
             return;
         };
@@ -85,7 +88,7 @@ impl EventRow {
     }
 }
 
-fn event_times(event: &CalendarEvent) -> Option<(DateTime<Local>, DateTime<Local>)> {
+fn parse_event_times(event: &CalendarEvent) -> Option<(DateTime<Local>, DateTime<Local>)> {
     let start = DateTime::parse_from_rfc3339(&event.start).ok()?;
     let end = DateTime::parse_from_rfc3339(&event.end).ok()?;
     Some((start.with_timezone(&Local), end.with_timezone(&Local)))

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Days, Local, LocalResult, NaiveDate, NaiveTime, TimeZone};
@@ -64,6 +68,7 @@ pub trait CalendarBackend: Send + Sync + 'static {
     async fn load_today(&self) -> anyhow::Result<CalendarToday>;
     async fn load_day(&self, date: CalendarDate) -> anyhow::Result<CalendarDaySnapshot>;
     async fn load_month(&self, year: i32, month: u32) -> anyhow::Result<CalendarMonthSnapshot>;
+    async fn set_live_range(&self, range: CalendarLiveRange) -> anyhow::Result<()>;
     async fn listen(
         &self,
         events: mpsc::Sender<CalendarProviderEvent>,
@@ -73,25 +78,45 @@ pub trait CalendarBackend: Send + Sync + 'static {
 
 #[derive(Clone)]
 pub struct CalendarProvider {
-    session: zbus::Connection,
+    fetch_session: zbus::Connection,
+    listen_session: zbus::Connection,
+    live_range_tx: tokio::sync::watch::Sender<CalendarLiveRange>,
 }
 
 impl CalendarProvider {
     pub async fn new(session: zbus::Connection) -> anyhow::Result<Self> {
+        let listen_session = zbus::Connection::session().await?;
         let _ = calendar_server_proxy(&session).await?;
-        Ok(Self { session })
+        let _ = calendar_server_proxy(&listen_session).await?;
+        let today = Local::now().date_naive();
+        let (live_range_tx, _) = tokio::sync::watch::channel(CalendarLiveRange {
+            start: day_start(today)?,
+            end: next_day_start(today)?,
+        });
+        Ok(Self {
+            fetch_session: session,
+            listen_session,
+            live_range_tx,
+        })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarLiveRange {
+    pub start: DateTime<Local>,
+    pub end: DateTime<Local>,
 }
 
 #[async_trait]
 impl CalendarBackend for CalendarProvider {
     async fn load_today(&self) -> anyhow::Result<CalendarToday> {
-        let proxy = calendar_server_proxy(&self.session).await?;
-        let sources = read_sources(&self.session).await?;
+        let proxy = calendar_server_proxy(&self.fetch_session).await?;
+        let sources = read_sources(&self.fetch_session).await?;
         let now = Local::now();
         let today = now.date_naive();
-        set_time_range(&proxy, day_start(today)?, next_day_start(today)?, true).await?;
-        let events = collect_events_for_current_range(&proxy).await?;
+        let events =
+            collect_events_for_range(&proxy, day_start(today)?, next_day_start(today)?, true)
+                .await?;
         Ok(select_visible_events(now, events, &sources))
     }
 
@@ -99,18 +124,24 @@ impl CalendarBackend for CalendarProvider {
         let date = date
             .to_naive_date()
             .ok_or_else(|| anyhow::anyhow!("invalid calendar date"))?;
-        let sources = read_sources(&self.session).await?;
-        let events = fetch_range(&self.session, day_start(date)?, next_day_start(date)?).await?;
+        let sources = read_sources(&self.fetch_session).await?;
+        let events =
+            fetch_range(&self.fetch_session, day_start(date)?, next_day_start(date)?).await?;
         Ok(select_events_for_day(date, Local::now(), events, &sources))
     }
 
     async fn load_month(&self, year: i32, month: u32) -> anyhow::Result<CalendarMonthSnapshot> {
         let month = NaiveDate::from_ymd_opt(year, month, 1)
             .ok_or_else(|| anyhow::anyhow!("invalid calendar month {year}-{month}"))?;
-        let sources = read_sources(&self.session).await?;
+        let sources = read_sources(&self.fetch_session).await?;
         let events =
-            fetch_range(&self.session, day_start(month)?, next_month_start(month)?).await?;
+            fetch_range(&self.fetch_session, day_start(month)?, next_month_start(month)?).await?;
         Ok(summarize_month(month, events, &sources))
+    }
+
+    async fn set_live_range(&self, range: CalendarLiveRange) -> anyhow::Result<()> {
+        let _ = self.live_range_tx.send(range);
+        Ok(())
     }
 
     async fn listen(
@@ -118,15 +149,23 @@ impl CalendarBackend for CalendarProvider {
         events: mpsc::Sender<CalendarProviderEvent>,
         cancel: CancellationToken,
     ) -> anyhow::Result<()> {
-        let proxy = calendar_server_proxy(&self.session).await?;
-        let today = Local::now().date_naive();
-        set_time_range(&proxy, day_start(today)?, next_day_start(today)?, false).await?;
+        let proxy = calendar_server_proxy(&self.listen_session).await?;
         let mut upserts = proxy.receive_signal(SIGNAL_UPSERT).await?;
         let mut removals = proxy.receive_signal(SIGNAL_REMOVE).await?;
+        let mut live_range = self.live_range_tx.subscribe();
+        let initial_range = live_range.borrow().clone();
+        set_time_range(&proxy, initial_range.start, initial_range.end, false).await?;
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                range_change = live_range.changed() => {
+                    if range_change.is_err() {
+                        return Ok(());
+                    }
+                    let range = live_range.borrow_and_update().clone();
+                    set_time_range(&proxy, range.start, range.end, false).await?;
+                }
                 maybe_signal = upserts.next() => {
                     let Some(_) = maybe_signal else {
                         return Ok(());
@@ -259,6 +298,7 @@ fn summarize_month(
         .checked_sub_days(Days::new(1))
         .unwrap_or(month_start_date);
     let mut days: HashMap<NaiveDate, Vec<String>> = HashMap::new();
+    let mut event_days: BTreeMap<NaiveDate, Vec<(i64, CalendarEvent)>> = BTreeMap::new();
 
     for event in events {
         let Some(start) = local_from_epoch(event.start_epoch) else {
@@ -272,12 +312,10 @@ fn summarize_month(
         }
 
         let source_uid = event.id.lines().next().unwrap_or_default();
-        let Some(color) = sources_by_uid
+        let color = sources_by_uid
             .get(source_uid)
-            .and_then(|source| source.source.color.clone())
-        else {
-            continue;
-        };
+            .and_then(|source| source.source.color.clone());
+        let mapped = map_event(event.clone(), sources_by_uid.get(source_uid).copied());
 
         let mut day = start.date_naive().max(month_start_date);
         let last_inclusive = if end.time() == NaiveTime::MIN {
@@ -291,8 +329,13 @@ fn summarize_month(
 
         while day <= last_inclusive {
             let entry = days.entry(day).or_default();
-            if entry.len() < 3 && !entry.iter().any(|existing| existing == &color) {
-                entry.push(color.clone());
+            if let Some(color) = color.as_ref() {
+                if entry.len() < 3 && !entry.iter().any(|existing| existing == color) {
+                    entry.push(color.clone());
+                }
+            }
+            if let Some((start_epoch, mapped)) = mapped.clone() {
+                event_days.entry(day).or_default().push((start_epoch, mapped));
             }
             let Some(next) = day.checked_add_days(Days::new(1)) else {
                 break;
@@ -309,11 +352,26 @@ fn summarize_month(
         })
         .collect();
     summaries.sort_by_key(|day| day.date);
+    let day_snapshots = event_days
+        .into_iter()
+        .map(|(date, mut entries)| {
+            entries.sort_by_key(|(start_epoch, _)| *start_epoch);
+            entries.dedup_by(|(_, left), (_, right)| left.event_id == right.event_id);
+            (
+                CalendarDate::from_naive_date(date),
+                CalendarDaySnapshot {
+                    date: CalendarDate::from_naive_date(date),
+                    events: entries.into_iter().map(|(_, event)| event).collect(),
+                },
+            )
+        })
+        .collect();
 
     CalendarMonthSnapshot {
         year: month_start_date.year(),
         month: month_start_date.month(),
         days: summaries,
+        day_snapshots,
     }
 }
 
@@ -340,15 +398,18 @@ async fn fetch_range(
     end: DateTime<Local>,
 ) -> anyhow::Result<Vec<CalendarServerEvent>> {
     let proxy = calendar_server_proxy(conn).await?;
-    set_time_range(&proxy, start, end, true).await?;
-    collect_events_for_current_range(&proxy).await
+    collect_events_for_range(&proxy, start, end, true).await
 }
 
-async fn collect_events_for_current_range(
+async fn collect_events_for_range(
     proxy: &zbus::Proxy<'_>,
+    start: DateTime<Local>,
+    end: DateTime<Local>,
+    force_reload: bool,
 ) -> anyhow::Result<Vec<CalendarServerEvent>> {
     let mut upserts = proxy.receive_signal(SIGNAL_UPSERT).await?;
     let mut removals = proxy.receive_signal(SIGNAL_REMOVE).await?;
+    set_time_range(proxy, start, end, force_reload).await?;
     let deadline = tokio::time::Instant::now() + Duration::from_millis(RANGE_WARMUP_MS);
     let mut events = HashMap::new();
 
@@ -634,5 +695,43 @@ mod tests {
         assert_eq!(payload.events.len(), 2);
         assert_eq!(payload.events[0].title, "Ended");
         assert_eq!(payload.events[1].title, "Future");
+    }
+
+    #[test]
+    fn month_summary_keeps_day_snapshots_for_instant_day_switching() {
+        let month_start = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        let event = CalendarServerEvent {
+            id: "source-a\nevt-1\n".into(),
+            summary: "Design sync".into(),
+            start_epoch: Local
+                .with_ymd_and_hms(2026, 4, 10, 16, 5, 0)
+                .unwrap()
+                .timestamp(),
+            end_epoch: Local
+                .with_ymd_and_hms(2026, 4, 10, 16, 35, 0)
+                .unwrap()
+                .timestamp(),
+        };
+        let source = SourceInfo {
+            uid: "source-a".into(),
+            source: CalendarSource {
+                source_id: "source-a".into(),
+                display_name: "Work".into(),
+                color: Some("#68a3ff".into()),
+            },
+        };
+
+        let summary = summarize_month(month_start, vec![event], &[source]);
+        let day = summary
+            .day_snapshots
+            .get(&CalendarDate {
+                year: 2026,
+                month: 4,
+                day: 10,
+            })
+            .expect("day snapshot should be present");
+
+        assert_eq!(day.events.len(), 1);
+        assert_eq!(day.events[0].title, "Design sync");
     }
 }

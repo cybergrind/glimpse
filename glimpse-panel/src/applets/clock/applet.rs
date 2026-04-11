@@ -121,13 +121,7 @@ impl Component for Clock {
             shutdown
                 .register(async move {
                     let today = CalendarDate::from_naive_date(today);
-                    for command in [
-                        CalendarServiceCommand::LoadMonth {
-                            year: today.year,
-                            month: today.month,
-                        },
-                        CalendarServiceCommand::LoadDay { date: today },
-                    ] {
+                    for command in initial_calendar_commands(today) {
                         if let Err(error) = service.send(command).await {
                             tracing::warn!(error = %error, "clock applet: failed to send initial calendar command");
                             break;
@@ -155,7 +149,9 @@ impl Component for Clock {
         match input {
             ClockInput::Tick => {
                 self.value = Local::now().format(&self.config.format).to_string();
-                self.popover.emit(PopoverInput::Tick);
+                if should_tick_popover(self.popover.widget().is_visible()) {
+                    self.popover.emit(PopoverInput::Tick);
+                }
             }
             ClockInput::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
@@ -215,5 +211,44 @@ async fn local_timer(out: relm4::Sender<ClockCommandOutput>) {
         if out.send(ClockCommandOutput::Tick).is_err() {
             break;
         }
+    }
+}
+
+fn initial_calendar_commands(today: CalendarDate) -> Vec<CalendarServiceCommand> {
+    vec![CalendarServiceCommand::LoadMonth {
+        year: today.year,
+        month: today.month,
+    }]
+}
+
+fn should_tick_popover(popover_visible: bool) -> bool {
+    popover_visible
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_calendar_commands_only_load_visible_month() {
+        let today = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 11,
+        };
+
+        assert_eq!(
+            initial_calendar_commands(today),
+            vec![CalendarServiceCommand::LoadMonth {
+                year: 2026,
+                month: 4,
+            }]
+        );
+    }
+
+    #[test]
+    fn hidden_popover_does_not_need_tick_forwarding() {
+        assert!(!should_tick_popover(false));
+        assert!(should_tick_popover(true));
     }
 }

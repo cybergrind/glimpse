@@ -19,7 +19,11 @@ pub struct Events {
 #[derive(Debug)]
 pub enum EventsInput {
     Tick,
-    SetDate(NaiveDate),
+    SetDate {
+        date: NaiveDate,
+        day: Option<CalendarDaySnapshot>,
+        refresh: bool,
+    },
     Data(CalendarDaySnapshot),
 }
 
@@ -98,15 +102,20 @@ impl Component for Events {
                     .for_each(|row| row.emit(EventRowInput::Tick));
                 self.refresh_today_if_needed(&sender);
             }
-            EventsInput::SetDate(date) => {
+            EventsInput::SetDate { date, day, refresh } => {
                 let changed = self.selected_date != date;
                 self.selected_date = date;
                 self.last_refresh_minute = None;
-                if changed {
+                if let Some(day) = day {
+                    self.replace_rows(day);
+                    self.last_refresh_minute = Some(current_minute_key());
+                } else if changed {
                     self.show_loading_state();
                 }
                 self.update_empty_state();
-                self.refresh_selected_day(&sender);
+                if refresh {
+                    self.refresh_selected_day(&sender);
+                }
             }
             EventsInput::Data(day) => {
                 self.replace_rows(day);
@@ -141,6 +150,7 @@ impl Events {
             self.list_box.remove(&child);
         }
         self.rows.clear();
+        self.loading = false;
 
         for event in day.events {
             let row = EventRow::builder()
@@ -160,11 +170,26 @@ impl Events {
     }
 
     fn update_empty_state(&self) {
+        if self.loading {
+            self.empty_label.set_label("Loading...");
+            return;
+        }
         if self.selected_date == Local::now().date_naive() {
             self.empty_label.set_label("No more events today");
         } else {
             self.empty_label.set_label("No events");
         }
+    }
+
+    fn show_loading_state(&mut self) {
+        while let Some(child) = self.list_box.first_child() {
+            self.list_box.remove(&child);
+        }
+        self.rows.clear();
+        self.loading = true;
+        self.list_box.set_visible(false);
+        self.empty_label.set_visible(true);
+        self.update_empty_state();
     }
 }
 

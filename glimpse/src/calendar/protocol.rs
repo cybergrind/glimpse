@@ -60,6 +60,7 @@ pub struct CalendarMonthSnapshot {
     pub year: i32,
     pub month: u32,
     pub days: Vec<CalendarMonthDay>,
+    pub day_snapshots: BTreeMap<CalendarDate, CalendarDaySnapshot>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

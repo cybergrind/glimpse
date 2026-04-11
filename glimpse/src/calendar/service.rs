@@ -1,5 +1,6 @@
 use std::{error::Error, sync::Arc, time::Duration};
 
+use chrono::{Datelike, Days, Local, Months, NaiveDate, TimeZone};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -8,7 +9,10 @@ use crate::{
         CalendarDate, CalendarDaySnapshot, CalendarMonthSnapshot, CalendarServiceCommand,
         CalendarServiceHealth, CalendarServiceState,
     },
-    providers::calendar::{CalendarBackend, CalendarChangeReason, CalendarProvider, CalendarProviderEvent},
+    providers::calendar::{
+        CalendarBackend, CalendarChangeReason, CalendarLiveRange, CalendarProvider,
+        CalendarProviderEvent,
+    },
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;
@@ -122,6 +126,7 @@ async fn run_connected(
     });
 
     refresh_all(&*provider, &state_tx).await?;
+    sync_live_range(&*provider, &state_tx).await?;
     let _ = state_tx.send_modify(|state| state.health = CalendarServiceHealth::Ready);
 
     let result = loop {
@@ -138,6 +143,9 @@ async fn run_connected(
                                 };
                             });
                         } else {
+                            if let Err(error) = sync_live_range(&*provider, &state_tx).await {
+                                tracing::warn!(error = %error, "calendar service: live range sync failed");
+                            }
                             let _ = state_tx.send_modify(|state| state.health = CalendarServiceHealth::Ready);
                         }
                     }
@@ -155,6 +163,9 @@ async fn run_connected(
                                 };
                             });
                         } else {
+                            if let Err(error) = sync_live_range(&*provider, &state_tx).await {
+                                tracing::warn!(error = %error, "calendar service: live range sync failed");
+                            }
                             let _ = state_tx.send_modify(|state| state.health = CalendarServiceHealth::Ready);
                         }
                     }
@@ -188,12 +199,23 @@ async fn handle_command(
         CalendarServiceCommand::LoadMonth { year, month } => {
             let snapshot = provider.load_month(year, month).await?;
             let _ = state_tx.send_modify(|state| {
+                state.month_cache.clear();
+                state.day_cache.retain(|date, _| {
+                    (date.year == year && date.month == month) || is_today(*date)
+                });
+                for (date, day) in snapshot.day_snapshots.clone() {
+                    state.day_cache.insert(date, day);
+                }
                 state.month_cache.insert((year, month), snapshot);
             });
         }
         CalendarServiceCommand::LoadDay { date } => {
             let snapshot = provider.load_day(date).await?;
             let _ = state_tx.send_modify(|state| {
+                let cached_months = state.month_cache.keys().copied().collect::<std::collections::BTreeSet<_>>();
+                state.day_cache.retain(|cached, _| {
+                    cached_months.contains(&(cached.year, cached.month)) || *cached == date || is_today(*cached)
+                });
                 state.day_cache.insert(date, snapshot);
             });
         }
@@ -217,9 +239,10 @@ async fn refresh_all(
             state.month_cache.keys().copied().collect::<Vec<_>>(),
         )
     };
+    let covered_months = month_keys.iter().copied().collect::<std::collections::BTreeSet<_>>();
 
     let mut refreshed_days: Vec<(CalendarDate, CalendarDaySnapshot)> = Vec::new();
-    for day in day_keys {
+    for day in day_keys.into_iter().filter(|day| !covered_months.contains(&(day.year, day.month))) {
         refreshed_days.push((day, provider.load_day(day).await?));
     }
 
@@ -234,10 +257,62 @@ async fn refresh_all(
             state.day_cache.insert(date, day);
         }
         for (key, month) in refreshed_months {
+            for (date, day) in month.day_snapshots.clone() {
+                state.day_cache.insert(date, day);
+            }
             state.month_cache.insert(key, month);
         }
     });
     Ok(())
+}
+
+async fn sync_live_range(
+    provider: &dyn CalendarBackend,
+    state_tx: &watch::Sender<CalendarServiceState>,
+) -> anyhow::Result<()> {
+    let range = {
+        let state = state_tx.borrow();
+        compute_live_range(&state)
+    };
+    provider.set_live_range(range).await
+}
+
+fn compute_live_range(state: &CalendarServiceState) -> CalendarLiveRange {
+    let today = Local::now().date_naive();
+    let mut start = day_start_from_date(today);
+    let mut end = next_day_start_from_date(today);
+
+    for date in state.day_cache.keys().filter_map(|date| date.to_naive_date()) {
+        start = start.min(day_start_from_date(date));
+        end = end.max(next_day_start_from_date(date));
+    }
+
+    for (year, month) in state.month_cache.keys() {
+        if let Some(month_start) = NaiveDate::from_ymd_opt(*year, *month, 1) {
+            start = start.min(day_start_from_date(month_start));
+            if let Some(next_month) = month_start.checked_add_months(Months::new(1)) {
+                end = end.max(day_start_from_date(next_month));
+            }
+        }
+    }
+
+    CalendarLiveRange { start, end }
+}
+
+fn day_start_from_date(date: NaiveDate) -> chrono::DateTime<Local> {
+    Local
+        .with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+        .single()
+        .expect("valid local day start")
+}
+
+fn next_day_start_from_date(date: NaiveDate) -> chrono::DateTime<Local> {
+    let next = date.checked_add_days(Days::new(1)).expect("date overflow");
+    day_start_from_date(next)
+}
+
+fn is_today(date: CalendarDate) -> bool {
+    Some(Local::now().date_naive()) == date.to_naive_date()
 }
 
 #[cfg(test)]
@@ -249,7 +324,7 @@ mod tests {
     use super::*;
     use crate::{
         calendar::protocol::{CalendarMonthDay, CalendarToday},
-        providers::calendar::CalendarProviderEvent,
+        providers::calendar::{CalendarLiveRange, CalendarProviderEvent},
     };
 
     #[derive(Default)]
@@ -303,7 +378,27 @@ mod tests {
                     },
                     colors: vec!["#68a3ff".into()],
                 }],
+                day_snapshots: std::iter::once((
+                    CalendarDate {
+                        year,
+                        month,
+                        day: 10,
+                    },
+                    CalendarDaySnapshot {
+                        date: CalendarDate {
+                            year,
+                            month,
+                            day: 10,
+                        },
+                        events: vec![],
+                    },
+                ))
+                .collect(),
             })
+        }
+
+        async fn set_live_range(&self, _range: CalendarLiveRange) -> anyhow::Result<()> {
+            Ok(())
         }
 
         async fn listen(
@@ -334,5 +429,62 @@ mod tests {
 
         state.changed().await.expect("load month should publish state");
         assert!(state.borrow().month_cache.contains_key(&(2026, 4)));
+    }
+
+    #[tokio::test]
+    async fn load_month_command_prepopulates_day_cache_for_loaded_month() {
+        let handle = CalendarServiceHandle::from_backend(Arc::new(MockBackend::default()));
+        let mut state = handle.subscribe();
+
+        state.changed().await.expect("initial state publication");
+        let _ = state.borrow_and_update();
+
+        handle
+            .send(CalendarServiceCommand::LoadMonth {
+                year: 2026,
+                month: 4,
+            })
+            .await
+            .expect("load month command should be accepted");
+
+        state.changed().await.expect("load month should publish state");
+        assert!(state.borrow().day_cache.contains_key(&CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 10,
+        }));
+    }
+
+    #[tokio::test]
+    async fn load_month_command_replaces_old_month_cache() {
+        let handle = CalendarServiceHandle::from_backend(Arc::new(MockBackend::default()));
+        let mut state = handle.subscribe();
+
+        state.changed().await.expect("initial state publication");
+        let _ = state.borrow_and_update();
+
+        handle
+            .send(CalendarServiceCommand::LoadMonth {
+                year: 2026,
+                month: 4,
+            })
+            .await
+            .expect("first load month command should be accepted");
+        state.changed().await.expect("first month should publish state");
+        let _ = state.borrow_and_update();
+
+        handle
+            .send(CalendarServiceCommand::LoadMonth {
+                year: 2026,
+                month: 5,
+            })
+            .await
+            .expect("second load month command should be accepted");
+        state.changed().await.expect("second month should publish state");
+
+        let state = state.borrow();
+        assert_eq!(state.month_cache.len(), 1);
+        assert!(state.month_cache.contains_key(&(2026, 5)));
+        assert!(!state.month_cache.contains_key(&(2026, 4)));
     }
 }
