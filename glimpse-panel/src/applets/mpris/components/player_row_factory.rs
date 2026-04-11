@@ -25,6 +25,11 @@ impl MprisPlayerRowItem {
     pub fn key(&self) -> &str {
         &self.player_id
     }
+
+    pub fn sync_player(&mut self, player: MprisPlayer) {
+        debug_assert_eq!(self.key(), player.player_id.as_str());
+        self.row.emit(MprisPlayerRowInput::Update(player));
+    }
 }
 
 impl FactoryComponent for MprisPlayerRowItem {
@@ -65,8 +70,7 @@ impl FactoryComponent for MprisPlayerRowItem {
     fn update(&mut self, message: Self::Input, _sender: FactorySender<Self>) {
         let MprisPlayerRowInput::Update(player) = message;
         self.player_id = player.player_id.clone();
-        debug_assert_eq!(self.key(), player.player_id.as_str());
-        self.row.emit(MprisPlayerRowInput::Update(player));
+        self.sync_player(player);
     }
 }
 

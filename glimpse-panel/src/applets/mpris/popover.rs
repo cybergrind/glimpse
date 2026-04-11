@@ -35,8 +35,45 @@ pub enum MprisPopoverOutput {
     Raise { player_id: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RowSyncOp {
+    Move { from: usize, to: usize },
+    Insert { at: usize },
+    Remove { at: usize },
+}
+
 fn visible_players(players: Vec<MprisPlayer>, max_rows: usize) -> Vec<MprisPlayer> {
     players.into_iter().take(max_rows).collect()
+}
+
+fn row_sync_ops(current_ids: &[String], next_ids: &[String]) -> Vec<RowSyncOp> {
+    let mut working = current_ids.to_vec();
+    let mut ops = Vec::new();
+
+    for (target_index, player_id) in next_ids.iter().enumerate() {
+        if working.get(target_index) == Some(player_id) {
+            continue;
+        }
+
+        if let Some(found_index) = working.iter().position(|id| id == player_id) {
+            let moved = working.remove(found_index);
+            working.insert(target_index, moved);
+            ops.push(RowSyncOp::Move {
+                from: found_index,
+                to: target_index,
+            });
+        } else {
+            working.insert(target_index, player_id.clone());
+            ops.push(RowSyncOp::Insert { at: target_index });
+        }
+    }
+
+    while working.len() > next_ids.len() {
+        working.remove(next_ids.len());
+        ops.push(RowSyncOp::Remove { at: next_ids.len() });
+    }
+
+    ops
 }
 
 #[relm4::component(pub)]
@@ -118,12 +155,32 @@ impl MprisPopover {
         self.empty_label.set_visible(players.is_empty());
 
         let mut guard = self.rows.guard();
-        guard.clear();
-        for player in players {
-            guard.push_back(MprisPlayerRowItemInit {
-                player,
-                show_artwork: self.show_artwork,
-            });
+        let next_ids = players
+            .iter()
+            .map(|player| player.player_id.clone())
+            .collect::<Vec<_>>();
+        let current_ids = guard.iter().map(|row| row.key().to_string()).collect::<Vec<_>>();
+
+        for op in row_sync_ops(&current_ids, &next_ids) {
+            match op {
+                RowSyncOp::Move { from, to } => guard.move_to(from, to),
+                RowSyncOp::Insert { at } => {
+                    guard.insert(
+                        at,
+                        MprisPlayerRowItemInit {
+                            player: players[at].clone(),
+                            show_artwork: self.show_artwork,
+                        },
+                    );
+                }
+                RowSyncOp::Remove { at } => {
+                    guard.remove(at);
+                }
+            }
+        }
+
+        for (index, player) in players.into_iter().enumerate() {
+            guard[index].sync_player(player);
         }
     }
 }
@@ -132,7 +189,7 @@ impl MprisPopover {
 mod tests {
     use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
 
-    use super::visible_players;
+    use super::{RowSyncOp, row_sync_ops, visible_players};
 
     fn test_player_with_id(player_id: &str) -> MprisPlayer {
         MprisPlayer {
@@ -171,5 +228,21 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec!["one", "two"]);
+    }
+
+    #[test]
+    fn row_sync_ops_reuses_existing_player_ids_with_moves() {
+        let current = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+        let next = vec!["three".to_string(), "one".to_string()];
+
+        let ops = row_sync_ops(&current, &next);
+
+        assert_eq!(
+            ops,
+            vec![
+                RowSyncOp::Move { from: 2, to: 0 },
+                RowSyncOp::Remove { at: 2 },
+            ]
+        );
     }
 }
