@@ -207,7 +207,7 @@ fn select_visible_events(
 
 fn select_events_for_day(
     date: NaiveDate,
-    now: DateTime<Local>,
+    _now: DateTime<Local>,
     events: Vec<CalendarServerEvent>,
     sources: &[SourceInfo],
 ) -> CalendarDaySnapshot {
@@ -217,7 +217,6 @@ fn select_events_for_day(
         .collect();
     let start_of_day = day_start(date).expect("valid local day start");
     let end_of_day = next_day_start(date).expect("valid local next day");
-    let is_today = date == now.date_naive();
 
     let mut selected: Vec<(i64, CalendarEvent)> = events
         .into_iter()
@@ -226,9 +225,6 @@ fn select_events_for_day(
             let end = local_from_epoch(event.end_epoch)?;
 
             if end <= start_of_day || start >= end_of_day {
-                return None;
-            }
-            if is_today && end <= now {
                 return None;
             }
 
@@ -592,5 +588,51 @@ mod tests {
         assert_eq!(payload.events[1].title, "Future");
         assert_eq!(payload.events[0].source.display_name, "Work");
         assert_eq!(payload.events[0].source.color.as_deref(), Some("#68a3ff"));
+    }
+
+    #[test]
+    fn selected_day_snapshot_keeps_ended_events_for_today() {
+        let now = Local.with_ymd_and_hms(2026, 4, 6, 15, 15, 0).unwrap();
+        let date = now.date_naive();
+        let events = vec![
+            CalendarServerEvent {
+                id: "source-a\nevt-1\n".into(),
+                summary: "Ended".into(),
+                start_epoch: Local
+                    .with_ymd_and_hms(2026, 4, 6, 14, 0, 0)
+                    .unwrap()
+                    .timestamp(),
+                end_epoch: Local
+                    .with_ymd_and_hms(2026, 4, 6, 14, 45, 0)
+                    .unwrap()
+                    .timestamp(),
+            },
+            CalendarServerEvent {
+                id: "source-a\nevt-2\n".into(),
+                summary: "Future".into(),
+                start_epoch: Local
+                    .with_ymd_and_hms(2026, 4, 6, 17, 30, 0)
+                    .unwrap()
+                    .timestamp(),
+                end_epoch: Local
+                    .with_ymd_and_hms(2026, 4, 6, 18, 15, 0)
+                    .unwrap()
+                    .timestamp(),
+            },
+        ];
+        let source = SourceInfo {
+            uid: "source-a".into(),
+            source: CalendarSource {
+                source_id: "source-a".into(),
+                display_name: "Work".into(),
+                color: Some("#68a3ff".into()),
+            },
+        };
+
+        let payload = select_events_for_day(date, now, events, &[source]);
+
+        assert_eq!(payload.events.len(), 2);
+        assert_eq!(payload.events[0].title, "Ended");
+        assert_eq!(payload.events[1].title, "Future");
     }
 }

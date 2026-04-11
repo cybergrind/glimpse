@@ -7,5 +7,4 @@ pub mod network;
 pub mod notifications;
 pub mod privacy;
 pub mod providers;
-pub mod privacy;
 pub mod tray;
