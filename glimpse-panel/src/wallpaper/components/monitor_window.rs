@@ -3,10 +3,9 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk::{self, gdk};
 use relm4::prelude::*;
 
-use glimpse::wallpaper::{WallpaperConfig, WallpaperMode};
+use glimpse::wallpaper::WallpaperConfig;
 
 use super::color_widget::ColorWidget;
-use super::image_widget::{ImageWidget, ImageWidgetInit};
 
 pub struct MonitorWindowInit {
     pub monitor: gdk::Monitor,
@@ -18,26 +17,12 @@ pub enum MonitorWindowMsg {
     ConfigChanged(WallpaperConfig),
 }
 
-enum Content {
-    Color(Controller<ColorWidget>),
-    Image(Controller<ImageWidget>),
-}
-
-impl Content {
-    fn widget(&self) -> gtk::Widget {
-        match self {
-            Content::Color(c) => c.widget().clone().upcast(),
-            Content::Image(c) => c.widget().clone().upcast(),
-        }
-    }
-}
-
 pub struct MonitorWindow {
     stack: gtk::Stack,
     slot_a: gtk::Box,
     slot_b: gtk::Box,
     active: Slot,
-    content: Content,
+    content: Controller<ColorWidget>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -93,7 +78,7 @@ impl SimpleComponent for MonitorWindow {
         widgets.stack.add_named(&slot_b, Some("b"));
 
         let content = launch_content(&init.config);
-        slot_a.append(&content.widget());
+        slot_a.append(content.widget());
         widgets.stack.set_visible_child_name("a");
 
         root.present();
@@ -123,7 +108,7 @@ impl SimpleComponent for MonitorWindow {
                 }
 
                 let content = launch_content(&config);
-                inactive_box.append(&content.widget());
+                inactive_box.append(content.widget());
 
                 self.stack.set_visible_child_name(inactive.name());
                 self.content = content;
@@ -140,22 +125,8 @@ fn make_slot() -> gtk::Box {
     b
 }
 
-fn launch_content(config: &WallpaperConfig) -> Content {
-    match config.mode {
-        WallpaperMode::Color => {
-            tracing::info!(mode = "color", color = %config.color, "launching wallpaper");
-            Content::Color(ColorWidget::builder().launch(config.color.clone()).detach())
-        }
-        WallpaperMode::Image => {
-            let path = config.path.clone().unwrap_or_default();
-            tracing::info!(mode = "image", path = %path.display(), fit = ?config.fit, "launching wallpaper");
-            Content::Image(
-                ImageWidget::builder()
-                    .launch(ImageWidgetInit { path, fit: config.fit.clone() })
-                    .detach(),
-            )
-        }
-    }
+fn launch_content(config: &WallpaperConfig) -> Controller<ColorWidget> {
+    ColorWidget::builder().launch(config.color.clone()).detach()
 }
 
 fn setup_layer_shell(window: &gtk::Window, monitor: &gdk::Monitor) {
