@@ -8,3 +8,4 @@ pub mod notifications;
 pub mod privacy;
 pub mod providers;
 pub mod tray;
+pub mod wallpaper;

@@ -1,5 +1,5 @@
 use chrono::{Local, NaiveDate};
-use glimpse::calendar::protocol::{CalendarDate, CalendarDaySnapshot};
+use glimpse::calendar::protocol::CalendarDaySnapshot;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
@@ -13,6 +13,7 @@ pub struct Events {
     list_box: gtk::Box,
     empty_label: gtk::Label,
     last_refresh_minute: Option<String>,
+    loading: bool,
 }
 
 #[derive(Debug)]
@@ -20,7 +21,6 @@ pub enum EventsInput {
     Tick,
     SetDate(NaiveDate),
     Data(CalendarDaySnapshot),
-    Clear,
 }
 
 #[derive(Debug)]
@@ -82,6 +82,7 @@ impl Component for Events {
             list_box: widgets.list_box.clone(),
             empty_label: widgets.empty_label.clone(),
             last_refresh_minute: None,
+            loading: false,
         };
         model.update_empty_state();
         model.refresh_selected_day(&sender);
@@ -98,22 +99,17 @@ impl Component for Events {
                 self.refresh_today_if_needed(&sender);
             }
             EventsInput::SetDate(date) => {
-                if self.selected_date != date {
-                    self.selected_date = date;
-                    self.last_refresh_minute = None;
-                    self.update_empty_state();
-                    self.refresh_selected_day(&sender);
+                let changed = self.selected_date != date;
+                self.selected_date = date;
+                self.last_refresh_minute = None;
+                if changed {
+                    self.show_loading_state();
                 }
+                self.update_empty_state();
+                self.refresh_selected_day(&sender);
             }
             EventsInput::Data(day) => {
                 self.replace_rows(day);
-                self.last_refresh_minute = Some(current_minute_key());
-            }
-            EventsInput::Clear => {
-                self.replace_rows(CalendarDaySnapshot {
-                    date: CalendarDate::from_naive_date(self.selected_date),
-                    events: Vec::new(),
-                });
                 self.last_refresh_minute = Some(current_minute_key());
             }
         }

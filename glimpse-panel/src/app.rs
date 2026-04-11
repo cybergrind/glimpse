@@ -31,12 +31,14 @@ use crate::{
     panels,
     providers::dbus::DbusProvider,
     services::{Services, ServicesHandle},
+    wallpaper,
 };
 
 pub struct App {
     config: Config,
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
+    wallpaper_windows: std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
     dbus: DbusProvider,
     client: Option<Arc<Client>>,
     services: Services,
@@ -209,8 +211,13 @@ impl SimpleComponent for App {
         let notification_popup =
             setup_notification_popup(&config, services.handle.notifications.clone(), sender.clone());
 
+        let wallpaper_windows = Display::default()
+            .map(|d| wallpaper::open_all_monitors(&d, &config.wallpaper))
+            .unwrap_or_default();
+
         let model = App {
             panels,
+            wallpaper_windows,
             theme_css,
             config,
             dbus,

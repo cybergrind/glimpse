@@ -198,7 +198,7 @@ impl SimpleComponent for MprisPlayerRow {
     fn init(
         init: Self::Init,
         _root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let current = Rc::new(RefCell::new(init.player.clone()));
         let widgets = view_output!();

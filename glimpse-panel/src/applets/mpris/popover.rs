@@ -1,22 +1,18 @@
-use std::collections::HashMap;
-
 use glimpse::mpris::protocol::MprisPlayer;
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    ComponentParts, ComponentSender, SimpleComponent,
+    factory::FactoryVecDeque,
     gtk::{self, prelude::*},
 };
 
-use super::components::player_row::{
-    MprisPlayerRow, MprisPlayerRowInit, MprisPlayerRowInput, MprisPlayerRowOutput,
-};
+use super::components::player_row_factory::{MprisPlayerRowItem, MprisPlayerRowItemInit};
 
 pub struct MprisPopover {
     popover: gtk::Popover,
-    rows_box: gtk::Box,
     empty_label: gtk::Label,
     max_rows: usize,
     show_artwork: bool,
-    rows: HashMap<String, Controller<MprisPlayerRow>>,
+    rows: FactoryVecDeque<MprisPlayerRowItem>,
 }
 
 pub struct MprisPopoverInit {
@@ -29,7 +25,6 @@ pub struct MprisPopoverInit {
 pub enum MprisPopoverInput {
     Toggle,
     UpdatePlayers(Vec<MprisPlayer>),
-    RowOutput(MprisPlayerRowOutput),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,99 +39,64 @@ fn visible_players(players: Vec<MprisPlayer>, max_rows: usize) -> Vec<MprisPlaye
     players.into_iter().take(max_rows).collect()
 }
 
-impl MprisPopover {
-    fn sync_rows(&mut self, players: Vec<MprisPlayer>, sender: &ComponentSender<Self>) {
-        let players = visible_players(players, self.max_rows);
-        self.empty_label.set_visible(players.is_empty());
-
-        let next_ids = players
-            .iter()
-            .map(|player| player.player_id.as_str())
-            .collect::<Vec<_>>();
-        let to_remove = self
-            .rows
-            .keys()
-            .filter(|player_id| !next_ids.contains(&player_id.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        for player_id in to_remove {
-            if let Some(row) = self.rows.remove(&player_id) {
-                self.rows_box.remove(row.widget());
-            }
-        }
-
-        for player in &players {
-            if let Some(row) = self.rows.get_mut(&player.player_id) {
-                row.emit(MprisPlayerRowInput::Update(player.clone()));
-            } else {
-                let row = MprisPlayerRow::builder()
-                    .launch(MprisPlayerRowInit {
-                        player: player.clone(),
-                        show_artwork: self.show_artwork,
-                    })
-                    .forward(sender.input_sender(), MprisPopoverInput::RowOutput);
-                self.rows_box.append(row.widget());
-                self.rows.insert(player.player_id.clone(), row);
-            }
-        }
-
-        let mut previous: Option<gtk::Widget> = None;
-        for player in &players {
-            let Some(row) = self.rows.get(&player.player_id) else {
-                continue;
-            };
-            self.rows_box
-                .reorder_child_after(row.widget(), previous.as_ref());
-            previous = Some(row.widget().clone().upcast());
-        }
-    }
-}
-
+#[relm4::component(pub)]
 impl SimpleComponent for MprisPopover {
     type Init = MprisPopoverInit;
     type Input = MprisPopoverInput;
     type Output = MprisPopoverOutput;
-    type Root = gtk::Popover;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        gtk::Popover::new()
+    view! {
+        root = gtk::Popover {
+            add_css_class: "mpris-popover",
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+
+                #[name(empty_label)]
+                gtk::Label {
+                    set_label: "No media players",
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                },
+
+                gtk::ScrolledWindow {
+                    set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                    set_propagate_natural_height: true,
+
+                    #[local_ref]
+                    rows_box -> gtk::Box {}
+                },
+            }
+        }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
-        _sender: ComponentSender<Self>,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.set_parent(&init.parent);
-        root.set_autohide(true);
-        root.add_css_class("mpris-popover");
-
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
-        let empty_label = gtk::Label::new(Some("No media players"));
-        empty_label.set_halign(gtk::Align::Center);
-        empty_label.set_valign(gtk::Align::Center);
-        body.append(&empty_label);
-
         let rows_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        body.append(&rows_box);
+        let rows = FactoryVecDeque::builder()
+            .launch(rows_box.clone())
+            .forward(sender.output_sender(), |output| output);
 
-        root.set_child(Some(&body));
+        let widgets = view_output!();
+
+        widgets.root.set_parent(&init.parent);
+        widgets.root.set_autohide(true);
 
         let model = MprisPopover {
-            popover: root.clone(),
-            rows_box,
-            empty_label,
+            popover: widgets.root.clone(),
+            empty_label: widgets.empty_label.clone(),
             max_rows: init.max_rows,
             show_artwork: init.show_artwork,
-            rows: HashMap::new(),
+            rows,
         };
-        ComponentParts { model, widgets: () }
+
+        ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         match message {
             MprisPopoverInput::Toggle => {
                 if self.popover.is_visible() {
@@ -146,25 +106,70 @@ impl SimpleComponent for MprisPopover {
                 }
             }
             MprisPopoverInput::UpdatePlayers(players) => {
-                self.sync_rows(players, &sender);
-            }
-            MprisPopoverInput::RowOutput(output) => {
-                let mapped = match output {
-                    MprisPlayerRowOutput::Previous { player_id } => {
-                        MprisPopoverOutput::Previous { player_id }
-                    }
-                    MprisPlayerRowOutput::PlayPause { player_id } => {
-                        MprisPopoverOutput::PlayPause { player_id }
-                    }
-                    MprisPlayerRowOutput::Next { player_id } => {
-                        MprisPopoverOutput::Next { player_id }
-                    }
-                    MprisPlayerRowOutput::Raise { player_id } => {
-                        MprisPopoverOutput::Raise { player_id }
-                    }
-                };
-                let _ = sender.output(mapped);
+                self.sync_rows(players);
             }
         }
+    }
+}
+
+impl MprisPopover {
+    fn sync_rows(&mut self, players: Vec<MprisPlayer>) {
+        let players = visible_players(players, self.max_rows);
+        self.empty_label.set_visible(players.is_empty());
+
+        let mut guard = self.rows.guard();
+        guard.clear();
+        for player in players {
+            guard.push_back(MprisPlayerRowItemInit {
+                player,
+                show_artwork: self.show_artwork,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
+
+    use super::visible_players;
+
+    fn test_player_with_id(player_id: &str) -> MprisPlayer {
+        MprisPlayer {
+            player_id: player_id.into(),
+            bus_name: format!("org.mpris.MediaPlayer2.{player_id}"),
+            identity: player_id.into(),
+            playback_status: MprisPlaybackStatus::Playing,
+            title: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            panel_label: String::new(),
+            subtitle: String::new(),
+            artwork: MprisArtwork::None,
+            position: None,
+            length: None,
+            progress_visible: false,
+            can_play_pause: true,
+            can_go_previous: true,
+            can_go_next: true,
+            can_raise: true,
+            last_active: 1,
+        }
+    }
+
+    #[test]
+    fn visible_players_respects_max_rows() {
+        let players = vec![
+            test_player_with_id("one"),
+            test_player_with_id("two"),
+            test_player_with_id("three"),
+        ];
+
+        let ids: Vec<String> = visible_players(players, 2)
+            .into_iter()
+            .map(|player| player.player_id)
+            .collect();
+
+        assert_eq!(ids, vec!["one", "two"]);
     }
 }
