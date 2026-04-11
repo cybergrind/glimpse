@@ -1,6 +1,6 @@
 pub mod components;
 
-pub use components::{MonitorWindow, MonitorWindowInit};
+pub use components::{MonitorWindow, MonitorWindowInit, MonitorWindowMsg};
 
 use std::collections::HashMap;
 

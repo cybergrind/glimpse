@@ -4,6 +4,7 @@ mod config;
 mod panels;
 mod providers;
 mod services;
+mod wallpaper;
 use config::Config;
 use relm4::RelmApp;
 use tracing_subscriber::EnvFilter;

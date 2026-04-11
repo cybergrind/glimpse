@@ -279,6 +279,9 @@ impl SimpleComponent for App {
                 if let Some(popup) = self.notification_popup.take() {
                     popup.widget().close();
                 }
+                for ctrl in self.wallpaper_windows.values() {
+                    ctrl.sender().emit(wallpaper::MonitorWindowMsg::ConfigChanged(new_config.wallpaper.clone()));
+                }
                 self.panels = setup_panels(
                     &new_config,
                     self.dbus.session.clone(),

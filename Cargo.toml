@@ -30,6 +30,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 dirs = "5"
 anyhow = "1"
 gio = "0.20"
+css-color = "0.2"
 
 [profile.release]
 lto = "thin"

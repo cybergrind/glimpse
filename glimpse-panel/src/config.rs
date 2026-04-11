@@ -64,6 +64,9 @@ pub struct Config {
 
     #[serde(default)]
     pub applets: HashMap<String, AppletConfig>,
+
+    #[serde(default)]
+    pub wallpaper: glimpse::wallpaper::WallpaperConfig,
 }
 
 impl Default for Config {
@@ -77,6 +80,7 @@ impl Default for Config {
                 position: PanelPosition::Bottom,
                 applets: vec![],
             }],
+            wallpaper: glimpse::wallpaper::WallpaperConfig::default(),
         }
     }
 }
