@@ -36,8 +36,16 @@ pub struct TrayInit {
 #[derive(Debug, Clone)]
 pub enum TrayInput {
     ServiceState(TrayServiceState),
-    PrimaryClick { address: String, x: i32, y: i32 },
-    SecondaryClick { address: String, x: i32, y: i32 },
+    PrimaryClick {
+        address: String,
+        x: i32,
+        y: i32,
+    },
+    SecondaryClick {
+        address: String,
+        x: i32,
+        y: i32,
+    },
     MenuItemInvoked {
         address: String,
         menu_path: String,
@@ -236,7 +244,10 @@ impl Tray {
     }
 
     fn item(&self, address: &str) -> Option<&TrayItem> {
-        self.snapshot.items.iter().find(|item| item.address == address)
+        self.snapshot
+            .items
+            .iter()
+            .find(|item| item.address == address)
     }
 
     fn send_command(&self, sender: ComponentSender<Tray>, command: TrayServiceCommand) {
@@ -337,7 +348,11 @@ fn item_icon_paintable(item: &TrayItem, size: i32) -> Option<gdk::Paintable> {
     let display = gdk::Display::default()?;
     let theme = gtk::IconTheme::for_display(&display);
     let theme_path = std::path::Path::new(icon_theme_path);
-    if !theme.search_path().iter().any(|existing| existing == theme_path) {
+    if !theme
+        .search_path()
+        .iter()
+        .any(|existing| existing == theme_path)
+    {
         theme.add_search_path(theme_path);
     }
 
@@ -366,7 +381,9 @@ fn icon_to_gicon(icon: &TrayIcon) -> Option<gio::Icon> {
         } => texture_from_pixmap(*width, *height, pixels).map(|texture| texture.upcast()),
         TrayIcon::EncodedBytes(bytes) => {
             let bytes = glib::Bytes::from(bytes.as_slice());
-            gdk::Texture::from_bytes(&bytes).ok().map(|texture| texture.upcast())
+            gdk::Texture::from_bytes(&bytes)
+                .ok()
+                .map(|texture| texture.upcast())
         }
     }
 }
@@ -419,7 +436,9 @@ fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSe
         &action_group,
         sender,
     );
-    state.button.insert_action_group("tray", Some(&action_group));
+    state
+        .button
+        .insert_action_group("tray", Some(&action_group));
 
     let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
     popover.insert_action_group("tray", Some(&action_group));
@@ -455,7 +474,10 @@ fn build_gio_menu(items: &[TrayMenuItem]) -> gio::Menu {
         let menu_item = if has_visible_menu_items(&item.children) {
             gio::MenuItem::new_submenu(Some(&menu_label(item)), &build_gio_menu(&item.children))
         } else {
-            gio::MenuItem::new(Some(&menu_label(item)), Some(&format!("tray.item-{}", item.id)))
+            gio::MenuItem::new(
+                Some(&menu_label(item)),
+                Some(&format!("tray.item-{}", item.id)),
+            )
         };
 
         if let Some(icon) = item.icon.as_ref().and_then(icon_to_gicon) {
@@ -556,9 +578,7 @@ fn command_for_click(item: &TrayItem, click: ClickKind, x: i32, y: i32) -> Click
 
 #[cfg(test)]
 mod tests {
-    use glimpse::tray::protocol::{
-        TrayCategory, TrayMenuDisposition, TrayStatus, TrayTooltip,
-    };
+    use glimpse::tray::protocol::{TrayCategory, TrayMenuDisposition, TrayStatus, TrayTooltip};
 
     use super::*;
 

@@ -130,7 +130,10 @@ impl PowerPolicySettings {
 
             if snapshot.capabilities.sleep_inactive_battery_action {
                 snapshot.sleep_inactive_battery_action = PowerPolicyAction::from_gsettings(
-                    power.settings.string(KEY_SLEEP_INACTIVE_BATTERY_TYPE).as_str(),
+                    power
+                        .settings
+                        .string(KEY_SLEEP_INACTIVE_BATTERY_TYPE)
+                        .as_str(),
                 );
             }
 
@@ -185,9 +188,9 @@ impl PowerPolicySettings {
                         KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT,
                         u32_to_i32(snapshot.sleep_inactive_battery_timeout),
                     )
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT}: {error}"
-                    ))?;
+                    .map_err(|error| {
+                        anyhow::anyhow!("{KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT}: {error}")
+                    })?;
             }
 
             if self.capabilities.sleep_inactive_battery_action {
@@ -195,11 +198,14 @@ impl PowerPolicySettings {
                     .settings
                     .set_string(
                         KEY_SLEEP_INACTIVE_BATTERY_TYPE,
-                        snapshot.sleep_inactive_battery_action.as_gsettings().as_ref(),
+                        snapshot
+                            .sleep_inactive_battery_action
+                            .as_gsettings()
+                            .as_ref(),
                     )
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_SLEEP_INACTIVE_BATTERY_TYPE}: {error}"
-                    ))?;
+                    .map_err(|error| {
+                        anyhow::anyhow!("{KEY_SLEEP_INACTIVE_BATTERY_TYPE}: {error}")
+                    })?;
             }
 
             if self.capabilities.sleep_inactive_ac_timeout {
@@ -209,9 +215,7 @@ impl PowerPolicySettings {
                         KEY_SLEEP_INACTIVE_AC_TIMEOUT,
                         u32_to_i32(snapshot.sleep_inactive_ac_timeout),
                     )
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_SLEEP_INACTIVE_AC_TIMEOUT}: {error}"
-                    ))?;
+                    .map_err(|error| anyhow::anyhow!("{KEY_SLEEP_INACTIVE_AC_TIMEOUT}: {error}"))?;
             }
 
             if self.capabilities.sleep_inactive_ac_action {
@@ -221,9 +225,7 @@ impl PowerPolicySettings {
                         KEY_SLEEP_INACTIVE_AC_TYPE,
                         snapshot.sleep_inactive_ac_action.as_gsettings().as_ref(),
                     )
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_SLEEP_INACTIVE_AC_TYPE}: {error}"
-                    ))?;
+                    .map_err(|error| anyhow::anyhow!("{KEY_SLEEP_INACTIVE_AC_TYPE}: {error}"))?;
             }
 
             if self.capabilities.power_saver_profile_on_low_battery {
@@ -233,9 +235,9 @@ impl PowerPolicySettings {
                         KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY,
                         snapshot.power_saver_profile_on_low_battery,
                     )
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY}: {error}"
-                    ))?;
+                    .map_err(|error| {
+                        anyhow::anyhow!("{KEY_POWER_SAVER_PROFILE_ON_LOW_BATTERY}: {error}")
+                    })?;
             }
         }
 
@@ -252,10 +254,11 @@ impl PowerPolicySettings {
             if self.capabilities.idle_activation_enabled {
                 screensaver
                     .settings
-                    .set_boolean(KEY_IDLE_ACTIVATION_ENABLED, snapshot.idle_activation_enabled)
-                    .map_err(|error| anyhow::anyhow!(
-                        "{KEY_IDLE_ACTIVATION_ENABLED}: {error}"
-                    ))?;
+                    .set_boolean(
+                        KEY_IDLE_ACTIVATION_ENABLED,
+                        snapshot.idle_activation_enabled,
+                    )
+                    .map_err(|error| anyhow::anyhow!("{KEY_IDLE_ACTIVATION_ENABLED}: {error}"))?;
             }
 
             if self.capabilities.lock_enabled {
@@ -306,25 +309,22 @@ impl PowerPolicySettings {
         Ok(())
     }
 
-    fn from_schema_source(
-        source: Option<SettingsSchemaSource>,
-        poll_interval: Duration,
-    ) -> Self {
+    fn from_schema_source(source: Option<SettingsSchemaSource>, poll_interval: Duration) -> Self {
         let power = SettingsBinding::lookup(source.as_ref(), POWER_SCHEMA);
         let session = SettingsBinding::lookup(source.as_ref(), SESSION_SCHEMA);
         let screensaver = SettingsBinding::lookup(source.as_ref(), SCREENSAVER_SCHEMA);
 
         Self {
             capabilities: PowerPolicyCapabilities {
-                sleep_inactive_battery_timeout: power
-                    .as_ref()
-                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT)),
-                sleep_inactive_battery_action: power
-                    .as_ref()
-                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TYPE)),
-                sleep_inactive_ac_timeout: power
-                    .as_ref()
-                    .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_AC_TIMEOUT)),
+                sleep_inactive_battery_timeout: power.as_ref().is_some_and(|binding| {
+                    binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TIMEOUT)
+                }),
+                sleep_inactive_battery_action: power.as_ref().is_some_and(|binding| {
+                    binding.supports_writable(KEY_SLEEP_INACTIVE_BATTERY_TYPE)
+                }),
+                sleep_inactive_ac_timeout: power.as_ref().is_some_and(|binding| {
+                    binding.supports_writable(KEY_SLEEP_INACTIVE_AC_TIMEOUT)
+                }),
                 sleep_inactive_ac_action: power
                     .as_ref()
                     .is_some_and(|binding| binding.supports_writable(KEY_SLEEP_INACTIVE_AC_TYPE)),
@@ -454,7 +454,9 @@ mod tests {
     #[test]
     fn provider_without_schemas_reports_capabilities_as_disabled() {
         let provider = PowerPolicySettings::from_schema_source(None, DEFAULT_POLL_INTERVAL);
-        let snapshot = provider.load().expect("load should succeed without schemas");
+        let snapshot = provider
+            .load()
+            .expect("load should succeed without schemas");
 
         assert_eq!(snapshot, PowerPolicySnapshot::default());
         assert_eq!(provider.capabilities(), &PowerPolicyCapabilities::default());

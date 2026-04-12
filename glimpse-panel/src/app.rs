@@ -2,7 +2,6 @@ use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
     rc::Rc,
-    sync::Arc,
     time::Duration,
 };
 
@@ -23,10 +22,12 @@ use glimpse::network::protocol::{
     NetworkPrompt, NetworkPromptId, NetworkPromptKind, NetworkPromptReply,
     NetworkServiceCommand as PanelNetworkServiceCommand, NetworkServiceState,
 };
-use glimpse_client::Client;
 
 use crate::{
-    applets::notifications::{NotificationActionCommand, NotificationPopup, NotificationPopupInit, NotificationsConfig},
+    applets::notifications::{
+        NotificationActionCommand, NotificationPopup, NotificationPopupInit, NotificationsConfig,
+    },
+    backdrop,
     config::Config,
     panels,
     providers::dbus::DbusProvider,
@@ -39,8 +40,8 @@ pub struct App {
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
     wallpaper_windows: std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
+    backdrop_windows: std::collections::HashMap<String, backdrop::BackdropWindow>,
     dbus: DbusProvider,
-    client: Option<Arc<Client>>,
     services: Services,
     bluetooth_dialog: BluetoothPromptDialog,
     bluetooth_state: BluetoothServiceState,
@@ -53,6 +54,7 @@ pub struct App {
 pub enum Input {
     ConfigChanged(Config),
     CssChanged,
+    MonitorsChanged,
     BluetoothState(BluetoothServiceState),
     BluetoothPromptReply {
         id: glimpse::bluetooth::protocol::BluetoothPromptId,
@@ -186,6 +188,13 @@ impl SimpleComponent for App {
 
         watch_for_config_changes(sender.clone());
 
+        if let Some(display) = Display::default() {
+            let monitor_sender = sender.input_sender().clone();
+            display.monitors().connect_items_changed(move |_, _, _, _| {
+                monitor_sender.send(Input::MonitorsChanged).ok();
+            });
+        }
+
         let dbus = DbusProvider::connect();
         let services = Services::new(dbus.session.clone(), dbus.system.clone());
         let bluetooth_state = services.handle.bluetooth.subscribe().borrow().clone();
@@ -193,35 +202,34 @@ impl SimpleComponent for App {
         let bluetooth_dialog = BluetoothPromptDialog::new(&root, sender.clone());
         let network_dialog = NetworkPromptDialog::new(&root, sender.clone());
 
-        let client = match tokio::runtime::Handle::current().block_on(Client::connect()) {
-            Ok(c) => Some(Arc::new(c)),
-            Err(e) => {
-                tracing::warn!("glimpsed not available: {e}");
-                None
-            }
-        };
-
         let panels = setup_panels(
             &config,
             dbus.session.clone(),
             dbus.system.clone(),
-            client.clone(),
             services.handle.clone(),
         );
-        let notification_popup =
-            setup_notification_popup(&config, services.handle.notifications.clone(), sender.clone());
+        let notification_popup = setup_notification_popup(
+            &config,
+            services.handle.notifications.clone(),
+            sender.clone(),
+        );
 
-        let wallpaper_windows = Display::default()
-            .map(|d| wallpaper::open_all_monitors(&d, &config.wallpaper))
+        let (wallpaper_windows, backdrop_windows) = Display::default()
+            .map(|d| {
+                (
+                    wallpaper::open_all_monitors(&d, &config.wallpaper),
+                    backdrop::open_all_monitors(&d, &config.backdrop),
+                )
+            })
             .unwrap_or_default();
 
         let model = App {
             panels,
             wallpaper_windows,
+            backdrop_windows,
             theme_css,
             config,
             dbus,
-            client,
             services,
             bluetooth_dialog,
             bluetooth_state,
@@ -279,14 +287,16 @@ impl SimpleComponent for App {
                 if let Some(popup) = self.notification_popup.take() {
                     popup.widget().close();
                 }
-                for ctrl in self.wallpaper_windows.values() {
-                    ctrl.sender().emit(wallpaper::MonitorWindowMsg::ConfigChanged(new_config.wallpaper.clone()));
-                }
+                rebuild_background_windows(
+                    Display::default(),
+                    &new_config,
+                    &mut self.wallpaper_windows,
+                    &mut self.backdrop_windows,
+                );
                 self.panels = setup_panels(
                     &new_config,
                     self.dbus.session.clone(),
                     self.dbus.system.clone(),
-                    self.client.clone(),
                     self.services.handle.clone(),
                 );
                 self.notification_popup = setup_notification_popup(
@@ -298,6 +308,14 @@ impl SimpleComponent for App {
             }
             Input::CssChanged => {
                 load_css(&self.theme_css, &self.config.theme_path());
+            }
+            Input::MonitorsChanged => {
+                rebuild_background_windows(
+                    Display::default(),
+                    &self.config,
+                    &mut self.wallpaper_windows,
+                    &mut self.backdrop_windows,
+                );
             }
             Input::BluetoothState(state) => {
                 self.bluetooth_state = state;
@@ -349,11 +367,43 @@ impl SimpleComponent for App {
     }
 }
 
+fn rebuild_background_windows(
+    display: Option<Display>,
+    config: &Config,
+    wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
+    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
+) {
+    close_wallpaper_windows(wallpaper_windows);
+    close_backdrop_windows(backdrop_windows);
+
+    let Some(display) = display else {
+        return;
+    };
+
+    *wallpaper_windows = wallpaper::open_all_monitors(&display, &config.wallpaper);
+    *backdrop_windows = backdrop::open_all_monitors(&display, &config.backdrop);
+}
+
+fn close_wallpaper_windows(
+    wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
+) {
+    for (_, ctrl) in wallpaper_windows.drain() {
+        ctrl.widget().close();
+    }
+}
+
+fn close_backdrop_windows(
+    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
+) {
+    for (_, window) in backdrop_windows.drain() {
+        window.close();
+    }
+}
+
 fn setup_panels(
     config: &Config,
     dbus: zbus::Connection,
     system: zbus::Connection,
-    client: Option<Arc<Client>>,
     services: ServicesHandle,
 ) -> Vec<Controller<panels::Panel>> {
     let mut panels = vec![];
@@ -363,7 +413,6 @@ fn setup_panels(
             applet_configs: config.applets.clone(),
             dbus: dbus.clone(),
             system: system.clone(),
-            client: client.clone(),
             services: services.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();

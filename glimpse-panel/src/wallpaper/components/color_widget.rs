@@ -18,8 +18,18 @@ impl SimpleComponent for ColorWidget {
         }
     }
 
-    fn init(color: String, root: Self::Root, _sender: ComponentSender<Self>) -> ComponentParts<Self> {
-        if let Ok(Srgb { red, green, blue, alpha }) = color.parse::<Srgb>() {
+    fn init(
+        color: String,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        if let Ok(Srgb {
+            red,
+            green,
+            blue,
+            alpha,
+        }) = color.parse::<Srgb>()
+        {
             root.set_draw_func(move |_, cr, _, _| {
                 cr.set_source_rgba(red as f64, green as f64, blue as f64, alpha as f64);
                 let _ = cr.paint();

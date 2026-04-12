@@ -10,6 +10,8 @@ use relm4::{
 use super::config::MprisConfig;
 use super::popover::{MprisPopover, MprisPopoverInit, MprisPopoverInput, MprisPopoverOutput};
 
+const PANEL_LABEL_MAX_WIDTH_CHARS: i32 = 48;
+
 pub struct Mpris {
     config: MprisConfig,
     service: MprisServiceHandle,
@@ -90,6 +92,7 @@ impl Component for Mpris {
                 #[watch]
                 set_label: &model.label,
                 set_hexpand: false,
+                set_max_width_chars: PANEL_LABEL_MAX_WIDTH_CHARS,
                 set_halign: gtk::Align::Start,
                 set_valign: gtk::Align::Center,
                 set_xalign: 0.0,
@@ -253,6 +256,11 @@ mod tests {
     #[test]
     fn falls_back_to_panel_label_when_format_renders_empty() {
         assert_eq!(panel_label(&player(), ""), "Nils Frahm - Says");
+    }
+
+    #[test]
+    fn panel_label_width_cap_is_reasonable() {
+        assert_eq!(PANEL_LABEL_MAX_WIDTH_CHARS, 48);
     }
 
     #[test]

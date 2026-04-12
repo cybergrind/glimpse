@@ -1,4 +1,7 @@
-use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk::{self, prelude::*}};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
+};
 
 pub struct StackHint {
     second: gtk::Box,

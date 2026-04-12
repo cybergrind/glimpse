@@ -9,7 +9,9 @@ mod popup;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotificationActionCommand {
-    Dismiss { id: u32 },
+    Dismiss {
+        id: u32,
+    },
     DismissAll,
     InvokeAction {
         id: u32,

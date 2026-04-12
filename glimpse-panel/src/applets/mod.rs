@@ -16,9 +16,6 @@ mod spacer;
 mod tray;
 mod weather;
 
-use std::sync::Arc;
-
-use glimpse_client::Client;
 use relm4::{
     Component, ComponentController, Controller,
     gtk::{self, glib::object::Cast},
@@ -81,9 +78,8 @@ impl AppletController {
 pub fn create_applet(
     applet_config: Option<&AppletConfig>,
     name: &str,
-    dbus: zbus::Connection,
+    _dbus: zbus::Connection,
     system: zbus::Connection,
-    client: Option<Arc<Client>>,
     services: ServicesHandle,
 ) -> Option<AppletController> {
     let applet_type = applet_config
@@ -114,12 +110,14 @@ pub fn create_applet(
             Some(AppletController::Bluetooth(applet))
         }
         "brightness" => {
-            let client = client.clone()?;
             let config: brightness::BrightnessConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = brightness::Brightness::builder()
-                .launch(brightness::BrightnessInit { config, client })
+                .launch(brightness::BrightnessInit {
+                    config,
+                    service: services.brightness.clone(),
+                })
                 .detach();
             Some(AppletController::Brightness(applet))
         }

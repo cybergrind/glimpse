@@ -1,8 +1,10 @@
+pub mod backdrop;
 pub mod bluetooth;
 pub mod brightness;
 pub mod calendar;
 pub mod compositor;
 pub mod dbus;
+pub mod display;
 pub mod mpris;
 pub mod network;
 pub mod notifications;

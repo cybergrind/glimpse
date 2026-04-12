@@ -6,7 +6,9 @@ use relm4::{
 };
 
 use super::group_header::{GroupHeader, GroupHeaderInit, GroupHeaderInput};
-use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole};
+use super::row::{
+    NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole,
+};
 use super::stack_hint::{StackHint, StackHintInit, StackHintInput};
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 

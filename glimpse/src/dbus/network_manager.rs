@@ -28,7 +28,11 @@ pub trait NetworkManager {
         device: ObjectPath<'_>,
         specific_object: ObjectPath<'_>,
         options: HashMap<String, OwnedValue>,
-    ) -> zbus::Result<(OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedValue>)>;
+    ) -> zbus::Result<(
+        OwnedObjectPath,
+        OwnedObjectPath,
+        HashMap<String, OwnedValue>,
+    )>;
     fn deactivate_connection(&self, active_connection: ObjectPath<'_>) -> zbus::Result<()>;
 
     #[zbus(property)]

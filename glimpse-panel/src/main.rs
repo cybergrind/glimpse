@@ -1,5 +1,6 @@
 mod app;
 mod applets;
+mod backdrop;
 mod config;
 mod panels;
 mod providers;

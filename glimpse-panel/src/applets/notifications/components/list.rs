@@ -5,7 +5,9 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use super::row::{NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole};
+use super::row::{
+    NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole,
+};
 use super::stack::{NotificationGroup, NotificationGroupInit, NotificationGroupInput};
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 

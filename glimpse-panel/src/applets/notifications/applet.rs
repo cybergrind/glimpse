@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
-use super::config::NotificationsConfig;
 use super::NotificationActionCommand;
-use super::popover::{
-    NotificationsPopover, NotificationsPopoverInit, NotificationsPopoverInput,
+use super::config::NotificationsConfig;
+use super::popover::{NotificationsPopover, NotificationsPopoverInit, NotificationsPopoverInput};
+use glimpse::notifications::{
+    NotificationEntry, NotificationsServiceHandle, NotificationsServiceState,
 };
-use glimpse::notifications::{NotificationEntry, NotificationsServiceHandle, NotificationsServiceState};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},

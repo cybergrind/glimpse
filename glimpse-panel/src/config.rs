@@ -67,6 +67,9 @@ pub struct Config {
 
     #[serde(default)]
     pub wallpaper: glimpse::wallpaper::WallpaperConfig,
+
+    #[serde(default)]
+    pub backdrop: glimpse::backdrop::BackdropConfig,
 }
 
 impl Default for Config {
@@ -81,6 +84,7 @@ impl Default for Config {
                 applets: vec![],
             }],
             wallpaper: glimpse::wallpaper::WallpaperConfig::default(),
+            backdrop: glimpse::backdrop::BackdropConfig::default(),
         }
     }
 }
@@ -136,5 +140,18 @@ impl Config {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn default_config_disables_backdrop() {
+        let config = Config::default();
+
+        assert!(!config.backdrop.enabled);
+        assert_eq!(config.backdrop.color, "transparent");
     }
 }

@@ -8,12 +8,14 @@ use relm4::{
     gtk::{self, glib, prelude::*},
 };
 
-use glimpse::notifications::{NotificationEntry, NotificationsServiceHandle, NotificationsServiceState};
+use glimpse::notifications::{
+    NotificationEntry, NotificationsServiceHandle, NotificationsServiceState,
+};
 
 use super::NotificationActionCommand;
 use super::activation::{default_action_command, invoke_action_command};
-use super::config::NotificationsConfig;
 use super::components::row::{build_notification_icon, load_notification_image_texture};
+use super::config::NotificationsConfig;
 
 type NotifData = NotificationEntry;
 
@@ -175,7 +177,9 @@ impl Component for NotificationPopup {
                 );
             }
             NotificationPopupInput::Dismiss(id) => {
-                sender.output(NotificationActionCommand::Dismiss { id }).ok();
+                sender
+                    .output(NotificationActionCommand::Dismiss { id })
+                    .ok();
                 self.remove_card_with_mode(
                     id,
                     PopupDismissMode::Dismiss,
@@ -186,10 +190,14 @@ impl Component for NotificationPopup {
                 let output_sender = sender.clone();
                 glib::spawn_future_local(async move {
                     output_sender
-                        .output(default_action_command(id, desktop_entry, app_name, timestamp).await)
+                        .output(
+                            default_action_command(id, desktop_entry, app_name, timestamp).await,
+                        )
                         .ok();
                 });
-                sender.output(NotificationActionCommand::Dismiss { id }).ok();
+                sender
+                    .output(NotificationActionCommand::Dismiss { id })
+                    .ok();
                 self.remove_card_with_mode(
                     id,
                     PopupDismissMode::Dismiss,
@@ -200,7 +208,9 @@ impl Component for NotificationPopup {
                 sender
                     .output(invoke_action_command(id, &action_key, None))
                     .ok();
-                sender.output(NotificationActionCommand::Dismiss { id }).ok();
+                sender
+                    .output(NotificationActionCommand::Dismiss { id })
+                    .ok();
                 self.remove_card_with_mode(
                     id,
                     PopupDismissMode::Dismiss,
@@ -338,7 +348,8 @@ impl NotificationPopup {
         dismiss_btn.add_css_class("popup-dismiss");
         let id = notif.id;
         let sender_clone = sender.clone();
-        dismiss_btn.connect_clicked(move |_| sender_clone.input(NotificationPopupInput::Dismiss(id)));
+        dismiss_btn
+            .connect_clicked(move |_| sender_clone.input(NotificationPopupInput::Dismiss(id)));
         header.append(&dismiss_btn);
 
         card.append(&header);
@@ -448,7 +459,7 @@ impl NotificationPopup {
 
         card
     }
-    
+
     fn prune_surfaced_ids(&self, notifications: &[NotificationEntry]) {
         let current_ids: HashMap<u32, u64> = notifications
             .iter()
@@ -543,9 +554,7 @@ fn pending_popup_ids(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        NotifData, PopupDismissMode, TimeoutSourcePolicy, pending_popup_ids,
-    };
+    use super::{NotifData, PopupDismissMode, TimeoutSourcePolicy, pending_popup_ids};
 
     #[test]
     fn popup_secondary_click_hides_only() {

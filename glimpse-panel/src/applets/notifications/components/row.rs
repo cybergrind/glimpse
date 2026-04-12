@@ -271,8 +271,7 @@ impl NotificationCard {
         self.body_label.set_visible(!self.notif.body.is_empty());
 
         let interactive = self.role == NotificationCardRole::Full;
-        let has_default =
-            interactive && self.notif.actions.iter().any(|(key, _)| key == "default");
+        let has_default = interactive && self.notif.actions.iter().any(|(key, _)| key == "default");
         self.root
             .set_cursor_from_name(if has_default { Some("pointer") } else { None });
         self.root.set_can_target(interactive);
@@ -301,7 +300,9 @@ impl NotificationCard {
                 let id = self.notif.id;
                 action_btn.connect_clicked({
                     let sender = sender.clone();
-                    move |_| sender.input(NotificationCardInput::InvokeAction(id, action_key.clone()))
+                    move |_| {
+                        sender.input(NotificationCardInput::InvokeAction(id, action_key.clone()))
+                    }
                 });
                 self.actions_box.append(&action_btn);
             }
@@ -459,7 +460,9 @@ mod tests {
     fn notification_image_source_uses_file_uri_for_file_uris() {
         assert_eq!(
             parse_notification_image_source(Some("file:///tmp/demo.png")),
-            Some(NotificationImageSource::FileUri("file:///tmp/demo.png".into()))
+            Some(NotificationImageSource::FileUri(
+                "file:///tmp/demo.png".into()
+            ))
         );
     }
 

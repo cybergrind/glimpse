@@ -72,7 +72,6 @@ pub fn set_wallpaper_image(path: &std::path::Path, picture: &gtk::Picture) {
     }
 }
 
-
 fn load_via_image_crate(path: &std::path::Path) -> anyhow::Result<gdk::MemoryTexture> {
     let img = image::open(path)?.into_rgba8();
     let (width, height) = img.dimensions();

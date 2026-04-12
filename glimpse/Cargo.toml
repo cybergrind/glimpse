@@ -19,3 +19,6 @@ gio = "0.20.12"
 secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 system-tray.workspace = true
 gtk4 = { workspace = true, features = ["v4_8"] }
+css-color.workspace = true
+image = "0.25"
+libheif-rs = "2.7.0"

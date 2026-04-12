@@ -74,7 +74,11 @@ pub fn short_name(layout_name: &str) -> String {
             if !layout_name.contains(' ') {
                 return layout_name.to_uppercase();
             }
-            return first_word.chars().take(2).collect::<String>().to_uppercase();
+            return first_word
+                .chars()
+                .take(2)
+                .collect::<String>()
+                .to_uppercase();
         }
     };
     code.to_string()
@@ -88,9 +92,9 @@ async fn hyprland_query_state() -> Option<KeyboardState> {
         .ok()?;
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
     let keyboards = json.get("keyboards")?.as_array()?;
-    let main_kb = keyboards.iter().find(|kb| {
-        kb.get("main").and_then(|v| v.as_bool()).unwrap_or(false)
-    })?;
+    let main_kb = keyboards
+        .iter()
+        .find(|kb| kb.get("main").and_then(|v| v.as_bool()).unwrap_or(false))?;
     let layout_str = main_kb.get("layout")?.as_str()?;
     let active_keymap = main_kb.get("active_keymap")?.as_str()?;
 
@@ -117,13 +121,11 @@ async fn hyprland_query_state() -> Option<KeyboardState> {
 fn find_active_index(layout_codes: &[&str], active_keymap: &str) -> usize {
     let keymap_lower = active_keymap.to_lowercase();
     // Extract parenthetical if present: "English (US)" → "us"
-    let paren_content = keymap_lower
-        .find('(')
-        .and_then(|start| {
-            keymap_lower[start + 1..].find(')').map(|end| {
-                keymap_lower[start + 1..start + 1 + end].trim().to_string()
-            })
-        });
+    let paren_content = keymap_lower.find('(').and_then(|start| {
+        keymap_lower[start + 1..]
+            .find(')')
+            .map(|end| keymap_lower[start + 1..start + 1 + end].trim().to_string())
+    });
 
     layout_codes
         .iter()
@@ -145,10 +147,7 @@ fn find_active_index(layout_codes: &[&str], active_keymap: &str) -> usize {
         .unwrap_or(0)
 }
 
-pub async fn hyprland_event_loop(
-    tx: mpsc::Sender<KeyboardState>,
-    per_window: bool,
-) {
+pub async fn hyprland_event_loop(tx: mpsc::Sender<KeyboardState>, per_window: bool) {
     let sig = match env::var("HYPRLAND_INSTANCE_SIGNATURE") {
         Ok(s) => s,
         Err(_) => return,
@@ -244,10 +243,7 @@ async fn niri_query_state() -> Option<KeyboardState> {
     })
 }
 
-pub async fn niri_event_loop(
-    tx: mpsc::Sender<KeyboardState>,
-    per_window: bool,
-) {
+pub async fn niri_event_loop(tx: mpsc::Sender<KeyboardState>, per_window: bool) {
     tracing::info!("keyboard: starting niri event stream");
 
     let mut child = match Command::new("niri")
@@ -313,12 +309,7 @@ pub async fn niri_event_loop(
                     if let Some(&saved_index) = window_layouts.get(&wid) {
                         if saved_index != current_index {
                             let _ = Command::new("niri")
-                                .args([
-                                    "msg",
-                                    "action",
-                                    "switch-layout",
-                                    &saved_index.to_string(),
-                                ])
+                                .args(["msg", "action", "switch-layout", &saved_index.to_string()])
                                 .output()
                                 .await;
                             current_index = saved_index;

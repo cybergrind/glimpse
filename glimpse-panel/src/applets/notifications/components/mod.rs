@@ -4,8 +4,8 @@ use glimpse::notifications::NotificationEntry;
 
 use super::NotificationActionCommand;
 
-pub mod hero;
 pub mod group_header;
+pub mod hero;
 pub mod list;
 pub mod row;
 pub mod stack;

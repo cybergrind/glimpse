@@ -150,8 +150,9 @@ impl SessionActions {
     }
 
     pub async fn logout(&self) -> anyhow::Result<()> {
-        let session_id = resolve_logout_session_id(|key| std::env::var(key))
-            .ok_or_else(|| anyhow::anyhow!("session actions: XDG_SESSION_ID is required for logout"))?;
+        let session_id = resolve_logout_session_id(|key| std::env::var(key)).ok_or_else(|| {
+            anyhow::anyhow!("session actions: XDG_SESSION_ID is required for logout")
+        })?;
         let conn = self.connection().await?;
         Login1ManagerProxy::new(&conn)
             .await?
@@ -265,7 +266,10 @@ mod tests {
     fn session_snapshot_default_is_unavailable() {
         let snapshot = SessionSnapshot::default();
 
-        assert_eq!(snapshot.capabilities.backend, SessionBackendState::Unavailable);
+        assert_eq!(
+            snapshot.capabilities.backend,
+            SessionBackendState::Unavailable
+        );
         assert_eq!(snapshot.user_name, "user");
         assert_eq!(snapshot.host_name, "linux");
         assert!(snapshot.subtitle.is_empty());
