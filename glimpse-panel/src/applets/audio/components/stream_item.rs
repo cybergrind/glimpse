@@ -1,7 +1,7 @@
-use glimpse::providers::audio::{volume_icon, AudioStream};
+use glimpse::providers::audio::{AudioStream, volume_icon};
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 pub struct StreamItem {

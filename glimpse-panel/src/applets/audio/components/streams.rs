@@ -1,8 +1,8 @@
 use glimpse::providers::audio::AudioStream;
 use relm4::{
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
     gtk::{self, prelude::*},
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
 };
 
 use super::stream_item::{StreamItem, StreamItemInit, StreamItemInput, StreamItemOutput};
@@ -256,7 +256,7 @@ fn row_sync_ops(current_ids: &[u64], next_ids: &[u64]) -> Vec<RowSyncOp> {
 
 #[cfg(test)]
 mod tests {
-    use super::{row_sync_ops, RowSyncOp};
+    use super::{RowSyncOp, row_sync_ops};
 
     #[test]
     fn row_sync_ops_reorders_and_removes_stream_rows() {

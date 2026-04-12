@@ -1,7 +1,7 @@
 use glimpse::providers::audio::{AudioStream, DeviceList};
 use relm4::{
-    gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use super::components::devices::{

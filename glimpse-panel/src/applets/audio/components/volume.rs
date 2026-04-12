@@ -2,10 +2,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use glimpse::providers::audio::{volume_icon, AudioDevice, DeviceList};
+use glimpse::providers::audio::{AudioDevice, DeviceList, volume_icon};
 use relm4::{
-    gtk::{self, glib, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, glib, prelude::*},
 };
 
 pub struct VolumeSection {

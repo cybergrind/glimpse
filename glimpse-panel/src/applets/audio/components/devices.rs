@@ -1,6 +1,6 @@
 use relm4::{
-    gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use glimpse::providers::audio::DeviceList;

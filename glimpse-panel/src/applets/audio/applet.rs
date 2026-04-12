@@ -1,7 +1,7 @@
-use glimpse::providers::audio::{volume_icon, AudioEvent, AudioProvider, AudioStream, DeviceList};
+use glimpse::providers::audio::{AudioEvent, AudioProvider, AudioStream, DeviceList, volume_icon};
 use relm4::{
-    gtk::{self, glib, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk::{self, glib, prelude::*},
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
