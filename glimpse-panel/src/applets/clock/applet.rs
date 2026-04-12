@@ -306,7 +306,7 @@ fn today_as_day_snapshot(
 mod tests {
     use super::*;
     use glimpse::calendar::protocol::{
-        CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth,
+        CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth, CalendarToday,
     };
     use std::collections::BTreeMap;
 
@@ -331,6 +331,43 @@ mod tests {
     fn hidden_popover_does_not_need_tick_forwarding() {
         assert!(!should_tick_popover(false));
         assert!(should_tick_popover(true));
+    }
+
+    #[test]
+    fn missing_selected_day_requests_refresh_until_loaded() {
+        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let state = CalendarServiceState {
+            health: CalendarServiceHealth::Ready,
+            ..Default::default()
+        };
+
+        let resolved = resolve_selected_day_plan(&state, selected_date, false);
+        assert_eq!(resolved.day, None);
+        assert!(resolved.refresh);
+    }
+
+    #[test]
+    fn today_fallback_uses_today_snapshot_when_selected_date_matches_today() {
+        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let day = CalendarDaySnapshot {
+            date: CalendarDate::from_naive_date(selected_date),
+            events: vec![CalendarEvent {
+                title: "Meeting".into(),
+                ..Default::default()
+            }],
+        };
+        let state = CalendarServiceState {
+            health: CalendarServiceHealth::Ready,
+            today: Some(CalendarToday {
+                date: day.date,
+                events: day.events.clone(),
+            }),
+            ..Default::default()
+        };
+
+        let resolved = resolve_selected_day_plan(&state, selected_date, false);
+        assert_eq!(resolved.day, Some(day));
+        assert!(!resolved.refresh);
     }
 
     #[test]
