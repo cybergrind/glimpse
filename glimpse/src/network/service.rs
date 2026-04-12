@@ -102,6 +102,7 @@ impl OpenPopoverCount {
 struct PendingPrompt {
     id: NetworkPromptId,
     ssid: String,
+    path: String,
     submitting: bool,
     active_connection_path: Option<String>,
     connection_uuid: Option<String>,
@@ -331,13 +332,13 @@ async fn handle_command(
             );
             Ok(())
         }
-        NetworkServiceCommand::ConnectWifi { ssid } => {
+        NetworkServiceCommand::ConnectWifi { ssid, path } => {
             let access_point = state_tx
                 .borrow()
                 .snapshot
                 .wifi_access_points
                 .iter()
-                .find(|access_point| access_point.ssid == ssid)
+                .find(|access_point| access_point.path == path)
                 .cloned();
 
             match access_point {
@@ -346,6 +347,7 @@ async fn handle_command(
                     *pending_prompt = Some(PendingPrompt {
                         id: prompt_id,
                         ssid: access_point.ssid.clone(),
+                        path: access_point.path.clone(),
                         submitting: false,
                         active_connection_path: None,
                         connection_uuid: None,
@@ -363,13 +365,17 @@ async fn handle_command(
                 }
                 Some(access_point) => {
                     let ssid = access_point.ssid.clone();
+                    let path = access_point.path.clone();
                     spawn_action(
                         provider.clone(),
                         state_tx.clone(),
-                        Some(NetworkActiveAction::ConnectWifi { ssid: ssid.clone() }),
+                        Some(NetworkActiveAction::ConnectWifi {
+                            ssid: ssid.clone(),
+                            path: path.clone(),
+                        }),
                         move |provider| async move {
                             provider
-                                .connect(&ssid, None)
+                                .connect_access_point(&ssid, &path, None)
                                 .await
                                 .map(|_| ())
                                 .map_err(Into::into)
@@ -377,7 +383,7 @@ async fn handle_command(
                     );
                     Ok(())
                 }
-                None => Err(service_error(format!("unknown wifi network: {ssid}"))),
+                None => Err(service_error(format!("unknown wifi network: {ssid} ({path})"))),
             }
         }
         NetworkServiceCommand::ConnectSaved { uuid } => {
@@ -427,6 +433,7 @@ async fn handle_command(
             match reply {
                 NetworkPromptReply::SubmitPassword(password) => {
                     let ssid = pending.ssid.clone();
+                    let path = pending.path.clone();
                     let prompt_id = pending.id;
                     pending.submitting = true;
                     pending.active_connection_path = None;
@@ -435,11 +442,13 @@ async fn handle_command(
                     let _ = state_tx.send_modify(|state| {
                         state.prompt =
                             Some(network_password_prompt(prompt_id, ssid.clone(), None, true));
-                        state.active_action =
-                            Some(NetworkActiveAction::ConnectWifi { ssid: ssid.clone() });
+                        state.active_action = Some(NetworkActiveAction::ConnectWifi {
+                            ssid: ssid.clone(),
+                            path: path.clone(),
+                        });
                     });
                     match provider
-                        .connect(&ssid, Some(password.as_str()))
+                        .connect_access_point(&ssid, &path, Some(password.as_str()))
                         .await
                         .map_err(|error| -> ServiceError { error.into() })
                     {
@@ -785,7 +794,10 @@ fn restore_pending_prompt_after_submit_error(
         ));
         if matches!(
             state.active_action.as_ref(),
-            Some(NetworkActiveAction::ConnectWifi { ssid: active_ssid }) if active_ssid == &ssid
+            Some(NetworkActiveAction::ConnectWifi {
+                ssid: active_ssid,
+                ..
+            }) if active_ssid == &ssid
         ) {
             state.active_action = None;
         }
@@ -823,7 +835,7 @@ fn action_has_reached_observable_state(
     active_action: &NetworkActiveAction,
 ) -> bool {
     match active_action {
-        NetworkActiveAction::ConnectWifi { ssid } => {
+        NetworkActiveAction::ConnectWifi { ssid, path } => {
             snapshot.connections.iter().any(|connection| {
                 connection.connection_type == "wifi"
                     && connection.id == *ssid
@@ -831,7 +843,7 @@ fn action_has_reached_observable_state(
             }) || snapshot
                 .wifi_access_points
                 .iter()
-                .any(|access_point| access_point.ssid == *ssid && access_point.connected)
+                .any(|access_point| access_point.path == *path && access_point.connected)
         }
         NetworkActiveAction::ConnectSaved { uuid } => {
             snapshot.connections.iter().any(|connection| {
@@ -1046,12 +1058,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: None,
@@ -1092,12 +1106,14 @@ mod tests {
             prompt: Some(original_prompt.clone()),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: None,
             connection_uuid: None,
@@ -1112,6 +1128,7 @@ mod tests {
             state.active_action,
             Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             })
         );
         assert_eq!(
@@ -1119,6 +1136,7 @@ mod tests {
             Some(PendingPrompt {
                 id: NetworkPromptId(1),
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
                 submitting: true,
                 active_connection_path: None,
                 connection_uuid: None,
@@ -1149,12 +1167,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: None,
@@ -1178,6 +1198,7 @@ mod tests {
             Some(PendingPrompt {
                 id: NetworkPromptId(1),
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
                 submitting: true,
                 active_connection_path: Some("/active/1".into()),
                 connection_uuid: None,
@@ -1208,12 +1229,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: None,
@@ -1256,12 +1279,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: Some("uuid-1".into()),
@@ -1288,12 +1313,14 @@ mod tests {
             prompt: Some(original_prompt),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: Some("uuid-1".into()),
@@ -1343,12 +1370,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending_prompt = Some(PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: None,
@@ -1380,12 +1409,14 @@ mod tests {
             )),
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         });
         let mut pending = PendingPrompt {
             id: NetworkPromptId(1),
             ssid: "Skylink".into(),
+            path: "/ap/1".into(),
             submitting: true,
             active_connection_path: Some("/active/1".into()),
             connection_uuid: Some("uuid-1".into()),
@@ -1414,6 +1445,7 @@ mod tests {
             PendingPrompt {
                 id: NetworkPromptId(1),
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
                 submitting: false,
                 active_connection_path: None,
                 connection_uuid: None,

@@ -183,8 +183,8 @@ impl Network {
             NetworkPopoverOutput::ToggleWifi(enabled) => {
                 self.send_command(sender, NetworkServiceCommand::SetWifiEnabled(enabled));
             }
-            NetworkPopoverOutput::ConnectWifi { ssid } => {
-                self.send_command(sender, NetworkServiceCommand::ConnectWifi { ssid });
+            NetworkPopoverOutput::ConnectWifi { ssid, path } => {
+                self.send_command(sender, NetworkServiceCommand::ConnectWifi { ssid, path });
             }
             NetworkPopoverOutput::ConnectSaved { uuid } => {
                 self.send_command(sender, NetworkServiceCommand::ConnectSaved { uuid });
@@ -349,6 +349,7 @@ mod tests {
             prompt: None,
             active_action: Some(NetworkActiveAction::ConnectWifi {
                 ssid: "Cafe".into(),
+                path: "/ap/1".into(),
             }),
             scanning: false,
         };
@@ -368,6 +369,7 @@ mod tests {
         assert!(should_close_popover_before_output(
             &NetworkPopoverOutput::ConnectWifi {
                 ssid: "Skylink".into(),
+                path: "/ap/1".into(),
             }
         ));
         assert!(should_close_popover_before_output(

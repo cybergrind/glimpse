@@ -26,6 +26,7 @@ pub enum StreamItemOutput {
     SetVolume { stream_id: u64, volume: u32 },
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for StreamItem {
     type Init = StreamItemInit;

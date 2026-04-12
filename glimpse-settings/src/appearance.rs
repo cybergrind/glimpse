@@ -157,7 +157,11 @@ impl AccentColor {
     }
 }
 
-pub fn discover_theme_options(kind: ThemeKind, roots: &[PathBuf], current: Option<&str>) -> Vec<ThemeOption> {
+pub fn discover_theme_options(
+    kind: ThemeKind,
+    roots: &[PathBuf],
+    current: Option<&str>,
+) -> Vec<ThemeOption> {
     let mut names = Vec::<String>::new();
 
     for root in roots {
@@ -259,14 +263,15 @@ impl AppearanceSettings {
         self.settings
             .set_string(ACCENT_COLOR_KEY, draft.accent_color.gsettings_value())?;
         self.settings.set_string(GTK_THEME_KEY, &draft.gtk_theme)?;
-        self.settings.set_string(ICON_THEME_KEY, &draft.icon_theme)?;
+        self.settings
+            .set_string(ICON_THEME_KEY, &draft.icon_theme)?;
         self.settings
             .set_string(CURSOR_THEME_KEY, &draft.cursor_theme)?;
-        self.settings
-            .set_string(FONT_KEY, &draft.interface_font)?;
+        self.settings.set_string(FONT_KEY, &draft.interface_font)?;
         self.settings
             .set_string(MONOSPACE_FONT_KEY, &draft.monospace_font)?;
-        self.settings.set_double(TEXT_SCALING_KEY, draft.text_scale)?;
+        self.settings
+            .set_double(TEXT_SCALING_KEY, draft.text_scale)?;
         Ok(())
     }
 
@@ -389,15 +394,16 @@ mod tests {
         fs::create_dir(root.join("Adwaita-copy-2").join("gtk-4.0"))
             .expect("gtk dir should be created");
 
-        let options = discover_theme_options(
-            ThemeKind::Gtk,
-            &[root.clone()],
-            Some("Missing Theme"),
-        );
+        let options =
+            discover_theme_options(ThemeKind::Gtk, &[root.clone()], Some("Missing Theme"));
 
         assert!(options.iter().any(|item| item.name == "Adwaita"));
         assert!(options.iter().any(|item| item.name == "Adwaita-dark"));
-        assert!(options.iter().any(|item| item.name == "Missing Theme" && !item.installed));
+        assert!(
+            options
+                .iter()
+                .any(|item| item.name == "Missing Theme" && !item.installed)
+        );
         assert_eq!(
             options
                 .iter()
@@ -415,7 +421,10 @@ mod tests {
         fs::create_dir(root.join("CursorTheme").join("cursors"))
             .expect("cursors dir should be created");
 
-        assert!(!theme_name_allowed(ThemeKind::Cursor, &root.join("PlainIcons")));
+        assert!(!theme_name_allowed(
+            ThemeKind::Cursor,
+            &root.join("PlainIcons")
+        ));
         assert!(theme_name_allowed(
             ThemeKind::Cursor,
             &root.join("CursorTheme")
@@ -443,8 +452,16 @@ mod tests {
         let roots = theme_search_roots(ThemeKind::Gtk);
 
         assert!(roots.iter().any(|path| path.ends_with(".themes")));
-        assert!(roots.iter().any(|path| path.ends_with(".local/share/themes")));
-        assert!(roots.iter().any(|path| path == &PathBuf::from("/usr/share/themes")));
+        assert!(
+            roots
+                .iter()
+                .any(|path| path.ends_with(".local/share/themes"))
+        );
+        assert!(
+            roots
+                .iter()
+                .any(|path| path == &PathBuf::from("/usr/share/themes"))
+        );
     }
 
     #[test]

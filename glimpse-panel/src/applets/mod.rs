@@ -257,7 +257,10 @@ pub fn create_applet(
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = pager::Pager::builder()
-                .launch(pager::PagerInit { config })
+                .launch(pager::PagerInit {
+                    config,
+                    service: services.workspace.clone(),
+                })
                 .detach();
             Some(AppletController::Pager(applet))
         }
@@ -266,7 +269,10 @@ pub fn create_applet(
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
             let applet = keyboard::Keyboard::builder()
-                .launch(keyboard::KeyboardInit { config })
+                .launch(keyboard::KeyboardInit {
+                    config,
+                    service: services.keyboard_layout.clone(),
+                })
                 .detach();
             Some(AppletController::Keyboard(applet))
         }

@@ -3,6 +3,7 @@ use glimpse::{
     calendar::CalendarServiceHandle, mpris::MprisServiceHandle, network::NetworkServiceHandle,
     notifications::NotificationsServiceHandle, privacy::PrivacyServiceHandle,
     tray::TrayServiceHandle,
+    compositor::{KeyboardLayoutServiceHandle, WorkspaceServiceHandle},
 };
 
 #[derive(Clone)]
@@ -15,6 +16,8 @@ pub struct ServicesHandle {
     pub tray: TrayServiceHandle,
     pub notifications: NotificationsServiceHandle,
     pub privacy: PrivacyServiceHandle,
+    pub workspace: WorkspaceServiceHandle,
+    pub keyboard_layout: KeyboardLayoutServiceHandle,
 }
 
 pub struct Services {
@@ -31,6 +34,8 @@ impl Services {
         let privacy = PrivacyServiceHandle::new(session.clone());
         let tray = TrayServiceHandle::new();
         let notifications = NotificationsServiceHandle::new(session);
+        let workspace = WorkspaceServiceHandle::new();
+        let keyboard_layout = KeyboardLayoutServiceHandle::new();
         Self {
             handle: ServicesHandle {
                 bluetooth,
@@ -41,6 +46,8 @@ impl Services {
                 tray,
                 notifications,
                 privacy,
+                workspace,
+                keyboard_layout,
             },
         }
     }

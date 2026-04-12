@@ -92,6 +92,7 @@ impl FactoryComponent for AudioDeviceRowItem {
     }
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for DeviceListSection {
     type Init = DeviceListSectionInit;

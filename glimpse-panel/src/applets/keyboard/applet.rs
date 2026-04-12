@@ -1,31 +1,33 @@
-use relm4::{
-    Component, ComponentParts, ComponentSender,
-    gtk::{self, prelude::*},
-};
-use tokio::sync::mpsc;
+#![allow(unused_assignments)]
 
-use super::compositor::{self, Compositor, KeyboardState};
+use glimpse::compositor::{
+    KeyboardLayoutCommand, KeyboardLayoutServiceHandle, KeyboardLayoutState, short_layout_name,
+};
+use relm4::{
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk,
+};
+
+use super::components::layout_label::{
+    KeyboardLayoutLabel, KeyboardLayoutLabelInput, KeyboardLayoutLabelOutput, KeyboardLayoutView,
+};
 use super::config::{KeyboardConfig, KeyboardFormat};
 
 pub struct Keyboard {
     config: KeyboardConfig,
-    compositor: Option<Compositor>,
-    action_tx: mpsc::Sender<KeyboardAction>,
-    label: gtk::Label,
+    service: KeyboardLayoutServiceHandle,
+    indicator: Controller<KeyboardLayoutLabel>,
 }
 
 pub struct KeyboardInit {
     pub config: KeyboardConfig,
+    pub service: KeyboardLayoutServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum KeyboardInput {
-    Scroll(f64),
-}
-
-#[derive(Debug)]
-enum KeyboardAction {
-    SwitchRelative(bool),
+    ServiceState(KeyboardLayoutState),
+    IndicatorOutput(KeyboardLayoutLabelOutput),
 }
 
 #[relm4::component(pub)]
@@ -33,125 +35,102 @@ impl Component for Keyboard {
     type Init = KeyboardInit;
     type Input = KeyboardInput;
     type Output = ();
-    type CommandOutput = KeyboardState;
+    type CommandOutput = KeyboardInput;
 
     view! {
         gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            add_css_class: "applet",
-            add_css_class: "keyboard",
+            #[local_ref]
+            indicator_widget -> gtk::Box {},
         }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let compositor = compositor::detect();
-        let (action_tx, action_rx) = mpsc::channel::<KeyboardAction>(16);
-
-        let label = gtk::Label::new(None);
-        label.add_css_class("keyboard-label");
-        root.append(&label);
+        let indicator = KeyboardLayoutLabel::builder()
+            .launch(())
+            .forward(sender.input_sender(), KeyboardInput::IndicatorOutput);
+        let indicator_widget = indicator.widget().clone();
+        let per_window = init.config.per_window;
+        let service = init.service.fork(per_window);
 
         let model = Keyboard {
-            config: init.config.clone(),
-            compositor,
-            action_tx,
-            label,
+            config: init.config,
+            service,
+            indicator,
         };
-        let widgets = view_output!();
+        let service = model.service.clone();
+        sender.command(move |out, shutdown| {
+            shutdown
+                .register(async move {
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(KeyboardInput::ServiceState(state_rx.borrow().clone()));
 
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        let scroll_sender = sender.clone();
-        scroll.connect_scroll(move |_, _, dy| {
-            scroll_sender.input(KeyboardInput::Scroll(dy));
-            gtk::glib::Propagation::Stop
+                    while state_rx.changed().await.is_ok() {
+                        let _ = out.send(KeyboardInput::ServiceState(state_rx.borrow().clone()));
+                    }
+                })
+                .drop_on_shutdown()
         });
-        root.add_controller(scroll);
 
-        if let Some(comp) = compositor {
-            let per_window = init.config.per_window;
-            sender.command(move |cmd_tx, shutdown| {
-                shutdown
-                    .register(async move {
-                        let (state_tx, mut state_rx) = mpsc::channel::<KeyboardState>(16);
-                        let mut action_rx = action_rx;
-
-                        let event_handle = tokio::spawn(async move {
-                            match comp {
-                                Compositor::Hyprland => {
-                                    compositor::hyprland_event_loop(state_tx, per_window).await;
-                                }
-                                Compositor::Niri => {
-                                    compositor::niri_event_loop(state_tx, per_window).await;
-                                }
-                            }
-                        });
-
-                        loop {
-                            tokio::select! {
-                                Some(state) = state_rx.recv() => {
-                                    if cmd_tx.send(state).is_err() {
-                                        break;
-                                    }
-                                }
-                                Some(action) = action_rx.recv() => {
-                                    match action {
-                                        KeyboardAction::SwitchRelative(next) => {
-                                            compositor::switch_layout_relative(comp, next).await;
-                                        }
-                                    }
-                                }
-                                else => break,
-                            }
-                        }
-
-                        event_handle.abort();
-                    })
-                    .drop_on_shutdown()
-            });
-        } else {
-            tracing::warn!("keyboard: no supported compositor detected");
-        }
-
+        let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
     fn update_cmd(
         &mut self,
-        state: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        message: Self::CommandOutput,
+        sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
-        let full_name = state
-            .layout_names
-            .get(state.current_index)
-            .cloned()
-            .unwrap_or_default();
-
-        let display = if let Some(label) = self.config.labels.get(&full_name) {
-            label.clone()
-        } else {
-            match self.config.format {
-                KeyboardFormat::Short => compositor::short_name(&full_name),
-                KeyboardFormat::Full => full_name.clone(),
-            }
-        };
-
-        self.label.set_label(&display);
-        root.set_tooltip_text(Some(&full_name));
+        self.update(message, sender, root);
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            KeyboardInput::Scroll(dy) => {
-                let next = dy > 0.0;
-                self.action_tx
-                    .try_send(KeyboardAction::SwitchRelative(next))
-                    .ok();
+            KeyboardInput::ServiceState(state) => {
+                let full_name = state
+                    .snapshot
+                    .layout_names
+                    .get(state.snapshot.current_index)
+                    .cloned()
+                    .unwrap_or_default();
+
+                let display = if let Some(label) = self.config.labels.get(&full_name) {
+                    label.clone()
+                } else {
+                    match self.config.format {
+                        KeyboardFormat::Short => short_layout_name(&full_name),
+                        KeyboardFormat::Full => full_name.clone(),
+                    }
+                };
+
+                self.indicator
+                    .emit(KeyboardLayoutLabelInput::Update(KeyboardLayoutView {
+                        label: display,
+                        tooltip: full_name,
+                    }));
+            }
+            KeyboardInput::IndicatorOutput(KeyboardLayoutLabelOutput::Scroll(dy)) => {
+                self.send_command(sender, KeyboardLayoutCommand::SwitchRelative(dy > 0.0));
             }
         }
+    }
+}
+
+impl Keyboard {
+    fn send_command(&self, sender: ComponentSender<Self>, command: KeyboardLayoutCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(error = %error, "keyboard applet: failed to send layout command");
+                    }
+                })
+                .drop_on_shutdown()
+        });
     }
 }

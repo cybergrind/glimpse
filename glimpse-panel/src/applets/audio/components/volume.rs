@@ -35,6 +35,7 @@ pub enum VolumeSectionOutput {
     SetInputVolume(u32),
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for VolumeSection {
     type Init = VolumeSectionInit;

@@ -1,5 +1,5 @@
 mod applet;
-mod compositor;
+pub mod components;
 mod config;
 
 pub use applet::{Keyboard, KeyboardInit};

@@ -1,20 +1,20 @@
+#![allow(unused_assignments)]
+
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
 use chrono::{Local, NaiveDate};
-use glimpse::calendar::protocol::{CalendarDate, CalendarServiceCommand, CalendarServiceState};
+use glimpse::calendar::protocol::{CalendarDaySnapshot, CalendarMonthSnapshot};
 
-use super::calendar::{Calendar, CalendarInit, Input as CalendarInput, Output as CalendarOutput};
-use super::date::{Date, Input as DateInput};
-use super::events::{Events, EventsInit, EventsInput, EventsOutput};
-use super::world::WorldClock;
-use crate::applets::clock::{
-    applet::{month_key, resolve_selected_day_plan},
-    config::TimezoneEntry,
-    world::WorldClockInput,
+use super::components::{
+    calendar::{Calendar, CalendarInit, Input as CalendarInput, Output as CalendarOutput},
+    date::{Date, Input as DateInput},
+    events::{Events, EventsInit, EventsInput, EventsOutput},
+    world::WorldClock,
 };
+use crate::applets::clock::{components::world::WorldClockInput, config::TimezoneEntry};
 
 pub struct Popover {
     popover: gtk::Popover,
@@ -26,9 +26,6 @@ pub struct Popover {
     world_clock: Option<Controller<WorldClock>>,
     #[allow(dead_code)]
     events: Controller<Events>,
-    selected_date: NaiveDate,
-    follow_today: bool,
-    state: CalendarServiceState,
 }
 
 pub struct PopoverInit {
@@ -40,14 +37,22 @@ pub struct PopoverInit {
 pub enum PopoverInput {
     Toggle,
     Tick,
-    CalendarState(CalendarServiceState),
+    SetSelectedDate(NaiveDate),
+    SetMonth(Option<CalendarMonthSnapshot>),
+    SetSelectedDay {
+        date: NaiveDate,
+        day: Option<CalendarDaySnapshot>,
+        refresh: bool,
+    },
     CalendarOutput(CalendarOutput),
     EventsOutput(EventsOutput),
 }
 
 #[derive(Debug, Clone)]
 pub enum PopoverOutput {
-    Command(CalendarServiceCommand),
+    SelectedDate(NaiveDate),
+    LoadMonth { year: i32, month: u32 },
+    LoadDay { date: NaiveDate },
 }
 
 #[relm4::component(pub)]
@@ -57,7 +62,37 @@ impl SimpleComponent for Popover {
     type Output = PopoverOutput;
 
     view! {
-        gtk::Popover {}
+        gtk::Popover {
+            add_css_class: "clock-popover",
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 20,
+                add_css_class: "clock-popover-layout",
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    add_css_class: "clock-popover-left",
+
+                    #[local_ref]
+                    date_widget -> gtk::Box {},
+
+                    #[local_ref]
+                    calendar_widget -> gtk::Box {},
+
+                    #[local_ref]
+                    world_widget -> gtk::Box {},
+                },
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    add_css_class: "clock-popover-right",
+
+                    #[local_ref]
+                    events_widget -> gtk::Box {},
+                },
+            }
+        }
     }
 
     fn init(
@@ -66,43 +101,31 @@ impl SimpleComponent for Popover {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let selected_date = Local::now().date_naive();
-        root.add_css_class("clock-popover");
-
-        let container = gtk::Box::new(gtk::Orientation::Horizontal, 20);
-        container.add_css_class("clock-popover-layout");
-
-        let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        left.add_css_class("clock-popover-left");
-
-        let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        right.add_css_class("clock-popover-right");
-
         let date = Date::builder().launch(()).detach();
-        left.append(date.widget());
-
         let calendar = Calendar::builder()
             .launch(CalendarInit { selected_date })
             .forward(sender.input_sender(), PopoverInput::CalendarOutput);
-        left.append(calendar.widget());
 
         let world_clock = if init.timezones.is_empty() {
             None
         } else {
-            let wc = WorldClock::builder().launch(init.timezones).detach();
-            left.append(wc.widget());
-            Some(wc)
+            Some(WorldClock::builder().launch(init.timezones).detach())
         };
 
         let events = Events::builder()
             .launch(EventsInit { selected_date })
             .forward(sender.input_sender(), PopoverInput::EventsOutput);
-        right.append(events.widget());
-
-        container.append(&left);
-        container.append(&right);
-
-        root.set_parent(&init.parent);
-        root.set_child(Some(&container));
+        let date_widget = date.widget().clone();
+        let calendar_widget = calendar.widget().clone();
+        let world_widget = world_clock
+            .as_ref()
+            .map(|clock| clock.widget().clone())
+            .unwrap_or_else(|| {
+                let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                widget.set_visible(false);
+                widget
+            });
+        let events_widget = events.widget().clone();
 
         let model = Popover {
             popover: root.clone(),
@@ -110,11 +133,9 @@ impl SimpleComponent for Popover {
             calendar,
             world_clock,
             events,
-            selected_date,
-            follow_today: true,
-            state: CalendarServiceState::default(),
         };
         let widgets = view_output!();
+        model.popover.set_parent(&init.parent);
         ComponentParts { model, widgets }
     }
 
@@ -128,71 +149,38 @@ impl SimpleComponent for Popover {
                 }
             }
             PopoverInput::Tick => {
-                let today = Local::now().date_naive();
-                if self.follow_today && self.selected_date != today {
-                    self.selected_date = today;
-                    self.date.emit(DateInput::SetDate(today));
-                    self.calendar.emit(CalendarInput::SetDate(today));
-                    self.emit_selected_day(today, false);
-                }
                 if let Some(ref wc) = self.world_clock {
                     wc.emit(WorldClockInput::Tick);
                 }
                 self.events.emit(EventsInput::Tick);
             }
-            PopoverInput::CalendarState(state) => {
-                self.state = state;
-                self.sync_from_state(&self.state);
+            PopoverInput::SetSelectedDate(date) => {
+                self.date.emit(DateInput::SetDate(date));
+                self.calendar.emit(CalendarInput::SetDate(date));
             }
-            PopoverInput::CalendarOutput(output) => {
-                match output {
-                    CalendarOutput::SelectedDate(date) => {
-                        let month_changed = month_key(date) != month_key(self.selected_date);
-                        self.selected_date = date;
-                        self.follow_today = date == Local::now().date_naive();
-                        self.date.emit(DateInput::SetDate(date));
-                        self.emit_selected_day(date, month_changed);
-                    }
-                    CalendarOutput::LoadMonth { year, month } => {
-                        let _ = sender.output(PopoverOutput::Command(
-                            CalendarServiceCommand::LoadMonth { year, month },
-                        ));
-                    }
+            PopoverInput::SetMonth(Some(month)) => {
+                self.calendar.emit(CalendarInput::MonthData(month));
+            }
+            PopoverInput::SetMonth(None) => {
+                self.calendar.emit(CalendarInput::ClearMonth);
+            }
+            PopoverInput::SetSelectedDay { date, day, refresh } => {
+                self.events
+                    .emit(EventsInput::SetDate { date, day, refresh });
+            }
+            PopoverInput::CalendarOutput(output) => match output {
+                CalendarOutput::SelectedDate(date) => {
+                    let _ = sender.output(PopoverOutput::SelectedDate(date));
                 }
-            }
-            PopoverInput::EventsOutput(output) => match output {
-                EventsOutput::LoadDay { date } => {
-                    let _ =
-                        sender.output(PopoverOutput::Command(CalendarServiceCommand::LoadDay {
-                            date: CalendarDate::from_naive_date(date),
-                        }));
+                CalendarOutput::LoadMonth { year, month } => {
+                    let _ = sender.output(PopoverOutput::LoadMonth { year, month });
                 }
             },
-        }
-    }
-}
-
-impl Popover {
-    fn emit_selected_day(&self, date: NaiveDate, month_changed: bool) {
-        let plan = resolve_selected_day_plan(&self.state, date, month_changed);
-        self.events.emit(EventsInput::SetDate {
-            date,
-            day: plan.day,
-            refresh: plan.refresh,
-        });
-    }
-
-    fn sync_from_state(&self, state: &CalendarServiceState) {
-        let month = state.month_cache.get(&month_key(self.selected_date)).cloned();
-        let day_update = resolve_selected_day_plan(state, self.selected_date, false).day;
-
-        match month {
-            Some(month) => self.calendar.emit(CalendarInput::MonthData(month)),
-            None => self.calendar.emit(CalendarInput::ClearMonth),
-        }
-
-        if let Some(day) = day_update {
-            self.events.emit(EventsInput::Data(day));
+            PopoverInput::EventsOutput(output) => match output {
+                EventsOutput::LoadDay { date } => {
+                    let _ = sender.output(PopoverOutput::LoadDay { date });
+                }
+            },
         }
     }
 }

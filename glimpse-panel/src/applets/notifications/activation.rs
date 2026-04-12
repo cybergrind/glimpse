@@ -1,7 +1,7 @@
 use relm4::gtk::{gdk, gio, prelude::*};
+use glimpse::compositor::focus_notification_target;
 
 use super::NotificationActionCommand;
-use crate::applets::pager::compositor::focus_notification_target;
 
 pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Option<String> {
     let display = gdk::Display::default()?;

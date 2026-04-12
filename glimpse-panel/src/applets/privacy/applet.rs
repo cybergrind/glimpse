@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use glimpse::privacy::{
@@ -5,10 +7,13 @@ use glimpse::privacy::{
     protocol::{PrivacyServiceCommand, PrivacyServiceState},
 };
 use relm4::{
-    Component, ComponentParts, ComponentSender,
-    gtk::{self, prelude::*},
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk,
 };
 
+use super::components::indicators::{
+    PrivacyIndicators, PrivacyIndicatorsInput, PrivacyIndicatorsOutput, PrivacyIndicatorsState,
+};
 use super::config::PrivacyConfig;
 
 pub struct Privacy {
@@ -19,6 +24,7 @@ pub struct Privacy {
     screen_capture_active: bool,
     screen_capture_started_at: Option<u64>,
     recording_label: String,
+    indicators: Controller<PrivacyIndicators>,
 }
 
 pub struct PrivacyInit {
@@ -31,6 +37,7 @@ pub enum PrivacyMsg {
     ServiceState(PrivacyServiceState),
     Tick,
     StopScreenCapture,
+    IndicatorsOutput(PrivacyIndicatorsOutput),
     Unavailable,
 }
 
@@ -50,55 +57,8 @@ impl Component for Privacy {
 
     view! {
         gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 6,
-            add_css_class: "applet",
-            add_css_class: "privacy",
-            #[watch]
-            set_visible: model.visible,
-
-            add_controller = gtk::GestureClick {
-                set_button: 1,
-                connect_pressed[sender] => move |_, _, _, _| {
-                    sender.input(PrivacyMsg::StopScreenCapture);
-                }
-            },
-
-            gtk::Image {
-                set_icon_name: Some("microphone-sensitivity-high-symbolic"),
-                set_pixel_size: 16,
-                add_css_class: "privacy-indicator",
-                #[watch]
-                set_visible: model.mic_active,
-            },
-
-            gtk::Image {
-                set_icon_name: Some("camera-web-symbolic"),
-                set_pixel_size: 16,
-                add_css_class: "privacy-indicator",
-                #[watch]
-                set_visible: model.camera_active,
-            },
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 4,
-                add_css_class: "privacy-recording-pill",
-                #[watch]
-                set_visible: model.screen_capture_active,
-
-                gtk::Image {
-                    set_icon_name: Some("media-record-symbolic"),
-                    set_pixel_size: 14,
-                    add_css_class: "privacy-recording-icon",
-                },
-
-                gtk::Label {
-                    #[watch]
-                    set_label: &model.recording_label,
-                    add_css_class: "privacy-recording-label",
-                },
-            },
+            #[local_ref]
+            indicators_widget -> gtk::Box {},
         }
     }
 
@@ -108,6 +68,10 @@ impl Component for Privacy {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let _ = init.config;
+        let indicators = PrivacyIndicators::builder()
+            .launch(())
+            .forward(sender.input_sender(), PrivacyMsg::IndicatorsOutput);
+        let indicators_widget = indicators.widget().clone();
 
         let model = Privacy {
             service: init.service.clone(),
@@ -117,6 +81,7 @@ impl Component for Privacy {
             screen_capture_active: false,
             screen_capture_started_at: None,
             recording_label: String::new(),
+            indicators,
         };
 
         let service = init.service;
@@ -182,11 +147,13 @@ impl Component for Privacy {
                     self.camera_active,
                     self.screen_capture_active,
                 );
+                self.sync_indicators();
             }
             PrivacyMsg::Tick => {
                 if self.screen_capture_active {
                     self.recording_label =
                         format_elapsed_label(self.screen_capture_started_at, now_unix_secs());
+                    self.sync_indicators();
                 }
             }
             PrivacyMsg::StopScreenCapture => {
@@ -194,15 +161,29 @@ impl Component for Privacy {
                     self.send_command(sender, PrivacyServiceCommand::StopAllScreenCapture);
                 }
             }
+            PrivacyMsg::IndicatorsOutput(PrivacyIndicatorsOutput::StopScreenCaptureRequested) => {
+                sender.input(PrivacyMsg::StopScreenCapture);
+            }
             PrivacyMsg::Unavailable => {
                 tracing::warn!("privacy applet: privacy service unavailable");
                 self.visible = false;
+                self.sync_indicators();
             }
         }
     }
 }
 
 impl Privacy {
+    fn sync_indicators(&self) {
+        self.indicators.emit(PrivacyIndicatorsInput::Update(PrivacyIndicatorsState {
+            visible: self.visible,
+            mic_active: self.mic_active,
+            camera_active: self.camera_active,
+            screen_capture_active: self.screen_capture_active,
+            recording_label: self.recording_label.clone(),
+        }));
+    }
+
     fn send_command(&self, sender: ComponentSender<Self>, command: PrivacyServiceCommand) {
         let service = self.service.clone();
         sender.command(move |_out, shutdown| {

@@ -1,10 +1,9 @@
-use adw::prelude::{AdwDialogExt, AlertDialogExt};
 use glimpse::{
     bluetooth::{
         BluetoothServiceHandle,
         protocol::{
-            BluetoothActiveAction, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
-            BluetoothPromptReply, BluetoothServiceCommand, BluetoothServiceState,
+            BluetoothActiveAction, BluetoothPrompt, BluetoothPromptKind, BluetoothServiceCommand,
+            BluetoothServiceState,
         },
     },
     providers::bluetooth::{BluetoothDevice, BluetoothSnapshot},
@@ -13,6 +12,7 @@ use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
 };
+use std::process::Command;
 
 use super::config::BluetoothConfig;
 use super::popover::{
@@ -23,8 +23,8 @@ pub struct Bluetooth {
     icon_name: String,
     tooltip: String,
     service: BluetoothServiceHandle,
+    settings_command: String,
     active_device: Option<String>,
-    active_prompt_id: Option<BluetoothPromptId>,
     popover: Controller<BluetoothPopover>,
 }
 
@@ -39,10 +39,6 @@ pub enum BluetoothMsg {
     PopoverOutput(BluetoothPopoverOutput),
     TogglePopover,
     Unavailable,
-    PromptReply {
-        id: BluetoothPromptId,
-        reply: BluetoothPromptReply,
-    },
 }
 
 #[relm4::component(pub)]
@@ -80,10 +76,11 @@ impl Component for Bluetooth {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let settings_command = init.config.settings_command.clone();
         let popover = BluetoothPopover::builder()
             .launch(BluetoothPopoverInit {
                 parent: root.clone(),
-                settings_command: init.config.settings_command,
+                show_settings_button: !settings_command.is_empty(),
             })
             .forward(sender.input_sender(), BluetoothMsg::PopoverOutput);
 
@@ -91,8 +88,8 @@ impl Component for Bluetooth {
             icon_name: "bluetooth-active-symbolic".into(),
             tooltip: "Bluetooth".into(),
             service: init.service.clone(),
+            settings_command,
             active_device: None,
-            active_prompt_id: None,
             popover,
         };
 
@@ -182,10 +179,6 @@ impl Component for Bluetooth {
             BluetoothMsg::Unavailable => {
                 tracing::warn!("bluetooth applet: bluetooth service unavailable");
             }
-            BluetoothMsg::PromptReply { id, reply } => {
-                tracing::info!(prompt_id = id.0, "bluetooth applet: prompt reply");
-                self.send_command(sender, BluetoothServiceCommand::PromptReply { id, reply });
-            }
         }
     }
 }
@@ -217,6 +210,11 @@ impl Bluetooth {
                 tracing::info!(?action, address = %address, name = %name, "bluetooth applet: device action requested");
                 self.send_command(sender, command_for_device_action(action, address));
             }
+            BluetoothPopoverOutput::OpenSettings => {
+                tracing::info!("bluetooth applet: open settings requested");
+                self.popover.emit(BluetoothPopoverInput::Close);
+                self.open_settings();
+            }
         }
     }
 
@@ -233,11 +231,27 @@ impl Bluetooth {
         });
     }
 
+    fn open_settings(&self) {
+        if self.settings_command.is_empty() {
+            tracing::debug!("bluetooth applet: ignoring settings request with empty command");
+            return;
+        }
+
+        let command = self.settings_command.clone();
+        if let Ok(mut child) = Command::new("sh").arg("-c").arg(&command).spawn() {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        } else {
+            tracing::warn!("bluetooth applet: failed to spawn bluetooth settings command");
+        }
+    }
+
     fn sync_activity(
         &mut self,
         state: &BluetoothServiceState,
-        sender: &ComponentSender<Self>,
-        root: &gtk::Box,
+        _sender: &ComponentSender<Self>,
+        _root: &gtk::Box,
     ) {
         let next_active_device = active_device_address(state.active_action.as_ref());
 
@@ -249,26 +263,10 @@ impl Bluetooth {
         }
 
         if let Some(prompt) = state.prompt.as_ref() {
-            if let BluetoothPromptKind::Confirm { passkey } = &prompt.kind {
-                if self.active_prompt_id != Some(prompt.id) {
-                    self.active_prompt_id = Some(prompt.id);
-                    self.show_confirm_dialog(
-                        root,
-                        sender,
-                        prompt.id,
-                        *passkey,
-                        prompt.device_label.clone(),
-                    );
-                }
-                self.popover.emit(BluetoothPopoverInput::SetActivity(None));
-            } else {
-                self.active_prompt_id = None;
-                self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
-                    prompt_activity_status(prompt, &state.snapshot),
-                )));
-            }
+            self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
+                prompt_activity_status(prompt, &state.snapshot),
+            )));
         } else {
-            self.active_prompt_id = None;
             if state.active_action.is_some() {
                 self.popover.emit(BluetoothPopoverInput::SetActivity(Some(
                     service_activity_status(state),
@@ -279,41 +277,6 @@ impl Bluetooth {
         }
 
         self.active_device = next_active_device;
-    }
-
-    fn show_confirm_dialog(
-        &self,
-        root: &gtk::Box,
-        sender: &ComponentSender<Self>,
-        id: BluetoothPromptId,
-        passkey: u32,
-        device_label: String,
-    ) {
-        let dialog = adw::AlertDialog::new(
-            Some("Confirm Bluetooth Pairing"),
-            Some(&format!(
-                "Confirm pairing with {}?\n\nPasskey: {:06}",
-                device_label, passkey
-            )),
-        );
-        dialog.add_response("reject", "Reject");
-        dialog.add_response("confirm", "Confirm");
-        dialog.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
-        dialog.set_response_appearance("reject", adw::ResponseAppearance::Destructive);
-        dialog.set_default_response(Some("confirm"));
-        dialog.set_close_response("reject");
-
-        let sender = sender.clone();
-        dialog.connect_response(None, move |_, response| {
-            let reply = if response == "confirm" {
-                BluetoothPromptReply::Confirm
-            } else {
-                BluetoothPromptReply::Cancel
-            };
-            sender.input(BluetoothMsg::PromptReply { id, reply });
-        });
-
-        dialog.present(Some(root));
     }
 }
 
@@ -445,7 +408,9 @@ fn popover_device(device: BluetoothDevice) -> BtDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::bluetooth::protocol::BluetoothServiceHealth;
+    use glimpse::bluetooth::protocol::{
+        BluetoothPromptId, BluetoothPromptKind, BluetoothServiceHealth,
+    };
 
     #[test]
     fn popover_device_uses_provider_type_metadata() {
@@ -506,6 +471,40 @@ mod tests {
         assert_eq!(
             service_activity_status(&state),
             "Making adapter discoverable..."
+        );
+    }
+
+    #[test]
+    fn pairing_confirm_prompt_uses_activity_text() {
+        let snapshot = BluetoothSnapshot {
+            status: Default::default(),
+            adapters: vec![],
+            devices: vec![BluetoothDevice {
+                path: "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF".into(),
+                address: "AA:BB:CC:DD:EE:FF".into(),
+                alias: "Headphones".into(),
+                name: "Headphones".into(),
+                device_type: glimpse::providers::bluetooth::BluetoothDeviceType::Headphones,
+                paired: false,
+                connected: false,
+                trusted: false,
+                battery: None,
+                rssi: None,
+                class: 0,
+                appearance: 0,
+                adapter: "/org/bluez/hci0".into(),
+            }],
+        };
+        let prompt = BluetoothPrompt {
+            id: BluetoothPromptId(7),
+            device_path: "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF".into(),
+            device_label: "Headphones".into(),
+            kind: BluetoothPromptKind::Confirm { passkey: 123456 },
+        };
+
+        assert_eq!(
+            prompt_activity_status(&prompt, &snapshot),
+            "Confirm pairing with Headphones"
         );
     }
 }

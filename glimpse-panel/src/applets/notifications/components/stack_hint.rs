@@ -17,6 +17,7 @@ pub enum StackHintInput {
     SetDepth(usize),
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for StackHint {
     type Init = StackHintInit;

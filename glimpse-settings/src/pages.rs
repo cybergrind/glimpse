@@ -23,14 +23,7 @@ pub const PAGES: &[PageSpec] = &[
         title: "Appearance",
         summary: "Theme mode, accent color, fonts, and text scaling.",
         keywords: &[
-            "theme",
-            "accent",
-            "dark",
-            "light",
-            "fonts",
-            "icon",
-            "cursor",
-            "scale",
+            "theme", "accent", "dark", "light", "fonts", "icon", "cursor", "scale",
         ],
         kind: PageKind::Appearance,
     },
@@ -121,9 +114,18 @@ pub fn search_pages(query: &str) -> Vec<&'static PageSpec> {
 
 pub fn sound_sections() -> &'static [(&'static str, &'static str)] {
     &[
-        ("Output", "Choose where sound plays and set the default output device."),
-        ("Input", "Select the active microphone and review capture levels."),
-        ("Applications", "Adjust per-application playback volume and mute state."),
+        (
+            "Output",
+            "Choose where sound plays and set the default output device.",
+        ),
+        (
+            "Input",
+            "Select the active microphone and review capture levels.",
+        ),
+        (
+            "Applications",
+            "Adjust per-application playback volume and mute state.",
+        ),
     ]
 }
 
@@ -150,7 +152,11 @@ mod tests {
     fn search_is_case_insensitive_and_matches_multiple_pages() {
         let results = search_pages("time");
 
-        assert!(results.iter().any(|page| page.title == "Date, Time & Locale"));
+        assert!(
+            results
+                .iter()
+                .any(|page| page.title == "Date, Time & Locale")
+        );
         assert!(results.iter().all(|page| !page.title.is_empty()));
     }
 

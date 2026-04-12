@@ -94,6 +94,7 @@ fn tooltip_text(dnd: bool, count: u32) -> String {
     }
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl Component for Notifications {
     type Init = NotificationsInit;
@@ -236,7 +237,6 @@ impl Component for Notifications {
                 self.popover.emit(NotificationsPopoverInput::UpdateStatus {
                     dnd: self.dnd,
                     count,
-                    badge_count,
                 });
                 self.popover
                     .emit(NotificationsPopoverInput::UpdateList(fresh));

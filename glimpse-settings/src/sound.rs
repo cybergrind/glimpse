@@ -8,7 +8,11 @@ pub struct SoundState {
 }
 
 impl SoundState {
-    pub fn new(outputs: Vec<AudioDevice>, inputs: Vec<AudioDevice>, streams: Vec<AudioStream>) -> Self {
+    pub fn new(
+        outputs: Vec<AudioDevice>,
+        inputs: Vec<AudioDevice>,
+        streams: Vec<AudioStream>,
+    ) -> Self {
         Self {
             outputs,
             inputs,
@@ -121,7 +125,10 @@ impl SoundState {
 }
 
 fn default_device(devices: &[AudioDevice]) -> Option<&AudioDevice> {
-    devices.iter().find(|device| device.is_default).or_else(|| devices.first())
+    devices
+        .iter()
+        .find(|device| device.is_default)
+        .or_else(|| devices.first())
 }
 
 fn default_device_mut(devices: &mut [AudioDevice]) -> Option<&mut AudioDevice> {
@@ -176,7 +183,13 @@ mod tests {
     fn falls_back_to_first_device_when_no_default_is_flagged() {
         let state = SoundState::new(
             vec![device("speakers", "Built-in Speakers", 55, false, false)],
-            vec![device("internal-mic", "Internal Microphone", 61, false, false)],
+            vec![device(
+                "internal-mic",
+                "Internal Microphone",
+                61,
+                false,
+                false,
+            )],
             vec![],
         );
 

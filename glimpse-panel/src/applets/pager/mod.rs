@@ -1,5 +1,5 @@
 mod applet;
-pub(crate) mod compositor;
+pub mod components;
 mod config;
 
 pub use applet::{Pager, PagerInit};

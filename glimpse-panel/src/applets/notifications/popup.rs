@@ -58,6 +58,7 @@ pub enum NotificationPopupInput {
     Unavailable,
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl Component for NotificationPopup {
     type Init = NotificationPopupInit;
@@ -362,7 +363,7 @@ impl NotificationPopup {
             let image = gtk::Picture::new();
             image.set_paintable(Some(&texture));
             image.set_can_shrink(true);
-            image.set_keep_aspect_ratio(true);
+            image.set_content_fit(gtk::ContentFit::Contain);
             image.set_valign(gtk::Align::Start);
             image.add_css_class("notification-inline-image");
             image.add_css_class("popup-inline-image");

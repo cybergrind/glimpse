@@ -28,6 +28,7 @@ pub enum DeviceSectionOutput {
     SetDefaultInput(String),
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for DeviceSection {
     type Init = DeviceSectionInit;

@@ -6,19 +6,19 @@ use std::{
     time::Duration,
 };
 
-use adw::prelude::*;
 use adw::AlertDialog;
+use adw::prelude::*;
+use glimpse::bluetooth::{
+    BluetoothServiceHandle,
+    protocol::{
+        BluetoothPrompt, BluetoothPromptKind, BluetoothPromptReply, BluetoothServiceCommand,
+        BluetoothServiceHealth, BluetoothServiceState,
+    },
+};
 use glimpse::providers::{
     audio::{AudioDevice, AudioEvent, AudioProvider, AudioStream},
     bluetooth::{BluetoothAdapter, BluetoothDevice},
     power_policy::PowerPolicyAction,
-};
-use glimpse::bluetooth::{
-    BluetoothServiceHandle,
-    protocol::{
-        BluetoothPrompt, BluetoothPromptKind, BluetoothPromptReply,
-        BluetoothServiceCommand, BluetoothServiceHealth, BluetoothServiceState,
-    },
 };
 use gtk4::{self as gtk, gio, glib};
 use tokio::runtime::Runtime;
@@ -69,10 +69,8 @@ pub fn run(request: StartupRequest) {
 }
 
 fn register_resources() {
-    let resource = gio::Resource::load(
-        concat!(env!("OUT_DIR"), "/glimpse-settings.gresource"),
-    )
-    .expect("compiled resources should load");
+    let resource = gio::Resource::load(concat!(env!("OUT_DIR"), "/glimpse-settings.gresource"))
+        .expect("compiled resources should load");
     gio::resources_register(&resource);
 }
 
@@ -388,8 +386,12 @@ impl SettingsWindow {
                 }
             }
         });
-        let bluetooth_ui =
-            BluetoothUi::from_builder(&builder, &window, runtime.clone(), bluetooth_service.clone());
+        let bluetooth_ui = BluetoothUi::from_builder(
+            &builder,
+            &window,
+            runtime.clone(),
+            bluetooth_service.clone(),
+        );
         let bluetooth_prompt_host = BluetoothPromptHost::new(&window, bluetooth_service.clone());
         bluetooth_ui.sync();
 
@@ -566,7 +568,8 @@ impl SoundUi {
 
         if let Some(device) = output {
             self.output_volume_row.set_subtitle("");
-            self.output_volume_scale.set_value(device.volume.min(100) as f64);
+            self.output_volume_scale
+                .set_value(device.volume.min(100) as f64);
             self.output_muted_row.set_active(device.muted);
         } else {
             self.output_volume_row.set_subtitle("");
@@ -576,7 +579,8 @@ impl SoundUi {
 
         if let Some(device) = input {
             self.input_volume_row.set_subtitle("");
-            self.input_volume_scale.set_value(device.volume.min(100) as f64);
+            self.input_volume_scale
+                .set_value(device.volume.min(100) as f64);
             self.input_muted_row.set_active(device.muted);
         } else {
             self.input_volume_row.set_subtitle("");
@@ -876,10 +880,16 @@ impl BluetoothUi {
             .iter()
             .map(|adapter| bluetooth_adapter_title(adapter))
             .collect::<Vec<_>>();
-        let adapter_refs = adapter_labels.iter().map(String::as_str).collect::<Vec<_>>();
+        let adapter_refs = adapter_labels
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         self.adapter_model
             .splice(0, self.adapter_model.n_items(), &adapter_refs);
-        *self.adapter_ids.borrow_mut() = adapters.iter().map(|adapter| adapter.path.clone()).collect();
+        *self.adapter_ids.borrow_mut() = adapters
+            .iter()
+            .map(|adapter| adapter.path.clone())
+            .collect();
 
         let selected_index = state
             .selected_adapter_path()
@@ -891,7 +901,8 @@ impl BluetoothUi {
         self.active_adapter_row
             .set_sensitive(adapters.len() > 1 && !adapters.is_empty());
 
-        self.enabled_row.set_active(service_state.snapshot.status.powered);
+        self.enabled_row
+            .set_active(service_state.snapshot.status.powered);
 
         let selected_adapter = state.selected_adapter();
         let discoverable_subtitle = selected_adapter
@@ -913,21 +924,23 @@ impl BluetoothUi {
             .set_active(selected_adapter.is_some_and(|adapter| adapter.discoverable));
         self.discoverable_row.set_subtitle(&discoverable_subtitle);
 
-        self.devices_group.set_description(Some(match selected_adapter {
-            Some(adapter) => {
-                if adapter.powered {
-                    "Devices for the selected adapter."
-                } else {
-                    "The selected adapter is powered off."
+        self.devices_group
+            .set_description(Some(match selected_adapter {
+                Some(adapter) => {
+                    if adapter.powered {
+                        "Devices for the selected adapter."
+                    } else {
+                        "The selected adapter is powered off."
+                    }
                 }
-            }
-            None => "No Bluetooth adapters detected.",
-        }));
-        self.adapters_group.set_description(Some(if adapters.is_empty() {
-            "No Bluetooth adapters detected."
-        } else {
-            "Available Bluetooth adapters and per-adapter controls."
-        }));
+                None => "No Bluetooth adapters detected.",
+            }));
+        self.adapters_group
+            .set_description(Some(if adapters.is_empty() {
+                "No Bluetooth adapters detected."
+            } else {
+                "Available Bluetooth adapters and per-adapter controls."
+            }));
 
         let banner_message = match &service_state.health {
             BluetoothServiceHealth::Degraded { message } => Some(message.as_str()),
@@ -1098,10 +1111,12 @@ impl PowerUi {
 
         self.low_battery_saver_row
             .set_active(state.draft.policy.power_saver_profile_on_low_battery);
-        self.battery_sleep_timeout_row
-            .set_value(seconds_to_minutes(state.draft.policy.sleep_inactive_battery_timeout));
-        self.ac_sleep_timeout_row
-            .set_value(seconds_to_minutes(state.draft.policy.sleep_inactive_ac_timeout));
+        self.battery_sleep_timeout_row.set_value(seconds_to_minutes(
+            state.draft.policy.sleep_inactive_battery_timeout,
+        ));
+        self.ac_sleep_timeout_row.set_value(seconds_to_minutes(
+            state.draft.policy.sleep_inactive_ac_timeout,
+        ));
         self.idle_delay_row
             .set_value(seconds_to_minutes(state.draft.policy.idle_delay));
         self.blank_screen_row
@@ -1163,11 +1178,12 @@ impl PowerUi {
             },
         );
 
-        self.mode_group.set_description(if state.profiles.performance_degraded.is_empty() {
-            Some("Choose the active performance profile and low-battery behavior.")
-        } else {
-            Some(&state.profiles.performance_degraded)
-        });
+        self.mode_group
+            .set_description(if state.profiles.performance_degraded.is_empty() {
+                Some("Choose the active performance profile and low-battery behavior.")
+            } else {
+                Some(&state.profiles.performance_degraded)
+            });
 
         self.syncing.set(false);
         update_power_apply_state(self);
@@ -1373,9 +1389,7 @@ impl DisplayUi {
                 self.sync();
             }
             display::ExternalSnapshotUpdate::DraftReset => {
-                tracing::info!(
-                    "display settings reset draft after external topology change"
-                );
+                tracing::info!("display settings reset draft after external topology change");
                 self.sync();
             }
         }
@@ -1445,7 +1459,8 @@ impl DisplayUi {
             self.mirror_row.set_sensitive(mirror_state.row_sensitive);
             self.mirror_row.set_active(mirror_state.row_active);
             self.mirror_row.set_subtitle(mirror_state.row_subtitle);
-            self.mirror_target_row.set_visible(mirror_state.target_visible);
+            self.mirror_target_row
+                .set_visible(mirror_state.target_visible);
             sync_mirror_target_row(self, &draft, output, &mirror_state);
             self.scale_row.set_subtitle(&output.scale_label());
             let orientation_index = display::DisplayOrientation::all()
@@ -1459,7 +1474,11 @@ impl DisplayUi {
             self.vrr_row.set_active(output.vrr_enabled.unwrap_or(false));
             sync_capability_switch_row(
                 &self.hdr_row,
-                display_capability_state(draft.compositor, output.supports_hdr(), output.hdr_enabled),
+                display_capability_state(
+                    draft.compositor,
+                    output.supports_hdr(),
+                    output.hdr_enabled,
+                ),
                 "Unsupported on this display",
             );
             sync_capability_switch_row(
@@ -1504,7 +1523,8 @@ impl DisplayUi {
             self.orientation_row.set_subtitle("");
             self.resolution_model
                 .splice(0, self.resolution_model.n_items(), &[]);
-            self.refresh_model.splice(0, self.refresh_model.n_items(), &[]);
+            self.refresh_model
+                .splice(0, self.refresh_model.n_items(), &[]);
             self.vrr_row.set_visible(false);
             self.hdr_row.set_visible(false);
             self.ten_bit_row.set_visible(false);
@@ -1531,7 +1551,9 @@ impl DisplayUi {
 }
 
 fn row(builder: &gtk::Builder, id: &str) -> gtk::ListBoxRow {
-    builder.object(id).unwrap_or_else(|| panic!("{id} should exist"))
+    builder
+        .object(id)
+        .unwrap_or_else(|| panic!("{id} should exist"))
 }
 
 fn install_actions(app: &adw::Application) {
@@ -1634,7 +1656,10 @@ fn wire_bluetooth_controls(runtime: Arc<Runtime>, bluetooth_ui: BluetoothUi) {
             return;
         }
 
-        power_ui.state.borrow_mut().set_global_powered(row.is_active());
+        power_ui
+            .state
+            .borrow_mut()
+            .set_global_powered(row.is_active());
         power_ui.sync();
         spawn_bluetooth_command(
             power_runtime.clone(),
@@ -1742,7 +1767,10 @@ fn spawn_bluetooth_command(
 
     let handle = runtime.handle().clone();
     glib::spawn_future_local(async move {
-        match handle.spawn(async move { service.send(command).await }).await {
+        match handle
+            .spawn(async move { service.send(command).await })
+            .await
+        {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
                 tracing::warn!(error = %error, "bluetooth settings command failed");
@@ -1906,7 +1934,11 @@ fn build_bluetooth_device_row(ui: &BluetoothUi, address: &str) -> BluetoothDevic
             })
         };
         if let Some(command) = next_command {
-            spawn_bluetooth_command(ui_for_click.runtime.clone(), ui_for_click.service.clone(), command);
+            spawn_bluetooth_command(
+                ui_for_click.runtime.clone(),
+                ui_for_click.service.clone(),
+                command,
+            );
         }
     });
 
@@ -1920,8 +1952,7 @@ fn build_bluetooth_device_row(ui: &BluetoothUi, address: &str) -> BluetoothDevic
 
 fn update_bluetooth_device_row(row: &BluetoothDeviceRowWidgets, device: &BluetoothDevice) {
     row.row.set_title(&device.name);
-    row.row
-        .set_subtitle(&bluetooth_device_subtitle(device));
+    row.row.set_subtitle(&bluetooth_device_subtitle(device));
     row.icon
         .set_icon_name(Some(device.device_type.icon(device.connected)));
     if let Some(battery) = device.battery {
@@ -2025,8 +2056,7 @@ fn build_bluetooth_adapter_row(ui: &BluetoothUi, adapter_path: &str) -> Bluetoot
 
 fn update_bluetooth_adapter_row(row: &BluetoothAdapterRowWidgets, adapter: &BluetoothAdapter) {
     row.row.set_title(&bluetooth_adapter_title(adapter));
-    row.row
-        .set_subtitle(&bluetooth_adapter_subtitle(adapter));
+    row.row.set_subtitle(&bluetooth_adapter_subtitle(adapter));
     if !row.menu_button.property::<bool>("active") {
         row.menu_button
             .set_menu_model(Some(&bluetooth_adapter_menu(adapter)));
@@ -2127,17 +2157,14 @@ fn show_bluetooth_device_info_dialog(ui: &BluetoothUi, address: &str) {
         &[
             ("Name", device.name.clone()),
             ("Address", device.address.clone()),
-            (
-                "Type",
-                {
-                    let label = device.device_type.label();
-                    if label.is_empty() {
-                        "Unknown".to_owned()
-                    } else {
-                        label.to_owned()
-                    }
-                },
-            ),
+            ("Type", {
+                let label = device.device_type.label();
+                if label.is_empty() {
+                    "Unknown".to_owned()
+                } else {
+                    label.to_owned()
+                }
+            }),
             ("Adapter", adapter_name),
             ("Paired", yes_no(device.paired)),
             ("Trusted", yes_no(device.trusted)),
@@ -2186,7 +2213,10 @@ fn bluetooth_adapter_info_rows(adapter: &BluetoothAdapter) -> Vec<(&'static str,
             "Discoverable Timeout",
             format_timeout_seconds(adapter.discoverable_timeout),
         ),
-        ("Pairable Timeout", format_timeout_seconds(adapter.pairable_timeout)),
+        (
+            "Pairable Timeout",
+            format_timeout_seconds(adapter.pairable_timeout),
+        ),
         ("Roles", join_or_unavailable(&adapter.roles)),
         (
             "Supported Profiles",
@@ -2198,11 +2228,7 @@ fn bluetooth_adapter_info_rows(adapter: &BluetoothAdapter) -> Vec<(&'static str,
     ]
 }
 
-fn show_info_dialog(
-    parent: &adw::ApplicationWindow,
-    title: &str,
-    rows: &[(&str, String)],
-) {
+fn show_info_dialog(parent: &adw::ApplicationWindow, title: &str, rows: &[(&str, String)]) {
     let dialog = AlertDialog::new(Some(title), None);
     dialog.add_response("close", "Close");
     dialog.set_default_response(Some("close"));
@@ -2265,7 +2291,11 @@ fn format_adapter_profiles(uuids: &[String]) -> String {
 
     uuids
         .iter()
-        .map(|uuid| bluetooth_profile_name(uuid).unwrap_or(uuid.as_str()).to_owned())
+        .map(|uuid| {
+            bluetooth_profile_name(uuid)
+                .unwrap_or(uuid.as_str())
+                .to_owned()
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -2332,7 +2362,10 @@ fn bluetooth_dialog_content(
     }
 }
 
-fn bluetooth_prompt_device_label(prompt: &BluetoothPrompt, state: &BluetoothServiceState) -> String {
+fn bluetooth_prompt_device_label(
+    prompt: &BluetoothPrompt,
+    state: &BluetoothServiceState,
+) -> String {
     if !prompt.device_label.is_empty() && prompt.device_label != prompt.device_path {
         return prompt.device_label.clone();
     }
@@ -2398,7 +2431,8 @@ fn build_bluetooth_prompt_dialog(
             entry.set_input_purpose(gtk::InputPurpose::Digits);
             let validation_dialog = dialog.clone();
             entry.connect_changed(move |entry| {
-                validation_dialog.set_response_enabled(RESPONSE_ACCEPT, !entry.text().trim().is_empty());
+                validation_dialog
+                    .set_response_enabled(RESPONSE_ACCEPT, !entry.text().trim().is_empty());
             });
             entry.grab_focus();
         }
@@ -2461,18 +2495,20 @@ fn bluetooth_prompt_reply(
 
 fn wire_appearance_controls(appearance_ui: AppearanceUi) {
     let color_scheme_ui = appearance_ui.clone();
-    appearance_ui.color_scheme_row.connect_selected_notify(move |row| {
-        if color_scheme_ui.syncing.get() {
-            return;
-        }
-        let value = ColorScheme::all()
-            .get(row.selected() as usize)
-            .copied()
-            .unwrap_or(ColorScheme::Default);
-        color_scheme_ui.draft.borrow_mut().color_scheme = value;
-        color_scheme_ui.clear_error();
-        color_scheme_ui.sync();
-    });
+    appearance_ui
+        .color_scheme_row
+        .connect_selected_notify(move |row| {
+            if color_scheme_ui.syncing.get() {
+                return;
+            }
+            let value = ColorScheme::all()
+                .get(row.selected() as usize)
+                .copied()
+                .unwrap_or(ColorScheme::Default);
+            color_scheme_ui.draft.borrow_mut().color_scheme = value;
+            color_scheme_ui.clear_error();
+            color_scheme_ui.sync();
+        });
 
     let accent_ui = appearance_ui.clone();
     appearance_ui
@@ -2491,40 +2527,44 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
         });
 
     let gtk_theme_ui = appearance_ui.clone();
-    appearance_ui.gtk_theme_row.connect_selected_notify(move |row| {
-        if gtk_theme_ui.syncing.get() {
-            return;
-        }
-        let Some(value) = gtk_theme_ui
-            .gtk_theme_values
-            .borrow()
-            .get(row.selected() as usize)
-            .cloned()
-        else {
-            return;
-        };
-        gtk_theme_ui.draft.borrow_mut().gtk_theme = value;
-        gtk_theme_ui.clear_error();
-        gtk_theme_ui.sync();
-    });
+    appearance_ui
+        .gtk_theme_row
+        .connect_selected_notify(move |row| {
+            if gtk_theme_ui.syncing.get() {
+                return;
+            }
+            let Some(value) = gtk_theme_ui
+                .gtk_theme_values
+                .borrow()
+                .get(row.selected() as usize)
+                .cloned()
+            else {
+                return;
+            };
+            gtk_theme_ui.draft.borrow_mut().gtk_theme = value;
+            gtk_theme_ui.clear_error();
+            gtk_theme_ui.sync();
+        });
 
     let icon_theme_ui = appearance_ui.clone();
-    appearance_ui.icon_theme_row.connect_selected_notify(move |row| {
-        if icon_theme_ui.syncing.get() {
-            return;
-        }
-        let Some(value) = icon_theme_ui
-            .icon_theme_values
-            .borrow()
-            .get(row.selected() as usize)
-            .cloned()
-        else {
-            return;
-        };
-        icon_theme_ui.draft.borrow_mut().icon_theme = value;
-        icon_theme_ui.clear_error();
-        icon_theme_ui.sync();
-    });
+    appearance_ui
+        .icon_theme_row
+        .connect_selected_notify(move |row| {
+            if icon_theme_ui.syncing.get() {
+                return;
+            }
+            let Some(value) = icon_theme_ui
+                .icon_theme_values
+                .borrow()
+                .get(row.selected() as usize)
+                .cloned()
+            else {
+                return;
+            };
+            icon_theme_ui.draft.borrow_mut().icon_theme = value;
+            icon_theme_ui.clear_error();
+            icon_theme_ui.sync();
+        });
 
     let cursor_theme_ui = appearance_ui.clone();
     appearance_ui
@@ -2637,7 +2677,10 @@ fn wire_display_controls(display_ui: DisplayUi) {
             return;
         };
 
-        selection_ui.draft.borrow_mut().set_primary_output(&output_id);
+        selection_ui
+            .draft
+            .borrow_mut()
+            .set_primary_output(&output_id);
         selection_ui.sync();
     });
 
@@ -2695,24 +2738,26 @@ fn wire_display_controls(display_ui: DisplayUi) {
         });
 
     let resolution_ui = display_ui.clone();
-    display_ui.resolution_row.connect_selected_notify(move |row| {
-        if resolution_ui.syncing.get() {
-            return;
-        }
-        let Some(mode_index) = resolution_ui
-            .resolution_indices
-            .borrow()
-            .get(row.selected() as usize)
-            .copied()
-        else {
-            return;
-        };
-        resolution_ui
-            .draft
-            .borrow_mut()
-            .set_selected_mode_index(mode_index);
-        resolution_ui.sync();
-    });
+    display_ui
+        .resolution_row
+        .connect_selected_notify(move |row| {
+            if resolution_ui.syncing.get() {
+                return;
+            }
+            let Some(mode_index) = resolution_ui
+                .resolution_indices
+                .borrow()
+                .get(row.selected() as usize)
+                .copied()
+            else {
+                return;
+            };
+            resolution_ui
+                .draft
+                .borrow_mut()
+                .set_selected_mode_index(mode_index);
+            resolution_ui.sync();
+        });
 
     let refresh_ui = display_ui.clone();
     display_ui.refresh_row.connect_selected_notify(move |row| {
@@ -2780,20 +2825,22 @@ fn wire_display_controls(display_ui: DisplayUi) {
     });
 
     let orientation_ui = display_ui.clone();
-    display_ui.orientation_row.connect_selected_notify(move |row| {
-        if orientation_ui.syncing.get() {
-            return;
-        }
-        let orientation = display::DisplayOrientation::all()
-            .get(row.selected() as usize)
-            .copied()
-            .unwrap_or(display::DisplayOrientation::Landscape);
-        orientation_ui
-            .draft
-            .borrow_mut()
-            .set_selected_orientation(orientation);
-        orientation_ui.sync();
-    });
+    display_ui
+        .orientation_row
+        .connect_selected_notify(move |row| {
+            if orientation_ui.syncing.get() {
+                return;
+            }
+            let orientation = display::DisplayOrientation::all()
+                .get(row.selected() as usize)
+                .copied()
+                .unwrap_or(display::DisplayOrientation::Landscape);
+            orientation_ui
+                .draft
+                .borrow_mut()
+                .set_selected_orientation(orientation);
+            orientation_ui.sync();
+        });
 
     let preset_ui = display_ui.clone();
     display_ui.preset_row.connect_selected_notify(move |row| {
@@ -2881,7 +2928,9 @@ fn start_display_subscription(runtime: Arc<Runtime>, display_ui: DisplayUi) {
         let in_flight = in_flight.clone();
         let handle = runtime.handle().clone();
         glib::spawn_future_local(async move {
-            let snapshot = handle.spawn_blocking(display::DisplaySnapshot::current).await;
+            let snapshot = handle
+                .spawn_blocking(display::DisplaySnapshot::current)
+                .await;
             in_flight.set(false);
 
             match snapshot {
@@ -3102,11 +3151,7 @@ fn wire_power_controls(runtime: Arc<Runtime>, power_ui: PowerUi) {
     });
 }
 
-fn start_power_subscription(
-    runtime: Arc<Runtime>,
-    power_ui: PowerUi,
-    cancel: CancellationToken,
-) {
+fn start_power_subscription(runtime: Arc<Runtime>, power_ui: PowerUi, cancel: CancellationToken) {
     let (tx, mut rx) = mpsc::channel::<PowerBackendEvent>(16);
     let backend = power_ui.backend.clone();
     runtime.spawn(async move {
@@ -3140,11 +3185,9 @@ fn start_power_subscription(
     let policy_ui = power_ui.clone();
     glib::timeout_add_local(Duration::from_secs(2), move || {
         let snapshot = policy_ui.backend.load_policy();
-        if policy_ui
-            .state
-            .borrow_mut()
-            .apply_policy_event(&glimpse::providers::power_policy::PowerPolicyEvent::Changed(snapshot))
-            != power::ExternalPowerUpdate::Unchanged
+        if policy_ui.state.borrow_mut().apply_policy_event(
+            &glimpse::providers::power_policy::PowerPolicyEvent::Changed(snapshot),
+        ) != power::ExternalPowerUpdate::Unchanged
         {
             policy_ui.sync();
         }
@@ -3169,23 +3212,18 @@ fn update_appearance_apply_state(appearance_ui: &AppearanceUi) {
     appearance_ui.content_header.set_visible(!dirty);
     appearance_ui.apply_title.set_title("Appearance");
     appearance_ui.apply_title.set_subtitle("");
-    appearance_ui.banner.set_revealed(
-        validation.banner_revealed || error_message.is_some(),
-    );
-    appearance_ui.banner.set_title(
-        error_message
-            .as_deref()
-            .unwrap_or(&validation.banner_title),
-    );
+    appearance_ui
+        .banner
+        .set_revealed(validation.banner_revealed || error_message.is_some());
+    appearance_ui
+        .banner
+        .set_title(error_message.as_deref().unwrap_or(&validation.banner_title));
     appearance_ui
         .apply_button
         .set_sensitive(validation.apply_sensitive);
 }
 
-fn appearance_validation_state(
-    draft: &AppearanceDraft,
-    dirty: bool,
-) -> DisplaysValidationState {
+fn appearance_validation_state(draft: &AppearanceDraft, dirty: bool) -> DisplaysValidationState {
     match draft.validate() {
         Ok(()) => DisplaysValidationState {
             valid: true,
@@ -3295,11 +3333,9 @@ fn power_profile_label(profile: &str) -> String {
             .map(|part| {
                 let mut chars = part.chars();
                 match chars.next() {
-                    Some(first) => format!(
-                        "{}{}",
-                        first.to_uppercase(),
-                        chars.as_str().to_lowercase()
-                    ),
+                    Some(first) => {
+                        format!("{}{}", first.to_uppercase(), chars.as_str().to_lowercase())
+                    }
                     None => String::new(),
                 }
             })
@@ -3356,11 +3392,16 @@ fn sync_theme_options(
         .position(|value| value == current)
         .unwrap_or(0);
     row.set_selected(selected as u32);
-    row.set_subtitle(if options.get(selected).is_some_and(|option| !option.installed) {
-        "Current value is not installed"
-    } else {
-        ""
-    });
+    row.set_subtitle(
+        if options
+            .get(selected)
+            .is_some_and(|option| !option.installed)
+        {
+            "Current value is not installed"
+        } else {
+            ""
+        },
+    );
 }
 
 fn displays_validation_state(draft: &DisplayDraft, dirty: bool) -> DisplaysValidationState {
@@ -3505,8 +3546,7 @@ fn sync_mirror_target_row(
     display_ui
         .mirror_target_model
         .splice(0, display_ui.mirror_target_model.n_items(), &labels);
-    *display_ui.mirror_target_ids.borrow_mut() =
-        targets.iter().map(|(id, _)| id.clone()).collect();
+    *display_ui.mirror_target_ids.borrow_mut() = targets.iter().map(|(id, _)| id.clone()).collect();
     display_ui
         .mirror_target_row
         .set_sensitive(mirror_state.target_sensitive && !targets.is_empty());
@@ -3519,7 +3559,9 @@ fn sync_mirror_target_row(
         .as_deref()
         .and_then(|mirror_source| targets.iter().position(|(id, _)| id == mirror_source))
         .unwrap_or(0);
-    display_ui.mirror_target_row.set_selected(selected_index as u32);
+    display_ui
+        .mirror_target_row
+        .set_selected(selected_index as u32);
 }
 
 fn mirror_control_state(
@@ -3622,7 +3664,9 @@ fn render_display_arrangement(display_ui: &DisplayUi, draft: &DisplayDraft) {
                     layout_box,
                     layout_box.x,
                     layout_box.y,
-                    *numbering.get(layout_box.id.as_str()).unwrap_or(&(index + 1)),
+                    *numbering
+                        .get(layout_box.id.as_str())
+                        .unwrap_or(&(index + 1)),
                     selected_id.as_deref() == Some(layout_box.id.as_str()),
                 );
             }
@@ -3640,7 +3684,9 @@ fn render_display_arrangement(display_ui: &DisplayUi, draft: &DisplayDraft) {
                         layout_box,
                         preview_x,
                         preview_y,
-                        *numbering.get(layout_box.id.as_str()).unwrap_or(&(index + 1)),
+                        *numbering
+                            .get(layout_box.id.as_str())
+                            .unwrap_or(&(index + 1)),
                         true,
                     );
                 }
@@ -3706,8 +3752,11 @@ fn render_display_arrangement(display_ui: &DisplayUi, draft: &DisplayDraft) {
                     (layout_box.y as f64 + offset_y).round() as i32,
                 ),
             };
-            *drag_preview.borrow_mut() =
-                Some((layout_box.id.clone(), preview_position.0, preview_position.1));
+            *drag_preview.borrow_mut() = Some((
+                layout_box.id.clone(),
+                preview_position.0,
+                preview_position.1,
+            ));
             arrangement.queue_draw();
         }
     });
@@ -3721,15 +3770,12 @@ fn render_display_arrangement(display_ui: &DisplayUi, draft: &DisplayDraft) {
             let target = drag_target.borrow_mut().take();
             *drag_preview.borrow_mut() = None;
             if let Some(layout_box) = target {
-                drag_ui
-                    .draft
-                    .borrow_mut()
-                    .move_output_by_preview_delta(
-                        &layout_box.id,
-                        offset_x / scene.scale,
-                        offset_y / scene.scale,
-                        18.0 / scene.scale,
-                    );
+                drag_ui.draft.borrow_mut().move_output_by_preview_delta(
+                    &layout_box.id,
+                    offset_x / scene.scale,
+                    offset_y / scene.scale,
+                    18.0 / scene.scale,
+                );
                 drag_ui.draft.borrow_mut().select_output(&layout_box.id);
                 drag_ui.sync();
             } else {
@@ -3742,11 +3788,7 @@ fn render_display_arrangement(display_ui: &DisplayUi, draft: &DisplayDraft) {
     display_ui.arrangement_bin.set_child(Some(&arrangement));
 }
 
-fn scene_box_at(
-    scene: &display::LayoutScene,
-    x: f64,
-    y: f64,
-) -> Option<display::LayoutBox> {
+fn scene_box_at(scene: &display::LayoutScene, x: f64, y: f64) -> Option<display::LayoutBox> {
     scene
         .boxes
         .iter()
@@ -3781,9 +3823,17 @@ fn draw_display_box(
 ) {
     let style = area.style_context();
     let fill = if selected {
-        lookup_color(&style, "settings-display-box-selected-bg", gtk::gdk::RGBA::new(0.21, 0.52, 0.89, 1.0))
+        lookup_color(
+            &style,
+            "settings-display-box-selected-bg",
+            gtk::gdk::RGBA::new(0.21, 0.52, 0.89, 1.0),
+        )
     } else if layout_box.enabled {
-        lookup_color(&style, "settings-display-box-bg", gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 0.07))
+        lookup_color(
+            &style,
+            "settings-display-box-bg",
+            gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 0.07),
+        )
     } else {
         lookup_color(
             &style,
@@ -3827,7 +3877,14 @@ fn draw_display_box(
         )
     };
 
-    rounded_rect(cr, x as f64, y as f64, layout_box.width as f64, layout_box.height as f64, 12.0);
+    rounded_rect(
+        cr,
+        x as f64,
+        y as f64,
+        layout_box.width as f64,
+        layout_box.height as f64,
+        12.0,
+    );
     set_source_rgba(cr, &fill);
     let _ = cr.fill_preserve();
     cr.set_line_width(if selected { 2.0 } else { 1.0 });
@@ -3835,7 +3892,14 @@ fn draw_display_box(
     let _ = cr.stroke();
 
     let mut text_y = y as f64 + 22.0;
-    draw_text(cr, &text, 11.0, x as f64 + 12.0, text_y, &number.to_string());
+    draw_text(
+        cr,
+        &text,
+        11.0,
+        x as f64 + 12.0,
+        text_y,
+        &number.to_string(),
+    );
     text_y += 22.0;
     draw_text(
         cr,
@@ -3851,22 +3915,11 @@ fn draw_display_box(
     }
 }
 
-fn lookup_color(
-    style: &gtk::StyleContext,
-    name: &str,
-    fallback: gtk::gdk::RGBA,
-) -> gtk::gdk::RGBA {
+fn lookup_color(style: &gtk::StyleContext, name: &str, fallback: gtk::gdk::RGBA) -> gtk::gdk::RGBA {
     style.lookup_color(name).unwrap_or(fallback)
 }
 
-fn rounded_rect(
-    cr: &gtk::cairo::Context,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    radius: f64,
-) {
+fn rounded_rect(cr: &gtk::cairo::Context, x: f64, y: f64, width: f64, height: f64, radius: f64) {
     let radius = radius.min(width / 2.0).min(height / 2.0);
     cr.new_sub_path();
     cr.arc(
@@ -3933,7 +3986,10 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
         return text.to_string();
     }
 
-    let mut result = text.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut result = text
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     result.push('…');
     result
 }
@@ -3970,9 +4026,7 @@ fn wire_navigation(
         let Some(selected) = selected else {
             return;
         };
-        let Some((route_head, _)) = rows_for_selection
-            .iter()
-            .find(|(_, row)| *row == selected)
+        let Some((route_head, _)) = rows_for_selection.iter().find(|(_, row)| *row == selected)
         else {
             return;
         };
@@ -4001,11 +4055,7 @@ fn wire_navigation(
     });
 }
 
-fn wire_sound_controls(
-    runtime: Arc<Runtime>,
-    sound_ui: SoundUi,
-    audio_cancel: CancellationToken,
-) {
+fn wire_sound_controls(runtime: Arc<Runtime>, sound_ui: SoundUi, audio_cancel: CancellationToken) {
     sound_ui.output_volume_scale.set_round_digits(0);
     sound_ui.input_volume_scale.set_round_digits(0);
 
@@ -4015,7 +4065,10 @@ fn wire_sound_controls(
         if output_ui.syncing.get() {
             return;
         }
-        output_ui.state.borrow_mut().set_output_muted(row.is_active());
+        output_ui
+            .state
+            .borrow_mut()
+            .set_output_muted(row.is_active());
         output_ui.sync(output_runtime.clone());
         spawn_sound_action(
             output_runtime.clone(),
@@ -4042,38 +4095,42 @@ fn wire_sound_controls(
     let output_ui = sound_ui.clone();
     let output_runtime = runtime.clone();
     let output_debounce = sound_ui.output_debounce.clone();
-    sound_ui.output_volume_scale.connect_value_changed(move |scale| {
-        if output_ui.syncing.get() {
-            return;
-        }
-        let value = scale.value().round() as u32;
-        output_ui.state.borrow_mut().set_output_volume(value);
-        output_ui.sync(output_runtime.clone());
-        schedule_debounced_action(
-            &output_debounce,
-            output_runtime.clone(),
-            output_ui.clone(),
-            SoundAction::SetOutputVolume(value),
-        );
-    });
+    sound_ui
+        .output_volume_scale
+        .connect_value_changed(move |scale| {
+            if output_ui.syncing.get() {
+                return;
+            }
+            let value = scale.value().round() as u32;
+            output_ui.state.borrow_mut().set_output_volume(value);
+            output_ui.sync(output_runtime.clone());
+            schedule_debounced_action(
+                &output_debounce,
+                output_runtime.clone(),
+                output_ui.clone(),
+                SoundAction::SetOutputVolume(value),
+            );
+        });
 
     let input_ui = sound_ui.clone();
     let input_runtime = runtime.clone();
     let input_debounce = sound_ui.input_debounce.clone();
-    sound_ui.input_volume_scale.connect_value_changed(move |scale| {
-        if input_ui.syncing.get() {
-            return;
-        }
-        let value = scale.value().round() as u32;
-        input_ui.state.borrow_mut().set_input_volume(value);
-        input_ui.sync(input_runtime.clone());
-        schedule_debounced_action(
-            &input_debounce,
-            input_runtime.clone(),
-            input_ui.clone(),
-            SoundAction::SetInputVolume(value),
-        );
-    });
+    sound_ui
+        .input_volume_scale
+        .connect_value_changed(move |scale| {
+            if input_ui.syncing.get() {
+                return;
+            }
+            let value = scale.value().round() as u32;
+            input_ui.state.borrow_mut().set_input_volume(value);
+            input_ui.sync(input_runtime.clone());
+            schedule_debounced_action(
+                &input_debounce,
+                input_runtime.clone(),
+                input_ui.clone(),
+                SoundAction::SetInputVolume(value),
+            );
+        });
 
     start_sound_subscription(runtime.clone(), sound_ui.clone(), audio_cancel);
 }
@@ -4104,12 +4161,8 @@ fn spawn_sound_action(runtime: Arc<Runtime>, _sound_ui: SoundUi, action: SoundAc
             .spawn(async move {
                 let provider = AudioProvider::new();
                 match action {
-                    SoundAction::SetDefaultOutput(name) => {
-                        provider.set_default_output(&name).await
-                    }
-                    SoundAction::SetDefaultInput(name) => {
-                        provider.set_default_input(&name).await
-                    }
+                    SoundAction::SetDefaultOutput(name) => provider.set_default_output(&name).await,
+                    SoundAction::SetDefaultInput(name) => provider.set_default_input(&name).await,
                     SoundAction::SetOutputVolume(volume) => {
                         provider.set_volume("@DEFAULT_SINK@", volume).await
                     }
@@ -4144,11 +4197,7 @@ fn spawn_sound_action(runtime: Arc<Runtime>, _sound_ui: SoundUi, action: SoundAc
     });
 }
 
-fn start_sound_subscription(
-    runtime: Arc<Runtime>,
-    sound_ui: SoundUi,
-    cancel: CancellationToken,
-) {
+fn start_sound_subscription(runtime: Arc<Runtime>, sound_ui: SoundUi, cancel: CancellationToken) {
     let (tx, mut rx) = mpsc::channel::<AudioEvent>(8);
     runtime.spawn(async move {
         if let Err(error) = AudioProvider::new().run(tx, cancel).await {
@@ -4190,13 +4239,11 @@ fn sync_expander_row(
             .activatable(true)
             .build();
 
-        let icon = gtk::Image::from_icon_name(
-            if device.icon_name.is_empty() {
-                "audio-speakers-symbolic"
-            } else {
-                device.icon_name.as_str()
-            },
-        );
+        let icon = gtk::Image::from_icon_name(if device.icon_name.is_empty() {
+            "audio-speakers-symbolic"
+        } else {
+            device.icon_name.as_str()
+        });
         device_row.add_prefix(&icon);
 
         if device.is_default {
@@ -4385,13 +4432,7 @@ fn stream_icon_fallback_candidates(app_name: &str) -> Vec<String> {
         .trim()
         .to_lowercase()
         .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch
-            } else {
-                '-'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
         .collect::<String>()
         .split('-')
         .filter(|segment| !segment.is_empty())
@@ -4408,10 +4449,8 @@ fn stream_icon_fallback_candidates(app_name: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bluetooth_adapter_info_rows,
-        capability_switch_state, display_capability_state, displays_validation_state,
-        mirror_control_state,
-        preset_index_to_placement,
+        bluetooth_adapter_info_rows, capability_switch_state, display_capability_state,
+        displays_validation_state, mirror_control_state, preset_index_to_placement,
         stream_icon_fallback_candidates, stream_icon_name,
     };
     use glimpse::providers::{audio::AudioStream, bluetooth::BluetoothAdapter};
@@ -4450,7 +4489,10 @@ mod tests {
     fn extracts_bracketed_app_id_as_fallback_candidate() {
         assert_eq!(
             stream_icon_fallback_candidates("ALSA plug-in [zed-editor]"),
-            vec!["zed-editor".to_string(), "alsa-plug-in-zed-editor".to_string()]
+            vec![
+                "zed-editor".to_string(),
+                "alsa-plug-in-zed-editor".to_string()
+            ]
         );
     }
 
@@ -4547,7 +4589,10 @@ mod tests {
 
         assert!(!state.valid);
         assert!(state.banner_revealed);
-        assert_eq!(state.banner_title, "At least one display must remain enabled");
+        assert_eq!(
+            state.banner_title,
+            "At least one display must remain enabled"
+        );
         assert!(!state.apply_sensitive);
     }
 
@@ -4610,7 +4655,8 @@ fn update_page(
     let is_power = page.kind == PageKind::Power;
     let is_sound = page.kind == PageKind::Sound;
 
-    stub_group.set_visible(!is_appearance && !is_bluetooth && !is_displays && !is_power && !is_sound);
+    stub_group
+        .set_visible(!is_appearance && !is_bluetooth && !is_displays && !is_power && !is_sound);
     appearance_ui.theme_group.set_visible(is_appearance);
     appearance_ui.typography_group.set_visible(is_appearance);
     bluetooth_ui.general_group.set_visible(is_bluetooth);
@@ -4627,7 +4673,9 @@ fn update_page(
     sound_ui.input_group.set_visible(is_sound);
     sound_ui.apps_group.set_visible(is_sound);
     appearance_ui.banner.set_revealed(false);
-    bluetooth_ui.banner.set_revealed(is_bluetooth && bluetooth_ui.banner.is_revealed());
+    bluetooth_ui
+        .banner
+        .set_revealed(is_bluetooth && bluetooth_ui.banner.is_revealed());
     appearance_ui.apply_header.set_visible(false);
     power_ui.banner.set_revealed(false);
     power_ui.apply_header.set_visible(false);

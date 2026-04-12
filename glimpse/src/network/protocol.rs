@@ -34,7 +34,7 @@ pub enum NetworkServiceHealth {
 pub enum NetworkActiveAction {
     SetWifiEnabled(bool),
     Scan,
-    ConnectWifi { ssid: String },
+    ConnectWifi { ssid: String, path: String },
     ConnectSaved { uuid: String },
     Disconnect { uuid: String },
     Forget { uuid: String },
@@ -59,6 +59,7 @@ pub enum NetworkServiceCommand {
     RequestScan,
     ConnectWifi {
         ssid: String,
+        path: String,
     },
     ConnectSaved {
         uuid: String,

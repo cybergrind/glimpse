@@ -7,6 +7,7 @@ use relm4::gtk::gdk;
 use tracing::warn;
 
 use glimpse::backdrop::BackdropConfig;
+use glimpse::compositor::detect as detect_compositor;
 
 pub use window::BackdropWindow;
 
@@ -18,7 +19,7 @@ pub fn open_all_monitors(
         return HashMap::new();
     }
 
-    if !glimpse::compositor::supports_niri_ipc() {
+    if !detect_compositor().capabilities().backdrop {
         warn!("backdrop: enabled in config but current compositor is not niri; disabling");
         return HashMap::new();
     }

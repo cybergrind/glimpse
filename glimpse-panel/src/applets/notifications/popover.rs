@@ -35,13 +35,13 @@ pub enum NotificationsPopoverInput {
     UpdateStatus {
         dnd: bool,
         count: u32,
-        badge_count: u32,
     },
     UpdateList(Vec<NotifData>),
     ToggleStack(String),
     ClearAll,
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for NotificationsPopover {
     type Init = NotificationsPopoverInit;
@@ -143,11 +143,7 @@ impl SimpleComponent for NotificationsPopover {
                     self.popover.popup();
                 }
             }
-            NotificationsPopoverInput::UpdateStatus {
-                dnd,
-                count,
-                badge_count: _,
-            } => {
+            NotificationsPopoverInput::UpdateStatus { dnd, count } => {
                 self.dnd = dnd;
                 self.count = count;
                 self.hero

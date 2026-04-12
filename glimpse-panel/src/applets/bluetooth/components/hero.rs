@@ -1,114 +1,133 @@
+#![allow(unused_assignments)]
+
 use std::cell::Cell;
 use std::rc::Rc;
 
-use relm4::gtk::{self, glib, prelude::*};
-
-use super::{BluetoothCommand, BluetoothCommandSender};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, glib, prelude::*},
+};
 
 pub struct BluetoothHero {
-    icon: gtk::Image,
-    subtitle: gtk::Label,
+    icon_name: String,
+    subtitle: String,
+    powered: bool,
     power_switch: gtk::Switch,
     updating_power: Rc<Cell<bool>>,
-    powered: bool,
-    discovering: bool,
-    connected_count: u32,
-    activity: Option<String>,
 }
 
-impl BluetoothHero {
-    pub fn new(on_command: BluetoothCommandSender) -> (Self, gtk::Box) {
-        let hero = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        hero.add_css_class("bt-hero");
+#[derive(Debug)]
+pub enum BluetoothHeroInput {
+    Update {
+        powered: bool,
+        discovering: bool,
+        connected_count: u32,
+        activity: Option<String>,
+    },
+}
 
-        let icon = gtk::Image::from_icon_name("bluetooth-active-symbolic");
-        icon.set_pixel_size(32);
-        hero.append(&icon);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BluetoothHeroOutput {
+    SetPowered(bool),
+}
 
-        let title_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        title_box.set_hexpand(true);
-        title_box.set_valign(gtk::Align::Center);
+#[relm4::component(pub)]
+impl SimpleComponent for BluetoothHero {
+    type Init = ();
+    type Input = BluetoothHeroInput;
+    type Output = BluetoothHeroOutput;
 
-        let title = gtk::Label::new(Some("Bluetooth"));
-        title.set_halign(gtk::Align::Start);
-        title.add_css_class("bt-title");
-        title_box.append(&title);
+    view! {
+        gtk::Box {
+            set_spacing: 12,
+            add_css_class: "bt-hero",
 
-        let subtitle = gtk::Label::new(Some("Off"));
-        subtitle.set_halign(gtk::Align::Start);
-        subtitle.add_css_class("bt-subtitle");
-        title_box.append(&subtitle);
+            gtk::Image {
+                #[watch]
+                set_icon_name: Some(&model.icon_name),
+                set_pixel_size: 32,
+            },
 
-        hero.append(&title_box);
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 2,
+                set_hexpand: true,
+                set_valign: gtk::Align::Center,
 
-        let power_switch = gtk::Switch::new();
-        power_switch.set_valign(gtk::Align::Center);
-        power_switch.set_tooltip_text(Some("Toggle all adapters"));
+                gtk::Label {
+                    set_label: "Bluetooth",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "bt-title",
+                },
 
-        let updating_power = Rc::new(Cell::new(false));
-        let guard = updating_power.clone();
-        power_switch.connect_state_set(move |_, active| {
+                gtk::Label {
+                    #[watch]
+                    set_label: &model.subtitle,
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "bt-subtitle",
+                },
+            },
+
+            #[name(power_switch)]
+            gtk::Switch {
+                set_valign: gtk::Align::Center,
+                set_tooltip_text: Some("Toggle all adapters"),
+            },
+        }
+    }
+
+    fn init(
+        _init: Self::Init,
+        _root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = BluetoothHero {
+            icon_name: "bluetooth-disabled-symbolic".into(),
+            subtitle: "Off".into(),
+            powered: false,
+            power_switch: gtk::Switch::new(),
+            updating_power: Rc::new(Cell::new(false)),
+        };
+        let widgets = view_output!();
+        let mut model = model;
+        model.power_switch = widgets.power_switch.clone();
+
+        let guard = model.updating_power.clone();
+        let sender = _sender.clone();
+        widgets.power_switch.connect_state_set(move |_, active| {
             if guard.get() {
                 return glib::Propagation::Stop;
             }
             tracing::info!(powered = active, "bluetooth ui: power toggle clicked");
-            on_command(BluetoothCommand::SetPowered(active));
+            let _ = sender.output(BluetoothHeroOutput::SetPowered(active));
             glib::Propagation::Stop
         });
-        hero.append(&power_switch);
 
-        let model = Self {
-            icon,
-            subtitle,
-            power_switch,
-            updating_power,
-            powered: false,
-            discovering: false,
-            connected_count: 0,
-            activity: None,
-        };
-
-        (model, hero)
+        ComponentParts { model, widgets }
     }
 
-    pub fn update_status(&mut self, powered: bool, discovering: bool) {
-        self.powered = powered;
-        self.discovering = discovering;
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        let BluetoothHeroInput::Update {
+            powered,
+            discovering,
+            connected_count,
+            activity,
+        } = msg;
 
+        self.powered = powered;
         if self.power_switch.is_active() != powered {
             self.updating_power.set(true);
             self.power_switch.set_active(powered);
             self.power_switch.set_state(powered);
             self.updating_power.set(false);
         }
-
-        self.icon.set_icon_name(Some(if powered {
+        self.icon_name = if powered {
             "bluetooth-active-symbolic"
         } else {
             "bluetooth-disabled-symbolic"
-        }));
-
-        self.refresh_subtitle();
-    }
-
-    pub fn update_connected_count(&mut self, count: u32) {
-        self.connected_count = count;
-        self.refresh_subtitle();
-    }
-
-    pub fn set_activity(&mut self, activity: Option<String>) {
-        self.activity = activity;
-        self.refresh_subtitle();
-    }
-
-    fn refresh_subtitle(&self) {
-        let text = hero_subtitle_text(
-            self.powered,
-            self.discovering,
-            self.connected_count,
-            self.activity.as_deref(),
-        );
-        self.subtitle.set_label(&text);
+        }
+        .into();
+        self.subtitle = hero_subtitle_text(powered, discovering, connected_count, activity.as_deref());
     }
 }
 

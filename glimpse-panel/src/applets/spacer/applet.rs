@@ -5,13 +5,10 @@ use relm4::{
 
 pub struct Spacer;
 
-#[derive(Debug)]
-pub enum Input {}
-
 #[relm4::component(pub)]
 impl SimpleComponent for Spacer {
     type Init = ();
-    type Input = Input;
+    type Input = ();
     type Output = ();
 
     view! {
@@ -23,6 +20,7 @@ impl SimpleComponent for Spacer {
     fn init(_: (), _root: Self::Root, _sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let model = Spacer;
         let widgets = view_output!();
+
         ComponentParts { model, widgets }
     }
 }

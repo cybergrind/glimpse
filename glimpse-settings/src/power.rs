@@ -181,7 +181,10 @@ pub fn format_battery_health(_status: &BatteryStatus) -> String {
 
     let capacity = format!("{:.0}% capacity", _status.capacity);
     if _status.charge_threshold > 0 {
-        format!("{capacity} • Charge threshold {}%", _status.charge_threshold)
+        format!(
+            "{capacity} • Charge threshold {}%",
+            _status.charge_threshold
+        )
     } else {
         capacity
     }
@@ -244,9 +247,7 @@ pub fn profile_options(profiles: &PowerProfiles) -> Vec<String> {
         }
     }
 
-    options.sort_by(|left, right| {
-        profile_sort_key(left).cmp(&profile_sort_key(right))
-    });
+    options.sort_by(|left, right| profile_sort_key(left).cmp(&profile_sort_key(right)));
 
     options
 }
@@ -350,7 +351,11 @@ mod tests {
         };
         let profiles = PowerProfiles {
             active: "performance".into(),
-            available: vec!["balanced".into(), "power-saver".into(), "performance".into()],
+            available: vec![
+                "balanced".into(),
+                "power-saver".into(),
+                "performance".into(),
+            ],
             performance_degraded: String::new(),
         };
 
@@ -465,7 +470,11 @@ mod tests {
     fn profile_options_keep_standard_profiles_in_stable_order() {
         let profiles = PowerProfiles {
             active: "performance".into(),
-            available: vec!["balanced".into(), "performance".into(), "power-saver".into()],
+            available: vec![
+                "balanced".into(),
+                "performance".into(),
+                "power-saver".into(),
+            ],
             performance_degraded: String::new(),
         };
 

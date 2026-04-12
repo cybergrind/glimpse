@@ -43,6 +43,7 @@ pub enum NotificationGroupInput {
     },
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for NotificationGroup {
     type Init = NotificationGroupInit;

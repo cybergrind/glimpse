@@ -35,6 +35,7 @@ pub struct NetworkStatus {
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct WifiAccessPoint {
+    pub path: String,
     pub ssid: String,
     pub strength: u8,
     pub frequency: u32,
@@ -329,15 +330,15 @@ impl NetworkProvider {
         Ok(())
     }
 
-    pub async fn connect(
+    pub async fn connect_access_point(
         &self,
         ssid: &str,
+        access_point_path: &str,
         password: Option<&str>,
     ) -> anyhow::Result<WifiActivationTarget> {
         let manager = self.manager_proxy().await?;
         let device_paths = manager.get_devices().await?;
         let mut wifi_device_path = None;
-        let mut ap_path = None;
 
         for device_path in device_paths {
             let device = self.device_proxy(device_path.as_str()).await?;
@@ -347,23 +348,17 @@ impl NetworkProvider {
             let wireless = self.wireless_device_proxy(device_path.as_str()).await?;
             let access_points = wireless.get_all_access_points().await.unwrap_or_default();
             for candidate in access_points {
-                let access_point = self.access_point_proxy(candidate.as_str()).await?;
-                let ap_ssid =
-                    String::from_utf8_lossy(&access_point.ssid().await.unwrap_or_default())
-                        .to_string();
-                if ap_ssid == ssid {
+                if candidate.as_str() == access_point_path {
                     wifi_device_path = Some(device_path.to_string());
-                    ap_path = Some(candidate.to_string());
                     break;
                 }
             }
-            if ap_path.is_some() {
+            if wifi_device_path.is_some() {
                 break;
             }
         }
 
         let wifi_device_path = wifi_device_path.ok_or_else(|| anyhow!("no wifi device found"))?;
-        let ap_path = ap_path.ok_or_else(|| anyhow!("access point not found: {ssid}"))?;
 
         let mut settings: HashMap<String, HashMap<String, OwnedValue>> = HashMap::new();
         let mut connection_settings = HashMap::new();
@@ -386,7 +381,7 @@ impl NetworkProvider {
         }
 
         let device = ObjectPath::try_from(wifi_device_path.as_str())?;
-        let access_point = ObjectPath::try_from(ap_path.as_str())?;
+        let access_point = ObjectPath::try_from(access_point_path)?;
         let mut options = HashMap::new();
         if password.is_some() {
             options.insert("persist".into(), owned_value("volatile"));
@@ -654,7 +649,7 @@ impl NetworkProvider {
         let saved_wifi = self.read_saved_wifi_profiles().await?;
         let device_paths = self.manager_proxy().await?.get_devices().await?;
 
-        let mut best_access_points: HashMap<String, WifiAccessPoint> = HashMap::new();
+        let mut access_points = Vec::new();
         for device_path in device_paths {
             let device = self.device_proxy(device_path.as_str()).await?;
             if device.device_type().await.unwrap_or(0) != 2 {
@@ -689,26 +684,20 @@ impl NetworkProvider {
                     saved_uuid
                 };
 
-                let entry = best_access_points
-                    .entry(ssid.clone())
-                    .or_insert(WifiAccessPoint {
-                        ssid,
-                        strength,
-                        frequency,
-                        security: ap_security(flags, wpa_flags, rsn_flags).into(),
-                        connected,
-                        saved,
-                        uuid,
-                    });
-
-                if strength > entry.strength {
-                    entry.strength = strength;
-                    entry.frequency = frequency;
-                }
+                access_points.push(WifiAccessPoint {
+                    path: access_point_path.to_string(),
+                    ssid,
+                    strength,
+                    frequency,
+                    security: ap_security(flags, wpa_flags, rsn_flags).into(),
+                    connected,
+                    saved,
+                    uuid,
+                });
             }
         }
 
-        Ok(best_access_points.into_values().collect())
+        Ok(access_points)
     }
 
     async fn read_saved_wifi_profiles(

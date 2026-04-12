@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -6,15 +8,27 @@ use std::{
 
 use glimpse::network::protocol::NetworkActiveAction;
 use glimpse::providers::network::WifiAccessPoint;
-use relm4::gtk::{self, prelude::*};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
+};
 
-use super::{NetworkCommand, NetworkCommandSender};
+use super::{NetworkAction, NetworkActionSender};
 
 pub struct WifiSection {
     empty_label: gtk::Label,
     access_point_box: gtk::Box,
     rows: HashMap<String, WifiRow>,
-    on_command: NetworkCommandSender,
+    on_action: NetworkActionSender,
+}
+
+#[derive(Debug)]
+pub enum WifiSectionInput {
+    Update {
+        access_points: Vec<WifiAccessPoint>,
+        wifi_enabled: bool,
+        active_action: Option<NetworkActiveAction>,
+    },
 }
 
 struct WifiRow {
@@ -27,40 +41,70 @@ struct WifiRow {
     state: Rc<RefCell<WifiAccessPoint>>,
 }
 
-impl WifiSection {
-    pub fn new(on_command: NetworkCommandSender) -> (Self, gtk::Box) {
-        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+#[relm4::component(pub)]
+impl SimpleComponent for WifiSection {
+    type Init = ();
+    type Input = WifiSectionInput;
+    type Output = NetworkAction;
 
-        let empty_label = gtk::Label::new(Some("No access points"));
-        empty_label.set_halign(gtk::Align::Start);
-        empty_label.add_css_class("net-empty");
-        outer.append(&empty_label);
+    view! {
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
 
-        let access_point_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let scroll = gtk::ScrolledWindow::new();
-        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-        scroll.set_max_content_height(300);
-        scroll.set_propagate_natural_height(true);
-        scroll.set_child(Some(&access_point_box));
-        outer.append(&scroll);
-
-        (
-            Self {
-                empty_label,
-                access_point_box,
-                rows: HashMap::new(),
-                on_command,
+            #[name(empty_label)]
+            gtk::Label {
+                set_label: "No access points",
+                set_halign: gtk::Align::Start,
+                add_css_class: "net-empty",
             },
-            outer,
-        )
+
+            gtk::ScrolledWindow {
+                set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                set_max_content_height: 300,
+                set_propagate_natural_height: true,
+
+                #[name(access_point_box)]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                },
+            },
+        }
     }
 
-    pub fn update(
-        &mut self,
-        access_points: &[WifiAccessPoint],
-        _wifi_enabled: bool,
-        active_action: Option<&NetworkActiveAction>,
-    ) {
+    fn init(
+        _init: Self::Init,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let sender = sender.clone();
+        let on_action: NetworkActionSender = Rc::new(move |action| {
+            let _ = sender.output(action);
+        });
+
+        let model = WifiSection {
+            empty_label: gtk::Label::new(None),
+            access_point_box: gtk::Box::new(gtk::Orientation::Vertical, 0),
+            rows: HashMap::new(),
+            on_action,
+        };
+        let widgets = view_output!();
+
+        let mut model = model;
+        model.empty_label = widgets.empty_label.clone();
+        model.access_point_box = widgets.access_point_box.clone();
+
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+        let WifiSectionInput::Update {
+            access_points,
+            wifi_enabled,
+            active_action,
+        } = message;
+
+        let _ = wifi_enabled;
+
         let mut visible: Vec<&WifiAccessPoint> = access_points
             .iter()
             .filter(|access_point| !access_point.ssid.is_empty())
@@ -73,36 +117,37 @@ impl WifiSection {
                 .then(right.strength.cmp(&left.strength))
         });
 
-        let visible_ssids: HashSet<&str> = visible
+        let visible_paths: HashSet<&str> = visible
             .iter()
-            .map(|access_point| access_point.ssid.as_str())
+            .map(|access_point| access_point.path.as_str())
             .collect();
         let to_remove: Vec<String> = self
             .rows
             .keys()
-            .filter(|ssid| !visible_ssids.contains(ssid.as_str()))
+            .filter(|path| !visible_paths.contains(path.as_str()))
             .cloned()
             .collect();
-        for ssid in to_remove {
-            if let Some(row) = self.rows.remove(&ssid) {
+        for path in to_remove {
+            if let Some(row) = self.rows.remove(&path) {
                 row.popover_menu.unparent();
                 self.access_point_box.remove(&row.button);
             }
         }
 
         for (index, access_point) in visible.iter().enumerate() {
-            if let Some(row) = self.rows.get(&access_point.ssid) {
-                row.update(access_point, active_action);
+            if let Some(row) = self.rows.get(&access_point.path) {
+                row.update(access_point, active_action.as_ref());
                 reorder(
                     &self.access_point_box,
                     &row.button,
                     &self.rows,
                     &visible,
                     index,
-                    |ap| ap.ssid.as_str(),
+                    |ap| ap.path.as_str(),
                 );
             } else {
-                let row = WifiRow::new(access_point, active_action, self.on_command.clone());
+                let row =
+                    WifiRow::new(access_point, active_action.as_ref(), self.on_action.clone());
                 self.access_point_box.append(&row.button);
                 reorder(
                     &self.access_point_box,
@@ -110,9 +155,9 @@ impl WifiSection {
                     &self.rows,
                     &visible,
                     index,
-                    |ap| ap.ssid.as_str(),
+                    |ap| ap.path.as_str(),
                 );
-                self.rows.insert(access_point.ssid.clone(), row);
+                self.rows.insert(access_point.path.clone(), row);
             }
         }
 
@@ -124,7 +169,7 @@ impl WifiRow {
     fn new(
         access_point: &WifiAccessPoint,
         active_action: Option<&NetworkActiveAction>,
-        on_command: NetworkCommandSender,
+        on_action: NetworkActionSender,
     ) -> Self {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
@@ -161,10 +206,10 @@ impl WifiRow {
         let state = Rc::new(RefCell::new(access_point.clone()));
         {
             let state = state.clone();
-            let on_command = on_command.clone();
+            let on_action = on_action.clone();
             button.connect_clicked(move |_| {
-                if let Some(command) = command_for_access_point_click(&state.borrow()) {
-                    on_command(command);
+                if let Some(action) = action_for_access_point_click(&state.borrow()) {
+                    on_action(action);
                 }
             });
         }
@@ -176,11 +221,11 @@ impl WifiRow {
         let actions = gtk::gio::SimpleActionGroup::new();
         {
             let state = state.clone();
-            let on_command = on_command.clone();
+            let on_action = on_action.clone();
             let action = gtk::gio::SimpleAction::new("forget", None);
             action.connect_activate(move |_, _| {
-                if let Some(command) = forget_command_for_access_point(&state.borrow()) {
-                    on_command(command);
+                if let Some(action) = forget_action_for_access_point(&state.borrow()) {
+                    on_action(action);
                 }
             });
             actions.add_action(&action);
@@ -304,7 +349,7 @@ fn matches_access_point_action(
     active_action: Option<&NetworkActiveAction>,
 ) -> bool {
     match active_action {
-        Some(NetworkActiveAction::ConnectWifi { ssid }) => ssid == &access_point.ssid,
+        Some(NetworkActiveAction::ConnectWifi { path, .. }) => path == &access_point.path,
         Some(NetworkActiveAction::ConnectSaved { uuid })
         | Some(NetworkActiveAction::Disconnect { uuid })
         | Some(NetworkActiveAction::Forget { uuid }) => access_point.uuid.as_ref() == Some(uuid),
@@ -312,30 +357,31 @@ fn matches_access_point_action(
     }
 }
 
-fn command_for_access_point_click(access_point: &WifiAccessPoint) -> Option<NetworkCommand> {
+fn action_for_access_point_click(access_point: &WifiAccessPoint) -> Option<NetworkAction> {
     if access_point.connected {
         access_point
             .uuid
             .clone()
-            .map(|uuid| NetworkCommand::Disconnect { uuid })
+            .map(|uuid| NetworkAction::Disconnect { uuid })
     } else if access_point.saved {
         access_point
             .uuid
             .clone()
-            .map(|uuid| NetworkCommand::ConnectSaved { uuid })
+            .map(|uuid| NetworkAction::ConnectSaved { uuid })
     } else {
-        Some(NetworkCommand::ConnectWifi {
+        Some(NetworkAction::ConnectWifi {
             ssid: access_point.ssid.clone(),
+            path: access_point.path.clone(),
         })
     }
 }
 
-fn forget_command_for_access_point(access_point: &WifiAccessPoint) -> Option<NetworkCommand> {
+fn forget_action_for_access_point(access_point: &WifiAccessPoint) -> Option<NetworkAction> {
     access_point
         .saved
         .then_some(access_point.uuid.clone())
         .flatten()
-        .map(|uuid| NetworkCommand::Forget { uuid })
+        .map(|uuid| NetworkAction::Forget { uuid })
 }
 
 fn has_forget_menu(access_point: &WifiAccessPoint) -> bool {
@@ -362,11 +408,12 @@ fn reorder<'a, T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::applets::network::components::NetworkCommand;
+    use crate::applets::network::components::NetworkAction;
 
     #[test]
     fn action_matching_uses_ssid_for_unsaved_networks_and_uuid_for_saved_networks() {
         let unsaved = WifiAccessPoint {
+            path: "/ap/1".into(),
             ssid: "Cafe".into(),
             ..WifiAccessPoint::default()
         };
@@ -374,10 +421,12 @@ mod tests {
             &unsaved,
             Some(&NetworkActiveAction::ConnectWifi {
                 ssid: "Cafe".into(),
+                path: "/ap/1".into(),
             })
         ));
 
         let saved = WifiAccessPoint {
+            path: "/ap/2".into(),
             ssid: "Office".into(),
             uuid: Some("uuid-1".into()),
             ..WifiAccessPoint::default()
@@ -391,14 +440,16 @@ mod tests {
     }
 
     #[test]
-    fn click_command_prefers_current_saved_state_over_stale_connected_state() {
+    fn click_action_prefers_current_saved_state_over_stale_connected_state() {
         let connected = WifiAccessPoint {
+            path: "/ap/1".into(),
             ssid: "Office".into(),
             connected: true,
             uuid: Some("active-uuid".into()),
             ..WifiAccessPoint::default()
         };
         let saved = WifiAccessPoint {
+            path: "/ap/2".into(),
             ssid: "Office".into(),
             saved: true,
             uuid: Some("saved-uuid".into()),
@@ -406,36 +457,38 @@ mod tests {
         };
 
         assert_eq!(
-            command_for_access_point_click(&connected),
-            Some(NetworkCommand::Disconnect {
+            action_for_access_point_click(&connected),
+            Some(NetworkAction::Disconnect {
                 uuid: "active-uuid".into(),
             })
         );
         assert_eq!(
-            command_for_access_point_click(&saved),
-            Some(NetworkCommand::ConnectSaved {
+            action_for_access_point_click(&saved),
+            Some(NetworkAction::ConnectSaved {
                 uuid: "saved-uuid".into(),
             })
         );
     }
 
     #[test]
-    fn forget_command_requires_current_saved_uuid() {
+    fn forget_action_requires_current_saved_uuid() {
         let unsaved = WifiAccessPoint {
+            path: "/ap/1".into(),
             ssid: "Skylink".into(),
             ..WifiAccessPoint::default()
         };
         let saved = WifiAccessPoint {
+            path: "/ap/2".into(),
             ssid: "Skylink".into(),
             saved: true,
             uuid: Some("saved-uuid".into()),
             ..WifiAccessPoint::default()
         };
 
-        assert_eq!(forget_command_for_access_point(&unsaved), None);
+        assert_eq!(forget_action_for_access_point(&unsaved), None);
         assert_eq!(
-            forget_command_for_access_point(&saved),
-            Some(NetworkCommand::Forget {
+            forget_action_for_access_point(&saved),
+            Some(NetworkAction::Forget {
                 uuid: "saved-uuid".into(),
             })
         );
@@ -444,10 +497,12 @@ mod tests {
     #[test]
     fn forget_menu_appears_when_network_becomes_saved() {
         let unsaved = WifiAccessPoint {
+            path: "/ap/1".into(),
             ssid: "Skylink".into(),
             ..WifiAccessPoint::default()
         };
         let saved = WifiAccessPoint {
+            path: "/ap/2".into(),
             ssid: "Skylink".into(),
             saved: true,
             uuid: Some("saved-uuid".into()),

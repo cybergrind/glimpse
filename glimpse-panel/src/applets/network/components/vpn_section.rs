@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -6,15 +8,26 @@ use std::{
 
 use glimpse::network::protocol::NetworkActiveAction;
 use glimpse::providers::network::SavedVpn;
-use relm4::gtk::{self, prelude::*};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
+};
 
-use super::{NetworkCommand, NetworkCommandSender};
+use super::{NetworkAction, NetworkActionSender};
 
 pub struct VpnSection {
-    section: gtk::Box,
+    visible: bool,
     vpn_box: gtk::Box,
     rows: HashMap<String, VpnRow>,
-    on_command: NetworkCommandSender,
+    on_action: NetworkActionSender,
+}
+
+#[derive(Debug)]
+pub enum VpnSectionInput {
+    Update {
+        vpns: Vec<SavedVpn>,
+        active_action: Option<NetworkActiveAction>,
+    },
 }
 
 struct VpnRow {
@@ -23,38 +36,73 @@ struct VpnRow {
     state: Rc<RefCell<SavedVpn>>,
 }
 
-impl VpnSection {
-    pub fn new(on_command: NetworkCommandSender) -> (Self, gtk::Box) {
-        let section = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        section.set_visible(false);
+#[relm4::component(pub)]
+impl SimpleComponent for VpnSection {
+    type Init = ();
+    type Input = VpnSectionInput;
+    type Output = NetworkAction;
 
-        section.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    view! {
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+            #[watch]
+            set_visible: model.visible,
 
-        let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        header.add_css_class("net-section-header");
-        let title = gtk::Label::new(Some("VPN"));
-        title.set_halign(gtk::Align::Start);
-        title.set_hexpand(true);
-        title.add_css_class("net-section-title");
-        header.append(&title);
-        section.append(&header);
-
-        let vpn_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        section.append(&vpn_box);
-
-        (
-            Self {
-                section: section.clone(),
-                vpn_box,
-                rows: HashMap::new(),
-                on_command,
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
             },
-            section,
-        )
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 8,
+                add_css_class: "net-section-header",
+
+                gtk::Label {
+                    set_label: "VPN",
+                    set_halign: gtk::Align::Start,
+                    set_hexpand: true,
+                    add_css_class: "net-section-title",
+                },
+            },
+
+            #[name(vpn_box)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+            },
+        }
     }
 
-    pub fn update(&mut self, vpns: &[SavedVpn], active_action: Option<&NetworkActiveAction>) {
-        self.section.set_visible(!vpns.is_empty());
+    fn init(
+        _init: Self::Init,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let sender = sender.clone();
+        let on_action: NetworkActionSender = Rc::new(move |action| {
+            let _ = sender.output(action);
+        });
+
+        let model = VpnSection {
+            visible: false,
+            vpn_box: gtk::Box::new(gtk::Orientation::Vertical, 0),
+            rows: HashMap::new(),
+            on_action,
+        };
+        let widgets = view_output!();
+
+        let mut model = model;
+        model.vpn_box = widgets.vpn_box.clone();
+
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+        let VpnSectionInput::Update {
+            vpns,
+            active_action,
+        } = message;
+
+        self.visible = !vpns.is_empty();
 
         let visible_ids: HashSet<&str> = vpns.iter().map(|vpn| vpn.uuid.as_str()).collect();
         let to_remove: Vec<String> = self
@@ -71,12 +119,12 @@ impl VpnSection {
 
         for (index, vpn) in vpns.iter().enumerate() {
             if let Some(row) = self.rows.get(&vpn.uuid) {
-                row.update(vpn, active_action);
-                reorder(&self.vpn_box, &row.button, &self.rows, vpns, index);
+                row.update(vpn, active_action.as_ref());
+                reorder(&self.vpn_box, &row.button, &self.rows, &vpns, index);
             } else {
-                let row = VpnRow::new(vpn, active_action, self.on_command.clone());
+                let row = VpnRow::new(vpn, active_action.as_ref(), self.on_action.clone());
                 self.vpn_box.append(&row.button);
-                reorder(&self.vpn_box, &row.button, &self.rows, vpns, index);
+                reorder(&self.vpn_box, &row.button, &self.rows, &vpns, index);
                 self.rows.insert(vpn.uuid.clone(), row);
             }
         }
@@ -87,7 +135,7 @@ impl VpnRow {
     fn new(
         vpn: &SavedVpn,
         active_action: Option<&NetworkActiveAction>,
-        on_command: NetworkCommandSender,
+        on_action: NetworkActionSender,
     ) -> Self {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
@@ -117,7 +165,7 @@ impl VpnRow {
         {
             let state = state.clone();
             button.connect_clicked(move |_| {
-                on_command(command_for_vpn_click(&state.borrow()));
+                on_action(action_for_vpn_click(&state.borrow()));
             });
         }
 
@@ -155,13 +203,13 @@ impl VpnRow {
     }
 }
 
-fn command_for_vpn_click(vpn: &SavedVpn) -> NetworkCommand {
+fn action_for_vpn_click(vpn: &SavedVpn) -> NetworkAction {
     if vpn.active {
-        NetworkCommand::Disconnect {
+        NetworkAction::Disconnect {
             uuid: vpn.uuid.clone(),
         }
     } else {
-        NetworkCommand::ConnectSaved {
+        NetworkAction::ConnectSaved {
             uuid: vpn.uuid.clone(),
         }
     }
@@ -186,10 +234,10 @@ fn reorder(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::applets::network::components::NetworkCommand;
+    use crate::applets::network::components::NetworkAction;
 
     #[test]
-    fn click_command_uses_latest_vpn_state() {
+    fn click_action_uses_latest_vpn_state() {
         let active = SavedVpn {
             id: "Work".into(),
             uuid: "vpn-uuid".into(),
@@ -204,14 +252,14 @@ mod tests {
         };
 
         assert_eq!(
-            command_for_vpn_click(&active),
-            NetworkCommand::Disconnect {
+            action_for_vpn_click(&active),
+            NetworkAction::Disconnect {
                 uuid: "vpn-uuid".into(),
             }
         );
         assert_eq!(
-            command_for_vpn_click(&inactive),
-            NetworkCommand::ConnectSaved {
+            action_for_vpn_click(&inactive),
+            NetworkAction::ConnectSaved {
                 uuid: "vpn-uuid".into(),
             }
         );

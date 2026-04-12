@@ -1,39 +1,36 @@
+#![allow(unused_assignments)]
+
 use std::collections::HashMap;
 
-use relm4::{
-    Component, ComponentParts, ComponentSender,
-    gtk::{self, prelude::*},
+use glimpse::compositor::{
+    WorkspaceCommand, WorkspacePresentation, WorkspaceServiceHandle, WorkspaceState,
 };
-use tokio::sync::mpsc;
+use relm4::{gtk, Component, ComponentController, ComponentParts, ComponentSender, Controller};
 
-use super::compositor::{self, AppletState, Compositor};
-use super::config::{PagerConfig, PagerStyle, ScrollAction};
+use super::components::indicator_strip::{
+    PagerIndicatorStrip, PagerIndicatorStripInit, PagerIndicatorStripInput,
+    PagerIndicatorStripOutput, PagerIndicatorView, PagerStripView,
+};
+use super::config::{PagerConfig, ScrollAction};
 
 pub struct Pager {
     config: PagerConfig,
-    compositor: Option<Compositor>,
-    action_tx: mpsc::Sender<PagerAction>,
-    indicators: HashMap<u32, gtk::Box>,
-    container: gtk::Box,
+    service: WorkspaceServiceHandle,
+    state: WorkspaceState,
+    strip: Controller<PagerIndicatorStrip>,
     window_ids: HashMap<u32, u64>,
+    last_focused_window_id: Option<u64>,
 }
 
 pub struct PagerInit {
     pub config: PagerConfig,
+    pub service: WorkspaceServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PagerInput {
-    Click(u32),
-    Scroll { dy: f64, horizontal: bool },
-}
-
-#[derive(Debug)]
-enum PagerAction {
-    SwitchTo(u32),
-    SwitchRelative(bool),
-    FocusWindowRelative(bool),
-    FocusWindow(u64),
+    ServiceState(WorkspaceState),
+    StripOutput(PagerIndicatorStripOutput),
 }
 
 #[relm4::component(pub)]
@@ -41,161 +38,92 @@ impl Component for Pager {
     type Init = PagerInit;
     type Input = PagerInput;
     type Output = ();
-    type CommandOutput = AppletState;
+    type CommandOutput = PagerInput;
 
     view! {
         gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            add_css_class: "applet",
-            add_css_class: "pager",
+            #[local_ref]
+            strip_widget -> gtk::Box {},
         }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let compositor = compositor::detect();
-        let (action_tx, action_rx) = mpsc::channel::<PagerAction>(16);
+        let strip = PagerIndicatorStrip::builder()
+            .launch(PagerIndicatorStripInit {
+                style: init.config.style.clone(),
+            })
+            .forward(sender.input_sender(), PagerInput::StripOutput);
+        let strip_widget = strip.widget().clone();
 
         let model = Pager {
             config: init.config,
-            compositor,
-            action_tx,
-            indicators: HashMap::new(),
-            container: root.clone(),
+            state: init.service.subscribe().borrow().clone(),
+            service: init.service.clone(),
+            strip,
             window_ids: HashMap::new(),
+            last_focused_window_id: None,
         };
-        let widgets = view_output!();
+        let service = init.service;
 
-        let scroll = gtk::EventControllerScroll::new(
-            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::HORIZONTAL,
-        );
-        let scroll_sender = sender.clone();
-        scroll.connect_scroll(move |_ctrl, dx, dy| {
-            if dx != 0.0 {
-                scroll_sender.input(PagerInput::Scroll {
-                    dy: dx,
-                    horizontal: true,
-                });
-            } else if dy != 0.0 {
-                scroll_sender.input(PagerInput::Scroll {
-                    dy,
-                    horizontal: false,
-                });
-            }
-            gtk::glib::Propagation::Stop
+        sender.command(move |out, shutdown| {
+            shutdown
+                .register(async move {
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(PagerInput::ServiceState(state_rx.borrow().clone()));
+
+                    while state_rx.changed().await.is_ok() {
+                        let _ = out.send(PagerInput::ServiceState(state_rx.borrow().clone()));
+                    }
+                })
+                .drop_on_shutdown()
         });
-        root.add_controller(scroll);
 
-        if let Some(comp) = compositor {
-            sender.command(move |cmd_tx, shutdown| {
-                shutdown
-                    .register(async move {
-                        let (state_tx, mut state_rx) = mpsc::channel::<AppletState>(16);
-                        let mut action_rx = action_rx;
-
-                        let event_handle = tokio::spawn(async move {
-                            match comp {
-                                Compositor::Hyprland => {
-                                    compositor::hyprland_event_loop(state_tx).await;
-                                }
-                                Compositor::Niri => {
-                                    compositor::niri_event_loop(state_tx).await;
-                                }
-                            }
-                        });
-
-                        loop {
-                            tokio::select! {
-                                Some(state) = state_rx.recv() => {
-                                    if cmd_tx.send(state).is_err() {
-                                        break;
-                                    }
-                                }
-                                Some(action) = action_rx.recv() => {
-                                    match action {
-                                        PagerAction::SwitchTo(idx) => {
-                                            compositor::switch_workspace(comp, idx).await;
-                                        }
-                                        PagerAction::SwitchRelative(next) => {
-                                            compositor::switch_workspace_relative(comp, next).await;
-                                        }
-                                        PagerAction::FocusWindowRelative(next) => {
-                                            compositor::focus_window_relative(comp, next).await;
-                                        }
-                                        PagerAction::FocusWindow(id) => {
-                                            compositor::focus_window(id).await;
-                                        }
-                                    }
-                                }
-                                else => break,
-                            }
-                        }
-
-                        event_handle.abort();
-                    })
-                    .drop_on_shutdown()
-            });
-        } else {
-            tracing::warn!("pager: no supported compositor detected");
-        }
-
+        let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
     fn update_cmd(
         &mut self,
-        state: Self::CommandOutput,
+        message: Self::CommandOutput,
         sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
-        match state {
-            AppletState::Hyprland(ws_state) => {
-                self.update_hyprland(ws_state, &sender);
-                root.set_tooltip_text(None);
-            }
-            AppletState::Niri(win_state) => {
-                let tooltip = format!(
-                    "Workspace {}, {} windows",
-                    win_state.workspace_index,
-                    win_state.windows.len()
-                );
-                root.set_tooltip_text(Some(&tooltip));
-                self.update_niri(win_state, &sender);
-            }
-        }
+        self.update(message, sender, root);
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            PagerInput::Click(index) => match self.compositor {
-                Some(Compositor::Niri) => {
-                    if let Some(&window_id) = self.window_ids.get(&index) {
-                        self.action_tx
-                            .try_send(PagerAction::FocusWindow(window_id))
-                            .ok();
+            PagerInput::ServiceState(state) => {
+                self.last_focused_window_id = remember_focused_window_id(
+                    self.last_focused_window_id,
+                    &state.snapshot.windows,
+                );
+                self.state = state;
+                self.render_from_state();
+            }
+            PagerInput::StripOutput(PagerIndicatorStripOutput::Click(index)) => {
+                match self.state.snapshot.presentation {
+                    WorkspacePresentation::Windows => {
+                        if let Some(&window_id) = self.window_ids.get(&index) {
+                            self.send_command(sender, WorkspaceCommand::FocusWindow(window_id));
+                        }
+                    }
+                    WorkspacePresentation::Workspaces => {
+                        self.send_command(sender, WorkspaceCommand::SwitchTo(index));
                     }
                 }
-                Some(Compositor::Hyprland) => {
-                    self.action_tx.try_send(PagerAction::SwitchTo(index)).ok();
-                }
-                None => {}
-            },
-            PagerInput::Scroll { dy, horizontal } => {
-                let next = dy > 0.0;
-                let scroll_action = self.resolve_scroll_action(horizontal);
-                match scroll_action {
+            }
+            PagerInput::StripOutput(PagerIndicatorStripOutput::Scroll { dy, horizontal }) => {
+                match self.resolve_scroll_action(horizontal) {
                     ResolvedScroll::SwitchWorkspace => {
-                        self.action_tx
-                            .try_send(PagerAction::SwitchRelative(next))
-                            .ok();
+                        self.send_command(sender, WorkspaceCommand::SwitchRelative(dy > 0.0));
                     }
                     ResolvedScroll::SwitchWindow => {
-                        self.action_tx
-                            .try_send(PagerAction::FocusWindowRelative(next))
-                            .ok();
+                        self.send_command(sender, WorkspaceCommand::FocusWindowRelative(dy > 0.0));
                     }
                 }
             }
@@ -208,160 +136,204 @@ enum ResolvedScroll {
     SwitchWindow,
 }
 
-struct Indicator {
-    index: u32,
-    is_focused: bool,
-    occupied: bool,
-    is_urgent: bool,
-}
-
 impl Pager {
     fn resolve_scroll_action(&self, horizontal: bool) -> ResolvedScroll {
         match &self.config.scroll_action {
             Some(ScrollAction::Workspaces) => ResolvedScroll::SwitchWorkspace,
             Some(ScrollAction::Windows) => ResolvedScroll::SwitchWindow,
             None => {
-                // Default: compositor-aware behavior
-                match self.compositor {
-                    Some(Compositor::Niri) => {
-                        if horizontal {
-                            ResolvedScroll::SwitchWorkspace
-                        } else {
-                            ResolvedScroll::SwitchWindow
-                        }
-                    }
-                    _ => ResolvedScroll::SwitchWorkspace,
+                if self.state.capabilities.focus_window_relative && !horizontal {
+                    ResolvedScroll::SwitchWindow
+                } else {
+                    ResolvedScroll::SwitchWorkspace
                 }
             }
         }
     }
 
-    fn update_hyprland(
-        &mut self,
-        state: compositor::WorkspaceState,
-        sender: &ComponentSender<Self>,
-    ) {
-        let indicators: Vec<Indicator> = (1..=self.config.count)
-            .map(|i| {
-                let ws = state.workspaces.iter().find(|w| w.index == i);
-                Indicator {
-                    index: i,
-                    is_focused: ws.map_or(false, |w| w.is_focused),
-                    occupied: ws.map_or(false, |w| w.occupied),
-                    is_urgent: ws.map_or(false, |w| w.is_urgent),
-                }
-            })
-            .collect();
-        self.update_indicators(&indicators, sender);
+    fn render_from_state(&mut self) {
+        self.window_ids.clear();
+
+        let (indicators, tooltip) = match self.state.snapshot.presentation {
+            WorkspacePresentation::Workspaces => {
+                let count = workspace_indicator_count(
+                    self.config.count,
+                    self.state.snapshot.current_workspace_index,
+                    &self.state.snapshot.workspaces,
+                );
+                let indicators = (1..=count)
+                    .map(|index| {
+                        let ws = self
+                            .state
+                            .snapshot
+                            .workspaces
+                            .iter()
+                            .find(|workspace| workspace.index == index);
+                        PagerIndicatorView {
+                            index,
+                            is_focused: ws.is_some_and(|workspace| workspace.is_focused),
+                            occupied: ws.is_some_and(|workspace| workspace.occupied),
+                            is_urgent: ws.is_some_and(|workspace| workspace.is_urgent),
+                        }
+                    })
+                    .collect();
+                (indicators, String::new())
+            }
+            WorkspacePresentation::Windows => {
+                let focused_window_id = render_focused_window_id(
+                    &self.state.snapshot.windows,
+                    self.last_focused_window_id,
+                );
+                let indicators = if self.state.snapshot.windows.is_empty() {
+                    vec![PagerIndicatorView {
+                        index: 1,
+                        is_focused: true,
+                        occupied: false,
+                        is_urgent: false,
+                    }]
+                } else {
+                    self.state
+                        .snapshot
+                        .windows
+                        .iter()
+                        .enumerate()
+                        .map(|(offset, window)| {
+                            let index = (offset + 1) as u32;
+                            self.window_ids.insert(index, window.id);
+                            PagerIndicatorView {
+                                index,
+                                is_focused: Some(window.id) == focused_window_id,
+                                occupied: true,
+                                is_urgent: false,
+                            }
+                        })
+                        .collect()
+                };
+                let tooltip = format!(
+                    "Workspace {}, {} windows",
+                    self.state.snapshot.current_workspace_index.unwrap_or(0),
+                    self.state.snapshot.windows.len()
+                );
+                (indicators, tooltip)
+            }
+        };
+
+        self.strip
+            .emit(PagerIndicatorStripInput::Render(PagerStripView {
+                indicators,
+                tooltip,
+            }));
     }
 
-    fn update_niri(&mut self, state: compositor::NiriWindowState, sender: &ComponentSender<Self>) {
-        self.window_ids.clear();
-        let indicators: Vec<Indicator> = if state.windows.is_empty() {
-            vec![Indicator {
-                index: 1,
-                is_focused: true,
-                occupied: false,
-                is_urgent: false,
-            }]
-        } else {
-            state
-                .windows
-                .iter()
-                .enumerate()
-                .map(|(i, w)| {
-                    let index = (i + 1) as u32;
-                    self.window_ids.insert(index, w.id);
-                    Indicator {
-                        index,
-                        is_focused: w.is_focused,
-                        occupied: true,
-                        is_urgent: false,
+    fn send_command(&self, sender: ComponentSender<Self>, command: WorkspaceCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(error = %error, "pager applet: failed to send workspace command");
                     }
                 })
-                .collect()
-        };
-        self.update_indicators(&indicators, sender);
-    }
-
-    fn update_indicators(&mut self, targets: &[Indicator], sender: &ComponentSender<Self>) {
-        let current_indices: Vec<u32> = self.indicators.keys().copied().collect();
-        let target_indices: Vec<u32> = targets.iter().map(|t| t.index).collect();
-
-        for idx in &current_indices {
-            if !target_indices.contains(idx) {
-                if let Some(widget) = self.indicators.remove(idx) {
-                    self.container.remove(&widget);
-                }
-            }
-        }
-
-        for t in targets {
-            if !self.indicators.contains_key(&t.index) {
-                let widget = self.create_indicator(t.index, sender);
-                self.container.append(&widget);
-                self.indicators.insert(t.index, widget);
-            }
-            let indicator = self.indicators.get(&t.index).unwrap();
-
-            Self::set_class(indicator, "active", t.is_focused);
-            Self::set_class(indicator, "occupied", t.occupied && !t.is_focused);
-            Self::set_class(indicator, "urgent", t.is_urgent);
-
-            if self.config.style == PagerStyle::Numbered {
-                if let Some(label) = indicator
-                    .first_child()
-                    .and_then(|c| c.downcast::<gtk::Label>().ok())
-                {
-                    label.set_label(&t.index.to_string());
-                }
-            }
-        }
-
-        let mut prev: Option<&gtk::Box> = None;
-        for idx in &target_indices {
-            if let Some(widget) = self.indicators.get(idx) {
-                if let Some(p) = prev {
-                    widget.insert_after(&self.container, Some(p));
-                } else {
-                    widget.insert_after(&self.container, gtk::Widget::NONE);
-                }
-                prev = Some(widget);
-            }
-        }
-    }
-
-    fn create_indicator(&self, index: u32, sender: &ComponentSender<Self>) -> gtk::Box {
-        let wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        wrapper.set_valign(gtk::Align::Center);
-
-        match self.config.style {
-            PagerStyle::Pills => {
-                wrapper.add_css_class("pager-dot");
-            }
-            PagerStyle::Numbered => {
-                wrapper.add_css_class("pager-num");
-                let label = gtk::Label::new(Some(&index.to_string()));
-                wrapper.append(&label);
-            }
-        }
-
-        let click = gtk::GestureClick::new();
-        click.set_button(1);
-        let click_sender = sender.clone();
-        click.connect_pressed(move |_, _, _, _| {
-            click_sender.input(PagerInput::Click(index));
+                .drop_on_shutdown()
         });
-        wrapper.add_controller(click);
+    }
+}
 
-        wrapper
+fn workspace_indicator_count(
+    configured_count: u32,
+    current_workspace_index: Option<u32>,
+    workspaces: &[glimpse::compositor::WorkspaceSlot],
+) -> u32 {
+    let highest_reported = workspaces
+        .iter()
+        .map(|workspace| workspace.index)
+        .max()
+        .unwrap_or(0);
+
+    configured_count
+        .max(current_workspace_index.unwrap_or(0))
+        .max(highest_reported)
+        .max(1)
+}
+
+fn remember_focused_window_id(current: Option<u64>, windows: &[glimpse::compositor::WorkspaceWindow]) -> Option<u64> {
+    windows.iter().find(|window| window.is_focused).map(|window| window.id).or(current)
+}
+
+fn render_focused_window_id(
+    windows: &[glimpse::compositor::WorkspaceWindow],
+    last_focused_window_id: Option<u64>,
+) -> Option<u64> {
+    windows
+        .iter()
+        .find(|window| window.is_focused)
+        .map(|window| window.id)
+        .or_else(|| {
+            last_focused_window_id.filter(|window_id| windows.iter().any(|window| window.id == *window_id))
+        })
+        .or_else(|| windows.first().map(|window| window.id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indicator_count_expands_to_include_focused_or_reported_workspace() {
+        let workspaces = vec![glimpse::compositor::WorkspaceSlot {
+            index: 11,
+            is_focused: true,
+            occupied: true,
+            is_urgent: false,
+        }];
+
+        assert_eq!(workspace_indicator_count(10, Some(11), &workspaces), 11);
+        assert_eq!(workspace_indicator_count(10, None, &workspaces), 11);
+        assert_eq!(workspace_indicator_count(10, Some(3), &[]), 10);
+        assert_eq!(workspace_indicator_count(0, None, &[]), 1);
     }
 
-    fn set_class(widget: &gtk::Box, class: &str, active: bool) {
-        if active {
-            widget.add_css_class(class);
-        } else {
-            widget.remove_css_class(class);
-        }
+    #[test]
+    fn window_presentation_keeps_last_focused_window_when_focus_is_lost() {
+        let first = glimpse::compositor::WorkspaceWindow {
+            id: 10,
+            column: 1,
+            is_focused: true,
+        };
+        let second = glimpse::compositor::WorkspaceWindow {
+            id: 20,
+            column: 2,
+            is_focused: false,
+        };
+
+        let remembered = remember_focused_window_id(None, &[first.clone(), second.clone()]);
+        assert_eq!(remembered, Some(10));
+
+        let unfocused = vec![
+            glimpse::compositor::WorkspaceWindow {
+                is_focused: false,
+                ..first
+            },
+            second,
+        ];
+        assert_eq!(render_focused_window_id(&unfocused, remembered), Some(10));
+    }
+
+    #[test]
+    fn window_presentation_falls_back_to_first_window_when_remembered_window_is_gone() {
+        let windows = vec![
+            glimpse::compositor::WorkspaceWindow {
+                id: 20,
+                column: 1,
+                is_focused: false,
+            },
+            glimpse::compositor::WorkspaceWindow {
+                id: 30,
+                column: 2,
+                is_focused: false,
+            },
+        ];
+
+        assert_eq!(render_focused_window_id(&windows, Some(10)), Some(20));
     }
 }

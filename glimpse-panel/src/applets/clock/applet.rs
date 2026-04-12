@@ -24,6 +24,9 @@ pub struct Clock {
     pub config: ClockConfig,
     service: CalendarServiceHandle,
     popover: Controller<Popover>,
+    state: CalendarServiceState,
+    selected_date: NaiveDate,
+    follow_today: bool,
 }
 
 pub struct ClockInit {
@@ -92,6 +95,9 @@ impl Component for Clock {
             service: init.service.clone(),
             value: String::new(),
             config: init.config,
+            state: CalendarServiceState::default(),
+            selected_date: today,
+            follow_today: true,
         };
         let widgets = view_output!();
 
@@ -150,23 +156,40 @@ impl Component for Clock {
         match input {
             ClockInput::Tick => {
                 self.value = Local::now().format(&self.config.format).to_string();
-                if should_tick_popover(self.popover.widget().is_visible()) {
+                if self.follow_today {
+                    let today = Local::now().date_naive();
+                    if self.selected_date != today {
+                        let month_changed = month_key(today) != month_key(self.selected_date);
+                        self.selected_date = today;
+                        self.sync_popover(month_changed);
+                    }
+                }
+                if should_sync_popover(self.popover.widget().is_visible()) {
                     self.popover.emit(PopoverInput::Tick);
                 }
             }
             ClockInput::TogglePopover => {
+                let was_visible = self.popover.widget().is_visible();
                 self.popover.emit(PopoverInput::Toggle);
+                if !was_visible {
+                    self.sync_popover(false);
+                }
             }
             ClockInput::CalendarState(state) => {
-                self.popover.emit(PopoverInput::CalendarState(state));
+                self.state = state;
+                if should_sync_popover(self.popover.widget().is_visible()) {
+                    self.sync_popover(false);
+                }
             }
             ClockInput::PopoverOutput(output) => {
                 self.handle_popover_output(output, sender);
             }
             ClockInput::Unavailable => {
                 tracing::warn!("clock applet: calendar service unavailable");
-                self.popover
-                    .emit(PopoverInput::CalendarState(CalendarServiceState::default()));
+                self.state = CalendarServiceState::default();
+                if should_sync_popover(self.popover.widget().is_visible()) {
+                    self.sync_popover(false);
+                }
             }
         }
     }
@@ -188,10 +211,54 @@ impl Component for Clock {
 }
 
 impl Clock {
-    fn handle_popover_output(&self, output: PopoverOutput, sender: ComponentSender<Self>) {
+    fn handle_popover_output(&mut self, output: PopoverOutput, sender: ComponentSender<Self>) {
         match output {
-            PopoverOutput::Command(command) => self.send_command(sender, command),
+            PopoverOutput::SelectedDate(date) => self.handle_selected_date(date, sender),
+            PopoverOutput::LoadMonth { year, month } => {
+                self.send_command(sender, CalendarServiceCommand::LoadMonth { year, month });
+            }
+            PopoverOutput::LoadDay { date } => {
+                self.send_command(sender, CalendarServiceCommand::LoadDay {
+                    date: CalendarDate::from_naive_date(date),
+                });
+            }
         }
+    }
+
+    fn handle_selected_date(&mut self, date: NaiveDate, sender: ComponentSender<Self>) {
+        let month_changed = month_key(date) != month_key(self.selected_date);
+        self.selected_date = date;
+        self.follow_today = date == Local::now().date_naive();
+        self.sync_popover(month_changed);
+
+        if month_changed {
+            self.send_command(
+                sender,
+                CalendarServiceCommand::LoadMonth {
+                    year: date.year(),
+                    month: date.month(),
+                },
+            );
+        }
+    }
+
+    fn sync_popover(&self, month_changed: bool) {
+        if !should_sync_popover(self.popover.widget().is_visible()) {
+            return;
+        }
+
+        self.popover
+            .emit(PopoverInput::SetSelectedDate(self.selected_date));
+
+        let month = self.state.month_cache.get(&month_key(self.selected_date)).cloned();
+        self.popover.emit(PopoverInput::SetMonth(month));
+
+        let plan = resolve_selected_day_plan(&self.state, self.selected_date, month_changed);
+        self.popover.emit(PopoverInput::SetSelectedDay {
+            date: self.selected_date,
+            day: plan.day,
+            refresh: plan.refresh,
+        });
     }
 
     fn send_command(&self, sender: ComponentSender<Self>, command: CalendarServiceCommand) {
@@ -224,7 +291,7 @@ fn initial_calendar_commands(today: CalendarDate) -> Vec<CalendarServiceCommand>
     }]
 }
 
-fn should_tick_popover(popover_visible: bool) -> bool {
+fn should_sync_popover(popover_visible: bool) -> bool {
     popover_visible
 }
 
@@ -328,9 +395,9 @@ mod tests {
     }
 
     #[test]
-    fn hidden_popover_does_not_need_tick_forwarding() {
-        assert!(!should_tick_popover(false));
-        assert!(should_tick_popover(true));
+    fn hidden_popover_skips_state_sync() {
+        assert!(!should_sync_popover(false));
+        assert!(should_sync_popover(true));
     }
 
     #[test]

@@ -3,19 +3,25 @@ use std::collections::HashMap;
 use glimpse::tray::{
     TrayServiceHandle,
     protocol::{
-        TrayIcon, TrayItem, TrayMenuItem, TrayMenuItemKind, TrayMenuToggleState,
-        TrayMenuToggleType, TrayServiceCommand, TrayServiceState, TraySnapshot,
+        TrayItem, TrayMenuItem, TrayMenuItemKind, TrayMenuToggleState, TrayMenuToggleType,
+        TrayServiceCommand, TrayServiceState, TraySnapshot,
     },
 };
 use relm4::{
-    Component, ComponentParts, ComponentSender,
-    gtk::{self, gdk, gio, glib, prelude::*},
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk::{self, gio, prelude::*},
 };
 
-use crate::applets::tray::TrayConfig;
+use crate::applets::tray::{
+    TrayConfig,
+    components::tray_button::{
+        TrayButton, TrayButtonInit, TrayButtonInput, TrayButtonOutput, TrayButtonView,
+        icon_to_gicon,
+    },
+};
 
 struct TrayItemState {
-    button: gtk::Button,
+    controller: Controller<TrayButton>,
     menu_path: String,
     menu: Vec<TrayMenuItem>,
     popover: Option<gtk::PopoverMenu>,
@@ -83,7 +89,7 @@ impl Component for Tray {
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = Tray {
@@ -177,20 +183,39 @@ impl Tray {
         for address in to_remove {
             if let Some(state) = self.items.remove(&address) {
                 detach_popover(state.popover);
-                root.remove(&state.button);
+                root.remove(state.controller.widget());
             }
         }
 
         for item in &self.snapshot.items {
             if let Some(state) = self.items.get_mut(&item.address) {
-                update_button(&state.button, item, self.config.icon_size);
+                state
+                    .controller
+                    .emit(TrayButtonInput::Update(TrayButtonView::from(item)));
                 rebuild_menu(state, item, sender);
             } else {
-                let button = build_button(item, self.config.icon_size, sender);
-                root.append(&button);
+                let address = item.address.clone();
+                let controller = TrayButton::builder()
+                    .launch(TrayButtonInit {
+                        view: TrayButtonView::from(item),
+                        icon_size: self.config.icon_size,
+                    })
+                    .forward(sender.input_sender(), move |output| match output {
+                        TrayButtonOutput::PrimaryClick { x, y } => TrayInput::PrimaryClick {
+                            address: address.clone(),
+                            x,
+                            y,
+                        },
+                        TrayButtonOutput::SecondaryClick { x, y } => TrayInput::SecondaryClick {
+                            address: address.clone(),
+                            x,
+                            y,
+                        },
+                    });
+                root.append(controller.widget());
 
                 let mut state = TrayItemState {
-                    button,
+                    controller,
                     menu_path: String::new(),
                     menu: Vec::new(),
                     popover: None,
@@ -205,8 +230,8 @@ impl Tray {
             let Some(state) = self.items.get(&item.address) else {
                 continue;
             };
-            root.reorder_child_after(&state.button, previous.as_ref());
-            previous = Some(state.button.clone().upcast());
+            root.reorder_child_after(state.controller.widget(), previous.as_ref());
+            previous = Some(state.controller.widget().clone().upcast());
         }
     }
 
@@ -264,148 +289,6 @@ impl Tray {
     }
 }
 
-fn build_button(item: &TrayItem, size: i32, sender: &ComponentSender<Tray>) -> gtk::Button {
-    let image = gtk::Image::new();
-    image.set_pixel_size(size);
-    set_image_icon(&image, item, size);
-
-    let button = gtk::Button::new();
-    button.set_child(Some(&image));
-    button.add_css_class("flat");
-    button.add_css_class("tray-item");
-    button.set_tooltip_text(button_tooltip(item).as_deref());
-
-    let left = gtk::GestureClick::new();
-    left.set_button(1);
-    let address = item.address.clone();
-    let left_sender = sender.clone();
-    left.connect_pressed(move |_, _, x, y| {
-        left_sender.input(TrayInput::PrimaryClick {
-            address: address.clone(),
-            x: x as i32,
-            y: y as i32,
-        });
-    });
-    button.add_controller(left);
-
-    let right = gtk::GestureClick::new();
-    right.set_button(3);
-    let address = item.address.clone();
-    let right_sender = sender.clone();
-    right.connect_pressed(move |_, _, x, y| {
-        right_sender.input(TrayInput::SecondaryClick {
-            address: address.clone(),
-            x: x as i32,
-            y: y as i32,
-        });
-    });
-    button.add_controller(right);
-
-    button
-}
-
-fn update_button(button: &gtk::Button, item: &TrayItem, size: i32) {
-    if let Some(image) = button.child().and_downcast::<gtk::Image>() {
-        set_image_icon(&image, item, size);
-    }
-    button.set_tooltip_text(button_tooltip(item).as_deref());
-}
-
-fn button_tooltip(item: &TrayItem) -> Option<String> {
-    if let Some(tooltip) = &item.tooltip {
-        if !tooltip.description.is_empty() {
-            return Some(tooltip.description.clone());
-        }
-        if !tooltip.title.is_empty() {
-            return Some(tooltip.title.clone());
-        }
-    }
-
-    (!item.title.is_empty()).then(|| item.title.clone())
-}
-
-fn set_image_icon(image: &gtk::Image, item: &TrayItem, size: i32) {
-    image.set_pixel_size(size);
-
-    match item_icon_paintable(item, size) {
-        Some(paintable) => image.set_paintable(Some(&paintable)),
-        None => match item.icon.as_ref().and_then(icon_to_gicon) {
-            Some(gicon) => image.set_from_gicon(&gicon),
-            None => image.set_icon_name(Some("image-missing-symbolic")),
-        },
-    }
-}
-
-fn item_icon_paintable(item: &TrayItem, size: i32) -> Option<gdk::Paintable> {
-    let TrayIcon::Name(name) = item.icon.as_ref()? else {
-        return None;
-    };
-
-    let icon_theme_path = item
-        .icon_theme_path
-        .as_deref()
-        .filter(|path| !path.trim().is_empty())?;
-    let display = gdk::Display::default()?;
-    let theme = gtk::IconTheme::for_display(&display);
-    let theme_path = std::path::Path::new(icon_theme_path);
-    if !theme
-        .search_path()
-        .iter()
-        .any(|existing| existing == theme_path)
-    {
-        theme.add_search_path(theme_path);
-    }
-
-    Some(
-        theme
-            .lookup_icon(
-                name,
-                &[],
-                size,
-                1,
-                gtk::TextDirection::None,
-                gtk::IconLookupFlags::empty(),
-            )
-            .upcast(),
-    )
-}
-
-fn icon_to_gicon(icon: &TrayIcon) -> Option<gio::Icon> {
-    match icon {
-        TrayIcon::Name(name) => Some(gio::ThemedIcon::new(name).upcast()),
-        TrayIcon::FilePath(path) => Some(gio::FileIcon::new(&gio::File::for_path(path)).upcast()),
-        TrayIcon::Pixmap {
-            width,
-            height,
-            pixels,
-        } => texture_from_pixmap(*width, *height, pixels).map(|texture| texture.upcast()),
-        TrayIcon::EncodedBytes(bytes) => {
-            let bytes = glib::Bytes::from(bytes.as_slice());
-            gdk::Texture::from_bytes(&bytes)
-                .ok()
-                .map(|texture| texture.upcast())
-        }
-    }
-}
-
-fn texture_from_pixmap(width: i32, height: i32, pixels: &[u8]) -> Option<gdk::Texture> {
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-
-    let stride = width as usize * 4;
-    let expected = stride * height as usize;
-    if pixels.len() < expected {
-        return None;
-    }
-
-    let bytes = glib::Bytes::from_owned(pixels[..expected].to_vec());
-    Some(
-        gdk::MemoryTexture::new(width, height, gdk::MemoryFormat::A8r8g8b8, &bytes, stride)
-            .upcast(),
-    )
-}
-
 fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSender<Tray>) {
     if !menu_state_changed(&state.menu_path, &state.menu, item) {
         return;
@@ -417,7 +300,8 @@ fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSe
         .is_some_and(gtk::prelude::WidgetExt::is_visible);
 
     state
-        .button
+        .controller
+        .widget()
         .insert_action_group("tray", Option::<&gio::SimpleActionGroup>::None);
     detach_popover(state.popover.take());
     state.menu_path = item.menu_path.clone();
@@ -437,12 +321,13 @@ fn rebuild_menu(state: &mut TrayItemState, item: &TrayItem, sender: &ComponentSe
         sender,
     );
     state
-        .button
+        .controller
+        .widget()
         .insert_action_group("tray", Some(&action_group));
 
     let popover = gtk::PopoverMenu::from_model(Some(&gio_menu));
     popover.insert_action_group("tray", Some(&action_group));
-    popover.set_parent(&state.button);
+    popover.set_parent(state.controller.widget());
     if was_visible {
         popover.popup();
     }
@@ -578,7 +463,9 @@ fn command_for_click(item: &TrayItem, click: ClickKind, x: i32, y: i32) -> Click
 
 #[cfg(test)]
 mod tests {
-    use glimpse::tray::protocol::{TrayCategory, TrayMenuDisposition, TrayStatus, TrayTooltip};
+    use glimpse::tray::protocol::{
+        TrayCategory, TrayIcon, TrayMenuDisposition, TrayStatus, TrayTooltip,
+    };
 
     use super::*;
 

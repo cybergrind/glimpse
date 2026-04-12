@@ -10,6 +10,8 @@ pub struct SessionConfig {
     pub show_reboot: bool,
     pub show_shutdown: bool,
     pub confirm_logout: bool,
+    pub confirm_suspend: bool,
+    pub confirm_hibernate: bool,
     pub confirm_reboot: bool,
     pub confirm_shutdown: bool,
 }
@@ -24,6 +26,8 @@ impl Default for SessionConfig {
             show_reboot: true,
             show_shutdown: true,
             confirm_logout: true,
+            confirm_suspend: true,
+            confirm_hibernate: true,
             confirm_reboot: true,
             confirm_shutdown: true,
         }

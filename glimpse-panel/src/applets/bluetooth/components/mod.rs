@@ -1,8 +1,10 @@
-pub mod device_list;
-pub mod device_row;
-pub mod hero;
+mod device_list;
+mod device_row;
+mod hero;
 
-use std::rc::Rc;
+pub use device_list::{BluetoothDeviceList, BluetoothDeviceListInput, BluetoothDeviceListOutput};
+pub use device_row::{BluetoothDeviceRow, BluetoothDeviceRowInput, BluetoothDeviceRowOutput};
+pub use hero::{BluetoothHero, BluetoothHeroInput, BluetoothHeroOutput};
 
 use serde::Deserialize;
 
@@ -27,15 +29,3 @@ pub enum BluetoothDeviceAction {
     Trust(bool),
     Forget,
 }
-
-#[derive(Debug, Clone)]
-pub enum BluetoothCommand {
-    SetPowered(bool),
-    DeviceAction {
-        address: String,
-        name: String,
-        action: BluetoothDeviceAction,
-    },
-}
-
-pub type BluetoothCommandSender = Rc<dyn Fn(BluetoothCommand)>;

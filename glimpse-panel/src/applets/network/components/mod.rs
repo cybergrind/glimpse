@@ -1,23 +1,23 @@
 mod hero;
 mod vpn_section;
 mod wifi_section;
+mod wired_row;
 mod wired_section;
 
 use std::rc::Rc;
 
-pub use hero::NetworkHero;
-pub use vpn_section::VpnSection;
-pub use wifi_section::WifiSection;
-pub use wired_section::WiredSection;
+pub use hero::{NetworkHero, NetworkHeroInput};
+pub use vpn_section::{VpnSection, VpnSectionInput};
+pub use wifi_section::{WifiSection, WifiSectionInput};
+pub use wired_section::{WiredSection, WiredSectionInput};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NetworkCommand {
+pub enum NetworkAction {
     ToggleWifi(bool),
-    ConnectWifi { ssid: String },
+    ConnectWifi { ssid: String, path: String },
     ConnectSaved { uuid: String },
     Disconnect { uuid: String },
     Forget { uuid: String },
-    OpenSettings,
 }
 
-pub type NetworkCommandSender = Rc<dyn Fn(NetworkCommand)>;
+pub type NetworkActionSender = Rc<dyn Fn(NetworkAction)>;

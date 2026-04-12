@@ -1,4 +1,5 @@
-#[path = "../src/applets/clock/event_row.rs"]
+#[allow(dead_code)]
+#[path = "../src/applets/clock/components/event_row.rs"]
 mod event_row;
 
 use chrono::{Local, TimeZone};

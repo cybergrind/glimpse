@@ -48,6 +48,7 @@ pub enum AudioPopoverOutput {
     OpenSettings,
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for AudioPopover {
     type Init = AudioPopoverInit;

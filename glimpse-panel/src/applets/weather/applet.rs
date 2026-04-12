@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},
+    Component, ComponentController, ComponentParts, ComponentSender, Controller,
 };
 
 use super::config::WeatherConfig;
@@ -59,12 +59,19 @@ pub(crate) struct WeatherLocation {
     pub city: String,
 }
 
-#[derive(Debug)]
-struct WeatherSnapshot {
-    current: WeatherCurrent,
-    hourly: Vec<WeatherHourly>,
-    forecast: Vec<WeatherDaily>,
-    location: WeatherLocation,
+#[derive(Debug, Clone)]
+pub(crate) struct WeatherSnapshot {
+    pub(crate) current: WeatherCurrent,
+    pub(crate) hourly: Vec<WeatherHourly>,
+    pub(crate) forecast: Vec<WeatherDaily>,
+    pub(crate) location: WeatherLocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WeatherDisplayState {
+    icon_name: String,
+    label: String,
+    tooltip: String,
 }
 
 pub struct Weather {
@@ -77,10 +84,7 @@ pub struct Weather {
 
 #[derive(Debug)]
 pub enum WeatherMsg {
-    CurrentUpdate(WeatherCurrent),
-    HourlyUpdate(Vec<WeatherHourly>),
-    ForecastUpdate(Vec<WeatherDaily>),
-    LocationUpdate(WeatherLocation),
+    Snapshot(WeatherSnapshot),
     TogglePopover,
     Unavailable,
 }
@@ -97,6 +101,7 @@ impl Component for Weather {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
             add_css_class: "applet",
+            add_css_class: "hoverable",
             add_css_class: "weather",
             #[watch]
             set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
@@ -155,6 +160,7 @@ impl Component for Weather {
                     let http = reqwest::Client::new();
                     let Some(city_name) = resolve_city_name(&config, ip_geolocate_city).await else {
                         tracing::warn!("weather applet: no city configured and fallback disabled");
+                        let _ = out.send(WeatherMsg::Unavailable);
                         return;
                     };
                     let Some((latitude, longitude, city)) = geocode_city(&http, &city_name).await else {
@@ -173,10 +179,7 @@ impl Component for Weather {
                         .await
                         {
                             Ok(snapshot) => {
-                                let _ = out.send(WeatherMsg::CurrentUpdate(snapshot.current));
-                                let _ = out.send(WeatherMsg::HourlyUpdate(snapshot.hourly));
-                                let _ = out.send(WeatherMsg::ForecastUpdate(snapshot.forecast));
-                                let _ = out.send(WeatherMsg::LocationUpdate(snapshot.location));
+                                let _ = out.send(WeatherMsg::Snapshot(snapshot));
                             }
                             Err(error) => {
                                 tracing::warn!(%error, "weather applet: forecast fetch failed");
@@ -204,46 +207,73 @@ impl Component for Weather {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            WeatherMsg::CurrentUpdate(data) => {
-                let temp = data.temperature;
-                let condition = data.condition.as_str();
-                let icon = data.icon.as_str();
-                let feels = data.apparent_temperature;
+            WeatherMsg::Snapshot(snapshot) => {
+                let display = WeatherDisplayState::from_snapshot(&self.config, &snapshot);
+                self.icon_name = display.icon_name;
+                self.label = display.label;
+                self.tooltip = display.tooltip;
 
-                self.icon_name = icon.to_owned();
-                self.label = self
-                    .config
-                    .label_format
-                    .replace("{temp}", &format!("{temp:.0}"))
-                    .replace("{condition}", condition)
-                    .replace("{feels_like}", &format!("{feels:.0}"));
-                self.tooltip = self
-                    .config
-                    .tooltip_format
-                    .replace("{temp}", &format!("{temp:.0}"))
-                    .replace("{condition}", condition)
-                    .replace("{feels_like}", &format!("{feels:.0}"));
-
-                tracing::info!(temp, condition, "weather applet: current update");
-                self.popover.emit(WeatherPopoverInput::UpdateCurrent(data));
-            }
-            WeatherMsg::HourlyUpdate(data) => {
-                self.popover.emit(WeatherPopoverInput::UpdateHourly(data));
-            }
-            WeatherMsg::ForecastUpdate(data) => {
-                self.popover.emit(WeatherPopoverInput::UpdateForecast(data));
-            }
-            WeatherMsg::LocationUpdate(data) => {
-                self.popover.emit(WeatherPopoverInput::UpdateLocation(data));
+                tracing::info!(
+                    temp = snapshot.current.temperature,
+                    condition = %snapshot.current.condition,
+                    "weather applet: snapshot update"
+                );
+                self.popover.emit(WeatherPopoverInput::UpdateSnapshot(snapshot));
             }
             WeatherMsg::TogglePopover => {
                 self.popover.emit(WeatherPopoverInput::Toggle);
             }
             WeatherMsg::Unavailable => {
                 tracing::warn!("weather applet: weather data unavailable");
+                let display = WeatherDisplayState::unavailable();
+                self.icon_name = display.icon_name;
+                self.label = display.label;
+                self.tooltip = display.tooltip;
+                self.popover.emit(WeatherPopoverInput::Clear);
             }
         }
     }
+}
+
+impl WeatherDisplayState {
+    fn from_snapshot(config: &WeatherConfig, snapshot: &WeatherSnapshot) -> Self {
+        Self {
+            icon_name: snapshot.current.icon.clone(),
+            label: format_weather_text(
+                &config.label_format,
+                &snapshot.current,
+                &snapshot.location,
+            ),
+            tooltip: format_weather_text(
+                &config.tooltip_format,
+                &snapshot.current,
+                &snapshot.location,
+            ),
+        }
+    }
+
+    fn unavailable() -> Self {
+        Self {
+            icon_name: "weather-overcast-symbolic".into(),
+            label: String::new(),
+            tooltip: String::new(),
+        }
+    }
+}
+
+fn format_weather_text(
+    template: &str,
+    current: &WeatherCurrent,
+    location: &WeatherLocation,
+) -> String {
+    template
+        .replace("{temp}", &format!("{:.0}", current.temperature))
+        .replace("{condition}", &current.condition)
+        .replace(
+            "{feels_like}",
+            &format!("{:.0}", current.apparent_temperature),
+        )
+        .replace("{location}", &location.city)
 }
 
 async fn resolve_city_name<F, Fut>(config: &WeatherConfig, ip_lookup: F) -> Option<String>
@@ -600,8 +630,8 @@ fn wind_direction_label(degrees: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        WeatherSnapshot, parse_current, parse_daily, parse_geocoding_location, parse_hourly,
-        resolve_city_name,
+        format_weather_text, parse_current, parse_daily, parse_geocoding_location, parse_hourly,
+        resolve_city_name, WeatherDisplayState, WeatherSnapshot,
     };
     use crate::applets::weather::config::WeatherConfig;
 
@@ -751,5 +781,66 @@ mod tests {
         assert_eq!(forecast.len(), 1);
         assert_eq!(forecast[0].sunrise, format!("{}T06:12", today));
         assert_eq!(forecast[0].sunset, format!("{}T19:48", today));
+    }
+
+    #[test]
+    fn format_weather_text_replaces_location_placeholder() {
+        let current = super::WeatherCurrent {
+            temperature: 19.6,
+            apparent_temperature: 18.2,
+            condition: "Cloudy".into(),
+            ..super::WeatherCurrent::default()
+        };
+        let location = super::WeatherLocation {
+            city: "Warsaw, PL".into(),
+            ..super::WeatherLocation::default()
+        };
+
+        let text = format_weather_text(
+            "{condition} · {temp}° · {feels_like}° · {location}",
+            &current,
+            &location,
+        );
+
+        assert_eq!(text, "Cloudy · 20° · 18° · Warsaw, PL");
+    }
+
+    #[test]
+    fn weather_display_state_uses_location_in_tooltip_and_label() {
+        let config = WeatherConfig {
+            label_format: "{temp}° in {location}".into(),
+            tooltip_format: "{condition} · {location} · {feels_like}°".into(),
+            ..WeatherConfig::default()
+        };
+        let snapshot = WeatherSnapshot {
+            current: super::WeatherCurrent {
+                temperature: 11.2,
+                apparent_temperature: 10.4,
+                condition: "Rain".into(),
+                icon: "weather-showers-symbolic".into(),
+                ..super::WeatherCurrent::default()
+            },
+            hourly: Vec::new(),
+            forecast: Vec::new(),
+            location: super::WeatherLocation {
+                city: "Warsaw, PL".into(),
+                ..super::WeatherLocation::default()
+            },
+        };
+
+        let display = WeatherDisplayState::from_snapshot(&config, &snapshot);
+
+        assert_eq!(display.label, "11° in Warsaw, PL");
+        assert_eq!(display.tooltip, "Rain · Warsaw, PL · 10°");
+        assert_eq!(display.icon_name, "weather-showers-symbolic");
+    }
+
+    #[test]
+    fn unavailable_display_state_resets_panel_copy() {
+        let display = WeatherDisplayState::unavailable();
+
+        assert_eq!(display.icon_name, "weather-overcast-symbolic");
+        assert!(display.label.is_empty());
+        assert!(display.tooltip.is_empty());
     }
 }

@@ -1,167 +1,248 @@
-use std::cell::Cell;
-use std::rc::Rc;
+use std::time::Duration;
 
-use relm4::gtk::{self, prelude::*};
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, glib, prelude::*},
+};
 
-use super::{BluetoothCommand, BluetoothCommandSender, BluetoothDeviceAction, BtDevice};
+use super::{BluetoothDeviceAction, BtDevice};
 
-pub struct DeviceRow {
-    pub button: gtk::Button,
+pub struct BluetoothDeviceRow {
+    device: BtDevice,
+    tooltip: String,
+    battery_text: String,
+    battery_visible: bool,
     icon: gtk::Image,
-    name_label: gtk::Label,
-    battery_label: gtk::Label,
     spinner: gtk::Spinner,
-    pub popover_menu: gtk::PopoverMenu,
-    connecting: Rc<Cell<bool>>,
-    pending_action: Rc<Cell<Option<BluetoothDeviceAction>>>,
-    connected: Rc<Cell<bool>>,
-    paired: Rc<Cell<bool>>,
+    popover_menu: gtk::PopoverMenu,
+    connecting: bool,
+    pending_action: Option<BluetoothDeviceAction>,
+    action_timeout: Option<glib::SourceId>,
 }
 
-impl DeviceRow {
-    pub fn new(dev: &BtDevice, on_command: BluetoothCommandSender) -> Self {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        row.add_css_class("bt-device-row");
+#[derive(Debug)]
+pub enum BluetoothDeviceRowInput {
+    Update(BtDevice),
+    Activate,
+    StartAction(BluetoothDeviceAction),
+    FinishAction,
+}
 
-        let icon = gtk::Image::from_icon_name(&dev.icon);
-        icon.set_pixel_size(16);
-        icon.set_valign(gtk::Align::Center);
-        row.append(&icon);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BluetoothDeviceRowOutput {
+    Action {
+        address: String,
+        name: String,
+        action: BluetoothDeviceAction,
+    },
+}
 
-        let name_label = gtk::Label::new(Some(&dev.name));
-        name_label.set_hexpand(true);
-        name_label.set_halign(gtk::Align::Start);
-        name_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        name_label.set_max_width_chars(25);
-        row.append(&name_label);
+#[relm4::component(pub)]
+impl SimpleComponent for BluetoothDeviceRow {
+    type Init = BtDevice;
+    type Input = BluetoothDeviceRowInput;
+    type Output = BluetoothDeviceRowOutput;
 
-        let right_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        right_box.set_valign(gtk::Align::Center);
+    view! {
+        root = gtk::Button {
+            add_css_class: "flat",
+            add_css_class: "bt-device-btn",
+            #[watch]
+            set_tooltip_text: Some(&model.tooltip),
+            connect_clicked => BluetoothDeviceRowInput::Activate,
 
-        let battery_label = gtk::Label::new(None);
-        battery_label.add_css_class("bt-battery");
-        battery_label.set_visible(false);
-        right_box.append(&battery_label);
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 8,
+                add_css_class: "bt-device-row",
 
-        let spinner = gtk::Spinner::new();
-        spinner.set_visible(false);
-        spinner.set_size_request(16, 16);
-        right_box.append(&spinner);
+                #[name(icon)]
+                gtk::Image {
+                    #[watch]
+                    set_icon_name: Some(&model.device.icon),
+                    set_pixel_size: 16,
+                    set_valign: gtk::Align::Center,
+                },
 
-        row.append(&right_box);
+                gtk::Label {
+                    #[watch]
+                    set_label: &model.device.name,
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Start,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    set_max_width_chars: 25,
+                },
 
-        let btn = gtk::Button::new();
-        btn.set_child(Some(&row));
-        btn.add_css_class("flat");
-        btn.add_css_class("bt-device-btn");
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 4,
+                    set_valign: gtk::Align::Center,
 
-        let connecting = Rc::new(Cell::new(false));
-        let pending_action = Rc::new(Cell::new(None));
-        let connected = Rc::new(Cell::new(dev.connected));
-        let paired = Rc::new(Cell::new(dev.paired));
+                    gtk::Label {
+                        #[watch]
+                        set_visible: model.battery_visible,
+                        #[watch]
+                        set_label: &model.battery_text,
+                        add_css_class: "bt-battery",
+                    },
 
-        {
-            let addr = dev.address.clone();
-            let dev_name = dev.name.clone();
-            let conn_flag = connecting.clone();
-            let spin = spinner.clone();
-            let pending = pending_action.clone();
-            let conn_state = connected.clone();
-            let pair_state = paired.clone();
-            let on_command = on_command.clone();
-            btn.connect_clicked(move |_| {
-                if conn_flag.get() {
-                    tracing::debug!(address = %addr, "bluetooth ui: ignoring click while action pending");
-                    return;
-                }
-                let action = if conn_state.get() {
-                    BluetoothDeviceAction::Disconnect
-                } else if pair_state.get() {
-                    BluetoothDeviceAction::Connect
-                } else {
-                    BluetoothDeviceAction::Pair
-                };
-                start_device_action(
-                    &on_command,
-                    action,
-                    addr.clone(),
-                    dev_name.clone(),
-                    conn_flag.clone(),
-                    pending.clone(),
-                    spin.clone(),
-                );
-            });
+                    #[name(spinner)]
+                    gtk::Spinner {
+                        #[watch]
+                        set_visible: model.connecting,
+                        set_valign: gtk::Align::Center,
+                    },
+                },
+            }
         }
+    }
 
-        let menu = build_menu(dev.connected, dev.paired, dev.trusted);
-        let popover_menu = gtk::PopoverMenu::from_model(Some(&menu));
-        popover_menu.set_parent(&btn);
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        root.add_css_class("bt-device-btn");
+
+        let model = BluetoothDeviceRow {
+            tooltip: device_tooltip(&init),
+            battery_text: battery_text(init.battery),
+            battery_visible: init.battery.is_some(),
+            device: init.clone(),
+            icon: gtk::Image::new(),
+            spinner: gtk::Spinner::new(),
+            popover_menu: gtk::PopoverMenu::from_model(None::<&gtk::gio::MenuModel>),
+            connecting: false,
+            pending_action: None,
+            action_timeout: None,
+        };
+
+        let widgets = view_output!();
+        widgets.icon.set_pixel_size(16);
+        widgets.icon.set_valign(gtk::Align::Center);
+        apply_icon_style(&widgets.icon, model.device.connected);
+        widgets.spinner.set_visible(false);
+        widgets.spinner.set_valign(gtk::Align::Center);
+
+        let button = widgets.root.clone();
+        let menu_model = build_menu(model.device.connected, model.device.paired, model.device.trusted);
+        let popover_menu = gtk::PopoverMenu::from_model(Some(&menu_model));
+        popover_menu.set_parent(&button);
         popover_menu.set_has_arrow(false);
 
         let action_group = gtk::gio::SimpleActionGroup::new();
         setup_actions(
             &action_group,
-            on_command,
-            &dev.address,
-            &dev.name,
-            &connecting,
-            &pending_action,
-            &spinner,
+            sender.clone(),
+            &model.device.address,
+            &model.device.name,
         );
-        btn.insert_action_group("bt", Some(&action_group));
+        button.insert_action_group("bt", Some(&action_group));
 
         let right_click = gtk::GestureClick::new();
         right_click.set_button(3);
-        let pm = popover_menu.clone();
+        let popover = popover_menu.clone();
         right_click.connect_pressed(move |gesture, _, _, _| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            pm.popup();
+            popover.popup();
         });
-        btn.add_controller(right_click);
+        button.add_controller(right_click);
 
-        apply_icon_style(&icon, dev.connected);
-        apply_tooltip(&btn, dev);
-        apply_battery(&battery_label, dev.battery);
+        let mut model = model;
+        model.icon = widgets.icon.clone();
+        model.spinner = widgets.spinner.clone();
+        model.popover_menu = popover_menu;
 
-        DeviceRow {
-            button: btn,
-            icon,
-            name_label,
-            battery_label,
-            spinner,
-            popover_menu,
-            connecting,
-            pending_action,
-            connected,
-            paired,
-        }
+        ComponentParts { model, widgets }
     }
 
-    pub fn update(&self, dev: &BtDevice) {
-        self.connected.set(dev.connected);
-        self.paired.set(dev.paired);
-        self.icon.set_icon_name(Some(&dev.icon));
-        apply_icon_style(&self.icon, dev.connected);
-        self.name_label.set_label(&dev.name);
-        apply_tooltip(&self.button, dev);
-        apply_battery(&self.battery_label, dev.battery);
-
-        let menu = build_menu(dev.connected, dev.paired, dev.trusted);
-        self.popover_menu.set_menu_model(Some(&menu));
-
-        if self.connecting.get()
-            && self
-                .pending_action
-                .get()
-                .is_some_and(|action| action_observed_complete(action, dev))
-        {
-            self.finish_action();
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+        match msg {
+            BluetoothDeviceRowInput::Update(device) => {
+                self.device = device;
+                self.tooltip = device_tooltip(&self.device);
+                self.battery_text = battery_text(self.device.battery);
+                self.battery_visible = self.device.battery.is_some();
+                self.popover_menu
+                    .set_menu_model(Some(&build_menu(
+                        self.device.connected,
+                        self.device.paired,
+                        self.device.trusted,
+                    )));
+                apply_icon_style(&self.icon, self.device.connected);
+                if self.connecting
+                    && self
+                        .pending_action
+                        .is_some_and(|action| action_observed_complete(action, &self.device))
+                {
+                    self.finish_action();
+                }
+            }
+            BluetoothDeviceRowInput::Activate => {
+                if self.connecting {
+                    tracing::debug!(
+                        address = %self.device.address,
+                        "bluetooth ui: ignoring click while action pending"
+                    );
+                    return;
+                }
+                let action = primary_action(&self.device);
+                self.start_action(action, sender);
+            }
+            BluetoothDeviceRowInput::StartAction(action) => {
+                if self.connecting {
+                    tracing::debug!(
+                        address = %self.device.address,
+                        ?action,
+                        "bluetooth ui: ignoring action while pending"
+                    );
+                    return;
+                }
+                self.start_action(action, sender);
+            }
+            BluetoothDeviceRowInput::FinishAction => {
+                self.finish_action();
+            }
         }
     }
+}
 
-    pub fn finish_action(&self) {
-        self.connecting.set(false);
-        self.pending_action.set(None);
+impl BluetoothDeviceRow {
+    fn start_action(
+        &mut self,
+        action: BluetoothDeviceAction,
+        sender: ComponentSender<Self>,
+    ) {
+        tracing::info!(
+            ?action,
+            address = %self.device.address,
+            name = %self.device.name,
+            "bluetooth ui: device action clicked"
+        );
+        self.connecting = true;
+        self.pending_action = Some(action);
+        self.spinner.set_visible(true);
+        self.spinner.start();
+        let timeout_sender = sender.clone();
+        self.action_timeout = Some(glib::timeout_add_local_once(
+            Duration::from_secs(15),
+            move || {
+                let _ = timeout_sender.input(BluetoothDeviceRowInput::FinishAction);
+            },
+        ));
+        let _ = sender.output(BluetoothDeviceRowOutput::Action {
+            address: self.device.address.clone(),
+            name: self.device.name.clone(),
+            action,
+        });
+    }
+
+    fn finish_action(&mut self) {
+        if let Some(source) = self.action_timeout.take() {
+            source.remove();
+        }
+        self.connecting = false;
+        self.pending_action = None;
         self.spinner.stop();
         self.spinner.set_visible(false);
     }
@@ -187,12 +268,9 @@ fn build_menu(connected: bool, paired: bool, trusted: bool) -> gtk::gio::Menu {
 
 fn setup_actions(
     group: &gtk::gio::SimpleActionGroup,
-    on_command: BluetoothCommandSender,
+    sender: ComponentSender<BluetoothDeviceRow>,
     address: &str,
     name: &str,
-    connecting: &Rc<Cell<bool>>,
-    pending_action: &Rc<Cell<Option<BluetoothDeviceAction>>>,
-    spinner: &gtk::Spinner,
 ) {
     for (action_name, action_kind) in [
         ("disconnect", BluetoothDeviceAction::Disconnect),
@@ -203,76 +281,34 @@ fn setup_actions(
     ] {
         let addr = address.to_owned();
         let dev_name = name.to_owned();
-        let conn = connecting.clone();
-        let pending = pending_action.clone();
-        let spin = spinner.clone();
-        let on_command = on_command.clone();
+        let sender = sender.clone();
         let action = gtk::gio::SimpleAction::new(action_name, None);
         action.connect_activate(move |_, _| {
-            if conn.get() {
-                return;
-            }
-            start_device_action(
-                &on_command,
-                action_kind,
-                addr.clone(),
-                dev_name.clone(),
-                conn.clone(),
-                pending.clone(),
-                spin.clone(),
-            );
+            let _ = sender.input(BluetoothDeviceRowInput::StartAction(action_kind));
+            tracing::debug!(address = %addr, name = %dev_name, ?action_kind, "bluetooth ui: menu action activated");
         });
         group.add_action(&action);
     }
 
     let addr = address.to_owned();
     let dev_name = name.to_owned();
-    let conn = connecting.clone();
-    let pending = pending_action.clone();
-    let spin = spinner.clone();
-    let on_command = on_command.clone();
+    let sender = sender.clone();
     let action = gtk::gio::SimpleAction::new("forget", None);
     action.connect_activate(move |_, _| {
-        if conn.get() {
-            return;
-        }
-        start_device_action(
-            &on_command,
-            BluetoothDeviceAction::Forget,
-            addr.clone(),
-            dev_name.clone(),
-            conn.clone(),
-            pending.clone(),
-            spin.clone(),
-        );
+        tracing::debug!(address = %addr, name = %dev_name, "bluetooth ui: forget action activated");
+        let _ = sender.input(BluetoothDeviceRowInput::StartAction(BluetoothDeviceAction::Forget));
     });
     group.add_action(&action);
 }
 
-fn start_device_action(
-    on_command: &BluetoothCommandSender,
-    action: BluetoothDeviceAction,
-    address: String,
-    dev_name: String,
-    connecting: Rc<Cell<bool>>,
-    pending_action: Rc<Cell<Option<BluetoothDeviceAction>>>,
-    spinner: gtk::Spinner,
-) {
-    tracing::info!(
-        ?action,
-        address = %address,
-        name = %dev_name,
-        "bluetooth ui: device action clicked"
-    );
-    connecting.set(true);
-    pending_action.set(Some(action));
-    spinner.set_visible(true);
-    spinner.start();
-    on_command(BluetoothCommand::DeviceAction {
-        address,
-        name: dev_name,
-        action,
-    });
+fn primary_action(device: &BtDevice) -> BluetoothDeviceAction {
+    if device.connected {
+        BluetoothDeviceAction::Disconnect
+    } else if device.paired {
+        BluetoothDeviceAction::Connect
+    } else {
+        BluetoothDeviceAction::Pair
+    }
 }
 
 fn action_observed_complete(action: BluetoothDeviceAction, dev: &BtDevice) -> bool {
@@ -295,7 +331,7 @@ fn apply_icon_style(icon: &gtk::Image, connected: bool) {
     }
 }
 
-fn apply_tooltip(btn: &gtk::Button, dev: &BtDevice) {
+fn device_tooltip(dev: &BtDevice) -> String {
     let mut parts = Vec::new();
     if !dev.device_type.is_empty() && dev.device_type != "Device" {
         parts.push(dev.device_type.clone());
@@ -308,21 +344,15 @@ fn apply_tooltip(btn: &gtk::Button, dev: &BtDevice) {
     } else if dev.paired {
         parts.push("Paired".into());
     }
-    let tooltip = if parts.is_empty() {
+    if parts.is_empty() {
         dev.name.clone()
     } else {
         parts.join(" \u{b7} ")
-    };
-    btn.set_tooltip_text(Some(&tooltip));
+    }
 }
 
-fn apply_battery(label: &gtk::Label, battery: Option<u8>) {
-    if let Some(pct) = battery {
-        label.set_label(&format!("{pct}%"));
-        label.set_visible(true);
-    } else {
-        label.set_visible(false);
-    }
+fn battery_text(battery: Option<u8>) -> String {
+    battery.map(|pct| format!("{pct}%")).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -369,5 +399,13 @@ mod tests {
             BluetoothDeviceAction::Forget,
             &device(false, false, true)
         ));
+    }
+
+    #[test]
+    fn tooltip_includes_device_metadata() {
+        let mut device = device(false, false, false);
+        device.device_type = "Headphones".into();
+        device.battery = Some(75);
+        assert_eq!(device_tooltip(&device), "Headphones · 75%");
     }
 }

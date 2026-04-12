@@ -23,10 +23,7 @@ impl StartupRequest {
             .and_then(|value| Route::parse(value.as_ref()))
             .unwrap_or_else(|| Route::parse("about").expect("default route should parse"));
 
-        Self {
-            argv0,
-            route,
-        }
+        Self { argv0, route }
     }
 
     pub fn route(&self) -> &Route {

@@ -4,9 +4,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use std::{collections::HashMap, sync::Arc};
-
-use glimpse_client::Client;
+use std::collections::HashMap;
 
 use crate::{
     applets::{AppletController, create_applet},
@@ -23,7 +21,6 @@ pub struct Init {
     pub config: PanelConfig,
     pub dbus: zbus::Connection,
     pub system: zbus::Connection,
-    pub client: Option<Arc<Client>>,
     pub services: ServicesHandle,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
@@ -70,7 +67,6 @@ impl SimpleComponent for Panel {
                 name,
                 init.dbus.clone(),
                 init.system.clone(),
-                init.client.clone(),
                 init.services.clone(),
             ) {
                 hbox.append(&applet.widget());

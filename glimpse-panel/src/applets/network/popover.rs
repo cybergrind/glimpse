@@ -1,22 +1,24 @@
-use std::rc::Rc;
+#![allow(unused_assignments)]
 
 use glimpse::network::protocol::NetworkActiveAction;
 use glimpse::providers::network::NetworkSnapshot;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
 use super::components::{
-    NetworkCommand, NetworkCommandSender, NetworkHero, VpnSection, WifiSection, WiredSection,
+    NetworkAction, NetworkHero, NetworkHeroInput, VpnSection, VpnSectionInput, WifiSection,
+    WifiSectionInput, WiredSection, WiredSectionInput,
 };
 
 pub struct NetworkPopover {
     popover: gtk::Popover,
-    hero: NetworkHero,
-    wifi_section: WifiSection,
-    wired_section: WiredSection,
-    vpn_section: VpnSection,
+    hero: Controller<NetworkHero>,
+    wifi_section: Controller<WifiSection>,
+    wired_section: Controller<WiredSection>,
+    vpn_section: Controller<VpnSection>,
+    show_settings_button: bool,
 }
 
 pub struct NetworkPopoverInit {
@@ -33,6 +35,8 @@ pub enum NetworkPopoverInput {
         active_action: Option<NetworkActiveAction>,
         scanning: bool,
     },
+    ComponentAction(NetworkAction),
+    OpenSettings,
 }
 
 #[derive(Debug, Clone)]
@@ -40,103 +44,122 @@ pub enum NetworkPopoverOutput {
     Opened,
     Closed,
     ToggleWifi(bool),
-    ConnectWifi { ssid: String },
+    ConnectWifi { ssid: String, path: String },
     ConnectSaved { uuid: String },
     Disconnect { uuid: String },
     Forget { uuid: String },
     OpenSettings,
 }
 
+#[relm4::component(pub)]
 impl SimpleComponent for NetworkPopover {
     type Init = NetworkPopoverInit;
     type Input = NetworkPopoverInput;
     type Output = NetworkPopoverOutput;
-    type Root = gtk::Popover;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        gtk::Popover::new()
+    view! {
+        root = gtk::Popover {
+            set_hexpand: false,
+            add_css_class: "network-popover",
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 0,
+                set_overflow: gtk::Overflow::Hidden,
+
+                #[local_ref]
+                hero_widget -> gtk::Box {},
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                #[local_ref]
+                wifi_widget -> gtk::Box {},
+
+                #[local_ref]
+                wired_widget -> gtk::Box {},
+
+                #[local_ref]
+                vpn_widget -> gtk::Box {},
+
+                gtk::Box {
+                    #[watch]
+                    set_visible: model.show_settings_button,
+                    set_orientation: gtk::Orientation::Vertical,
+
+                    gtk::Separator {
+                        set_orientation: gtk::Orientation::Horizontal,
+                    },
+
+                    gtk::Button {
+                        add_css_class: "flat",
+                        add_css_class: "settings-btn",
+                        connect_clicked => NetworkPopoverInput::OpenSettings,
+
+                        gtk::Label {
+                            set_label: "Network Settings",
+                            set_halign: gtk::Align::Start,
+                        },
+                    },
+                },
+            },
+        }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.set_parent(&init.parent);
-        root.set_autohide(true);
-        root.add_css_class("network-popover");
+        let hero = NetworkHero::builder()
+            .launch(())
+            .forward(sender.input_sender(), NetworkPopoverInput::ComponentAction);
+        let hero_widget = hero.widget().clone();
 
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        body.set_hexpand(false);
-        body.set_overflow(gtk::Overflow::Hidden);
+        let wifi_section = WifiSection::builder()
+            .launch(())
+            .forward(sender.input_sender(), NetworkPopoverInput::ComponentAction);
+        let wifi_widget = wifi_section.widget().clone();
 
-        let output_sender = sender.clone();
-        let on_command: NetworkCommandSender = Rc::new(move |command| {
-            let output = match command {
-                NetworkCommand::ToggleWifi(enabled) => NetworkPopoverOutput::ToggleWifi(enabled),
-                NetworkCommand::ConnectWifi { ssid } => NetworkPopoverOutput::ConnectWifi { ssid },
-                NetworkCommand::ConnectSaved { uuid } => {
-                    NetworkPopoverOutput::ConnectSaved { uuid }
-                }
-                NetworkCommand::Disconnect { uuid } => NetworkPopoverOutput::Disconnect { uuid },
-                NetworkCommand::Forget { uuid } => NetworkPopoverOutput::Forget { uuid },
-                NetworkCommand::OpenSettings => NetworkPopoverOutput::OpenSettings,
-            };
-            let _ = output_sender.output(output);
-        });
+        let wired_section = WiredSection::builder().launch(()).detach();
+        let wired_widget = wired_section.widget().clone();
 
-        let (hero, hero_widget) = NetworkHero::new(on_command.clone());
-        body.append(&hero_widget);
-        body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let vpn_section = VpnSection::builder()
+            .launch(())
+            .forward(sender.input_sender(), NetworkPopoverInput::ComponentAction);
+        let vpn_widget = vpn_section.widget().clone();
 
-        let (wifi_section, wifi_widget) = WifiSection::new(on_command.clone());
-        body.append(&wifi_widget);
-
-        let (wired_section, wired_widget) = WiredSection::new();
-        body.append(&wired_widget);
-
-        let (vpn_section, vpn_widget) = VpnSection::new(on_command.clone());
-        body.append(&vpn_widget);
-
-        if init.show_settings_button {
-            body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
-            let label = gtk::Label::new(Some("Network Settings"));
-            label.set_halign(gtk::Align::Start);
-            let button = gtk::Button::new();
-            button.set_child(Some(&label));
-            button.add_css_class("flat");
-            button.add_css_class("settings-btn");
-            let on_command = on_command.clone();
-            button.connect_clicked(move |_| on_command(NetworkCommand::OpenSettings));
-            body.append(&button);
-        }
-
-        let show_sender = sender.clone();
-        root.connect_show(move |_| {
-            let _ = show_sender.output(NetworkPopoverOutput::Opened);
-        });
-
-        let close_sender = sender.clone();
-        root.connect_closed(move |_| {
-            let _ = close_sender.output(NetworkPopoverOutput::Closed);
-        });
-
-        root.set_child(Some(&body));
-
-        let model = NetworkPopover {
-            popover: root.clone(),
+        let mut model = NetworkPopover {
+            popover: gtk::Popover::new(),
             hero,
             wifi_section,
             wired_section,
             vpn_section,
+            show_settings_button: init.show_settings_button,
         };
 
-        ComponentParts { model, widgets: () }
+        let widgets = view_output!();
+        widgets.root.set_parent(&init.parent);
+        widgets.root.set_autohide(true);
+        widgets.root.add_css_class("network-popover");
+        model.popover = widgets.root.clone();
+
+        let show_sender = widgets.root.clone();
+        let sender_clone = sender.clone();
+        show_sender.connect_show(move |_| {
+            let _ = sender_clone.output(NetworkPopoverOutput::Opened);
+        });
+
+        let close_sender = sender.clone();
+        widgets.root.connect_closed(move |_| {
+            let _ = close_sender.output(NetworkPopoverOutput::Closed);
+        });
+
+        ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             NetworkPopoverInput::Toggle => {
                 if self.popover.is_visible() {
@@ -151,16 +174,43 @@ impl SimpleComponent for NetworkPopover {
                 active_action,
                 scanning,
             } => {
-                self.hero.update(&snapshot.status, scanning);
-                self.wifi_section.update(
-                    &snapshot.wifi_access_points,
-                    snapshot.status.wifi_enabled,
-                    active_action.as_ref(),
-                );
-                self.wired_section.update(&snapshot.devices);
-                self.vpn_section
-                    .update(&snapshot.saved_vpns, active_action.as_ref());
+                self.hero.emit(NetworkHeroInput::Update {
+                    status: snapshot.status.clone(),
+                    scanning,
+                });
+                self.wifi_section.emit(WifiSectionInput::Update {
+                    access_points: snapshot.wifi_access_points,
+                    wifi_enabled: snapshot.status.wifi_enabled,
+                    active_action: active_action.clone(),
+                });
+                self.wired_section
+                    .emit(WiredSectionInput::Update(snapshot.devices));
+                self.vpn_section.emit(VpnSectionInput::Update {
+                    vpns: snapshot.saved_vpns,
+                    active_action,
+                });
+            }
+            NetworkPopoverInput::ComponentAction(action) => {
+                self.emit_action(action, sender);
+            }
+            NetworkPopoverInput::OpenSettings => {
+                let _ = sender.output(NetworkPopoverOutput::OpenSettings);
             }
         }
+    }
+}
+
+impl NetworkPopover {
+    fn emit_action(&self, action: NetworkAction, sender: ComponentSender<Self>) {
+        let output = match action {
+            NetworkAction::ToggleWifi(enabled) => NetworkPopoverOutput::ToggleWifi(enabled),
+            NetworkAction::ConnectWifi { ssid, path } => {
+                NetworkPopoverOutput::ConnectWifi { ssid, path }
+            }
+            NetworkAction::ConnectSaved { uuid } => NetworkPopoverOutput::ConnectSaved { uuid },
+            NetworkAction::Disconnect { uuid } => NetworkPopoverOutput::Disconnect { uuid },
+            NetworkAction::Forget { uuid } => NetworkPopoverOutput::Forget { uuid },
+        };
+        let _ = sender.output(output);
     }
 }

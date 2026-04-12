@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use std::collections::HashMap;
 
 use chrono::{Datelike, Days, Local, NaiveDate, Weekday};

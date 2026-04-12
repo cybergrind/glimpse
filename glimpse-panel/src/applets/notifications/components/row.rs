@@ -34,6 +34,7 @@ pub struct NotificationCardInit {
     pub role: NotificationCardRole,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationCardRole {
     Full,
@@ -50,6 +51,7 @@ pub enum NotificationCardInput {
     InvokeAction(u32, String),
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for NotificationCard {
     type Init = NotificationCardInit;
@@ -140,7 +142,7 @@ impl SimpleComponent for NotificationCard {
                 #[name(image)]
                 gtk::Picture {
                     set_can_shrink: true,
-                    set_keep_aspect_ratio: true,
+                    set_content_fit: gtk::ContentFit::Contain,
                     set_valign: gtk::Align::Start,
                     add_css_class: "notification-inline-image",
                     add_css_class: "notif-inline-image",

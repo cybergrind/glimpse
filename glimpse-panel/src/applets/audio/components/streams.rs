@@ -90,12 +90,12 @@ impl FactoryComponent for AudioStreamRowItem {
     }
 
     fn update(&mut self, msg: Self::Input, _sender: FactorySender<Self>) {
-        if let StreamItemInput::Update(stream) = msg {
-            self.sync_stream(stream);
-        }
+        let StreamItemInput::Update(stream) = msg;
+        self.sync_stream(stream);
     }
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for StreamList {
     type Init = StreamListInit;
