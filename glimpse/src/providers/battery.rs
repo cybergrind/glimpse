@@ -40,7 +40,7 @@ impl From<u32> for DeviceType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum BatteryState {
     Charging,
@@ -67,7 +67,7 @@ impl From<u32> for BatteryState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct BatteryStatus {
     pub present: bool,
     pub device_type: DeviceType,
@@ -83,7 +83,7 @@ pub struct BatteryStatus {
     pub charge_threshold: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct BatteryDevice {
     pub path: String,
     pub device_type: DeviceType,
@@ -103,6 +103,7 @@ pub struct BatteryProvider {
     conn: zbus::Connection,
     status: BatteryStatus,
     devices: Vec<BatteryDevice>,
+    threshold_path: Option<PathBuf>,
 }
 
 impl BatteryProvider {
@@ -111,6 +112,7 @@ impl BatteryProvider {
             conn,
             status: BatteryStatus::default(),
             devices: Vec::new(),
+            threshold_path: None,
         }
     }
 
@@ -195,13 +197,19 @@ impl BatteryProvider {
                 _ = cancel.cancelled() => break,
                 Some(_) = bat_changes.next() => {
                     let on_battery = upower.on_battery().await.unwrap_or(self.status.on_battery);
-                    self.read_state(&bat, on_battery).await;
-                    if events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err() { break; }
+                    if self.read_state(&bat, on_battery).await
+                        && events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err()
+                    {
+                        break;
+                    }
                 }
                 Some(_) = upower_changes.next() => {
                     let on_battery = upower.on_battery().await.unwrap_or(self.status.on_battery);
-                    self.read_state(&bat, on_battery).await;
-                    if events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err() { break; }
+                    if self.read_state(&bat, on_battery).await
+                        && events.send(BatteryEvent::StatusChanged(self.status.clone())).await.is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -209,8 +217,8 @@ impl BatteryProvider {
         Ok(())
     }
 
-    async fn read_state(&mut self, bat: &UPowerDeviceProxy<'_>, on_battery: bool) {
-        self.status = BatteryStatus {
+    async fn read_state(&mut self, bat: &UPowerDeviceProxy<'_>, on_battery: bool) -> bool {
+        let next = BatteryStatus {
             present: true,
             device_type: DeviceType::from(bat.device_type().await.unwrap_or(0)),
             model: bat.model().await.unwrap_or_default(),
@@ -225,8 +233,33 @@ impl BatteryProvider {
             time_to_full: bat.time_to_full().await.unwrap_or(0),
             energy_rate: bat.energy_rate().await.unwrap_or(0.0),
             capacity: bat.capacity().await.unwrap_or(100.0),
-            charge_threshold: get_charge_threshold(),
+            charge_threshold: self.read_charge_threshold(),
         };
+
+        let changed = should_emit_status(&self.status, &next);
+        self.status = next;
+        changed
+    }
+
+    fn read_charge_threshold(&mut self) -> u32 {
+        if self.threshold_path.is_none() {
+            self.threshold_path = threshold_path();
+        }
+
+        match self
+            .threshold_path
+            .as_ref()
+            .and_then(read_charge_threshold_from_path)
+        {
+            Some(value) => value,
+            None => {
+                self.threshold_path = threshold_path();
+                self.threshold_path
+                    .as_ref()
+                    .and_then(read_charge_threshold_from_path)
+                    .unwrap_or(0)
+            }
+        }
     }
 }
 
@@ -235,6 +268,16 @@ pub fn get_charge_threshold() -> u32 {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0)
+}
+
+fn read_charge_threshold_from_path(path: &PathBuf) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+}
+
+fn should_emit_status(previous: &BatteryStatus, next: &BatteryStatus) -> bool {
+    previous != next
 }
 
 fn threshold_path() -> Option<PathBuf> {
@@ -246,4 +289,27 @@ fn threshold_path() -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BatteryState, BatteryStatus};
+
+    #[test]
+    fn should_emit_status_only_for_real_changes() {
+        let previous = BatteryStatus {
+            present: true,
+            percentage: 55,
+            state: BatteryState::Discharging,
+            icon_name: "battery-good-symbolic".into(),
+            on_battery: true,
+            ..BatteryStatus::default()
+        };
+
+        assert!(!super::should_emit_status(&previous, &previous));
+
+        let mut next = previous.clone();
+        next.percentage = 54;
+        assert!(super::should_emit_status(&previous, &next));
+    }
 }

@@ -1,28 +1,37 @@
-use glimpse::providers::power::{PowerProfiles, PowerProvider};
+use std::collections::HashMap;
+
+use glimpse::providers::power::PowerProfiles;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
-pub struct PowerProfileList {
-    conn: zbus::Connection,
-    list: gtk::Box,
+struct ProfileRow {
+    button: gtk::Button,
+    check: gtk::Image,
 }
 
-pub struct PowerProfileListInit {
-    pub conn: zbus::Connection,
+pub struct PowerProfileList {
+    list: gtk::Box,
+    rows: HashMap<String, ProfileRow>,
+    order: Vec<String>,
+    active: String,
 }
 
 #[derive(Debug)]
 pub enum PowerProfileListInput {
     Update(PowerProfiles),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PowerProfileListOutput {
     SetProfile(String),
 }
 
 impl SimpleComponent for PowerProfileList {
-    type Init = PowerProfileListInit;
+    type Init = ();
     type Input = PowerProfileListInput;
-    type Output = ();
+    type Output = PowerProfileListOutput;
     type Root = gtk::Box;
     type Widgets = ();
 
@@ -31,7 +40,7 @@ impl SimpleComponent for PowerProfileList {
     }
 
     fn init(
-        init: Self::Init,
+        _init: Self::Init,
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -47,69 +56,106 @@ impl SimpleComponent for PowerProfileList {
         root.append(&list);
 
         let model = PowerProfileList {
-            conn: init.conn,
             list,
+            rows: HashMap::new(),
+            order: Vec::new(),
+            active: String::new(),
         };
         ComponentParts { model, widgets: () }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
-            PowerProfileListInput::SetProfile(profile) => {
-                let conn = self.conn.clone();
-                gtk::glib::spawn_future_local(async move {
-                    if let Err(e) = PowerProvider::new(conn).set_profile(&profile).await {
-                        tracing::warn!("set profile failed: {e}");
-                    }
-                });
-            }
             PowerProfileListInput::Update(profiles) => {
-                while let Some(child) = self.list.first_child() {
-                    self.list.remove(&child);
-                }
+                let desired_order: Vec<String> = profiles
+                    .available
+                    .iter()
+                    .filter(|name| !name.is_empty())
+                    .cloned()
+                    .collect();
 
-                for name in &profiles.available {
-                    if name.is_empty() {
-                        continue;
+                if self.order != desired_order {
+                    let removed: Vec<String> = self
+                        .rows
+                        .keys()
+                        .filter(|name| !desired_order.contains(*name))
+                        .cloned()
+                        .collect();
+
+                    for name in removed {
+                        if let Some(row) = self.rows.remove(&name) {
+                            self.list.remove(&row.button);
+                        }
                     }
 
-                    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                    row.add_css_class("profile-row");
-
-                    let icon = gtk::Image::from_icon_name(profile_icon(name));
-                    icon.set_pixel_size(16);
-                    icon.add_css_class("profile-icon");
-                    row.append(&icon);
-
-                    let label = gtk::Label::new(Some(profile_display_name(name)));
-                    label.set_hexpand(true);
-                    label.set_halign(gtk::Align::Start);
-                    row.append(&label);
-
-                    if *name == profiles.active {
-                        let check = gtk::Image::from_icon_name("object-select-symbolic");
-                        check.set_pixel_size(14);
-                        check.add_css_class("profile-check");
-                        row.append(&check);
+                    for name in &desired_order {
+                        if !self.rows.contains_key(name) {
+                            self.rows.insert(name.clone(), build_profile_row(name, sender.clone()));
+                        }
                     }
 
-                    let btn = gtk::Button::new();
-                    btn.set_child(Some(&row));
-                    btn.add_css_class("flat");
-                    btn.add_css_class("profile-btn");
+                    while let Some(child) = self.list.first_child() {
+                        self.list.remove(&child);
+                    }
 
-                    let sender = sender.clone();
-                    let profile = name.clone();
-                    btn.connect_clicked(move |_| {
-                        sender.input(PowerProfileListInput::SetProfile(profile.clone()));
-                    });
+                    for name in &desired_order {
+                        if let Some(row) = self.rows.get(name) {
+                            self.list.append(&row.button);
+                        }
+                    }
 
-                    self.list.append(&btn);
+                    self.order = desired_order;
                 }
 
+                if self.active != profiles.active {
+                    if let Some(row) = self.rows.get(&self.active) {
+                        row.check.set_visible(false);
+                    }
+                    if let Some(row) = self.rows.get(&profiles.active) {
+                        row.check.set_visible(true);
+                    }
+                    self.active = profiles.active.clone();
+                }
+
+                for (name, row) in &self.rows {
+                    row.check.set_visible(*name == profiles.active);
+                }
             }
         }
     }
+}
+
+fn build_profile_row(name: &str, sender: ComponentSender<PowerProfileList>) -> ProfileRow {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row.add_css_class("profile-row");
+
+    let icon = gtk::Image::from_icon_name(profile_icon(name));
+    icon.set_pixel_size(16);
+    icon.add_css_class("profile-icon");
+    row.append(&icon);
+
+    let label = gtk::Label::new(Some(profile_display_name(name)));
+    label.set_hexpand(true);
+    label.set_halign(gtk::Align::Start);
+    row.append(&label);
+
+    let check = gtk::Image::from_icon_name("object-select-symbolic");
+    check.set_pixel_size(14);
+    check.add_css_class("profile-check");
+    check.set_visible(false);
+    row.append(&check);
+
+    let button = gtk::Button::new();
+    button.set_child(Some(&row));
+    button.add_css_class("flat");
+    button.add_css_class("profile-btn");
+
+    let profile = name.to_string();
+    button.connect_clicked(move |_| {
+        let _ = sender.output(PowerProfileListOutput::SetProfile(profile.clone()));
+    });
+
+    ProfileRow { button, check }
 }
 
 fn profile_icon(profile: &str) -> &'static str {

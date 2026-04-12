@@ -6,14 +6,14 @@ use tokio_util::sync::CancellationToken;
 use crate::dbus::login1::Login1ManagerProxy;
 use crate::dbus::power_profiles::PowerProfilesDaemonProxy;
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct PowerProfiles {
     pub active: String,
     pub available: Vec<String>,
     pub performance_degraded: String,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct PowerActions {
     pub can_suspend: String,
     pub can_hibernate: String,
@@ -90,8 +90,9 @@ impl PowerProvider {
                     }
                 } => {
                     if let Ok(ref pp) = pp {
-                        self.read_profiles(pp).await;
-                        if events.send(PowerEvent::ProfilesChanged(self.profiles.clone())).await.is_err() {
+                        if self.read_profiles(pp).await
+                            && events.send(PowerEvent::ProfilesChanged(self.profiles.clone())).await.is_err()
+                        {
                             break;
                         }
                     }
@@ -110,23 +111,43 @@ impl PowerProvider {
     }
 
     pub async fn suspend(&self) -> anyhow::Result<()> {
-        self.logind().await?.suspend(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.logind()
+            .await?
+            .suspend(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn hibernate(&self) -> anyhow::Result<()> {
-        self.logind().await?.hibernate(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.logind()
+            .await?
+            .hibernate(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn reboot(&self) -> anyhow::Result<()> {
-        self.logind().await?.reboot(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.logind()
+            .await?
+            .reboot(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn poweroff(&self) -> anyhow::Result<()> {
-        self.logind().await?.power_off(false).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.logind()
+            .await?
+            .power_off(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn lock(&self) -> anyhow::Result<()> {
-        self.logind().await?.lock_sessions().await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.logind()
+            .await?
+            .lock_sessions()
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     async fn logind(&self) -> anyhow::Result<Login1ManagerProxy<'_>> {
@@ -135,12 +156,12 @@ impl PowerProvider {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    async fn read_profiles(&mut self, pp: &PowerProfilesDaemonProxy<'_>) {
-        self.profiles.active = pp.active_profile().await.unwrap_or_default();
-        self.profiles.performance_degraded = pp.performance_degraded().await.unwrap_or_default();
-
+    async fn read_profiles(&mut self, pp: &PowerProfilesDaemonProxy<'_>) -> bool {
         let raw = pp.profiles().await.unwrap_or_default();
-        self.profiles.available = raw
+        let next = PowerProfiles {
+            active: pp.active_profile().await.unwrap_or_default(),
+            performance_degraded: pp.performance_degraded().await.unwrap_or_default(),
+            available: raw
             .iter()
             .filter_map(|d| {
                 d.get("Profile").and_then(|v| {
@@ -151,6 +172,35 @@ impl PowerProvider {
                     }
                 })
             })
-            .collect();
+            .collect(),
+        };
+
+        let changed = should_emit_profiles(&self.profiles, &next);
+        self.profiles = next;
+        changed
+    }
+}
+
+fn should_emit_profiles(previous: &PowerProfiles, next: &PowerProfiles) -> bool {
+    previous != next
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PowerProfiles;
+
+    #[test]
+    fn should_emit_profiles_only_for_real_changes() {
+        let previous = PowerProfiles {
+            active: "balanced".into(),
+            available: vec!["power-saver".into(), "balanced".into(), "performance".into()],
+            performance_degraded: String::new(),
+        };
+
+        assert!(!super::should_emit_profiles(&previous, &previous));
+
+        let mut next = previous.clone();
+        next.active = "performance".into();
+        assert!(super::should_emit_profiles(&previous, &next));
     }
 }
