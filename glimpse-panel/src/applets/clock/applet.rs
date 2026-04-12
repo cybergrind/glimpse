@@ -409,6 +409,36 @@ mod tests {
     }
 
     #[test]
+    fn selected_day_resolution_uses_month_cache_when_day_cache_is_empty() {
+        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let month_day = CalendarDaySnapshot {
+            date: CalendarDate::from_naive_date(selected_date),
+            events: vec![CalendarEvent {
+                title: "month".into(),
+                ..Default::default()
+            }],
+        };
+
+        let mut state = CalendarServiceState {
+            health: CalendarServiceHealth::Ready,
+            ..Default::default()
+        };
+        state.month_cache.insert(
+            (2026, 4),
+            CalendarMonthSnapshot {
+                year: 2026,
+                month: 4,
+                day_snapshots: BTreeMap::from([(month_day.date, month_day.clone())]),
+                ..Default::default()
+            },
+        );
+
+        let resolved = resolve_selected_day_plan(&state, selected_date, false);
+        assert_eq!(resolved.day, Some(month_day));
+        assert!(!resolved.refresh);
+    }
+
+    #[test]
     fn month_change_without_cached_day_clears_events_without_refresh() {
         let selected_date = NaiveDate::from_ymd_opt(2026, 5, 1).unwrap();
         let state = CalendarServiceState {
