@@ -1,36 +1,26 @@
-use std::cell::Cell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::time::Instant;
+#![allow(unused_assignments)]
 
 use glimpse_client::Client;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, glib, prelude::*},
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
-use super::applet::{BrightnessDisplay, choose_primary_display, summary_icon_name};
-
-struct BrightnessRow {
-    root: gtk::Box,
-    percent: gtk::Label,
-    scale: gtk::Scale,
-    max: Rc<Cell<u32>>,
-}
+use super::components::{
+    display_list::{
+        BrightnessDisplayList, BrightnessDisplayListInput, BrightnessDisplayListOutput,
+    },
+    hero::{BrightnessHero, BrightnessHeroInput},
+};
 
 pub struct BrightnessPopover {
     popover: gtk::Popover,
-    client: Arc<Client>,
-    hero_icon: gtk::Image,
-    hero_subtitle: gtk::Label,
-    rows_box: gtk::Box,
-    rows: HashMap<String, BrightnessRow>,
+    hero: Controller<BrightnessHero>,
+    display_list: Controller<BrightnessDisplayList>,
 }
 
 pub struct BrightnessPopoverInit {
     pub parent: gtk::Box,
-    pub client: Arc<Client>,
     pub settings_command: String,
 }
 
@@ -40,72 +30,92 @@ pub enum BrightnessPopoverInput {
     UpdateDisplays(Vec<BrightnessDisplay>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrightnessPopoverOutput {
+    Opened,
+    Closed,
+    SetDisplayPercent { display_id: String, percent: u8 },
+    OpenSettings,
+}
+
 #[relm4::component(pub)]
 impl SimpleComponent for BrightnessPopover {
     type Init = BrightnessPopoverInit;
     type Input = BrightnessPopoverInput;
-    type Output = ();
+    type Output = BrightnessPopoverOutput;
 
     view! {
-        gtk::Popover {}
+        root = gtk::Popover {
+            set_autohide: true,
+            add_css_class: "brightness-popover",
+
+            connect_show[sender] => move |_| {
+                let _ = sender.output(BrightnessPopoverOutput::Opened);
+            },
+
+            connect_closed[sender] => move |_| {
+                let _ = sender.output(BrightnessPopoverOutput::Closed);
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+
+                #[local_ref]
+                hero_widget -> gtk::Box {},
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                },
+
+                #[local_ref]
+                display_list_widget -> gtk::Box {},
+
+                gtk::Separator {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_visible: has_settings_button(&init.settings_command),
+                },
+
+                gtk::Button {
+                    add_css_class: "flat",
+                    add_css_class: "settings-btn",
+                    set_visible: has_settings_button(&init.settings_command),
+                    connect_clicked[sender] => move |_| {
+                        let _ = sender.output(BrightnessPopoverOutput::OpenSettings);
+                    },
+
+                    gtk::Label {
+                        set_label: "Display Settings",
+                    }
+                },
+            }
+        }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
-        _sender: ComponentSender<Self>,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.set_parent(&init.parent);
-        root.set_autohide(true);
-        root.add_css_class("brightness-popover");
+        let hero = BrightnessHero::builder().launch(()).detach();
+        let hero_widget = hero.widget().clone();
 
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let display_list =
+            BrightnessDisplayList::builder()
+                .launch(())
+                .forward(sender.output_sender(), |output| match output {
+                    BrightnessDisplayListOutput::SetDisplayPercent {
+                        display_id,
+                        percent,
+                    } => BrightnessPopoverOutput::SetDisplayPercent {
+                        display_id,
+                        percent,
+                    },
+                });
+        let display_list_widget = display_list.widget().clone();
 
-        let hero = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        hero.add_css_class("brightness-hero");
-
-        let hero_icon = gtk::Image::from_icon_name("display-brightness-high-symbolic");
-        hero_icon.set_pixel_size(32);
-        hero.append(&hero_icon);
-
-        let title_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        let title = gtk::Label::new(Some("Brightness"));
-        title.set_halign(gtk::Align::Start);
-        title.add_css_class("brightness-hero-title");
-        title_box.append(&title);
-
-        let hero_subtitle = gtk::Label::new(Some("No controllable displays"));
-        hero_subtitle.set_halign(gtk::Align::Start);
-        hero_subtitle.add_css_class("brightness-hero-subtitle");
-        title_box.append(&hero_subtitle);
-        hero.append(&title_box);
-
-        body.append(&hero);
-        body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
-        let rows_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        body.append(&rows_box);
-
-        if !init.settings_command.is_empty() {
-            body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-            let cmd = init.settings_command;
-            let label = gtk::Label::new(Some("Display Settings"));
-            label.set_halign(gtk::Align::Start);
-            let btn = gtk::Button::new();
-            btn.set_child(Some(&label));
-            btn.add_css_class("flat");
-            btn.add_css_class("settings-btn");
-            btn.connect_clicked(move |_| {
-                let parts: Vec<&str> = cmd.split_whitespace().collect();
-                if let Some((&program, args)) = parts.split_first() {
-                    let _ = std::process::Command::new(program).args(args).spawn();
-                }
-            });
-            body.append(&btn);
-        }
-
-        root.set_child(Some(&body));
-
+        let widgets = view_output!();
+        widgets.root.set_parent(&init.parent);
+        widgets.root.set_autohide(true);
         let model = BrightnessPopover {
             popover: root.clone(),
             client: init.client,
