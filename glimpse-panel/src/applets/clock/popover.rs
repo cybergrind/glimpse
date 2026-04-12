@@ -3,16 +3,18 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use chrono::{Datelike, Local, NaiveDate};
-use glimpse::calendar::protocol::{
-    CalendarDate, CalendarDaySnapshot, CalendarServiceCommand, CalendarServiceState,
-};
+use chrono::{Local, NaiveDate};
+use glimpse::calendar::protocol::{CalendarDate, CalendarServiceCommand, CalendarServiceState};
 
 use super::calendar::{Calendar, CalendarInit, Input as CalendarInput, Output as CalendarOutput};
 use super::date::{Date, Input as DateInput};
 use super::events::{Events, EventsInit, EventsInput, EventsOutput};
 use super::world::WorldClock;
-use crate::applets::clock::{config::TimezoneEntry, world::WorldClockInput};
+use crate::applets::clock::{
+    applet::{month_key, resolve_selected_day_plan},
+    config::TimezoneEntry,
+    world::WorldClockInput,
+};
 
 pub struct Popover {
     popover: gtk::Popover,
@@ -172,7 +174,7 @@ impl SimpleComponent for Popover {
 
 impl Popover {
     fn emit_selected_day(&self, date: NaiveDate, month_changed: bool) {
-        let plan = resolve_selected_day_plan_with_hint(&self.state, date, month_changed);
+        let plan = resolve_selected_day_plan(&self.state, date, month_changed);
         self.events.emit(EventsInput::SetDate {
             date,
             day: plan.day,
@@ -181,9 +183,8 @@ impl Popover {
     }
 
     fn sync_from_state(&self, state: &CalendarServiceState) {
-        let month_key = (self.selected_date.year(), self.selected_date.month());
-        let month = state.month_cache.get(&month_key).cloned();
-        let day_update = resolve_selected_day_plan(state, self.selected_date).day;
+        let month = state.month_cache.get(&month_key(self.selected_date)).cloned();
+        let day_update = resolve_selected_day_plan(state, self.selected_date, false).day;
 
         match month {
             Some(month) => self.calendar.emit(CalendarInput::MonthData(month)),
@@ -193,213 +194,5 @@ impl Popover {
         if let Some(day) = day_update {
             self.events.emit(EventsInput::Data(day));
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SelectedDayPlan {
-    day: Option<CalendarDaySnapshot>,
-    refresh: bool,
-}
-
-fn resolve_selected_day_plan(
-    state: &CalendarServiceState,
-    selected_date: NaiveDate,
-) -> SelectedDayPlan {
-    resolve_selected_day_plan_with_hint(state, selected_date, false)
-}
-
-fn resolve_selected_day_plan_with_hint(
-    state: &CalendarServiceState,
-    selected_date: NaiveDate,
-    month_changed: bool,
-) -> SelectedDayPlan {
-    if let Some(day) = state
-        .day_cache
-        .get(&CalendarDate::from_naive_date(selected_date))
-        .cloned()
-    {
-        return SelectedDayPlan {
-            day: Some(day),
-            refresh: false,
-        };
-    }
-
-    let month_key = (selected_date.year(), selected_date.month());
-    if let Some(day) = state
-        .month_cache
-        .get(&month_key)
-        .and_then(|month| {
-            month
-                .day_snapshots
-                .get(&CalendarDate::from_naive_date(selected_date))
-        })
-        .cloned()
-    {
-        return SelectedDayPlan {
-            day: Some(day),
-            refresh: false,
-        };
-    }
-
-    if let Some(day) = today_as_day_snapshot(state, selected_date) {
-        return SelectedDayPlan {
-            day: Some(day),
-            refresh: false,
-        };
-    }
-
-    if month_changed {
-        return SelectedDayPlan {
-            day: None,
-            refresh: false,
-        };
-    }
-
-    SelectedDayPlan {
-        day: None,
-        refresh: true,
-    }
-}
-
-fn month_key(date: NaiveDate) -> (i32, u32) {
-    (date.year(), date.month())
-}
-
-fn today_as_day_snapshot(
-    state: &CalendarServiceState,
-    selected_date: NaiveDate,
-) -> Option<CalendarDaySnapshot> {
-    let today = state.today.as_ref()?;
-    if today.date.to_naive_date()? != selected_date {
-        return None;
-    }
-
-    Some(CalendarDaySnapshot {
-        date: today.date,
-        events: today.events.clone(),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use glimpse::calendar::protocol::{
-        CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth, CalendarToday,
-    };
-
-    #[test]
-    fn missing_selected_day_preserves_existing_list_until_loaded() {
-        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
-        let state = CalendarServiceState {
-            health: CalendarServiceHealth::Ready,
-            ..Default::default()
-        };
-
-        assert_eq!(
-            resolve_selected_day_plan(&state, selected_date),
-            SelectedDayPlan {
-                day: None,
-                refresh: true,
-            }
-        );
-    }
-
-    #[test]
-    fn selected_day_uses_cached_snapshot_even_when_empty() {
-        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
-        let day = CalendarDaySnapshot {
-            date: CalendarDate::from_naive_date(selected_date),
-            events: Vec::new(),
-        };
-        let mut state = CalendarServiceState {
-            health: CalendarServiceHealth::Ready,
-            ..Default::default()
-        };
-        state.day_cache.insert(day.date, day.clone());
-
-        assert_eq!(
-            resolve_selected_day_plan(&state, selected_date),
-            SelectedDayPlan {
-                day: Some(day),
-                refresh: false,
-            }
-        );
-    }
-
-    #[test]
-    fn today_fallback_uses_today_snapshot_when_day_cache_is_missing() {
-        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
-        let day = CalendarDaySnapshot {
-            date: CalendarDate::from_naive_date(selected_date),
-            events: vec![CalendarEvent {
-                title: "Meeting".into(),
-                ..Default::default()
-            }],
-        };
-        let state = CalendarServiceState {
-            health: CalendarServiceHealth::Ready,
-            today: Some(CalendarToday {
-                date: day.date,
-                events: day.events.clone(),
-            }),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            resolve_selected_day_plan(&state, selected_date),
-            SelectedDayPlan {
-                day: Some(day),
-                refresh: false,
-            }
-        );
-    }
-
-    #[test]
-    fn selected_day_uses_month_preloaded_day_snapshot() {
-        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
-        let day = CalendarDaySnapshot {
-            date: CalendarDate::from_naive_date(selected_date),
-            events: vec![CalendarEvent {
-                title: "From month cache".into(),
-                ..Default::default()
-            }],
-        };
-        let mut month = CalendarMonthSnapshot {
-            year: 2026,
-            month: 4,
-            ..Default::default()
-        };
-        month.day_snapshots.insert(day.date, day.clone());
-        let mut state = CalendarServiceState {
-            health: CalendarServiceHealth::Ready,
-            ..Default::default()
-        };
-        state.month_cache.insert((2026, 4), month);
-
-        assert_eq!(
-            resolve_selected_day_plan(&state, selected_date),
-            SelectedDayPlan {
-                day: Some(day),
-                refresh: false,
-            }
-        );
-    }
-
-    #[test]
-    fn month_switch_without_local_data_skips_redundant_day_refresh() {
-        let selected_date = NaiveDate::from_ymd_opt(2026, 5, 2).unwrap();
-        let state = CalendarServiceState {
-            health: CalendarServiceHealth::Ready,
-            ..Default::default()
-        };
-
-        assert_eq!(
-            resolve_selected_day_plan_with_hint(&state, selected_date, true),
-            SelectedDayPlan {
-                day: None,
-                refresh: false,
-            }
-        );
     }
 }

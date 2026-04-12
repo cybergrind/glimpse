@@ -1,7 +1,9 @@
-use chrono::Local;
+use chrono::{Datelike, Local, NaiveDate};
 use glimpse::calendar::{
     CalendarServiceHandle,
-    protocol::{CalendarDate, CalendarServiceCommand, CalendarServiceState},
+    protocol::{
+        CalendarDate, CalendarDaySnapshot, CalendarServiceCommand, CalendarServiceState,
+    },
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -226,9 +228,87 @@ fn should_tick_popover(popover_visible: bool) -> bool {
     popover_visible
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SelectedDayPlan {
+    pub(crate) day: Option<CalendarDaySnapshot>,
+    pub(crate) refresh: bool,
+}
+
+pub(crate) fn resolve_selected_day_plan(
+    state: &CalendarServiceState,
+    selected_date: NaiveDate,
+    month_changed: bool,
+) -> SelectedDayPlan {
+    if let Some(day) = state
+        .day_cache
+        .get(&CalendarDate::from_naive_date(selected_date))
+        .cloned()
+    {
+        return SelectedDayPlan {
+            day: Some(day),
+            refresh: false,
+        };
+    }
+
+    let month_key = month_key(selected_date);
+    if let Some(day) = state
+        .month_cache
+        .get(&month_key)
+        .and_then(|month| month.day_snapshots.get(&CalendarDate::from_naive_date(selected_date)))
+        .cloned()
+    {
+        return SelectedDayPlan {
+            day: Some(day),
+            refresh: false,
+        };
+    }
+
+    if let Some(day) = today_as_day_snapshot(state, selected_date) {
+        return SelectedDayPlan {
+            day: Some(day),
+            refresh: false,
+        };
+    }
+
+    if month_changed {
+        return SelectedDayPlan {
+            day: None,
+            refresh: false,
+        };
+    }
+
+    SelectedDayPlan {
+        day: None,
+        refresh: true,
+    }
+}
+
+pub(crate) fn month_key(date: NaiveDate) -> (i32, u32) {
+    (date.year(), date.month())
+}
+
+fn today_as_day_snapshot(
+    state: &CalendarServiceState,
+    selected_date: NaiveDate,
+) -> Option<CalendarDaySnapshot> {
+    let today = state.today.as_ref()?;
+    if today.date.to_naive_date()? != selected_date {
+        return None;
+    }
+
+    Some(CalendarDaySnapshot {
+        date: today.date,
+        events: today.events.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glimpse::calendar::protocol::{
+        CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth,
+    };
+    use std::collections::BTreeMap;
 
     #[test]
     fn initial_calendar_commands_only_load_visible_month() {
@@ -251,5 +331,56 @@ mod tests {
     fn hidden_popover_does_not_need_tick_forwarding() {
         assert!(!should_tick_popover(false));
         assert!(should_tick_popover(true));
+    }
+
+    #[test]
+    fn selected_day_resolution_prefers_day_cache_over_month_and_today() {
+        let selected_date = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let direct = CalendarDaySnapshot {
+            date: CalendarDate::from_naive_date(selected_date),
+            events: vec![CalendarEvent {
+                title: "direct".into(),
+                ..Default::default()
+            }],
+        };
+        let month_day = CalendarDaySnapshot {
+            date: CalendarDate::from_naive_date(selected_date),
+            events: vec![CalendarEvent {
+                title: "month".into(),
+                ..Default::default()
+            }],
+        };
+
+        let mut state = CalendarServiceState {
+            health: CalendarServiceHealth::Ready,
+            ..Default::default()
+        };
+        state.day_cache.insert(direct.date, direct.clone());
+        state.month_cache.insert(
+            (2026, 4),
+            CalendarMonthSnapshot {
+                year: 2026,
+                month: 4,
+                day_snapshots: BTreeMap::from([(month_day.date, month_day)]),
+                ..Default::default()
+            },
+        );
+
+        let resolved = resolve_selected_day_plan(&state, selected_date, false);
+        assert_eq!(resolved.day, Some(direct));
+        assert!(!resolved.refresh);
+    }
+
+    #[test]
+    fn month_change_without_cached_day_clears_events_without_refresh() {
+        let selected_date = NaiveDate::from_ymd_opt(2026, 5, 1).unwrap();
+        let state = CalendarServiceState {
+            health: CalendarServiceHealth::Ready,
+            ..Default::default()
+        };
+
+        let resolved = resolve_selected_day_plan(&state, selected_date, true);
+        assert_eq!(resolved.day, None);
+        assert!(!resolved.refresh);
     }
 }
