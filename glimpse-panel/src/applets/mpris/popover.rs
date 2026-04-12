@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use glimpse::mpris::protocol::MprisPlayer;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
@@ -159,7 +161,10 @@ impl MprisPopover {
             .iter()
             .map(|player| player.player_id.clone())
             .collect::<Vec<_>>();
-        let current_ids = guard.iter().map(|row| row.key().to_string()).collect::<Vec<_>>();
+        let current_ids = guard
+            .iter()
+            .map(|row| row.key().to_string())
+            .collect::<Vec<_>>();
 
         for op in row_sync_ops(&current_ids, &next_ids) {
             match op {

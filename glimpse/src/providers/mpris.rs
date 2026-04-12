@@ -9,7 +9,11 @@ use std::{
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use zbus::{MatchRule, MessageStream, message::{Message, Type}, zvariant::OwnedValue};
+use zbus::{
+    MatchRule, MessageStream,
+    message::{Message, Type},
+    zvariant::OwnedValue,
+};
 
 use crate::{
     dbus::mpris::{
@@ -507,7 +511,10 @@ mod tests {
         let rule = mpris_properties_match_rule().expect("valid static match rule");
 
         assert_eq!(rule.msg_type(), Some(Type::Signal));
-        assert_eq!(rule.interface().expect("interface").as_str(), DBUS_PROPERTIES_INTERFACE);
+        assert_eq!(
+            rule.interface().expect("interface").as_str(),
+            DBUS_PROPERTIES_INTERFACE
+        );
         assert_eq!(rule.member().expect("member").as_str(), "PropertiesChanged");
         assert_eq!(rule.sender(), None);
 

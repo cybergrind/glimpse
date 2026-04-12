@@ -8,9 +8,7 @@ use relm4::{
 };
 
 use super::config::MprisConfig;
-use super::popover::{
-    MprisPopover, MprisPopoverInit, MprisPopoverInput, MprisPopoverOutput,
-};
+use super::popover::{MprisPopover, MprisPopoverInit, MprisPopoverInput, MprisPopoverOutput};
 
 pub struct Mpris {
     config: MprisConfig,
@@ -32,6 +30,15 @@ pub enum MprisMsg {
     PopoverOutput(MprisPopoverOutput),
     TogglePopover,
     Unavailable,
+}
+
+fn command_for_popover_output(output: MprisPopoverOutput) -> MprisServiceCommand {
+    match output {
+        MprisPopoverOutput::Previous { player_id } => MprisServiceCommand::Previous { player_id },
+        MprisPopoverOutput::PlayPause { player_id } => MprisServiceCommand::PlayPause { player_id },
+        MprisPopoverOutput::Next { player_id } => MprisServiceCommand::Next { player_id },
+        MprisPopoverOutput::Raise { player_id } => MprisServiceCommand::Raise { player_id },
+    }
 }
 
 fn panel_label(player: &MprisPlayer, format: &str) -> String {
@@ -63,6 +70,7 @@ impl Component for Mpris {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
+            set_hexpand: false,
             add_css_class: "applet",
             add_css_class: "mpris",
             add_css_class: "hoverable",
@@ -81,6 +89,7 @@ impl Component for Mpris {
             gtk::Label {
                 #[watch]
                 set_label: &model.label,
+                set_hexpand: false,
                 set_halign: gtk::Align::Start,
                 set_valign: gtk::Align::Center,
                 set_xalign: 0.0,
@@ -168,7 +177,8 @@ impl Component for Mpris {
                 self.label.clear();
                 self.tooltip.clear();
                 self.hidden = self.config.hide_when_empty;
-                self.popover.emit(MprisPopoverInput::UpdatePlayers(Vec::new()));
+                self.popover
+                    .emit(MprisPopoverInput::UpdatePlayers(Vec::new()));
             }
         }
     }
@@ -187,18 +197,7 @@ impl Mpris {
     }
 
     fn handle_popover_output(&self, output: MprisPopoverOutput, sender: ComponentSender<Self>) {
-        let command = match output {
-            MprisPopoverOutput::Previous { player_id } => {
-                MprisServiceCommand::Previous { player_id }
-            }
-            MprisPopoverOutput::PlayPause { player_id } => {
-                MprisServiceCommand::PlayPause { player_id }
-            }
-            MprisPopoverOutput::Next { player_id } => MprisServiceCommand::Next { player_id },
-            MprisPopoverOutput::Raise { player_id } => MprisServiceCommand::Raise { player_id },
-        };
-
-        self.send_command(sender, command);
+        self.send_command(sender, command_for_popover_output(output));
     }
 
     fn send_command(&self, sender: ComponentSender<Self>, command: MprisServiceCommand) {
@@ -245,7 +244,10 @@ mod tests {
 
     #[test]
     fn formats_artist_and_track() {
-        assert_eq!(panel_label(&player(), "{artist} - {track}"), "Nils Frahm - Says");
+        assert_eq!(
+            panel_label(&player(), "{artist} - {track}"),
+            "Nils Frahm - Says"
+        );
     }
 
     #[test]
@@ -260,5 +262,33 @@ mod tests {
         player.title.clear();
         player.panel_label.clear();
         assert_eq!(panel_label(&player, "{artist} - {track}"), "Spotify");
+    }
+
+    #[test]
+    fn maps_popover_previous_output_to_previous_command() {
+        let command = command_for_popover_output(MprisPopoverOutput::Previous {
+            player_id: "spotify".into(),
+        });
+
+        assert_eq!(
+            command,
+            MprisServiceCommand::Previous {
+                player_id: "spotify".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn maps_popover_raise_output_to_raise_command() {
+        let command = command_for_popover_output(MprisPopoverOutput::Raise {
+            player_id: "spotify".into(),
+        });
+
+        assert_eq!(
+            command,
+            MprisServiceCommand::Raise {
+                player_id: "spotify".into(),
+            }
+        );
     }
 }

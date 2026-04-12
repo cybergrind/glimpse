@@ -68,8 +68,14 @@ mod tests {
         assert_eq!(MPRIS_PLAYER_INTERFACE, "org.mpris.MediaPlayer2.Player");
         assert_eq!(MPRIS_NAME_PREFIX, "org.mpris.MediaPlayer2.");
 
-        assert_eq!(MPRIS_ROOT_INTERFACE, MPRIS_NAME_PREFIX.trim_end_matches('.'));
-        assert_eq!(MPRIS_PLAYER_INTERFACE.strip_prefix(MPRIS_NAME_PREFIX), Some("Player"));
+        assert_eq!(
+            MPRIS_ROOT_INTERFACE,
+            MPRIS_NAME_PREFIX.trim_end_matches('.')
+        );
+        assert_eq!(
+            MPRIS_PLAYER_INTERFACE.strip_prefix(MPRIS_NAME_PREFIX),
+            Some("Player")
+        );
         assert_eq!(MPRIS_PATH, "/org/mpris/MediaPlayer2");
     }
 }

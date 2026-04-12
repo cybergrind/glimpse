@@ -68,9 +68,10 @@ impl FactoryComponent for MprisPlayerRowItem {
     }
 
     fn update(&mut self, message: Self::Input, _sender: FactorySender<Self>) {
-        let MprisPlayerRowInput::Update(player) = message;
-        self.player_id = player.player_id.clone();
-        self.sync_player(player);
+        if let MprisPlayerRowInput::Update(player) = message {
+            self.player_id = player.player_id.clone();
+            self.sync_player(player);
+        }
     }
 }
 
