@@ -29,7 +29,7 @@ build() {
     cd "$srcdir/$_pkgname"
     export CARGO_TARGET_DIR=target
 
-    cargo build --release --locked -p glimpse-panel --no-default-features
+    cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
 }
 
 package() {

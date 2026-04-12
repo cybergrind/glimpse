@@ -17,14 +17,14 @@ cargo check
 # Run the daemon
 RUST_LOG=info cargo run -p glimpsed
 
-# Run the panel (from glimpse-panel directory for CSS loading)
-cd glimpse-panel && RUST_LOG=info cargo run
+# Run the panel
+RUST_LOG=info cargo run -p glimpse --bin glimpse-panel
 
 
 ## Architecture
 
 Glimpse is a Wayland status panel ecosystem with a client-server architecture.
-It has shared code in `glimpse` crate and panel code in `glimpse-panel`.
+The `glimpse` package contains both the shared core library and the panel binary.
 
 `glimpsed` is a legacy and should not be read as a reference.
 
