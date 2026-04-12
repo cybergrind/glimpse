@@ -71,7 +71,8 @@ impl NetworkHero {
             self.wifi_switch.set_state(status.wifi_enabled);
             self.updating_switch.set(false);
         }
-        self.subtitle.set_label(&hero_subtitle_text(status, scanning));
+        self.subtitle
+            .set_label(&hero_subtitle_text(status, scanning));
     }
 }
 

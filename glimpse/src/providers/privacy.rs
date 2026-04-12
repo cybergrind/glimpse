@@ -49,7 +49,11 @@ impl PrivacyBackend for PrivacyProvider {
         );
 
         let mut mic_sessions = parse_mic_sessions(&source_outputs);
-        if source_outputs.as_array().is_some_and(|streams| !streams.is_empty()) && mic_sessions.is_empty() {
+        if source_outputs
+            .as_array()
+            .is_some_and(|streams| !streams.is_empty())
+            && mic_sessions.is_empty()
+        {
             mic_sessions.push(placeholder_session(
                 "microphone:active",
                 "Microphone in use",
@@ -71,7 +75,10 @@ impl PrivacyBackend for PrivacyProvider {
             .into_iter()
             .map(|session| {
                 let mut session = session;
-                session.started_at = self.active_screen_captures.get(&session.session_id).copied();
+                session.started_at = self
+                    .active_screen_captures
+                    .get(&session.session_id)
+                    .copied();
                 if let Some(target) = session_stop_target(&session.session_id) {
                     session.stoppable = true;
                     session.supported_action = Some(PrivacySessionAction::StopSession {
@@ -327,7 +334,9 @@ fn scan_pipewire_privacy(data: &Value) -> PipewirePrivacySnapshot {
         };
 
         if seen_capture_keys.insert(session.session_id.clone()) {
-            snapshot.screen_capture_keys.push(session.session_id.clone());
+            snapshot
+                .screen_capture_keys
+                .push(session.session_id.clone());
             snapshot.screen_sessions.push(session);
         }
     }
@@ -391,13 +400,7 @@ fn collect_pipewire_nodes(
         .unwrap_or("Unknown")
         .to_string();
 
-        map.insert(
-            node_id,
-            PipewireNodeInfo {
-                node_id,
-                app_name,
-            },
-        );
+        map.insert(node_id, PipewireNodeInfo { node_id, app_name });
     }
     map
 }
@@ -563,7 +566,11 @@ fn screen_capture_session(
                 .as_str()
                 .map(ToOwned::to_owned)
                 .or_else(|| props["node.name"].as_str().map(ToOwned::to_owned))
-                .or_else(|| object["id"].as_u64().map(|id| format!("screen-capture:{id}")))
+                .or_else(|| {
+                    object["id"]
+                        .as_u64()
+                        .map(|id| format!("screen-capture:{id}"))
+                })
         })?;
 
     let kind = if combined.contains("window") {
@@ -635,7 +642,11 @@ fn placeholder_session(
 }
 
 fn first_non_empty_string<'a>(values: &[Option<&'a str>]) -> Option<&'a str> {
-    values.iter().copied().flatten().find(|value| !value.is_empty())
+    values
+        .iter()
+        .copied()
+        .flatten()
+        .find(|value| !value.is_empty())
 }
 
 fn value_pointer<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
@@ -703,9 +714,9 @@ async fn stop_all_screen_capture(
     if stopped_any {
         Ok(())
     } else {
-        Err(anyhow::anyhow!(
-            last_error.unwrap_or_else(|| "no screen capture sessions closed".to_string())
-        ))
+        Err(anyhow::anyhow!(last_error.unwrap_or_else(|| {
+            "no screen capture sessions closed".to_string()
+        })))
     }
 }
 
@@ -819,10 +830,8 @@ mod tests {
         assert_eq!(
             parse_screen_capture_session_paths(tree),
             vec![
-                "/org/freedesktop/portal/desktop/session/1_42/webrtc_session1822154327"
-                    .to_string(),
-                "/org/freedesktop/portal/desktop/session/1_88/screen_cast_session12"
-                    .to_string(),
+                "/org/freedesktop/portal/desktop/session/1_42/webrtc_session1822154327".to_string(),
+                "/org/freedesktop/portal/desktop/session/1_88/screen_cast_session12".to_string(),
             ]
         );
     }

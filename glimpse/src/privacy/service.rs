@@ -3,9 +3,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::{
-    privacy::protocol::{
-        PrivacyServiceCommand, PrivacyServiceHealth, PrivacyServiceState,
-    },
+    privacy::protocol::{PrivacyServiceCommand, PrivacyServiceHealth, PrivacyServiceState},
     providers::privacy::{PrivacyBackend, PrivacyProvider},
 };
 
@@ -167,7 +165,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(session_id.to_string());
-            self.snapshot.sessions.retain(|session| session.session_id != session_id);
+            self.snapshot
+                .sessions
+                .retain(|session| session.session_id != session_id);
             self.snapshot.screen_capture_active = self
                 .snapshot
                 .sessions

@@ -1,5 +1,6 @@
-pub mod calendar;
 pub mod bluetooth;
+pub mod brightness;
+pub mod calendar;
 pub mod compositor;
 pub mod dbus;
 pub mod mpris;

@@ -164,7 +164,10 @@ async fn refresh_snapshot(
     Ok(())
 }
 
-async fn handle_command(provider: &TrayProvider, command: TrayServiceCommand) -> anyhow::Result<()> {
+async fn handle_command(
+    provider: &TrayProvider,
+    command: TrayServiceCommand,
+) -> anyhow::Result<()> {
     match command {
         TrayServiceCommand::Activate { address, x, y } => provider.activate(address, x, y).await,
         TrayServiceCommand::OpenContextMenu { address, x, y } => {
@@ -184,6 +187,10 @@ async fn handle_command(provider: &TrayProvider, command: TrayServiceCommand) ->
             address,
             menu_path,
             submenu_id,
-        } => provider.activate_menu_item(address, menu_path, submenu_id).await,
+        } => {
+            provider
+                .activate_menu_item(address, menu_path, submenu_id)
+                .await
+        }
     }
 }

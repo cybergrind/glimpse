@@ -81,8 +81,14 @@ impl NetworkSecretAgent {
 
         match lookup_keyring_secret(&uuid, setting_name).await {
             Ok(secrets) => {
-                let count = secrets.values().map(|settings| settings.len()).sum::<usize>();
-                tracing::info!(count, "network-secret-agent: returning secrets from keyring");
+                let count = secrets
+                    .values()
+                    .map(|settings| settings.len())
+                    .sum::<usize>();
+                tracing::info!(
+                    count,
+                    "network-secret-agent: returning secrets from keyring"
+                );
                 Ok(secrets)
             }
             Err(error) => {

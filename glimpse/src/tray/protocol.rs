@@ -25,10 +25,26 @@ pub struct TrayServiceState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrayServiceCommand {
-    Activate { address: String, x: i32, y: i32 },
-    OpenContextMenu { address: String, x: i32, y: i32 },
-    AboutToShowMenu { address: String, menu_path: String, item_id: i32 },
-    ActivateMenuItem { address: String, menu_path: String, submenu_id: i32 },
+    Activate {
+        address: String,
+        x: i32,
+        y: i32,
+    },
+    OpenContextMenu {
+        address: String,
+        x: i32,
+        y: i32,
+    },
+    AboutToShowMenu {
+        address: String,
+        menu_path: String,
+        item_id: i32,
+    },
+    ActivateMenuItem {
+        address: String,
+        menu_path: String,
+        submenu_id: i32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

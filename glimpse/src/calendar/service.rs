@@ -212,9 +212,15 @@ async fn handle_command(
         CalendarServiceCommand::LoadDay { date } => {
             let snapshot = provider.load_day(date).await?;
             let _ = state_tx.send_modify(|state| {
-                let cached_months = state.month_cache.keys().copied().collect::<std::collections::BTreeSet<_>>();
+                let cached_months = state
+                    .month_cache
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>();
                 state.day_cache.retain(|cached, _| {
-                    cached_months.contains(&(cached.year, cached.month)) || *cached == date || is_today(*cached)
+                    cached_months.contains(&(cached.year, cached.month))
+                        || *cached == date
+                        || is_today(*cached)
                 });
                 state.day_cache.insert(date, snapshot);
             });
@@ -239,10 +245,16 @@ async fn refresh_all(
             state.month_cache.keys().copied().collect::<Vec<_>>(),
         )
     };
-    let covered_months = month_keys.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let covered_months = month_keys
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
 
     let mut refreshed_days: Vec<(CalendarDate, CalendarDaySnapshot)> = Vec::new();
-    for day in day_keys.into_iter().filter(|day| !covered_months.contains(&(day.year, day.month))) {
+    for day in day_keys
+        .into_iter()
+        .filter(|day| !covered_months.contains(&(day.year, day.month)))
+    {
         refreshed_days.push((day, provider.load_day(day).await?));
     }
 
@@ -282,7 +294,11 @@ fn compute_live_range(state: &CalendarServiceState) -> CalendarLiveRange {
     let mut start = day_start_from_date(today);
     let mut end = next_day_start_from_date(today);
 
-    for date in state.day_cache.keys().filter_map(|date| date.to_naive_date()) {
+    for date in state
+        .day_cache
+        .keys()
+        .filter_map(|date| date.to_naive_date())
+    {
         start = start.min(day_start_from_date(date));
         end = end.max(next_day_start_from_date(date));
     }
@@ -357,11 +373,7 @@ mod tests {
             })
         }
 
-        async fn load_month(
-            &self,
-            year: i32,
-            month: u32,
-        ) -> anyhow::Result<CalendarMonthSnapshot> {
+        async fn load_month(&self, year: i32, month: u32) -> anyhow::Result<CalendarMonthSnapshot> {
             self.state
                 .lock()
                 .expect("mock state poisoned")
@@ -427,7 +439,10 @@ mod tests {
             .await
             .expect("load month command should be accepted");
 
-        state.changed().await.expect("load month should publish state");
+        state
+            .changed()
+            .await
+            .expect("load month should publish state");
         assert!(state.borrow().month_cache.contains_key(&(2026, 4)));
     }
 
@@ -447,7 +462,10 @@ mod tests {
             .await
             .expect("load month command should be accepted");
 
-        state.changed().await.expect("load month should publish state");
+        state
+            .changed()
+            .await
+            .expect("load month should publish state");
         assert!(state.borrow().day_cache.contains_key(&CalendarDate {
             year: 2026,
             month: 4,
@@ -470,7 +488,10 @@ mod tests {
             })
             .await
             .expect("first load month command should be accepted");
-        state.changed().await.expect("first month should publish state");
+        state
+            .changed()
+            .await
+            .expect("first month should publish state");
         let _ = state.borrow_and_update();
 
         handle
@@ -480,7 +501,10 @@ mod tests {
             })
             .await
             .expect("second load month command should be accepted");
-        state.changed().await.expect("second month should publish state");
+        state
+            .changed()
+            .await
+            .expect("second month should publish state");
 
         let state = state.borrow();
         assert_eq!(state.month_cache.len(), 1);

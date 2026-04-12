@@ -39,7 +39,8 @@ impl TrayProvider {
         let entries = {
             let map = self.client.items();
             let guard = map.lock().expect("tray provider map poisoned");
-            guard.iter()
+            guard
+                .iter()
                 .map(|(address, (item, menu))| (address.clone(), (item.clone(), menu.clone())))
                 .collect::<Vec<_>>()
         };
@@ -182,9 +183,9 @@ fn map_icon(name: Option<&str>, pixmaps: Option<&[IconPixmap]>) -> Option<TrayIc
 }
 
 fn select_best_pixmap(pixmaps: Option<&[IconPixmap]>) -> Option<&IconPixmap> {
-    pixmaps?.iter().max_by_key(|pixmap| {
-        i64::from(pixmap.width.max(0)) * i64::from(pixmap.height.max(0))
-    })
+    pixmaps?
+        .iter()
+        .max_by_key(|pixmap| i64::from(pixmap.width.max(0)) * i64::from(pixmap.height.max(0)))
 }
 
 fn map_tooltip(tooltip: Option<&Tooltip>) -> Option<TrayTooltip> {
@@ -289,11 +290,10 @@ fn event_reason(event: &Event) -> String {
 }
 
 fn parse_address(address: &str) -> (&str, String) {
-    address
-        .split_once('/')
-        .map_or((address, String::from("/StatusNotifierItem")), |(dest, path)| {
-            (dest, format!("/{path}"))
-        })
+    address.split_once('/').map_or(
+        (address, String::from("/StatusNotifierItem")),
+        |(dest, path)| (dest, format!("/{path}")),
+    )
 }
 
 #[cfg(test)]
@@ -479,7 +479,11 @@ mod tests {
         ]);
 
         assert_eq!(
-            snapshot.items.iter().map(|item| item.address.as_str()).collect::<Vec<_>>(),
+            snapshot
+                .items
+                .iter()
+                .map(|item| item.address.as_str())
+                .collect::<Vec<_>>(),
             vec!["org.a.Item", "org.z.Item"]
         );
     }

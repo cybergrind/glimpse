@@ -375,7 +375,9 @@ mod tests {
                 uuid: "uuid-1".into(),
             }
         ));
-        assert!(should_close_popover_before_output(&NetworkPopoverOutput::OpenSettings));
+        assert!(should_close_popover_before_output(
+            &NetworkPopoverOutput::OpenSettings
+        ));
         assert!(!should_close_popover_before_output(
             &NetworkPopoverOutput::Forget {
                 uuid: "uuid-1".into(),

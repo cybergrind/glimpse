@@ -594,7 +594,7 @@ impl NetworkProvider {
             let mut dns = Vec::new();
             if let Ok(ip4_path) = active.ip4_config().await {
                 if is_real_path(ip4_path.as_str()) {
-                let ip4 = self.ip4_config_proxy(ip4_path.as_str()).await?;
+                    let ip4 = self.ip4_config_proxy(ip4_path.as_str()).await?;
                     gateway = ip4.gateway().await.ok();
                     if let Some(first) = ip4.address_data().await.unwrap_or_default().first() {
                         if let Some(address) = first.get("address").and_then(owned_value_to_string)
@@ -677,9 +677,11 @@ impl NetworkProvider {
 
                 let connected = connected_ssids.contains_key(&ssid);
                 let saved_profiles = saved_wifi.get(&ssid);
-                let saved_uuid =
-                    preferred_saved_wifi_profile(saved_profiles.map(|profiles| profiles.as_slice()), &ssid)
-                        .map(|profile| profile.uuid.clone());
+                let saved_uuid = preferred_saved_wifi_profile(
+                    saved_profiles.map(|profiles| profiles.as_slice()),
+                    &ssid,
+                )
+                .map(|profile| profile.uuid.clone());
                 let saved = saved_profiles.is_some() || connected;
                 let uuid = if connected {
                     connected_ssids.get(&ssid).cloned()
@@ -709,7 +711,9 @@ impl NetworkProvider {
         Ok(best_access_points.into_values().collect())
     }
 
-    async fn read_saved_wifi_profiles(&self) -> anyhow::Result<HashMap<String, Vec<SavedWifiProfile>>> {
+    async fn read_saved_wifi_profiles(
+        &self,
+    ) -> anyhow::Result<HashMap<String, Vec<SavedWifiProfile>>> {
         let mut saved: HashMap<String, Vec<SavedWifiProfile>> = HashMap::new();
         for path in self.settings_proxy().await?.list_connections().await? {
             let settings = self
@@ -751,12 +755,15 @@ impl NetworkProvider {
                 continue;
             };
             if !ssid.is_empty() && !uuid.is_empty() {
-                saved.entry(ssid.clone()).or_default().push(SavedWifiProfile {
-                    id,
-                    uuid,
-                    ssid,
-                    has_inline_secret,
-                });
+                saved
+                    .entry(ssid.clone())
+                    .or_default()
+                    .push(SavedWifiProfile {
+                        id,
+                        uuid,
+                        ssid,
+                        has_inline_secret,
+                    });
             }
         }
 
@@ -821,8 +828,11 @@ impl NetworkProvider {
 
     async fn preferred_saved_wifi_uuid(&self, ssid: &str) -> anyhow::Result<Option<String>> {
         let profiles = self.read_saved_wifi_profiles().await?;
-        Ok(preferred_saved_wifi_profile(profiles.get(ssid).map(|profiles| profiles.as_slice()), ssid)
-            .map(|profile| profile.uuid.clone()))
+        Ok(preferred_saved_wifi_profile(
+            profiles.get(ssid).map(|profiles| profiles.as_slice()),
+            ssid,
+        )
+        .map(|profile| profile.uuid.clone()))
     }
 
     async fn connection_uuid_for_settings_path(
@@ -871,8 +881,9 @@ impl NetworkProvider {
             let wireless = self.wireless_device_proxy(device_path.as_str()).await?;
             for access_point_path in wireless.get_all_access_points().await.unwrap_or_default() {
                 let access_point = self.access_point_proxy(access_point_path.as_str()).await?;
-                let ap_ssid = String::from_utf8_lossy(&access_point.ssid().await.unwrap_or_default())
-                    .to_string();
+                let ap_ssid =
+                    String::from_utf8_lossy(&access_point.ssid().await.unwrap_or_default())
+                        .to_string();
                 if ap_ssid == ssid {
                     return Ok((
                         ObjectPath::try_from(device_path.to_string())?,
@@ -1174,11 +1185,11 @@ fn owned_value_to_ssid(value: &OwnedValue) -> Option<String> {
         .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
 }
 
-fn saved_wifi_ssid(
-    settings: &HashMap<String, HashMap<String, OwnedValue>>,
-) -> Option<String> {
+fn saved_wifi_ssid(settings: &HashMap<String, HashMap<String, OwnedValue>>) -> Option<String> {
     let connection_section = settings.get("connection")?;
-    let connection_type = connection_section.get("type").and_then(owned_value_to_string)?;
+    let connection_type = connection_section
+        .get("type")
+        .and_then(owned_value_to_string)?;
     if connection_type != "802-11-wireless" {
         return None;
     }

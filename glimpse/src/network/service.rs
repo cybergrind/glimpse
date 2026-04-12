@@ -433,15 +433,10 @@ async fn handle_command(
                     pending.connection_uuid = None;
                     pending.settings_path = None;
                     let _ = state_tx.send_modify(|state| {
-                        state.prompt = Some(network_password_prompt(
-                            prompt_id,
-                            ssid.clone(),
-                            None,
-                            true,
-                        ));
-                        state.active_action = Some(NetworkActiveAction::ConnectWifi {
-                            ssid: ssid.clone(),
-                        });
+                        state.prompt =
+                            Some(network_password_prompt(prompt_id, ssid.clone(), None, true));
+                        state.active_action =
+                            Some(NetworkActiveAction::ConnectWifi { ssid: ssid.clone() });
                     });
                     match provider
                         .connect(&ssid, Some(password.as_str()))
@@ -465,19 +460,28 @@ async fn handle_command(
                     if let Err(error) = refresh_snapshot(provider, state_tx).await {
                         tracing::warn!(error = %error, "network service: failed to refresh after action");
                     }
-                    if let Some(reconciliation) = reconcile_pending_prompt(state_tx, pending_prompt) {
+                    if let Some(reconciliation) = reconcile_pending_prompt(state_tx, pending_prompt)
+                    {
                         match reconciliation {
                             PendingPromptReconciliation::Save { settings_path } => {
-                                if let Err(error) = provider.save_connection_path(&settings_path).await {
+                                if let Err(error) =
+                                    provider.save_connection_path(&settings_path).await
+                                {
                                     tracing::warn!(error = %error, path = settings_path, "network service: failed to persist wifi profile");
-                                } else if let Err(error) = refresh_snapshot(provider, state_tx).await {
+                                } else if let Err(error) =
+                                    refresh_snapshot(provider, state_tx).await
+                                {
                                     tracing::warn!(error = %error, "network service: failed to refresh after profile save");
                                 }
                             }
                             PendingPromptReconciliation::Delete { settings_path } => {
-                                if let Err(error) = provider.delete_connection_path(&settings_path).await {
+                                if let Err(error) =
+                                    provider.delete_connection_path(&settings_path).await
+                                {
                                     tracing::warn!(error = %error, path = settings_path, "network service: failed to delete invalid wifi profile");
-                                } else if let Err(error) = refresh_snapshot(provider, state_tx).await {
+                                } else if let Err(error) =
+                                    refresh_snapshot(provider, state_tx).await
+                                {
                                     tracing::warn!(error = %error, "network service: failed to refresh after profile cleanup");
                                 }
                             }
@@ -676,7 +680,8 @@ fn reconcile_pending_prompt(
         let settings_path = pending.settings_path.clone();
         *pending_prompt = None;
         let _ = state_tx.send_modify(|state| state.prompt = None);
-        return settings_path.map(|settings_path| PendingPromptReconciliation::Save { settings_path });
+        return settings_path
+            .map(|settings_path| PendingPromptReconciliation::Save { settings_path });
     }
 
     let Some(classification) = pending_prompt_failure(&snapshot, pending) else {
@@ -687,7 +692,8 @@ fn reconcile_pending_prompt(
                 pending,
                 "Connection failed. Check the password and try again.",
             );
-            return settings_path.map(|settings_path| PendingPromptReconciliation::Delete { settings_path });
+            return settings_path
+                .map(|settings_path| PendingPromptReconciliation::Delete { settings_path });
         }
         return None;
     };
@@ -703,8 +709,7 @@ fn reconcile_pending_prompt(
 
 fn wifi_connection_visible(snapshot: &NetworkSnapshot, pending: &PendingPrompt) -> bool {
     snapshot.connections.iter().any(|connection| {
-        pending_prompt_matches_connection(pending, connection)
-            && connection.state == "activated"
+        pending_prompt_matches_connection(pending, connection) && connection.state == "activated"
     }) || snapshot
         .wifi_access_points
         .iter()
@@ -792,8 +797,12 @@ fn prompt_error_message(classification: &NetworkFailureClassification) -> &'stat
         NetworkFailureClassification::AuthenticationFailed => "Incorrect password. Try again.",
         NetworkFailureClassification::MissingSecrets => "Password required. Try again.",
         NetworkFailureClassification::Timeout => "Connection timed out. Try again.",
-        NetworkFailureClassification::NetworkNotFound => "Network not found. Refresh and try again.",
-        NetworkFailureClassification::ConfigurationFailed => "Connection failed. Check the password and try again.",
+        NetworkFailureClassification::NetworkNotFound => {
+            "Network not found. Refresh and try again."
+        }
+        NetworkFailureClassification::ConfigurationFailed => {
+            "Connection failed. Check the password and try again."
+        }
         NetworkFailureClassification::ConnectionRemoved => "Connection was removed. Try again.",
         NetworkFailureClassification::Disconnected => "Connection was interrupted. Try again.",
     }
@@ -814,18 +823,22 @@ fn action_has_reached_observable_state(
     active_action: &NetworkActiveAction,
 ) -> bool {
     match active_action {
-        NetworkActiveAction::ConnectWifi { ssid } => snapshot.connections.iter().any(|connection| {
-            connection.connection_type == "wifi"
-                && connection.id == *ssid
-                && (connection.state == "activating" || connection.state == "activated")
-        }) || snapshot
-            .wifi_access_points
-            .iter()
-            .any(|access_point| access_point.ssid == *ssid && access_point.connected),
-        NetworkActiveAction::ConnectSaved { uuid } => snapshot.connections.iter().any(|connection| {
-            connection.uuid == *uuid
-                && (connection.state == "activating" || connection.state == "activated")
-        }),
+        NetworkActiveAction::ConnectWifi { ssid } => {
+            snapshot.connections.iter().any(|connection| {
+                connection.connection_type == "wifi"
+                    && connection.id == *ssid
+                    && (connection.state == "activating" || connection.state == "activated")
+            }) || snapshot
+                .wifi_access_points
+                .iter()
+                .any(|access_point| access_point.ssid == *ssid && access_point.connected)
+        }
+        NetworkActiveAction::ConnectSaved { uuid } => {
+            snapshot.connections.iter().any(|connection| {
+                connection.uuid == *uuid
+                    && (connection.state == "activating" || connection.state == "activated")
+            })
+        }
         NetworkActiveAction::Disconnect { uuid } => !snapshot
             .connections
             .iter()
@@ -995,7 +1008,9 @@ mod tests {
         assert!(!network_provider_change_logs_at_info(
             &NetworkChangeReason::PropertiesChanged
         ));
-        assert!(!network_provider_change_logs_at_info(&NetworkChangeReason::Mixed));
+        assert!(!network_provider_change_logs_at_info(
+            &NetworkChangeReason::Mixed
+        ));
     }
 
     #[test]
@@ -1062,7 +1077,8 @@ mod tests {
 
     #[test]
     fn submitting_prompt_ignores_unscoped_wifi_device_failures() {
-        let original_prompt = network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
+        let original_prompt =
+            network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
@@ -1264,7 +1280,8 @@ mod tests {
 
     #[test]
     fn disappearing_tracked_connection_finishes_prompt_with_retryable_error() {
-        let original_prompt = network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
+        let original_prompt =
+            network_password_prompt(NetworkPromptId(1), "Skylink".into(), None, true);
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot::default(),

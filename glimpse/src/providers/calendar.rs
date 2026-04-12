@@ -134,8 +134,12 @@ impl CalendarBackend for CalendarProvider {
         let month = NaiveDate::from_ymd_opt(year, month, 1)
             .ok_or_else(|| anyhow::anyhow!("invalid calendar month {year}-{month}"))?;
         let sources = read_sources(&self.fetch_session).await?;
-        let events =
-            fetch_range(&self.fetch_session, day_start(month)?, next_month_start(month)?).await?;
+        let events = fetch_range(
+            &self.fetch_session,
+            day_start(month)?,
+            next_month_start(month)?,
+        )
+        .await?;
         Ok(summarize_month(month, events, &sources))
     }
 
@@ -191,7 +195,10 @@ impl CalendarBackend for CalendarProvider {
     }
 }
 
-fn map_event(event: CalendarServerEvent, source: Option<&SourceInfo>) -> Option<(i64, CalendarEvent)> {
+fn map_event(
+    event: CalendarServerEvent,
+    source: Option<&SourceInfo>,
+) -> Option<(i64, CalendarEvent)> {
     let start = local_from_epoch(event.start_epoch)?;
     let end = local_from_epoch(event.end_epoch)?;
 
@@ -206,7 +213,9 @@ fn map_event(event: CalendarServerEvent, source: Option<&SourceInfo>) -> Option<
             location: None,
             description: None,
             all_day: is_all_day_event(start, end),
-            source: source.map(|source| source.source.clone()).unwrap_or_default(),
+            source: source
+                .map(|source| source.source.clone())
+                .unwrap_or_default(),
         },
     ))
 }
@@ -335,7 +344,10 @@ fn summarize_month(
                 }
             }
             if let Some((start_epoch, mapped)) = mapped.clone() {
-                event_days.entry(day).or_default().push((start_epoch, mapped));
+                event_days
+                    .entry(day)
+                    .or_default()
+                    .push((start_epoch, mapped));
             }
             let Some(next) = day.checked_add_days(Days::new(1)) else {
                 break;
@@ -544,9 +556,7 @@ fn ini_value(data: &str, section: &str, key: &str) -> Option<String> {
 }
 
 fn is_all_day_event(start: DateTime<Local>, end: DateTime<Local>) -> bool {
-    start.time() == NaiveTime::MIN
-        && end.time() == NaiveTime::MIN
-        && (end - start).num_days() >= 1
+    start.time() == NaiveTime::MIN && end.time() == NaiveTime::MIN && (end - start).num_days() >= 1
 }
 
 #[cfg(test)]
