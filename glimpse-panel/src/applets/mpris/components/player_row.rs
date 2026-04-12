@@ -3,7 +3,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
-use image::DynamicImage;
+use image::{DynamicImage, ImageReader, imageops::FilterType};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, gdk, gio, glib, prelude::*},
@@ -346,12 +346,17 @@ fn clear_image_art(image: &gtk::Image) {
 }
 
 fn set_image_from_texture(image: &gtk::Image, texture: &gdk::Texture) {
+    image.set_icon_name(Option::<&str>::None);
     image.set_paintable(Some(texture));
 }
 
 fn texture_from_dynamic_image(image: DynamicImage) -> Option<gdk::Texture> {
-    let thumbnail = image.thumbnail(ARTWORK_SIZE as u32, ARTWORK_SIZE as u32);
-    let rgba = thumbnail.to_rgba8();
+    let cover = image.resize_to_fill(
+        ARTWORK_SIZE as u32,
+        ARTWORK_SIZE as u32,
+        FilterType::Triangle,
+    );
+    let rgba = cover.to_rgba8();
     let (width, height) = rgba.dimensions();
     if width == 0 || height == 0 {
         return None;
@@ -376,22 +381,32 @@ fn texture_from_remote_bytes(bytes: Vec<u8>) -> Option<gdk::Texture> {
     texture_from_dynamic_image(image)
 }
 
+fn texture_from_file_path(path: &str) -> Option<gdk::Texture> {
+    let image = ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
+    texture_from_dynamic_image(image)
+}
+
 fn load_player_art(image: &gtk::Image, artwork: &MprisArtwork, revision: &Rc<Cell<u64>>) {
     let next_revision = revision.get().wrapping_add(1);
     revision.set(next_revision);
 
     match artwork_source(artwork) {
         ArtSource::FilePath(path) => {
-            if std::path::Path::new(&path).exists() {
-                image.set_from_file(Some(path));
-            } else {
-                clear_image_art(image);
+            match texture_from_file_path(&path) {
+                Some(texture) => set_image_from_texture(image, &texture),
+                None => clear_image_art(image),
             }
         }
         ArtSource::FileUri(uri) => match file_path_from_uri(&uri) {
-            Some(path) if std::path::Path::new(&path).exists() => {
-                image.set_from_file(Some(path));
-            }
+            Some(path) => match texture_from_file_path(&path) {
+                Some(texture) => set_image_from_texture(image, &texture),
+                None => clear_image_art(image),
+            },
             _ => clear_image_art(image),
         },
         ArtSource::Remote(url) => {
@@ -427,7 +442,10 @@ fn load_player_art(image: &gtk::Image, artwork: &MprisArtwork, revision: &Rc<Cel
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, io::Cursor, time::{SystemTime, UNIX_EPOCH}};
+
     use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
+    use image::{DynamicImage, ImageFormat, RgbaImage};
     use relm4::{
         Component, ComponentController,
         gtk::{self, prelude::*},
@@ -510,6 +528,40 @@ mod tests {
     #[test]
     fn artwork_size_matches_mpris_row_cap() {
         assert_eq!(ARTWORK_SIZE, 92);
+    }
+
+    #[test]
+    fn rectangular_artwork_is_normalized_to_square_slot_size() {
+        let image = DynamicImage::ImageRgba8(RgbaImage::new(150, 83));
+        let texture = super::texture_from_dynamic_image(image).expect("texture");
+
+        assert_eq!(texture.width(), ARTWORK_SIZE);
+        assert_eq!(texture.height(), ARTWORK_SIZE);
+    }
+
+    #[test]
+    fn file_path_loader_supports_extensionless_png_files() {
+        let image = DynamicImage::ImageRgba8(RgbaImage::new(150, 83));
+        let mut bytes = Cursor::new(Vec::new());
+        image
+            .write_to(&mut bytes, ImageFormat::Png)
+            .expect("png bytes");
+
+        let path = std::env::temp_dir().join(format!(
+            "glimpse-mpris-art-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+
+        fs::write(&path, bytes.into_inner()).expect("write temp art");
+        let texture = super::texture_from_file_path(path.to_str().expect("utf8 path"));
+        let _ = fs::remove_file(&path);
+
+        let texture = texture.expect("extensionless texture");
+        assert_eq!(texture.width(), ARTWORK_SIZE);
+        assert_eq!(texture.height(), ARTWORK_SIZE);
     }
 
     #[gtk::test]
