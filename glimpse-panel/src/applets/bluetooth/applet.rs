@@ -16,8 +16,8 @@ use relm4::{
 
 use super::config::BluetoothConfig;
 use super::popover::{
-    BluetoothDeviceAction, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput, BluetoothPopoverOutput,
-    BtDevice,
+    BluetoothDeviceAction, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput,
+    BluetoothPopoverOutput, BtDevice,
 };
 pub struct Bluetooth {
     icon_name: String,
@@ -39,7 +39,10 @@ pub enum BluetoothMsg {
     PopoverOutput(BluetoothPopoverOutput),
     TogglePopover,
     Unavailable,
-    PromptReply { id: BluetoothPromptId, reply: BluetoothPromptReply },
+    PromptReply {
+        id: BluetoothPromptId,
+        reply: BluetoothPromptReply,
+    },
 }
 
 #[relm4::component(pub)]
@@ -165,7 +168,9 @@ impl Component for Bluetooth {
                     discovering,
                 });
                 self.popover
-                    .emit(BluetoothPopoverInput::UpdateDevices(popover_devices(state.snapshot.clone())));
+                    .emit(BluetoothPopoverInput::UpdateDevices(popover_devices(
+                        state.snapshot.clone(),
+                    )));
                 self.sync_activity(&state, &sender, root);
             }
             BluetoothMsg::PopoverOutput(output) => {
@@ -186,7 +191,11 @@ impl Component for Bluetooth {
 }
 
 impl Bluetooth {
-    fn handle_popover_output(&self, output: BluetoothPopoverOutput, sender: ComponentSender<Bluetooth>) {
+    fn handle_popover_output(
+        &self,
+        output: BluetoothPopoverOutput,
+        sender: ComponentSender<Bluetooth>,
+    ) {
         match output {
             BluetoothPopoverOutput::Opened => {
                 tracing::info!("bluetooth applet: popover opened");
@@ -234,9 +243,8 @@ impl Bluetooth {
 
         if let Some(previous) = self.active_device.take() {
             if next_active_device.as_ref() != Some(&previous) {
-                self.popover.emit(BluetoothPopoverInput::FinishDeviceAction {
-                    address: previous,
-                });
+                self.popover
+                    .emit(BluetoothPopoverInput::FinishDeviceAction { address: previous });
             }
         }
 
@@ -244,7 +252,13 @@ impl Bluetooth {
             if let BluetoothPromptKind::Confirm { passkey } = &prompt.kind {
                 if self.active_prompt_id != Some(prompt.id) {
                     self.active_prompt_id = Some(prompt.id);
-                    self.show_confirm_dialog(root, sender, prompt.id, *passkey, prompt.device_label.clone());
+                    self.show_confirm_dialog(
+                        root,
+                        sender,
+                        prompt.id,
+                        *passkey,
+                        prompt.device_label.clone(),
+                    );
                 }
                 self.popover.emit(BluetoothPopoverInput::SetActivity(None));
             } else {
@@ -303,12 +317,17 @@ impl Bluetooth {
     }
 }
 
-fn command_for_device_action(action: BluetoothDeviceAction, address: String) -> BluetoothServiceCommand {
+fn command_for_device_action(
+    action: BluetoothDeviceAction,
+    address: String,
+) -> BluetoothServiceCommand {
     match action {
         BluetoothDeviceAction::Connect => BluetoothServiceCommand::Connect { address },
         BluetoothDeviceAction::Disconnect => BluetoothServiceCommand::Disconnect { address },
         BluetoothDeviceAction::Pair => BluetoothServiceCommand::Pair { address },
-        BluetoothDeviceAction::Trust(trusted) => BluetoothServiceCommand::Trust { address, trusted },
+        BluetoothDeviceAction::Trust(trusted) => {
+            BluetoothServiceCommand::Trust { address, trusted }
+        }
         BluetoothDeviceAction::Forget => BluetoothServiceCommand::Forget { address },
     }
 }
@@ -324,8 +343,7 @@ fn service_activity_status(state: &BluetoothServiceState) -> String {
             "Turning adapter off...".into()
         }
         Some(BluetoothActiveAction::SetAdapterDiscoverable {
-            discoverable: true,
-            ..
+            discoverable: true, ..
         }) => "Making adapter discoverable...".into(),
         Some(BluetoothActiveAction::SetAdapterDiscoverable {
             discoverable: false,
@@ -485,7 +503,9 @@ mod tests {
             }),
         };
 
-        assert_eq!(service_activity_status(&state), "Making adapter discoverable...");
+        assert_eq!(
+            service_activity_status(&state),
+            "Making adapter discoverable..."
+        );
     }
-
 }

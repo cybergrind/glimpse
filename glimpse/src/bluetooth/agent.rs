@@ -8,7 +8,9 @@ use tokio::sync::{oneshot, watch};
 use zbus::zvariant::ObjectPath;
 
 use crate::{
-    bluetooth::protocol::{BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind, BluetoothPromptReply},
+    bluetooth::protocol::{
+        BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind, BluetoothPromptReply,
+    },
     dbus::bluez::Device1Proxy,
 };
 
@@ -254,7 +256,11 @@ impl BluetoothAgent {
         passkey: u32,
     ) -> Result<(), BluezError> {
         let device_path = device.as_str().to_owned();
-        tracing::info!(device = device_path, passkey, "bluetooth-agent: confirmation requested");
+        tracing::info!(
+            device = device_path,
+            passkey,
+            "bluetooth-agent: confirmation requested"
+        );
         let reply = self
             .request_reply(&device_path, BluetoothPromptKind::Confirm { passkey })
             .await?;
@@ -451,7 +457,10 @@ mod tests {
         );
 
         assert_eq!(
-            prompt_rx.borrow().as_ref().map(|prompt| prompt.kind.clone()),
+            prompt_rx
+                .borrow()
+                .as_ref()
+                .map(|prompt| prompt.kind.clone()),
             Some(BluetoothPromptKind::DisplayPasskey {
                 passkey: 123_456,
                 entered: 3,

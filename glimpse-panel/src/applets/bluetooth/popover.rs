@@ -105,7 +105,8 @@ impl SimpleComponent for BluetoothPopover {
             btn.add_css_class("flat");
             btn.add_css_class("settings-btn");
             btn.connect_clicked(move |_| {
-                if let Ok(mut child) = std::process::Command::new("sh").arg("-c").arg(&cmd).spawn() {
+                if let Ok(mut child) = std::process::Command::new("sh").arg("-c").arg(&cmd).spawn()
+                {
                     std::thread::spawn(move || {
                         let _ = child.wait();
                     });
@@ -146,7 +147,10 @@ impl SimpleComponent for BluetoothPopover {
                     self.popover.popup();
                 }
             }
-            BluetoothPopoverInput::UpdateStatus { powered, discovering } => {
+            BluetoothPopoverInput::UpdateStatus {
+                powered,
+                discovering,
+            } => {
                 self.hero.update_status(powered, discovering);
             }
             BluetoothPopoverInput::UpdateDevices(devices) => {

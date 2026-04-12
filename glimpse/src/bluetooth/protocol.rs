@@ -40,13 +40,30 @@ pub enum BluetoothServiceHealth {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BluetoothActiveAction {
     SetPowered(bool),
-    SetAdapterPowered { adapter_path: String, powered: bool },
-    SetAdapterDiscoverable { adapter_path: String, discoverable: bool },
-    Connect { address: String },
-    Disconnect { address: String },
-    Pair { address: String },
-    Trust { address: String, trusted: bool },
-    Forget { address: String },
+    SetAdapterPowered {
+        adapter_path: String,
+        powered: bool,
+    },
+    SetAdapterDiscoverable {
+        adapter_path: String,
+        discoverable: bool,
+    },
+    Connect {
+        address: String,
+    },
+    Disconnect {
+        address: String,
+    },
+    Pair {
+        address: String,
+    },
+    Trust {
+        address: String,
+        trusted: bool,
+    },
+    Forget {
+        address: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,15 +77,32 @@ pub struct BluetoothServiceState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BluetoothServiceCommand {
     SetPowered(bool),
-    SetAdapterPowered { adapter_path: String, powered: bool },
-    SetAdapterDiscoverable { adapter_path: String, discoverable: bool },
+    SetAdapterPowered {
+        adapter_path: String,
+        powered: bool,
+    },
+    SetAdapterDiscoverable {
+        adapter_path: String,
+        discoverable: bool,
+    },
     StartDiscovery,
     StopDiscovery,
-    Connect { address: String },
-    Disconnect { address: String },
-    Pair { address: String },
-    Trust { address: String, trusted: bool },
-    Forget { address: String },
+    Connect {
+        address: String,
+    },
+    Disconnect {
+        address: String,
+    },
+    Pair {
+        address: String,
+    },
+    Trust {
+        address: String,
+        trusted: bool,
+    },
+    Forget {
+        address: String,
+    },
     PromptReply {
         id: BluetoothPromptId,
         reply: BluetoothPromptReply,

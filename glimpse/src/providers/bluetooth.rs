@@ -1,4 +1,8 @@
-use std::{fmt, sync::{Arc, Mutex}, time::Duration};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, bail};
 use futures_util::{StreamExt, future};
@@ -672,7 +676,11 @@ impl BluetoothProvider {
         Ok(())
     }
 
-    pub async fn set_adapter_powered(&self, adapter_path: &str, powered: bool) -> anyhow::Result<()> {
+    pub async fn set_adapter_powered(
+        &self,
+        adapter_path: &str,
+        powered: bool,
+    ) -> anyhow::Result<()> {
         tracing::info!(path = %adapter_path, powered, "bluetooth: set adapter power requested");
         let proxy = self.adapter_proxy(adapter_path).await?;
         proxy
@@ -805,13 +813,19 @@ impl BluetoothProvider {
 
     pub async fn start_discovery(&self) -> anyhow::Result<()> {
         let needs_bluez_call = {
-            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let mut discovery = self
+                .discovery
+                .lock()
+                .expect("bluetooth discovery mutex poisoned");
             discovery.start_popover()
         };
 
         if needs_bluez_call {
             if let Err(error) = self.raw_start_discovery().await {
-                let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+                let mut discovery = self
+                    .discovery
+                    .lock()
+                    .expect("bluetooth discovery mutex poisoned");
                 discovery.rollback_popover();
                 return Err(error);
             }
@@ -824,7 +838,10 @@ impl BluetoothProvider {
 
     pub async fn stop_discovery(&self) -> anyhow::Result<()> {
         let needs_bluez_call = {
-            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let mut discovery = self
+                .discovery
+                .lock()
+                .expect("bluetooth discovery mutex poisoned");
             discovery.close_popover()
         };
 
@@ -843,7 +860,10 @@ impl BluetoothProvider {
 
     async fn begin_initial_discovery(&self) -> Option<tokio::time::Instant> {
         let needs_bluez_call = {
-            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let mut discovery = self
+                .discovery
+                .lock()
+                .expect("bluetooth discovery mutex poisoned");
             discovery.start_initial()
         };
 
@@ -856,7 +876,10 @@ impl BluetoothProvider {
                     );
                 }
                 Err(error) => {
-                    let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+                    let mut discovery = self
+                        .discovery
+                        .lock()
+                        .expect("bluetooth discovery mutex poisoned");
                     discovery.rollback_initial();
                     tracing::warn!(error = %error, "bluetooth: initial discovery start failed");
                     return None;
@@ -871,7 +894,10 @@ impl BluetoothProvider {
 
     async fn finish_initial_discovery(&self) -> anyhow::Result<()> {
         let needs_bluez_call = {
-            let mut discovery = self.discovery.lock().expect("bluetooth discovery mutex poisoned");
+            let mut discovery = self
+                .discovery
+                .lock()
+                .expect("bluetooth discovery mutex poisoned");
             discovery.finish_initial()
         };
 
@@ -1222,19 +1248,11 @@ fn is_bluez_properties_changed(message: &zbus::message::Message) -> bool {
 }
 
 fn trust_action(trusted: bool) -> &'static str {
-    if trusted {
-        "trust"
-    } else {
-        "untrust"
-    }
+    if trusted { "trust" } else { "untrust" }
 }
 
 fn trust_status(trusted: bool) -> &'static str {
-    if trusted {
-        "trusted"
-    } else {
-        "untrusted"
-    }
+    if trusted { "trusted" } else { "untrusted" }
 }
 
 #[cfg(test)]

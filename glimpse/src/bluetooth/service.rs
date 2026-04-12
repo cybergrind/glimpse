@@ -104,7 +104,15 @@ async fn run_bluetooth_service(
             };
         });
 
-        match run_connected(system.clone(), provider.clone(), state_tx.clone(), &mut cmd_rx, &mut open_popovers).await {
+        match run_connected(
+            system.clone(),
+            provider.clone(),
+            state_tx.clone(),
+            &mut cmd_rx,
+            &mut open_popovers,
+        )
+        .await
+        {
             Ok(()) => break,
             Err(error) => {
                 tracing::warn!(error = %error, attempt, "bluetooth service: worker failed");
@@ -344,7 +352,9 @@ async fn handle_command(
                     address: address.clone(),
                     trusted,
                 }),
-                move |provider| async move { provider.trust(&address, trusted).await.map_err(Into::into) },
+                move |provider| async move {
+                    provider.trust(&address, trusted).await.map_err(Into::into)
+                },
                 false,
             );
             Ok(())
@@ -387,13 +397,14 @@ fn spawn_action<F, Fut>(
     action: Option<BluetoothActiveAction>,
     make_future: F,
     clear_prompt_after: bool,
-)
-where
+) where
     F: FnOnce(BluetoothProvider) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ServiceResult<()>> + Send + 'static,
 {
     if state_view.borrow().active_action.is_some() {
-        tracing::warn!("bluetooth service: ignoring command while another bluetooth action is active");
+        tracing::warn!(
+            "bluetooth service: ignoring command while another bluetooth action is active"
+        );
         return;
     }
 

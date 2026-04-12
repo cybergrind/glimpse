@@ -75,7 +75,12 @@ impl BluetoothPageState {
                 .connected
                 .cmp(&left.connected)
                 .then(right.paired.cmp(&left.paired))
-                .then(right.rssi.unwrap_or(i16::MIN).cmp(&left.rssi.unwrap_or(i16::MIN)))
+                .then(
+                    right
+                        .rssi
+                        .unwrap_or(i16::MIN)
+                        .cmp(&left.rssi.unwrap_or(i16::MIN)),
+                )
         });
 
         visible
@@ -237,14 +242,18 @@ mod tests {
         }
     }
 
-    fn service_state(adapters: Vec<BluetoothAdapter>, devices: Vec<BluetoothDevice>) -> BluetoothServiceState {
+    fn service_state(
+        adapters: Vec<BluetoothAdapter>,
+        devices: Vec<BluetoothDevice>,
+    ) -> BluetoothServiceState {
         BluetoothServiceState {
             health: BluetoothServiceHealth::Ready,
             snapshot: BluetoothSnapshot {
                 status: BluetoothStatus {
                     powered: adapters.iter().any(|adapter| adapter.powered),
                     discovering: false,
-                    connected_count: devices.iter().filter(|device| device.connected).count() as u32,
+                    connected_count: devices.iter().filter(|device| device.connected).count()
+                        as u32,
                 },
                 adapters,
                 devices,
@@ -316,15 +325,50 @@ mod tests {
                 adapter("/org/bluez/hci1", "USB", true, false),
             ],
             vec![
-                device("AA", "Far Paired", "/org/bluez/hci0", false, true, false, Some(-80)),
-                device("BB", "Nearby Unpaired", "/org/bluez/hci0", false, false, false, Some(-40)),
-                device("CC", "Connected", "/org/bluez/hci0", true, true, true, Some(-90)),
-                device("DD", "Other Adapter", "/org/bluez/hci1", true, true, true, Some(-10)),
+                device(
+                    "AA",
+                    "Far Paired",
+                    "/org/bluez/hci0",
+                    false,
+                    true,
+                    false,
+                    Some(-80),
+                ),
+                device(
+                    "BB",
+                    "Nearby Unpaired",
+                    "/org/bluez/hci0",
+                    false,
+                    false,
+                    false,
+                    Some(-40),
+                ),
+                device(
+                    "CC",
+                    "Connected",
+                    "/org/bluez/hci0",
+                    true,
+                    true,
+                    true,
+                    Some(-90),
+                ),
+                device(
+                    "DD",
+                    "Other Adapter",
+                    "/org/bluez/hci1",
+                    true,
+                    true,
+                    true,
+                    Some(-10),
+                ),
             ],
         ));
 
         let visible = page.visible_devices();
-        let names = visible.iter().map(|device| device.name.as_str()).collect::<Vec<_>>();
+        let names = visible
+            .iter()
+            .map(|device| device.name.as_str())
+            .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["Connected", "Far Paired", "Nearby Unpaired"]);
     }
