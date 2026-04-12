@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use glimpse_client::Client;
+use glimpse::providers::brightness::{BrightnessDisplay, choose_primary_display};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
@@ -117,14 +117,11 @@ impl SimpleComponent for BrightnessPopover {
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
         let model = BrightnessPopover {
-            popover: root.clone(),
-            client: init.client,
-            hero_icon,
-            hero_subtitle,
-            rows_box,
-            rows: HashMap::new(),
+            popover: widgets.root.clone(),
+            hero,
+            display_list,
         };
-        let widgets = view_output!();
+
         ComponentParts { model, widgets }
     }
 
@@ -138,126 +135,28 @@ impl SimpleComponent for BrightnessPopover {
                 }
             }
             BrightnessPopoverInput::UpdateDisplays(displays) => {
-                if let Some(primary) = choose_primary_display(&displays) {
-                    self.hero_icon
-                        .set_icon_name(Some(summary_icon_name(primary.percentage)));
-                    self.hero_subtitle
-                        .set_label(&format!("{} • {}%", primary.name, primary.percentage));
-                } else {
-                    self.hero_icon
-                        .set_icon_name(Some("display-brightness-off-symbolic"));
-                    self.hero_subtitle.set_label("No controllable displays");
-                }
-
-                while let Some(child) = self.rows_box.first_child() {
-                    self.rows_box.remove(&child);
-                }
-
-                let mut live_ids = Vec::new();
-                for display in displays {
-                    live_ids.push(display.id.clone());
-                    let row = self.rows.entry(display.id.clone()).or_insert_with(|| {
-                        build_row(
-                            display.id.clone(),
-                            display.name.clone(),
-                            self.client.clone(),
-                        )
-                    });
-                    update_row(row, &display);
-                    self.rows_box.append(&row.root);
-                }
-
-                self.rows
-                    .retain(|id, _| live_ids.iter().any(|live| live == id));
+                self.hero.emit(BrightnessHeroInput::Update(
+                    choose_primary_display(&displays).cloned(),
+                ));
+                self.display_list
+                    .emit(BrightnessDisplayListInput::Update(displays));
             }
         }
     }
 }
 
-fn build_row(display_id: String, display_name: String, client: Arc<Client>) -> BrightnessRow {
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    root.add_css_class("brightness-row");
-
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let name = gtk::Label::new(Some(&display_name));
-    name.set_hexpand(true);
-    name.set_halign(gtk::Align::Start);
-    name.add_css_class("brightness-row-name");
-    header.append(&name);
-
-    let percent = gtk::Label::new(Some("0%"));
-    percent.add_css_class("brightness-row-percent");
-    header.append(&percent);
-    root.append(&header);
-
-    let max = Rc::new(Cell::new(100));
-    let scale = build_scale(display_id, client, max.clone());
-    root.append(&scale);
-
-    BrightnessRow {
-        root,
-        percent,
-        scale,
-        max,
-    }
+fn has_settings_button(command: &str) -> bool {
+    !command.trim().is_empty()
 }
 
-fn build_scale(display_id: String, client: Arc<Client>, max: Rc<Cell<u32>>) -> gtk::Scale {
-    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
-    scale.set_hexpand(true);
+#[cfg(test)]
+mod tests {
+    use super::has_settings_button;
 
-    let last_sent = Rc::new(Cell::new(
-        Instant::now() - std::time::Duration::from_millis(200),
-    ));
-    let pending = Rc::new(Cell::new(false));
-
-    scale.connect_change_value(move |scale, _, value| {
-        let display_id = display_id.clone();
-        let last_sent = last_sent.clone();
-        let pending = pending.clone();
-        let now = Instant::now();
-        let elapsed = now.duration_since(last_sent.get());
-        let send =
-            move |display_id: String, value: u32, client: Arc<Client>, max: Rc<Cell<u32>>| {
-                let raw_value = (((value as u64) * (max.get().max(1) as u64)) / 100) as u32;
-                glib::spawn_future_local(async move {
-                    let _ = client
-                        .call(
-                            "brightness.set",
-                            serde_json::json!({"display_id": display_id, "value": raw_value}),
-                        )
-                        .await;
-                });
-            };
-
-        if elapsed.as_millis() >= 100 {
-            last_sent.set(now);
-            pending.set(false);
-            send(display_id, value as u32, client.clone(), max.clone());
-        } else if !pending.get() {
-            pending.set(true);
-            let scale = scale.clone();
-            let client = client.clone();
-            let max = max.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
-                if pending.get() {
-                    pending.set(false);
-                    last_sent.set(Instant::now());
-                    send(display_id, scale.value() as u32, client, max);
-                }
-            });
-        }
-
-        glib::Propagation::Proceed
-    });
-
-    scale
-}
-
-fn update_row(row: &BrightnessRow, display: &BrightnessDisplay) {
-    row.max.set(display.max);
-    row.percent.set_label(&format!("{}%", display.percentage));
-    if !row.scale.state_flags().contains(gtk::StateFlags::ACTIVE) {
-        row.scale.set_value(display.percentage as f64);
+    #[test]
+    fn settings_button_requires_non_whitespace_command() {
+        assert!(!has_settings_button(""));
+        assert!(!has_settings_button("   \t"));
+        assert!(has_settings_button("gnome-control-center display"));
     }
 }

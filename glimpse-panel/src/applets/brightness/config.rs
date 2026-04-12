@@ -14,7 +14,7 @@ impl Default for BrightnessConfig {
     fn default() -> Self {
         Self {
             show_icon: true,
-            label_format: "{percentage}%".into(),
+            label_format: String::new(),
             scroll_step: 5,
             hide_when_unavailable: true,
             settings_command: String::new(),
@@ -30,7 +30,7 @@ mod tests {
     fn default_brightness_config_shows_icon_and_internal_label() {
         let config = BrightnessConfig::default();
         assert!(config.show_icon);
-        assert_eq!(config.label_format, "{percentage}%");
+        assert_eq!(config.label_format, "");
         assert_eq!(config.scroll_step, 5);
     }
 }

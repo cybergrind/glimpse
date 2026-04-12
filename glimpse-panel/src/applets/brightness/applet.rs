@@ -1,36 +1,23 @@
-use std::sync::Arc;
-
-use glimpse_client::Client;
+use glimpse::{
+    brightness::{
+        BrightnessServiceHandle,
+        protocol::{BrightnessServiceCommand, BrightnessServiceState},
+    },
+    providers::brightness::{BrightnessDisplay, choose_primary_display},
+};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, glib, prelude::*},
 };
-use serde::Deserialize;
 
 use super::config::BrightnessConfig;
-use super::popover::{BrightnessPopover, BrightnessPopoverInit, BrightnessPopoverInput};
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct BrightnessDisplay {
-    pub id: String,
-    pub name: String,
-    pub backend: String,
-    pub current: u32,
-    pub max: u32,
-    pub percentage: u32,
-    pub is_internal: bool,
-    pub is_primary: bool,
-    pub available: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct BrightnessDisplaysPayload {
-    displays: Vec<BrightnessDisplay>,
-}
+use super::popover::{
+    BrightnessPopover, BrightnessPopoverInit, BrightnessPopoverInput, BrightnessPopoverOutput,
+};
 
 pub struct Brightness {
     config: BrightnessConfig,
-    client: Arc<Client>,
+    service: BrightnessServiceHandle,
     icon_name: String,
     label: String,
     tooltip: String,
@@ -41,14 +28,15 @@ pub struct Brightness {
 
 pub struct BrightnessInit {
     pub config: BrightnessConfig,
-    pub client: Arc<Client>,
+    pub service: BrightnessServiceHandle,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BrightnessMsg {
-    DisplaysUpdate(Vec<BrightnessDisplay>),
+    ServiceState(BrightnessServiceState),
     Scroll(f64),
     TogglePopover,
+    Popover(BrightnessPopoverOutput),
     Unavailable,
 }
 
@@ -111,14 +99,13 @@ impl Component for Brightness {
         let popover = BrightnessPopover::builder()
             .launch(BrightnessPopoverInit {
                 parent: root.clone(),
-                client: init.client.clone(),
                 settings_command: init.config.settings_command.clone(),
             })
-            .detach();
+            .forward(sender.input_sender(), BrightnessMsg::Popover);
 
         let model = Brightness {
             config: init.config,
-            client: init.client.clone(),
+            service: init.service.clone(),
             icon_name: "display-brightness-off-symbolic".into(),
             label: String::new(),
             tooltip: String::new(),
@@ -127,41 +114,22 @@ impl Component for Brightness {
             popover,
         };
 
-        let client = init.client;
+        let service = init.service;
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
-                    tracing::info!("brightness applet: subscribing");
-                    let mut sub = match client.subscribe("brightness.displays").await {
-                        Ok(subscription) => subscription,
-                        Err(error) => {
-                            tracing::error!("brightness: subscribe failed: {error}");
-                            let _ = out.send(BrightnessMsg::Unavailable);
-                            return;
-                        }
-                    };
+                    tracing::info!("brightness applet: subscribing to brightness service");
+                    let mut state_rx = service.subscribe();
+                    let _ = out.send(BrightnessMsg::ServiceState(state_rx.borrow().clone()));
 
                     loop {
-                        match sub.next().await {
-                            Some(event) => {
-                                match serde_json::from_value::<BrightnessDisplaysPayload>(
-                                    event.data,
-                                ) {
-                                    Ok(payload) => {
-                                        let _ = out
-                                            .send(BrightnessMsg::DisplaysUpdate(payload.displays));
-                                    }
-                                    Err(error) => {
-                                        tracing::warn!(%error, "brightness: invalid payload");
-                                    }
-                                }
-                            }
-                            None => {
-                                let _ = out.send(BrightnessMsg::Unavailable);
-                                break;
-                            }
+                        if state_rx.changed().await.is_err() {
+                            break;
                         }
+                        let _ = out.send(BrightnessMsg::ServiceState(state_rx.borrow().clone()));
                     }
+
+                    let _ = out.send(BrightnessMsg::Unavailable);
                 })
                 .drop_on_shutdown()
         });
@@ -179,18 +147,14 @@ impl Component for Brightness {
         self.update(message, sender, root);
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            BrightnessMsg::DisplaysUpdate(displays) => {
-                self.displays = displays;
+            BrightnessMsg::ServiceState(state) => {
+                self.displays = state.snapshot.displays;
                 if let Some(primary) = choose_primary_display(&self.displays) {
                     self.hidden = false;
-                    self.icon_name = summary_icon_name(primary.percentage).into();
-                    self.label = self
-                        .config
-                        .label_format
-                        .replace("{percentage}", &primary.percentage.to_string())
-                        .replace("{display}", &primary.name);
+                    self.icon_name = applet_icon_name().into();
+                    self.label = format_label(&self.config.label_format, primary);
                     self.tooltip = format!("{} — {}%", primary.name, primary.percentage);
                 } else {
                     self.hidden = self.config.hide_when_unavailable;
@@ -207,28 +171,24 @@ impl Component for Brightness {
                 let Some(primary) = choose_primary_display(&self.displays) else {
                     return;
                 };
-                let delta = if dy < 0.0 {
+                let delta_percent = if dy < 0.0 {
                     self.config.scroll_step as i32
                 } else {
                     -(self.config.scroll_step as i32)
                 };
-                let client = self.client.clone();
-                let display_id = primary.id.clone();
-                glib::spawn_future_local(async move {
-                    let _ = client
-                        .call(
-                            "brightness.set_relative",
-                            serde_json::json!({
-                                "display_id": display_id,
-                                "delta": delta,
-                                "is_percentage": true
-                            }),
-                        )
-                        .await;
-                });
+                self.send_command(
+                    sender,
+                    BrightnessServiceCommand::AdjustDisplayPercent {
+                        display_id: primary.id.clone(),
+                        delta_percent,
+                    },
+                );
             }
             BrightnessMsg::TogglePopover => {
                 self.popover.emit(BrightnessPopoverInput::Toggle);
+            }
+            BrightnessMsg::Popover(output) => {
+                self.handle_popover_output(output, sender);
             }
             BrightnessMsg::Unavailable => {
                 self.displays.clear();
@@ -243,67 +203,128 @@ impl Component for Brightness {
     }
 }
 
-pub fn choose_primary_display(displays: &[BrightnessDisplay]) -> Option<&BrightnessDisplay> {
-    displays
-        .iter()
-        .find(|display| display.is_primary && display.available)
-        .or_else(|| {
-            displays
-                .iter()
-                .find(|display| display.is_internal && display.available)
-        })
-        .or_else(|| displays.iter().find(|display| display.available))
+impl Brightness {
+    fn handle_popover_output(
+        &self,
+        output: BrightnessPopoverOutput,
+        sender: ComponentSender<Brightness>,
+    ) {
+        match output {
+            BrightnessPopoverOutput::Opened => {
+                self.send_command(sender, BrightnessServiceCommand::PopoverOpened);
+            }
+            BrightnessPopoverOutput::Closed => {
+                self.send_command(sender, BrightnessServiceCommand::PopoverClosed);
+            }
+            BrightnessPopoverOutput::SetDisplayPercent {
+                display_id,
+                percent,
+            } => {
+                self.send_command(
+                    sender,
+                    BrightnessServiceCommand::SetDisplayPercent {
+                        display_id,
+                        percent,
+                    },
+                );
+            }
+            BrightnessPopoverOutput::OpenSettings => {
+                spawn_settings_command(&self.config.settings_command);
+            }
+        }
+    }
+
+    fn send_command(&self, sender: ComponentSender<Brightness>, command: BrightnessServiceCommand) {
+        let service = self.service.clone();
+        sender.command(move |_out, shutdown| {
+            shutdown
+                .register(async move {
+                    if let Err(error) = service.send(command).await {
+                        tracing::warn!(error = %error, "brightness applet: failed to send service command");
+                    }
+                })
+                .drop_on_shutdown()
+        });
+    }
 }
 
-pub fn summary_icon_name(percentage: u32) -> &'static str {
-    match percentage {
-        0 => "display-brightness-off-symbolic",
-        1..=33 => "display-brightness-low-symbolic",
-        34..=66 => "display-brightness-medium-symbolic",
-        _ => "display-brightness-high-symbolic",
+pub(super) fn applet_icon_name() -> &'static str {
+    "display-brightness-symbolic"
+}
+
+fn format_label(template: &str, display: &BrightnessDisplay) -> String {
+    if template.is_empty() {
+        return String::new();
+    }
+
+    template
+        .replace("{percentage}", &display.percentage.to_string())
+        .replace("{display}", &display.name)
+        .trim_end_matches([' ', ',', '-', '—'])
+        .to_owned()
+}
+
+fn spawn_settings_command(command: &str) {
+    if command.trim().is_empty() {
+        return;
+    }
+
+    let command = command.to_owned();
+    if let Ok(mut child) = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .spawn()
+    {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BrightnessDisplay, choose_primary_display, summary_icon_name};
-
-    #[test]
-    fn choose_primary_display_prefers_internal_display() {
-        let displays = vec![
-            BrightnessDisplay {
-                id: "ddc:1".into(),
-                name: "Dell".into(),
-                backend: "ddc".into(),
-                current: 40,
-                max: 100,
-                percentage: 40,
-                is_internal: false,
-                is_primary: false,
-                available: true,
-            },
-            BrightnessDisplay {
-                id: "backlight:intel".into(),
-                name: "Laptop".into(),
-                backend: "internal".into(),
-                current: 1200,
-                max: 2000,
-                percentage: 60,
-                is_internal: true,
-                is_primary: true,
-                available: true,
-            },
-        ];
-
-        let primary = choose_primary_display(&displays).expect("primary display");
-        assert_eq!(primary.id, "backlight:intel");
-    }
+    use super::{applet_icon_name, format_label};
+    use glimpse::providers::brightness::{BrightnessBackend, BrightnessDisplay};
 
     #[test]
     fn summary_icon_name_uses_percentage_bands() {
+        fn summary_icon_name(percentage: u8) -> &'static str {
+            match percentage {
+                0 => "display-brightness-off-symbolic",
+                1..=33 => "display-brightness-low-symbolic",
+                34..=66 => "display-brightness-medium-symbolic",
+                _ => "display-brightness-high-symbolic",
+            }
+        }
+
         assert_eq!(summary_icon_name(0), "display-brightness-off-symbolic");
         assert_eq!(summary_icon_name(20), "display-brightness-low-symbolic");
         assert_eq!(summary_icon_name(50), "display-brightness-medium-symbolic");
         assert_eq!(summary_icon_name(90), "display-brightness-high-symbolic");
+    }
+
+    #[test]
+    fn applet_icon_name_is_stable() {
+        assert_eq!(applet_icon_name(), "display-brightness-symbolic");
+    }
+
+    #[test]
+    fn format_label_supports_display_name_and_percentage() {
+        let display = BrightnessDisplay {
+            id: "backlight:intel".into(),
+            name: "Laptop".into(),
+            backend: BrightnessBackend::Backlight,
+            current: 1200,
+            max: 2000,
+            percentage: 60,
+            is_internal: true,
+            is_primary: true,
+            available: true,
+        };
+
+        assert_eq!(
+            format_label("{display}: {percentage}%", &display),
+            "Laptop: 60%"
+        );
     }
 }
