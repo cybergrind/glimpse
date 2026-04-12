@@ -1,7 +1,7 @@
 pub mod components;
 pub mod heic;
 
-pub use components::{MonitorWindow, MonitorWindowInit, MonitorWindowMsg};
+pub use components::{MonitorWindow, MonitorWindowInit};
 
 use std::collections::HashMap;
 

@@ -22,3 +22,4 @@ gtk4 = { workspace = true, features = ["v4_8"] }
 css-color.workspace = true
 image = "0.25"
 libheif-rs = "2.7.0"
+dirs.workspace = true
