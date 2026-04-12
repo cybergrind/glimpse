@@ -112,11 +112,13 @@ impl ExecPopover {
     }
 
     fn remember_current_focus(&mut self) {
-        self.last_interacted_id = focused_target_id(&self.focus_targets).or(self.last_interacted_id.take());
+        self.last_interacted_id =
+            focused_target_id(&self.focus_targets).or(self.last_interacted_id.take());
     }
 
     fn restore_focus(&self) {
-        let Some(id) = restore_target_id(self.last_interacted_id.as_deref(), &self.focus_targets) else {
+        let Some(id) = restore_target_id(self.last_interacted_id.as_deref(), &self.focus_targets)
+        else {
             return;
         };
         let Some(widget) = self.focus_targets.get(&id).cloned() else {

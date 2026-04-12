@@ -262,9 +262,7 @@ fn build_action_row(row: SessionRow, sender: &ComponentSender<SessionPopover>) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::providers::session_actions::{
-        SessionActionCapabilities, SessionSnapshot,
-    };
+    use glimpse::providers::session_actions::{SessionActionCapabilities, SessionSnapshot};
 
     #[test]
     fn session_rows_respect_config_visibility() {
@@ -287,7 +285,10 @@ mod tests {
         };
 
         let rows = build_rows(&config, &snapshot);
-        assert!(rows.iter().all(|row| row.action != SessionAction::Hibernate));
+        assert!(
+            rows.iter()
+                .all(|row| row.action != SessionAction::Hibernate)
+        );
         assert!(rows.iter().any(|row| row.action == SessionAction::Logout));
     }
 

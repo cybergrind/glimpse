@@ -241,9 +241,7 @@ pub enum TreeNode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChildMessage {
     Status(StatusData),
-    Tree {
-        content: Option<TreeNode>,
-    },
+    Tree { content: Option<TreeNode> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -314,7 +312,9 @@ impl<'de> Deserialize<'de> for ChildMessage {
                 } else {
                     serde_json::from_value(raw.data).map_err(serde::de::Error::custom)?
                 };
-                Ok(ChildMessage::Tree { content: payload.content })
+                Ok(ChildMessage::Tree {
+                    content: payload.content,
+                })
             }
             other => Err(serde::de::Error::custom(format!(
                 "unknown message type {other}"
@@ -332,8 +332,7 @@ impl fmt::Display for AlignValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        CallbackData, ChildMessage, IconSource, PanelMessage, StatusData, StatusItem,
-        TreeNode,
+        CallbackData, ChildMessage, IconSource, PanelMessage, StatusData, StatusItem, TreeNode,
     };
 
     #[test]

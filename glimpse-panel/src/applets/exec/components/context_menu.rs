@@ -1,4 +1,7 @@
-use relm4::{ComponentSender, gtk::{self, prelude::*}};
+use relm4::{
+    ComponentSender,
+    gtk::{self, prelude::*},
+};
 
 use crate::applets::exec::applet::{Exec, ExecMsg};
 

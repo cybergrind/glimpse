@@ -105,11 +105,7 @@ impl relm4::factory::FactoryComponent for CalendarDayItem {
         }
     }
 
-    fn init_model(
-        init: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self { cell: init }
     }
 
@@ -281,7 +277,8 @@ impl Component for Calendar {
                 }
             }
             Input::MonthData(month) => {
-                if month.year != self.visible_month.year() || month.month != self.visible_month.month()
+                if month.year != self.visible_month.year()
+                    || month.month != self.visible_month.month()
                 {
                     return;
                 }
@@ -328,7 +325,8 @@ impl Calendar {
         guard.drop();
 
         for (index, cell) in cells.into_iter().enumerate() {
-            self.day_cells.send(index, CalendarDayItemInput::Update(cell));
+            self.day_cells
+                .send(index, CalendarDayItemInput::Update(cell));
         }
     }
 }

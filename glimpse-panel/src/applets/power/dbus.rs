@@ -17,8 +17,10 @@ pub(super) async fn monitor_battery(conn: zbus::Connection, tx: mpsc::Sender<Pow
     }
 }
 
-async fn try_monitor_battery(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
-
+async fn try_monitor_battery(
+    conn: zbus::Connection,
+    tx: mpsc::Sender<PowerCommand>,
+) -> zbus::Result<()> {
     let upower = zbus::Proxy::new(
         &conn,
         "org.freedesktop.UPower",
@@ -94,7 +96,10 @@ pub(super) async fn monitor_profiles(conn: zbus::Connection, tx: mpsc::Sender<Po
     }
 }
 
-async fn try_monitor_profiles(conn: zbus::Connection, tx: mpsc::Sender<PowerCommand>) -> zbus::Result<()> {
+async fn try_monitor_profiles(
+    conn: zbus::Connection,
+    tx: mpsc::Sender<PowerCommand>,
+) -> zbus::Result<()> {
     use std::collections::HashMap;
     use zbus::zvariant::OwnedValue;
 

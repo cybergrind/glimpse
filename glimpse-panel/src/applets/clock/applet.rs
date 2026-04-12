@@ -1,9 +1,7 @@
 use chrono::Local;
-use glimpse::{
-    calendar::{
-        CalendarServiceHandle,
-        protocol::{CalendarDate, CalendarServiceCommand, CalendarServiceState},
-    },
+use glimpse::calendar::{
+    CalendarServiceHandle,
+    protocol::{CalendarDate, CalendarServiceCommand, CalendarServiceState},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -107,7 +105,8 @@ impl Component for Clock {
                         if state_rx.changed().await.is_err() {
                             break;
                         }
-                        let _ = out.send(ClockCommandOutput::CalendarState(state_rx.borrow().clone()));
+                        let _ =
+                            out.send(ClockCommandOutput::CalendarState(state_rx.borrow().clone()));
                     }
 
                     tracing::warn!("clock applet: calendar service state channel closed");
@@ -178,7 +177,9 @@ impl Component for Clock {
     ) {
         match message {
             ClockCommandOutput::Tick => sender.input(ClockInput::Tick),
-            ClockCommandOutput::CalendarState(state) => sender.input(ClockInput::CalendarState(state)),
+            ClockCommandOutput::CalendarState(state) => {
+                sender.input(ClockInput::CalendarState(state))
+            }
             ClockCommandOutput::Unavailable => sender.input(ClockInput::Unavailable),
         }
     }

@@ -1,16 +1,14 @@
 use glimpse::{
-    bluetooth::BluetoothServiceHandle,
-    calendar::CalendarServiceHandle,
-    mpris::MprisServiceHandle,
-    network::NetworkServiceHandle,
-    notifications::NotificationsServiceHandle,
-    privacy::PrivacyServiceHandle,
+    bluetooth::BluetoothServiceHandle, brightness::BrightnessServiceHandle,
+    calendar::CalendarServiceHandle, mpris::MprisServiceHandle, network::NetworkServiceHandle,
+    notifications::NotificationsServiceHandle, privacy::PrivacyServiceHandle,
     tray::TrayServiceHandle,
 };
 
 #[derive(Clone)]
 pub struct ServicesHandle {
     pub bluetooth: BluetoothServiceHandle,
+    pub brightness: BrightnessServiceHandle,
     pub calendar: CalendarServiceHandle,
     pub mpris: MprisServiceHandle,
     pub network: NetworkServiceHandle,
@@ -26,6 +24,7 @@ pub struct Services {
 impl Services {
     pub fn new(session: zbus::Connection, system: zbus::Connection) -> Self {
         let bluetooth = BluetoothServiceHandle::new(system.clone());
+        let brightness = BrightnessServiceHandle::new(system.clone());
         let calendar = CalendarServiceHandle::new(session.clone());
         let mpris = MprisServiceHandle::new(session.clone());
         let network = NetworkServiceHandle::new(system.clone());
@@ -35,6 +34,7 @@ impl Services {
         Self {
             handle: ServicesHandle {
                 bluetooth,
+                brightness,
                 calendar,
                 mpris,
                 network,

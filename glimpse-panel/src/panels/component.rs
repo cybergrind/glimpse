@@ -65,16 +65,14 @@ impl SimpleComponent for Panel {
         for name in &init.config.applets {
             let config = init.applet_configs.get(name);
             tracing::debug!("create applet '{}' (config: {})", name, config.is_some());
-            if let Some(applet) =
-                create_applet(
-                    config,
-                    name,
-                    init.dbus.clone(),
-                    init.system.clone(),
-                    init.client.clone(),
-                    init.services.clone(),
-                )
-            {
+            if let Some(applet) = create_applet(
+                config,
+                name,
+                init.dbus.clone(),
+                init.system.clone(),
+                init.client.clone(),
+                init.services.clone(),
+            ) {
                 hbox.append(&applet.widget());
                 applets.push(applet);
             }

@@ -75,9 +75,15 @@ impl Component for Pager {
         let scroll_sender = sender.clone();
         scroll.connect_scroll(move |_ctrl, dx, dy| {
             if dx != 0.0 {
-                scroll_sender.input(PagerInput::Scroll { dy: dx, horizontal: true });
+                scroll_sender.input(PagerInput::Scroll {
+                    dy: dx,
+                    horizontal: true,
+                });
             } else if dy != 0.0 {
-                scroll_sender.input(PagerInput::Scroll { dy, horizontal: false });
+                scroll_sender.input(PagerInput::Scroll {
+                    dy,
+                    horizontal: false,
+                });
             }
             gtk::glib::Propagation::Stop
         });
@@ -173,9 +179,7 @@ impl Component for Pager {
                     }
                 }
                 Some(Compositor::Hyprland) => {
-                    self.action_tx
-                        .try_send(PagerAction::SwitchTo(index))
-                        .ok();
+                    self.action_tx.try_send(PagerAction::SwitchTo(index)).ok();
                 }
                 None => {}
             },

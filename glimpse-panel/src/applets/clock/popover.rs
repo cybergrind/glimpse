@@ -79,9 +79,7 @@ impl SimpleComponent for Popover {
         left.append(date.widget());
 
         let calendar = Calendar::builder()
-            .launch(CalendarInit {
-                selected_date,
-            })
+            .launch(CalendarInit { selected_date })
             .forward(sender.input_sender(), PopoverInput::CalendarOutput);
         left.append(calendar.widget());
 
@@ -144,27 +142,28 @@ impl SimpleComponent for Popover {
                 self.state = state;
                 self.sync_from_state(&self.state);
             }
-            PopoverInput::CalendarOutput(output) => match output {
-                CalendarOutput::SelectedDate(date) => {
-                    let month_changed = month_key(date) != month_key(self.selected_date);
-                    self.selected_date = date;
-                    self.follow_today = date == Local::now().date_naive();
-                    self.date.emit(DateInput::SetDate(date));
-                    self.emit_selected_day(date, month_changed);
+            PopoverInput::CalendarOutput(output) => {
+                match output {
+                    CalendarOutput::SelectedDate(date) => {
+                        let month_changed = month_key(date) != month_key(self.selected_date);
+                        self.selected_date = date;
+                        self.follow_today = date == Local::now().date_naive();
+                        self.date.emit(DateInput::SetDate(date));
+                        self.emit_selected_day(date, month_changed);
+                    }
+                    CalendarOutput::LoadMonth { year, month } => {
+                        let _ = sender.output(PopoverOutput::Command(
+                            CalendarServiceCommand::LoadMonth { year, month },
+                        ));
+                    }
                 }
-                CalendarOutput::LoadMonth { year, month } => {
-                    let _ = sender.output(PopoverOutput::Command(
-                        CalendarServiceCommand::LoadMonth { year, month },
-                    ));
-                }
-            },
+            }
             PopoverInput::EventsOutput(output) => match output {
                 EventsOutput::LoadDay { date } => {
-                    let _ = sender.output(PopoverOutput::Command(
-                        CalendarServiceCommand::LoadDay {
+                    let _ =
+                        sender.output(PopoverOutput::Command(CalendarServiceCommand::LoadDay {
                             date: CalendarDate::from_naive_date(date),
-                        },
-                    ));
+                        }));
                 }
             },
         }
@@ -285,7 +284,9 @@ fn today_as_day_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::calendar::protocol::{CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth, CalendarToday};
+    use glimpse::calendar::protocol::{
+        CalendarEvent, CalendarMonthSnapshot, CalendarServiceHealth, CalendarToday,
+    };
 
     #[test]
     fn missing_selected_day_preserves_existing_list_until_loaded() {

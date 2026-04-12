@@ -1,6 +1,6 @@
 mod applet;
-mod config;
 pub mod components;
+mod config;
 mod popover;
 mod protocol;
 mod renderer;
