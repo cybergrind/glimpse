@@ -1,4 +1,4 @@
-use glimpse::providers::battery::{BatteryState, BatteryStatus};
+use glimpse::battery::provider::{BatteryState, BatteryStatus};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

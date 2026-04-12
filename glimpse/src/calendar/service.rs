@@ -9,7 +9,7 @@ use crate::{
         CalendarDate, CalendarDaySnapshot, CalendarMonthSnapshot, CalendarServiceCommand,
         CalendarServiceHealth, CalendarServiceState,
     },
-    providers::calendar::{
+    calendar::provider::{
         CalendarBackend, CalendarChangeReason, CalendarLiveRange, CalendarProvider,
         CalendarProviderEvent,
     },
@@ -340,7 +340,7 @@ mod tests {
     use super::*;
     use crate::{
         calendar::protocol::{CalendarMonthDay, CalendarToday},
-        providers::calendar::{CalendarLiveRange, CalendarProviderEvent},
+        calendar::provider::{CalendarLiveRange, CalendarProviderEvent},
     };
 
     #[derive(Default)]

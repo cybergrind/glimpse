@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use glimpse::providers::session_actions::SessionSnapshot;
+use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
     gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
@@ -129,7 +129,7 @@ impl SimpleComponent for SessionPopover {
 
 #[cfg(test)]
 mod tests {
-    use glimpse::providers::session_actions::{
+    use glimpse::session_actions::provider::{
         SessionActionAvailability, SessionActionCapabilities, SessionBackendState, SessionSnapshot,
     };
 

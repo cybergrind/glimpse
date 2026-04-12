@@ -1,4 +1,4 @@
-use glimpse::providers::session_actions::SessionSnapshot;
+use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
     gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,

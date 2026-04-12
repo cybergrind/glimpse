@@ -1,7 +1,7 @@
 #![allow(unused_assignments)]
 
-use glimpse::providers::battery::BatteryStatus;
-use glimpse::providers::power::PowerProfiles;
+use glimpse::battery::provider::BatteryStatus;
+use glimpse::power::provider::PowerProfiles;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},

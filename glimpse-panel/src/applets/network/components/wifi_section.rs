@@ -7,7 +7,7 @@ use std::{
 };
 
 use glimpse::network::protocol::NetworkActiveAction;
-use glimpse::providers::network::WifiAccessPoint;
+use glimpse::network::provider::WifiAccessPoint;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

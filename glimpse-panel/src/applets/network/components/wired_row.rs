@@ -1,4 +1,4 @@
-use glimpse::providers::network::NetworkDevice;
+use glimpse::network::provider::NetworkDevice;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

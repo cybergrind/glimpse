@@ -1,4 +1,4 @@
-use glimpse::providers::audio::{AudioStream, DeviceList};
+use glimpse::audio::provider::{AudioStream, DeviceList};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
@@ -160,7 +160,7 @@ impl SimpleComponent for AudioPopover {
             }
             AudioPopoverInput::UpdateOutputs(outputs) => {
                 if let Some(device) = outputs.default_device() {
-                    use glimpse::providers::audio::volume_icon;
+                    use glimpse::audio::provider::volume_icon;
 
                     let subtitle = if device.muted {
                         format!("{} — muted", device.description)

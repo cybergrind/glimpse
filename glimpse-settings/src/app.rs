@@ -15,10 +15,10 @@ use glimpse::bluetooth::{
         BluetoothServiceHealth, BluetoothServiceState,
     },
 };
-use glimpse::providers::{
-    audio::{AudioDevice, AudioEvent, AudioProvider, AudioStream},
-    bluetooth::{BluetoothAdapter, BluetoothDevice},
-    power_policy::PowerPolicyAction,
+use glimpse::{
+    audio::provider::{AudioDevice, AudioEvent, AudioProvider, AudioStream},
+    bluetooth::provider::{BluetoothAdapter, BluetoothDevice},
+    power_policy::provider::PowerPolicyAction,
 };
 use gtk4::{self as gtk, gio, glib};
 use tokio::runtime::Runtime;
@@ -3186,7 +3186,7 @@ fn start_power_subscription(runtime: Arc<Runtime>, power_ui: PowerUi, cancel: Ca
     glib::timeout_add_local(Duration::from_secs(2), move || {
         let snapshot = policy_ui.backend.load_policy();
         if policy_ui.state.borrow_mut().apply_policy_event(
-            &glimpse::providers::power_policy::PowerPolicyEvent::Changed(snapshot),
+            &glimpse::power_policy::provider::PowerPolicyEvent::Changed(snapshot),
         ) != power::ExternalPowerUpdate::Unchanged
         {
             policy_ui.sync();
@@ -3344,7 +3344,7 @@ fn power_profile_label(profile: &str) -> String {
     }
 }
 
-fn power_source_summary(devices: &[glimpse::providers::battery::BatteryDevice]) -> String {
+fn power_source_summary(devices: &[glimpse::battery::provider::BatteryDevice]) -> String {
     let names = devices
         .iter()
         .filter(|device| !device.model.trim().is_empty())
@@ -4453,7 +4453,7 @@ mod tests {
         displays_validation_state, mirror_control_state, preset_index_to_placement,
         stream_icon_fallback_candidates, stream_icon_name,
     };
-    use glimpse::providers::{audio::AudioStream, bluetooth::BluetoothAdapter};
+    use glimpse::{audio::provider::AudioStream, bluetooth::provider::BluetoothAdapter};
     use glimpse_settings::display::{
         CompositorKind, DisplayDraft, DisplayMode, DisplayOrientation, DisplayOutput,
         DisplayPlacement, DisplaySnapshot,

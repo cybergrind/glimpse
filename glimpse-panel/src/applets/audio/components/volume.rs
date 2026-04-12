@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use glimpse::providers::audio::{AudioDevice, DeviceList, volume_icon};
+use glimpse::audio::provider::{AudioDevice, DeviceList, volume_icon};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},

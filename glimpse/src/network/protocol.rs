@@ -1,4 +1,4 @@
-use crate::providers::network::NetworkSnapshot;
+use crate::network::provider::NetworkSnapshot;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct NetworkPromptId(pub u64);
@@ -118,10 +118,10 @@ mod tests {
     #[test]
     fn network_failure_classification_roundtrip() {
         let classification =
-            crate::providers::network::NetworkFailureClassification::AuthenticationFailed;
+            crate::network::provider::NetworkFailureClassification::AuthenticationFailed;
         assert_eq!(
             classification,
-            crate::providers::network::NetworkFailureClassification::AuthenticationFailed
+            crate::network::provider::NetworkFailureClassification::AuthenticationFailed
         );
     }
 }

@@ -1,8 +1,14 @@
 use anyhow::Context;
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
-use relm4::gtk::{gdk, glib};
 
-pub fn load(path: &std::path::Path) -> anyhow::Result<gdk::MemoryTexture> {
+pub struct DecodedHeic {
+    pub width: i32,
+    pub height: i32,
+    pub stride: usize,
+    pub pixels: Vec<u8>,
+}
+
+pub fn decode(path: &std::path::Path) -> anyhow::Result<DecodedHeic> {
     let ctx = HeifContext::read_from_file(path.to_str().context("non-UTF-8 path")?)?;
     let lib = LibHeif::new();
     let handle = ctx.primary_image_handle()?;
@@ -18,12 +24,10 @@ pub fn load(path: &std::path::Path) -> anyhow::Result<gdk::MemoryTexture> {
         packed.extend_from_slice(&plane.data[start..start + row_bytes]);
     }
 
-    let bytes = glib::Bytes::from(&packed);
-    Ok(gdk::MemoryTexture::new(
-        w as i32,
-        h as i32,
-        gdk::MemoryFormat::R8g8b8a8,
-        &bytes,
-        row_bytes,
-    ))
+    Ok(DecodedHeic {
+        width: w as i32,
+        height: h as i32,
+        stride: row_bytes,
+        pixels: packed,
+    })
 }

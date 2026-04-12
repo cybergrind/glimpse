@@ -7,7 +7,7 @@ use std::{
 };
 
 use glimpse::network::protocol::NetworkActiveAction;
-use glimpse::providers::network::SavedVpn;
+use glimpse::network::provider::SavedVpn;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

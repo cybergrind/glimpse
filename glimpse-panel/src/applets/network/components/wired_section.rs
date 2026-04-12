@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use glimpse::providers::network::NetworkDevice;
+use glimpse::network::provider::NetworkDevice;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},

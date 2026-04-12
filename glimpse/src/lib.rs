@@ -1,4 +1,6 @@
+pub mod audio;
 pub mod backdrop;
+pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
 pub mod calendar;
@@ -9,7 +11,9 @@ pub mod display;
 pub mod mpris;
 pub mod network;
 pub mod notifications;
+pub mod power;
+pub mod power_policy;
 pub mod privacy;
-pub mod providers;
+pub mod session_actions;
 pub mod tray;
 pub mod wallpaper;

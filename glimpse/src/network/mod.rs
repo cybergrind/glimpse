@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod provider;
 mod secret_agent;
 pub mod service;
 

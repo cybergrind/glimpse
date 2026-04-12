@@ -1,7 +1,7 @@
 #![allow(unused_assignments)]
 
 use glimpse::network::protocol::NetworkActiveAction;
-use glimpse::providers::network::NetworkSnapshot;
+use glimpse::network::provider::NetworkSnapshot;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},

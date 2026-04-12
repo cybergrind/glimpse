@@ -20,7 +20,6 @@ pub struct TrayButtonView {
 
 impl From<&TrayItem> for TrayButtonView {
     fn from(item: &TrayItem) -> Self {
-        println!("with icon {:?}", item.icon);
         Self {
             tooltip: button_tooltip(item),
             status: item.status,

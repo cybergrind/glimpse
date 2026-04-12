@@ -3,7 +3,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use glimpse::providers::audio::DeviceList;
+use glimpse::audio::provider::DeviceList;
 
 use super::device_list_section::{
     DeviceListSection, DeviceListSectionInit, DeviceListSectionInput, DeviceListSectionOutput,

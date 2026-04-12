@@ -1,4 +1,4 @@
-use glimpse::providers::audio::{AudioDevice, DeviceList};
+use glimpse::audio::provider::{AudioDevice, DeviceList};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},

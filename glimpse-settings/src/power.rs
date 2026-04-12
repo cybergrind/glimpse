@@ -1,7 +1,7 @@
-use glimpse::providers::{
-    battery::{BatteryDevice, BatteryEvent, BatteryState, BatteryStatus},
-    power::{PowerEvent, PowerProfiles},
-    power_policy::{PowerPolicyAction, PowerPolicyEvent, PowerPolicySnapshot},
+use glimpse::{
+    battery::provider::{BatteryDevice, BatteryEvent, BatteryState, BatteryStatus},
+    power::provider::{PowerEvent, PowerProfiles},
+    power_policy::provider::{PowerPolicyAction, PowerPolicyEvent, PowerPolicySnapshot},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,10 +286,10 @@ mod tests {
         action_label, action_options, format_battery_health, format_battery_summary,
         minutes_to_seconds, profile_options, seconds_to_minutes,
     };
-    use glimpse::providers::{
-        battery::{BatteryDevice, BatteryEvent, BatteryState, BatteryStatus, DeviceType},
-        power::{PowerEvent, PowerProfiles},
-        power_policy::{PowerPolicyAction, PowerPolicyEvent, PowerPolicySnapshot},
+    use glimpse::{
+        battery::provider::{BatteryDevice, BatteryEvent, BatteryState, BatteryStatus, DeviceType},
+        power::provider::{PowerEvent, PowerProfiles},
+        power_policy::provider::{PowerPolicyAction, PowerPolicyEvent, PowerPolicySnapshot},
     };
 
     #[test]

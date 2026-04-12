@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    providers::tray::{TrayProvider, TrayProviderEvent},
+    tray::provider::{TrayProvider, TrayProviderEvent},
     tray::protocol::{TrayServiceCommand, TrayServiceHealth, TrayServiceState},
 };
 

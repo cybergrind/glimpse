@@ -3,7 +3,7 @@ use glimpse::{
         BrightnessServiceHandle,
         protocol::{BrightnessServiceCommand, BrightnessServiceState},
     },
-    providers::brightness::{BrightnessDisplay, choose_primary_display},
+    brightness::provider::{BrightnessDisplay, choose_primary_display},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -284,7 +284,7 @@ fn spawn_settings_command(command: &str) {
 #[cfg(test)]
 mod tests {
     use super::{applet_icon_name, format_label};
-    use glimpse::providers::brightness::{BrightnessBackend, BrightnessDisplay};
+    use glimpse::brightness::provider::{BrightnessBackend, BrightnessDisplay};
 
     #[test]
     fn summary_icon_name_uses_percentage_bands() {

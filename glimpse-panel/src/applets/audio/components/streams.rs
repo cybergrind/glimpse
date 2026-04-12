@@ -1,4 +1,4 @@
-use glimpse::providers::audio::AudioStream;
+use glimpse::audio::provider::AudioStream;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},

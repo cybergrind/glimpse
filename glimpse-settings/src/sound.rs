@@ -1,4 +1,4 @@
-use glimpse::providers::audio::{AudioDevice, AudioEvent, AudioStream};
+use glimpse::audio::provider::{AudioDevice, AudioEvent, AudioStream};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SoundState {
@@ -153,7 +153,7 @@ fn mark_default(devices: &mut [AudioDevice], name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::SoundState;
-    use glimpse::providers::audio::{AudioDevice, AudioEvent, AudioStream};
+    use glimpse::audio::provider::{AudioDevice, AudioEvent, AudioStream};
 
     #[test]
     fn prefers_explicit_default_devices() {

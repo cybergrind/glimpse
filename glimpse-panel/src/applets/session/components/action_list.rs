@@ -1,4 +1,4 @@
-use glimpse::providers::session_actions::{
+use glimpse::session_actions::provider::{
     SessionActionAvailability, SessionBackendState, SessionSnapshot,
 };
 use relm4::{
@@ -200,7 +200,7 @@ fn build_action_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::providers::session_actions::SessionActionCapabilities;
+    use glimpse::session_actions::provider::SessionActionCapabilities;
 
     #[test]
     fn action_enabled_treats_available_and_challenge_as_enabled() {

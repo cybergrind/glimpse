@@ -307,7 +307,7 @@ fn spawn_settings_command(command: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::providers::network::{
+    use glimpse::network::provider::{
         NetworkConnection, NetworkSnapshot, NetworkStatus, SavedVpn,
     };
 

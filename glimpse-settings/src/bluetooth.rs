@@ -1,6 +1,6 @@
 use glimpse::{
     bluetooth::protocol::BluetoothServiceState,
-    providers::bluetooth::{BluetoothAdapter, BluetoothDevice},
+    bluetooth::provider::{BluetoothAdapter, BluetoothDevice},
 };
 
 #[derive(Debug, Clone)]
@@ -194,7 +194,7 @@ mod tests {
     use super::*;
     use glimpse::{
         bluetooth::protocol::BluetoothServiceHealth,
-        providers::bluetooth::{BluetoothDeviceType, BluetoothSnapshot, BluetoothStatus},
+        bluetooth::provider::{BluetoothDeviceType, BluetoothSnapshot, BluetoothStatus},
     };
 
     fn adapter(path: &str, name: &str, powered: bool, discoverable: bool) -> BluetoothAdapter {

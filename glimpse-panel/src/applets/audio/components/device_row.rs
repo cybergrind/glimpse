@@ -1,4 +1,4 @@
-use glimpse::providers::audio::AudioDevice;
+use glimpse::audio::provider::AudioDevice;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

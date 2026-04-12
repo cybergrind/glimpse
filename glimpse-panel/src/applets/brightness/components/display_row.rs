@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use glimpse::providers::brightness::BrightnessDisplay;
+use glimpse::brightness::provider::BrightnessDisplay;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},

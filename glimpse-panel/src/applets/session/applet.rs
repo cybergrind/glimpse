@@ -1,5 +1,5 @@
 use adw::prelude::{AdwDialogExt, AlertDialogExt};
-use glimpse::providers::session_actions::{SessionActions, SessionSnapshot};
+use glimpse::session_actions::provider::{SessionActions, SessionSnapshot};
 use relm4::{
     gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller,

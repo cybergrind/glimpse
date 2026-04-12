@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glimpse::providers::power::PowerProfiles;
+use glimpse::power::provider::PowerProfiles;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

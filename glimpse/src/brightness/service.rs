@@ -8,7 +8,7 @@ use crate::{
         BrightnessActiveAdjustment, BrightnessServiceCommand, BrightnessServiceHealth,
         BrightnessServiceState,
     },
-    providers::brightness::{BrightnessProvider, BrightnessProviderEvent},
+    brightness::provider::{BrightnessProvider, BrightnessProviderEvent},
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;

@@ -15,7 +15,7 @@ use crate::{
             BluetoothServiceState,
         },
     },
-    providers::bluetooth::{BluetoothProvider, BluetoothProviderEvent},
+    bluetooth::provider::{BluetoothProvider, BluetoothProviderEvent},
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;
@@ -214,7 +214,7 @@ async fn run_connected(
     result
 }
 
-fn log_provider_change(reason: crate::providers::bluetooth::BluetoothChangeReason) {
+fn log_provider_change(reason: crate::bluetooth::provider::BluetoothChangeReason) {
     tracing::debug!(reason = %reason, "bluetooth service: provider changed");
 }
 
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn provider_change_logs_are_debug_only() {
-        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::PropertiesChanged);
-        log_provider_change(crate::providers::bluetooth::BluetoothChangeReason::Mixed);
+        log_provider_change(crate::bluetooth::provider::BluetoothChangeReason::PropertiesChanged);
+        log_provider_change(crate::bluetooth::provider::BluetoothChangeReason::Mixed);
     }
 }

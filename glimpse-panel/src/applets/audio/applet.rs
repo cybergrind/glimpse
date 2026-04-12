@@ -1,4 +1,4 @@
-use glimpse::providers::audio::{AudioEvent, AudioProvider, AudioStream, DeviceList, volume_icon};
+use glimpse::audio::provider::{AudioEvent, AudioProvider, AudioStream, DeviceList, volume_icon};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, glib, prelude::*},

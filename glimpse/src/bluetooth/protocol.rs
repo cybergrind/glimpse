@@ -1,4 +1,4 @@
-use crate::providers::bluetooth::BluetoothSnapshot;
+use crate::bluetooth::provider::BluetoothSnapshot;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BluetoothPromptId(pub u64);

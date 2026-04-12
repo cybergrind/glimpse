@@ -1,7 +1,7 @@
-use glimpse::providers::{
-    battery::{BatteryEvent, BatteryProvider},
-    power::{PowerEvent, PowerProvider},
-    power_policy::{PowerPolicyEvent, PowerPolicySettings, PowerPolicySnapshot},
+use glimpse::{
+    battery::provider::{BatteryEvent, BatteryProvider},
+    power::provider::{PowerEvent, PowerProvider},
+    power_policy::provider::{PowerPolicyEvent, PowerPolicySettings, PowerPolicySnapshot},
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;

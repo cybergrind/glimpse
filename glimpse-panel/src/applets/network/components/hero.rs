@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use glimpse::providers::network::NetworkStatus;
+use glimpse::network::provider::NetworkStatus;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},

@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use glimpse::providers::brightness::{BrightnessDisplay, choose_primary_display};
+use glimpse::brightness::provider::{BrightnessDisplay, choose_primary_display};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},

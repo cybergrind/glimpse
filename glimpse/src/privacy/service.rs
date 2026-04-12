@@ -4,7 +4,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 
 use crate::{
     privacy::protocol::{PrivacyServiceCommand, PrivacyServiceHealth, PrivacyServiceState},
-    providers::privacy::{PrivacyBackend, PrivacyProvider},
+    privacy::provider::{PrivacyBackend, PrivacyProvider},
 };
 
 #[derive(Clone)]

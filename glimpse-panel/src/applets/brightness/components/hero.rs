@@ -1,4 +1,4 @@
-use glimpse::providers::brightness::BrightnessDisplay;
+use glimpse::brightness::provider::BrightnessDisplay;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},

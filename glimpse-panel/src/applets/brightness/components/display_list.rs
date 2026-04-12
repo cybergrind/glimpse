@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use glimpse::providers::brightness::BrightnessDisplay;
+use glimpse::brightness::provider::BrightnessDisplay;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},

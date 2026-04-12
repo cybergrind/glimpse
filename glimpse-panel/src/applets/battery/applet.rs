@@ -1,5 +1,5 @@
-use glimpse::providers::battery::{BatteryEvent, BatteryProvider, BatteryState, BatteryStatus};
-use glimpse::providers::power::{PowerEvent, PowerProfiles, PowerProvider};
+use glimpse::battery::provider::{BatteryEvent, BatteryProvider, BatteryState, BatteryStatus};
+use glimpse::power::provider::{PowerEvent, PowerProfiles, PowerProvider};
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
     gtk::{self, prelude::*},

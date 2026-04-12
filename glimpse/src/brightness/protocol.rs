@@ -1,4 +1,4 @@
-use crate::providers::brightness::BrightnessSnapshot;
+use crate::brightness::provider::BrightnessSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrightnessServiceHealth {

@@ -9,7 +9,7 @@ use crate::{
         NetworkServiceCommand, NetworkServiceHealth, NetworkServiceState,
     },
     network::secret_agent::NetworkSecretAgent,
-    providers::network::{
+    network::provider::{
         NetworkChangeReason, NetworkFailureClassification, NetworkProvider, NetworkProviderEvent,
         NetworkSnapshot, WifiAccessPoint,
     },
@@ -752,7 +752,7 @@ fn pending_prompt_disappeared(snapshot: &NetworkSnapshot, pending: &PendingPromp
 
 fn pending_prompt_matches_connection(
     pending: &PendingPrompt,
-    connection: &crate::providers::network::NetworkConnection,
+    connection: &crate::network::provider::NetworkConnection,
 ) -> bool {
     if connection.connection_type != "wifi" {
         return false;
@@ -881,14 +881,14 @@ mod tests {
 
     fn wifi_startup_snapshot() -> NetworkSnapshot {
         NetworkSnapshot {
-            status: crate::providers::network::NetworkStatus {
+            status: crate::network::provider::NetworkStatus {
                 wifi_enabled: true,
                 wifi_hw_enabled: true,
-                ..crate::providers::network::NetworkStatus::default()
+                ..crate::network::provider::NetworkStatus::default()
             },
-            devices: vec![crate::providers::network::NetworkDevice {
+            devices: vec![crate::network::provider::NetworkDevice {
                 device_type: "wifi".into(),
-                ..crate::providers::network::NetworkDevice::default()
+                ..crate::network::provider::NetworkDevice::default()
             }],
             ..NetworkSnapshot::default()
         }
@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn connect_saved_action_clears_when_connection_starts_activating() {
         let snapshot = NetworkSnapshot {
-            connections: vec![crate::providers::network::NetworkConnection {
+            connections: vec![crate::network::provider::NetworkConnection {
                 uuid: "uuid-1".into(),
                 connection_type: "wifi".into(),
                 state: "activating".into(),
@@ -1041,12 +1041,12 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                connections: vec![crate::providers::network::NetworkConnection {
+                connections: vec![crate::network::provider::NetworkConnection {
                     active_path: "/active/1".into(),
                     id: "Skylink".into(),
                     connection_type: "wifi".into(),
                     failure: Some(NetworkFailureClassification::AuthenticationFailed),
-                    ..crate::providers::network::NetworkConnection::default()
+                    ..crate::network::provider::NetworkConnection::default()
                 }],
                 ..NetworkSnapshot::default()
             },
@@ -1096,10 +1096,10 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                devices: vec![crate::providers::network::NetworkDevice {
+                devices: vec![crate::network::provider::NetworkDevice {
                     device_type: "wifi".into(),
                     failure: Some(NetworkFailureClassification::AuthenticationFailed),
-                    ..crate::providers::network::NetworkDevice::default()
+                    ..crate::network::provider::NetworkDevice::default()
                 }],
                 ..NetworkSnapshot::default()
             },
@@ -1150,12 +1150,12 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                connections: vec![crate::providers::network::NetworkConnection {
+                connections: vec![crate::network::provider::NetworkConnection {
                     active_path: "/active/1".into(),
                     id: "Skylink".into(),
                     connection_type: "wifi".into(),
                     state: "activating".into(),
-                    ..crate::providers::network::NetworkConnection::default()
+                    ..crate::network::provider::NetworkConnection::default()
                 }],
                 ..NetworkSnapshot::default()
             },
@@ -1212,12 +1212,12 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                connections: vec![crate::providers::network::NetworkConnection {
+                connections: vec![crate::network::provider::NetworkConnection {
                     active_path: "/active/1".into(),
                     id: "Skylink".into(),
                     connection_type: "wifi".into(),
                     state: "activated".into(),
-                    ..crate::providers::network::NetworkConnection::default()
+                    ..crate::network::provider::NetworkConnection::default()
                 }],
                 ..NetworkSnapshot::default()
             },
@@ -1261,13 +1261,13 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                connections: vec![crate::providers::network::NetworkConnection {
+                connections: vec![crate::network::provider::NetworkConnection {
                     active_path: "/active/1".into(),
                     id: "Skylink".into(),
                     connection_type: "wifi".into(),
                     state: "unknown".into(),
                     failure: Some(NetworkFailureClassification::AuthenticationFailed),
-                    ..crate::providers::network::NetworkConnection::default()
+                    ..crate::network::provider::NetworkConnection::default()
                 }],
                 ..NetworkSnapshot::default()
             },
@@ -1353,12 +1353,12 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(NetworkServiceState {
             health: NetworkServiceHealth::Ready,
             snapshot: NetworkSnapshot {
-                connections: vec![crate::providers::network::NetworkConnection {
+                connections: vec![crate::network::provider::NetworkConnection {
                     active_path: "/active/1".into(),
                     id: "Skylink".into(),
                     connection_type: "wifi".into(),
                     state: "activated".into(),
-                    ..crate::providers::network::NetworkConnection::default()
+                    ..crate::network::provider::NetworkConnection::default()
                 }],
                 ..NetworkSnapshot::default()
             },

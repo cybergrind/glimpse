@@ -6,7 +6,7 @@ use glimpse::{
             BluetoothServiceState,
         },
     },
-    providers::bluetooth::{BluetoothDevice, BluetoothSnapshot},
+    bluetooth::provider::{BluetoothDevice, BluetoothSnapshot},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -419,7 +419,7 @@ mod tests {
             address: "AA:BB:CC:DD:EE:FF".into(),
             alias: "Headphones".into(),
             name: "Headphones".into(),
-            device_type: glimpse::providers::bluetooth::BluetoothDeviceType::Headphones,
+            device_type: glimpse::bluetooth::provider::BluetoothDeviceType::Headphones,
             paired: true,
             connected: true,
             trusted: true,
@@ -484,7 +484,7 @@ mod tests {
                 address: "AA:BB:CC:DD:EE:FF".into(),
                 alias: "Headphones".into(),
                 name: "Headphones".into(),
-                device_type: glimpse::providers::bluetooth::BluetoothDeviceType::Headphones,
+                device_type: glimpse::bluetooth::provider::BluetoothDeviceType::Headphones,
                 paired: false,
                 connected: false,
                 trusted: false,

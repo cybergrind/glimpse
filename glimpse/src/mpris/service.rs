@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     mpris::protocol::{MprisServiceCommand, MprisServiceHealth, MprisServiceState},
-    providers::mpris::{MprisProvider, MprisProviderEvent},
+    mpris::provider::{MprisProvider, MprisProviderEvent},
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;
