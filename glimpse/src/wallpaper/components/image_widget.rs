@@ -29,9 +29,9 @@ pub struct DecodedWallpaper {
 #[relm4::component(pub)]
 impl Component for ImageWidget {
     type Init = ImageWidgetInit;
-    type Input = ();
+    type Input = ImageWidgetMsg;
     type Output = ();
-    type CommandOutput = ImageWidgetMsg;
+    type CommandOutput = ();
 
     view! {
         gtk::Picture {
@@ -52,36 +52,29 @@ impl Component for ImageWidget {
         let widgets = view_output!();
         let model = ImageWidget;
 
-        sender.command(move |out, shutdown| {
+        relm4::spawn({
+            let sender = sender.input_sender().clone();
             let path = init.path.clone();
-            shutdown
-                .register(async move {
-                    tracing::info!("loading wallpaper image");
-                    let loaded = tokio::task::spawn_blocking(move || decode_wallpaper(&path))
-                        .await
-                        .map_err(|error| format!("wallpaper worker failed: {error}"))
-                        .and_then(|result| result.map_err(|error| error.to_string()));
-                    let _ = out.send(ImageWidgetMsg::Loaded(loaded));
-                    tracing::info!("image decoded and loaded");
-                })
-                .drop_on_shutdown()
+            async move {
+                tracing::info!("loading wallpaper image");
+                let loaded = tokio::task::spawn_blocking(move || decode_wallpaper(&path))
+                    .await
+                    .map_err(|error| format!("wallpaper worker failed: {error}"))
+                    .and_then(|result| result.map_err(|error| error.to_string()));
+                let _ = sender.send(ImageWidgetMsg::Loaded(loaded));
+                tracing::info!("image decoded and loaded");
+            }
         });
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: (), _sender: ComponentSender<Self>, _root: &Self::Root) {}
-
-    fn update_cmd(
-        &mut self,
-        msg: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
-        root: &Self::Root,
-    ) {
-        let ImageWidgetMsg::Loaded(result) = msg;
-        match result {
-            Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
-            Err(error) => tracing::warn!("wallpaper: failed to load: {error}"),
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+        match msg {
+            ImageWidgetMsg::Loaded(result) => match result {
+                Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
+                Err(error) => tracing::warn!("wallpaper: failed to load: {error}"),
+            },
         }
     }
 }

@@ -30,6 +30,7 @@ pub struct NetworkPopoverInit {
 pub enum NetworkPopoverInput {
     Toggle,
     Close,
+    SetShowSettingsButton(bool),
     UpdateState {
         snapshot: NetworkSnapshot,
         active_action: Option<NetworkActiveAction>,
@@ -169,6 +170,9 @@ impl SimpleComponent for NetworkPopover {
                 }
             }
             NetworkPopoverInput::Close => self.popover.popdown(),
+            NetworkPopoverInput::SetShowSettingsButton(show_settings_button) => {
+                self.show_settings_button = show_settings_button;
+            }
             NetworkPopoverInput::UpdateState {
                 snapshot,
                 active_action,

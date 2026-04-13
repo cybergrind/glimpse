@@ -14,6 +14,7 @@ pub struct BluetoothPopover {
     popover: gtk::Popover,
     hero: relm4::Controller<BluetoothHero>,
     device_list: relm4::Controller<BluetoothDeviceList>,
+    show_settings_button: bool,
     powered: bool,
     discovering: bool,
     connected_count: u32,
@@ -29,6 +30,7 @@ pub struct BluetoothPopoverInit {
 pub enum BluetoothPopoverInput {
     Toggle,
     Close,
+    SetShowSettingsButton(bool),
     UpdateStatus { powered: bool, discovering: bool },
     UpdateDevices(Vec<BtDevice>),
     FinishDeviceAction { address: String },
@@ -81,15 +83,20 @@ impl SimpleComponent for BluetoothPopover {
                     set_orientation: gtk::Orientation::Horizontal,
                 },
 
-                gtk::Button {
-                    set_visible: init.show_settings_button,
-                    add_css_class: "flat",
-                    add_css_class: "settings-btn",
-                    connect_clicked => BluetoothPopoverInput::OpenSettings,
+                gtk::Box {
+                    #[watch]
+                    set_visible: model.show_settings_button,
+                    set_orientation: gtk::Orientation::Vertical,
 
-                    gtk::Label {
-                        set_label: "Bluetooth Settings",
-                        set_halign: gtk::Align::Start,
+                    gtk::Button {
+                        add_css_class: "flat",
+                        add_css_class: "settings-btn",
+                        connect_clicked => BluetoothPopoverInput::OpenSettings,
+
+                        gtk::Label {
+                            set_label: "Bluetooth Settings",
+                            set_halign: gtk::Align::Start,
+                        },
                     },
                 },
             }
@@ -114,17 +121,18 @@ impl SimpleComponent for BluetoothPopover {
 
         let hero_widget = hero.widget().clone();
         let device_list_widget = device_list.widget().clone();
-        let widgets = view_output!();
-
-        let model = BluetoothPopover {
-            popover: widgets.root.clone(),
+        let mut model = BluetoothPopover {
+            popover: gtk::Popover::new(),
             hero,
             device_list,
+            show_settings_button: init.show_settings_button,
             powered: false,
             discovering: false,
             connected_count: 0,
             activity: None,
         };
+        let widgets = view_output!();
+        model.popover = widgets.root.clone();
         model.sync_hero();
 
         let show_sender = sender.clone();
@@ -152,6 +160,9 @@ impl SimpleComponent for BluetoothPopover {
                 }
             }
             BluetoothPopoverInput::Close => self.popover.popdown(),
+            BluetoothPopoverInput::SetShowSettingsButton(show_settings_button) => {
+                self.show_settings_button = show_settings_button;
+            }
             BluetoothPopoverInput::UpdateStatus {
                 powered,
                 discovering,

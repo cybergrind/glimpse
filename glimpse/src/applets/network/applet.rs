@@ -38,6 +38,7 @@ pub enum NetworkMsg {
     ServiceState(NetworkServiceState),
     PopoverOutput(NetworkPopoverOutput),
     PromptDialogOutput(NetworkPromptDialogOutput),
+    Reconfigure(NetworkConfig),
     TogglePopover,
     Unavailable,
 }
@@ -168,6 +169,14 @@ impl Component for Network {
             NetworkMsg::PopoverOutput(output) => self.handle_popover_output(output, sender),
             NetworkMsg::PromptDialogOutput(NetworkPromptDialogOutput::Reply { id, reply }) => {
                 self.send_command(sender, NetworkServiceCommand::PromptReply { id, reply });
+            }
+            NetworkMsg::Reconfigure(config) => {
+                self.show_vpn_icon = config.show_vpn_icon;
+                self.settings_command = config.settings_command;
+                self.scan_interval = config.scan_interval;
+                self.popover.emit(NetworkPopoverInput::SetShowSettingsButton(
+                    !self.settings_command.is_empty(),
+                ));
             }
             NetworkMsg::TogglePopover => {
                 self.popover.emit(NetworkPopoverInput::Toggle);

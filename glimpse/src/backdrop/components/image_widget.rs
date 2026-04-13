@@ -35,9 +35,9 @@ pub struct DecodedBackdrop {
 #[relm4::component(pub)]
 impl Component for BackdropImageWidget {
     type Init = BackdropImageWidgetInit;
-    type Input = ();
+    type Input = BackdropImageWidgetMsg;
     type Output = ();
-    type CommandOutput = BackdropImageWidgetMsg;
+    type CommandOutput = ();
 
     view! {
         gtk::Picture {
@@ -55,22 +55,22 @@ impl Component for BackdropImageWidget {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        sender.command(move |out, shutdown| {
+        relm4::spawn({
+            let sender = sender.input_sender().clone();
             let path = init.path.clone();
             let width = init.width;
             let height = init.height;
             let blur_radius = init.blur_radius;
-            shutdown
-                .register(async move {
-                    let loaded = tokio::task::spawn_blocking(move || {
-                        load_processed_image(&path, width, height, blur_radius).map(DecodedBackdrop::from)
-                    })
-                    .await
-                    .map_err(|error| format!("backdrop worker failed: {error}"))
-                    .and_then(|result| result.map_err(|error| error.to_string()));
-                    let _ = out.send(BackdropImageWidgetMsg::Loaded(loaded));
+            async move {
+                let loaded = tokio::task::spawn_blocking(move || {
+                    load_processed_image(&path, width, height, blur_radius)
+                        .map(DecodedBackdrop::from)
                 })
-                .drop_on_shutdown()
+                .await
+                .map_err(|error| format!("backdrop worker failed: {error}"))
+                .and_then(|result| result.map_err(|error| error.to_string()));
+                let _ = sender.send(BackdropImageWidgetMsg::Loaded(loaded));
+            }
         });
 
         let model = BackdropImageWidget;
@@ -78,18 +78,12 @@ impl Component for BackdropImageWidget {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {}
-
-    fn update_cmd(
-        &mut self,
-        msg: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
-        root: &Self::Root,
-    ) {
-        let BackdropImageWidgetMsg::Loaded(result) = msg;
-        match result {
-            Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
-            Err(error) => tracing::warn!(%error, "backdrop: failed to load image"),
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+        match msg {
+            BackdropImageWidgetMsg::Loaded(result) => match result {
+                Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
+                Err(error) => tracing::warn!(%error, "backdrop: failed to load image"),
+            },
         }
     }
 }
@@ -268,7 +262,8 @@ fn write_cached_image(
     let metadata_path = cache_metadata_path(&cache_path);
 
     if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
     image
@@ -298,7 +293,12 @@ fn source_signature(source_path: &Path) -> Result<Option<String>> {
         .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
         .unwrap_or((0, 0));
 
-    Ok(Some(format!("{}:{}:{}", metadata.len(), modified.0, modified.1)))
+    Ok(Some(format!(
+        "{}:{}:{}",
+        metadata.len(),
+        modified.0,
+        modified.1
+    )))
 }
 
 #[cfg(test)]

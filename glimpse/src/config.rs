@@ -4,7 +4,7 @@ use gtk4::ContentFit;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelPosition {
     Top,
@@ -86,10 +86,14 @@ pub struct PanelConfig {
     #[serde(default)]
     pub margin: Margin,
     #[serde(default)]
-    pub applets: Vec<String>,
+    pub left: Vec<String>,
+    #[serde(default)]
+    pub center: Vec<String>,
+    #[serde(default)]
+    pub right: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AppletConfig {
     pub extends: String,
     #[serde(flatten)]
@@ -452,7 +456,7 @@ impl Default for WeatherConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WallpaperMode {
     #[default]
@@ -460,7 +464,7 @@ pub enum WallpaperMode {
     Image,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ImageFit {
     Fill,
@@ -479,7 +483,7 @@ impl ImageFit {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WallpaperConfig {
     pub color: String,
@@ -544,7 +548,9 @@ impl Default for Config {
                 height: default_panel_height(),
                 margin: Margin::default(),
                 position: PanelPosition::Bottom,
-                applets: vec![],
+                left: vec![],
+                center: vec![],
+                right: vec![],
             }],
         }
     }
@@ -604,7 +610,8 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{BrightnessConfig, ExecConfig, WeatherConfig};
+    use super::{BrightnessConfig, ExecConfig, PanelConfig, PanelPosition, WeatherConfig};
+
     #[test]
     fn default_brightness_config_shows_icon_and_internal_label() {
         let config = BrightnessConfig::default();
@@ -652,5 +659,37 @@ mod tests {
     fn default_weather_config_uses_five_hourly_slots() {
         let cfg = WeatherConfig::default();
         assert_eq!(cfg.hourly_slots, 5);
+    }
+
+    #[test]
+    fn panel_sections_default_to_empty_lists() {
+        let panel: PanelConfig = toml::from_str(
+            r#"
+position = "top"
+"#,
+        )
+        .expect("panel config");
+
+        assert!(panel.left.is_empty());
+        assert!(panel.center.is_empty());
+        assert!(panel.right.is_empty());
+    }
+
+    #[test]
+    fn panel_config_parses_explicit_sections() {
+        let panel: PanelConfig = toml::from_str(
+            r#"
+position = "top"
+left = ["pager", "clock"]
+center = ["mpris"]
+right = ["network", "network", "tray"]
+"#,
+        )
+        .expect("panel config");
+
+        assert_eq!(panel.position, PanelPosition::Top);
+        assert_eq!(panel.left, vec!["pager", "clock"]);
+        assert_eq!(panel.center, vec!["mpris"]);
+        assert_eq!(panel.right, vec!["network", "network", "tray"]);
     }
 }

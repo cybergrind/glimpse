@@ -24,11 +24,17 @@ use crate::{
     providers::dbus::DbusProvider,
     services::{Services, ServicesHandle},
 };
+use crate::panels::diff::{PanelKey, build_panel_keys};
+
+struct PanelState {
+    key: PanelKey,
+    controller: Controller<panels::Panel>,
+}
 
 pub struct App {
     config: Config,
     theme_css: CssProvider,
-    panels: Vec<Controller<panels::Panel>>,
+    panels: Vec<PanelState>,
     wallpaper_windows: std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
     backdrop_windows: std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
     dbus: DbusProvider,
@@ -129,24 +135,26 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             Input::ConfigChanged(new_config) => {
-                for panel in self.panels.drain(..) {
-                    panel.widget().close();
-                }
-                if let Some(popup) = self.notification_popup.take() {
-                    popup.widget().close();
-                }
-                rebuild_background_windows(
-                    Display::default(),
-                    &new_config,
-                    &mut self.wallpaper_windows,
-                    &mut self.backdrop_windows,
-                );
-                self.panels = setup_panels(
+                reconfigure_panels(
+                    &mut self.panels,
                     &new_config,
                     self.dbus.session.clone(),
                     self.dbus.system.clone(),
                     self.services.handle.clone(),
                 );
+                if let Some(popup) = self.notification_popup.take() {
+                    popup.widget().close();
+                }
+                if self.config.wallpaper != new_config.wallpaper
+                    || self.config.backdrop != new_config.backdrop
+                {
+                    rebuild_background_windows(
+                        Display::default(),
+                        &new_config,
+                        &mut self.wallpaper_windows,
+                        &mut self.backdrop_windows,
+                    );
+                }
                 self.notification_popup = setup_notification_popup(
                     &new_config,
                     self.services.handle.notifications.clone(),
@@ -215,10 +223,14 @@ fn setup_panels(
     dbus: zbus::Connection,
     system: zbus::Connection,
     services: ServicesHandle,
-) -> Vec<Controller<panels::Panel>> {
+) -> Vec<PanelState> {
     let mut panels = vec![];
-    for panel_config in &config.panels {
+    for (panel_key, panel_config) in build_panel_keys(&config.panels)
+        .into_iter()
+        .zip(config.panels.iter())
+    {
         let panel_init = panels::Init {
+            panel_key: panel_key.clone(),
             config: panel_config.clone(),
             applet_configs: config.applets.clone(),
             dbus: dbus.clone(),
@@ -226,14 +238,72 @@ fn setup_panels(
             services: services.clone(),
         };
         let panel = panels::Panel::builder().launch(panel_init).detach();
-        panels.push(panel);
+        panels.push(PanelState {
+            key: panel_key,
+            controller: panel,
+        });
     }
     panels
 }
 
+fn reconfigure_panels(
+    panels: &mut Vec<PanelState>,
+    config: &Config,
+    dbus: zbus::Connection,
+    system: zbus::Connection,
+    services: ServicesHandle,
+) {
+    let mut current = std::mem::take(panels)
+        .into_iter()
+        .map(|state| (state.key.clone(), state))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut next_panels = Vec::with_capacity(config.panels.len());
+
+    for (panel_key, panel_config) in build_panel_keys(&config.panels)
+        .into_iter()
+        .zip(config.panels.iter())
+    {
+        if let Some(existing) = current.remove(&panel_key) {
+            existing.controller.emit(panels::component::Input::Reconfigure(
+                panels::component::PanelRuntimeConfig {
+                    panel_key: panel_key.clone(),
+                    config: panel_config.clone(),
+                    applet_configs: config.applets.clone(),
+                    dbus: dbus.clone(),
+                    system: system.clone(),
+                    services: services.clone(),
+                },
+            ));
+            next_panels.push(existing);
+            continue;
+        }
+
+        let panel = panels::Panel::builder()
+            .launch(panels::Init {
+                panel_key: panel_key.clone(),
+                config: panel_config.clone(),
+                applet_configs: config.applets.clone(),
+                dbus: dbus.clone(),
+                system: system.clone(),
+                services: services.clone(),
+            })
+            .detach();
+        next_panels.push(PanelState {
+            key: panel_key,
+            controller: panel,
+        });
+    }
+
+    for state in current.into_values() {
+        state.controller.widget().close();
+    }
+
+    *panels = next_panels;
+}
+
 fn notifications_popup_config(config: &Config) -> Option<NotificationsConfig> {
     for panel in &config.panels {
-        for name in &panel.applets {
+        for name in panel_applet_names(panel) {
             let applet_config = config.applets.get(name);
             let applet_type = applet_config
                 .map(|c| c.extends.as_str())
@@ -251,6 +321,14 @@ fn notifications_popup_config(config: &Config) -> Option<NotificationsConfig> {
     }
 
     None
+}
+
+fn panel_applet_names(panel: &glimpse::config::PanelConfig) -> impl Iterator<Item = &String> {
+    panel
+        .left
+        .iter()
+        .chain(panel.center.iter())
+        .chain(panel.right.iter())
 }
 
 fn setup_notification_popup(
@@ -368,12 +446,14 @@ mod tests {
     use glimpse::config::{AppletConfig, Config, PanelConfig, PanelPosition};
     use toml::Value;
 
-    fn panel(applets: &[&str]) -> PanelConfig {
+    fn panel(left: &[&str], center: &[&str], right: &[&str]) -> PanelConfig {
         PanelConfig {
             position: PanelPosition::Top,
             height: 36,
             margin: Default::default(),
-            applets: applets.iter().map(|name| name.to_string()).collect(),
+            left: left.iter().map(|name| name.to_string()).collect(),
+            center: center.iter().map(|name| name.to_string()).collect(),
+            right: right.iter().map(|name| name.to_string()).collect(),
         }
     }
 
@@ -387,7 +467,7 @@ mod tests {
     #[test]
     fn popup_config_uses_first_notifications_applet_in_panel_order() {
         let mut config = Config::default();
-        config.panels = vec![panel(&["clock", "notif-b", "notif-a"])];
+        config.panels = vec![panel(&["clock"], &["notif-b"], &["notif-a"])];
         config.applets.insert(
             "notif-a".into(),
             notifications_applet(toml::from_str(r#"popup_position = "top-left""#).unwrap()),
@@ -404,7 +484,7 @@ mod tests {
     #[test]
     fn popup_config_returns_none_when_first_notifications_applet_disables_popup() {
         let mut config = Config::default();
-        config.panels = vec![panel(&["notif-a", "notif-b"])];
+        config.panels = vec![panel(&["notif-a"], &[], &["notif-b"])];
         config.applets.insert(
             "notif-a".into(),
             notifications_applet(toml::from_str(r#"show_popup = false"#).unwrap()),
