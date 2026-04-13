@@ -1,4 +1,5 @@
 use glimpse::{
+    bluetooth::provider::{BluetoothDevice, BluetoothSnapshot},
     bluetooth::{
         BluetoothServiceHandle,
         protocol::{
@@ -6,7 +7,6 @@ use glimpse::{
             BluetoothServiceState,
         },
     },
-    bluetooth::provider::{BluetoothDevice, BluetoothSnapshot},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -15,6 +15,10 @@ use relm4::{
 use std::process::Command;
 
 use super::BluetoothConfig;
+use super::components::{
+    BluetoothPromptDialog, BluetoothPromptDialogInit, BluetoothPromptDialogInput,
+    BluetoothPromptDialogOutput,
+};
 use super::popover::{
     BluetoothDeviceAction, BluetoothPopover, BluetoothPopoverInit, BluetoothPopoverInput,
     BluetoothPopoverOutput, BtDevice,
@@ -26,6 +30,7 @@ pub struct Bluetooth {
     settings_command: String,
     active_device: Option<String>,
     popover: Controller<BluetoothPopover>,
+    prompt_dialog: Controller<BluetoothPromptDialog>,
 }
 
 pub struct BluetoothInit {
@@ -37,6 +42,7 @@ pub struct BluetoothInit {
 pub enum BluetoothMsg {
     ServiceState(BluetoothServiceState),
     PopoverOutput(BluetoothPopoverOutput),
+    PromptDialogOutput(BluetoothPromptDialogOutput),
     TogglePopover,
     Unavailable,
 }
@@ -83,6 +89,11 @@ impl Component for Bluetooth {
                 show_settings_button: !settings_command.is_empty(),
             })
             .forward(sender.input_sender(), BluetoothMsg::PopoverOutput);
+        let prompt_dialog = BluetoothPromptDialog::builder()
+            .launch(BluetoothPromptDialogInit {
+                parent: root.clone().upcast(),
+            })
+            .forward(sender.input_sender(), BluetoothMsg::PromptDialogOutput);
 
         let model = Bluetooth {
             icon_name: "bluetooth-active-symbolic".into(),
@@ -91,6 +102,7 @@ impl Component for Bluetooth {
             settings_command,
             active_device: None,
             popover,
+            prompt_dialog,
         };
 
         let service = init.service;
@@ -168,10 +180,17 @@ impl Component for Bluetooth {
                     .emit(BluetoothPopoverInput::UpdateDevices(popover_devices(
                         state.snapshot.clone(),
                     )));
+                self.prompt_dialog.emit(BluetoothPromptDialogInput::Update {
+                    prompt: state.prompt.clone(),
+                    snapshot: state.snapshot.clone(),
+                });
                 self.sync_activity(&state, &sender, root);
             }
             BluetoothMsg::PopoverOutput(output) => {
                 self.handle_popover_output(output, sender);
+            }
+            BluetoothMsg::PromptDialogOutput(BluetoothPromptDialogOutput::Reply { id, reply }) => {
+                self.send_command(sender, BluetoothServiceCommand::PromptReply { id, reply });
             }
             BluetoothMsg::TogglePopover => {
                 self.popover.emit(BluetoothPopoverInput::Toggle);

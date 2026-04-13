@@ -129,6 +129,13 @@ impl SimpleComponent for BluetoothDeviceRow {
         let popover_menu = gtk::PopoverMenu::from_model(Some(&menu_model));
         popover_menu.set_parent(&button);
         popover_menu.set_has_arrow(false);
+        {
+            let popover_menu = popover_menu.clone();
+            button.connect_destroy(move |_| {
+                popover_menu.popdown();
+                popover_menu.unparent();
+            });
+        }
 
         let action_group = gtk::gio::SimpleActionGroup::new();
         setup_actions(

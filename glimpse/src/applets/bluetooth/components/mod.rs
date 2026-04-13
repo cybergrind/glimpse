@@ -1,10 +1,15 @@
 mod device_list;
 mod device_row;
 mod hero;
+mod prompt_dialog;
 
 pub use device_list::{BluetoothDeviceList, BluetoothDeviceListInput, BluetoothDeviceListOutput};
 pub use device_row::{BluetoothDeviceRow, BluetoothDeviceRowInput, BluetoothDeviceRowOutput};
 pub use hero::{BluetoothHero, BluetoothHeroInput, BluetoothHeroOutput};
+pub use prompt_dialog::{
+    BluetoothPromptDialog, BluetoothPromptDialogInit, BluetoothPromptDialogInput,
+    BluetoothPromptDialogOutput,
+};
 
 use serde::Deserialize;
 

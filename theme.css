@@ -418,6 +418,19 @@
     font-weight: normal;
 }
 
+.bt-prompt-content {
+    padding: 12px;
+    min-width: 360px;
+}
+
+.bt-prompt-code {
+    white-space: normal;
+}
+
+.bt-prompt-code {
+    font-variant-numeric: tabular-nums;
+}
+
 /* network */
 
 .network-popover {
