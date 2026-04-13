@@ -1,12 +1,11 @@
 pub mod audio;
-pub mod backdrop;
 pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
 pub mod calendar;
 pub mod compositor;
-pub mod config;
 mod compositors;
+pub mod config;
 pub mod dbus;
 pub mod display;
 pub mod mpris;

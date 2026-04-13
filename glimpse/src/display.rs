@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use adw::gdk::{self, prelude::MonitorExt};
+
 const SYS_DRM_DIR: &str = "/sys/class/drm";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +87,13 @@ pub fn normalize_connector_name(name: &str) -> &str {
     connector
 }
 
+pub fn connector_name(monitor: &gdk::Monitor) -> String {
+    monitor
+        .connector()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("monitor-{}", monitor.geometry().x()))
+}
+
 fn read_flag(path: &PathBuf, expected: &str) -> Option<bool> {
     Some(fs::read_to_string(path).ok()?.trim() == expected)
 }
@@ -96,7 +105,10 @@ mod tests {
     #[test]
     fn connector_kind_recognizes_internal_and_external_connectors() {
         assert_eq!(connector_kind("eDP-1"), DisplayConnectorKind::Internal);
-        assert_eq!(connector_kind("card1-eDP-1"), DisplayConnectorKind::Internal);
+        assert_eq!(
+            connector_kind("card1-eDP-1"),
+            DisplayConnectorKind::Internal
+        );
         assert_eq!(connector_kind("DP-2"), DisplayConnectorKind::External);
         assert_eq!(connector_kind("HDMI-A-1"), DisplayConnectorKind::External);
         assert_eq!(connector_kind("Writeback-1"), DisplayConnectorKind::Virtual);

@@ -45,7 +45,6 @@ pub enum ClockInput {
 
 #[derive(Debug, Clone)]
 pub enum ClockCommandOutput {
-    Tick,
     CalendarState(CalendarServiceState),
     Unavailable,
 }
@@ -138,13 +137,15 @@ impl Component for Clock {
                 .drop_on_shutdown()
         });
 
-        // Clock always uses a local timer — it only needs chrono::Local::now()
-        // to format the time string. No daemon dependency needed.
-        sender.command(|out, shutdown| {
-            out.send(ClockCommandOutput::Tick).ok();
+        let tick_sender = sender.clone();
+        sender.command(move |_out, shutdown| {
             shutdown
                 .register(async move {
-                    local_timer(out).await;
+                    tick_sender.input(ClockInput::Tick);
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        tick_sender.input(ClockInput::Tick);
+                    }
                 })
                 .drop_on_shutdown()
         });
@@ -201,7 +202,6 @@ impl Component for Clock {
         _root: &Self::Root,
     ) {
         match message {
-            ClockCommandOutput::Tick => sender.input(ClockInput::Tick),
             ClockCommandOutput::CalendarState(state) => {
                 sender.input(ClockInput::CalendarState(state))
             }
@@ -272,15 +272,6 @@ impl Clock {
                 })
                 .drop_on_shutdown()
         });
-    }
-}
-
-async fn local_timer(out: relm4::Sender<ClockCommandOutput>) {
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        if out.send(ClockCommandOutput::Tick).is_err() {
-            break;
-        }
     }
 }
 

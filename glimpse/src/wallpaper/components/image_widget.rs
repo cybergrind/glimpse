@@ -56,11 +56,13 @@ impl Component for ImageWidget {
             let path = init.path.clone();
             shutdown
                 .register(async move {
+                    tracing::info!("loading wallpaper image");
                     let loaded = tokio::task::spawn_blocking(move || decode_wallpaper(&path))
                         .await
                         .map_err(|error| format!("wallpaper worker failed: {error}"))
                         .and_then(|result| result.map_err(|error| error.to_string()));
                     let _ = out.send(ImageWidgetMsg::Loaded(loaded));
+                    tracing::info!("image decoded and loaded");
                 })
                 .drop_on_shutdown()
         });

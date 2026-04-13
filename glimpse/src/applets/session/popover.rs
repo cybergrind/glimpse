@@ -2,16 +2,16 @@
 
 use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
-    gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use super::{
+    SessionConfig,
     components::{
         action_list::{SessionActionList, SessionActionListInput, SessionActionListOutput},
         hero::{SessionHero, SessionHeroInput, SessionHeroView},
     },
-    SessionConfig,
 };
 
 pub struct SessionPopover {
@@ -58,6 +58,7 @@ impl SimpleComponent for SessionPopover {
     view! {
         gtk::Popover {
             add_css_class: "session-popover",
+            set_hexpand: false,
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
@@ -133,7 +134,7 @@ mod tests {
         SessionActionAvailability, SessionActionCapabilities, SessionBackendState, SessionSnapshot,
     };
 
-    use super::super::{components::action_list::build_action_rows, SessionConfig};
+    use super::super::{SessionConfig, components::action_list::build_action_rows};
     use super::*;
 
     #[test]

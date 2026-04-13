@@ -62,8 +62,7 @@ impl SimpleComponent for MonitorWindow {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>) {
-    }
+    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>) {}
 }
 
 fn launch_content(config: &WallpaperConfig) -> Content {
@@ -94,8 +93,8 @@ fn setup_layer_shell(window: &gtk::Window, monitor: &gdk::Monitor) {
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_exclusive_zone(-1);
     window.set_monitor(monitor);
+    window.set_decorated(false);
     for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         window.set_anchor(edge, true);
     }
-    window.set_decorated(false);
 }
