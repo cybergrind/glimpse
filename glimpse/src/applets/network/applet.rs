@@ -8,6 +8,9 @@ use relm4::{
 };
 
 use super::NetworkConfig;
+use super::components::{
+    NetworkPromptDialog, NetworkPromptDialogInit, NetworkPromptDialogInput, NetworkPromptDialogOutput,
+};
 use super::popover::{
     NetworkPopover, NetworkPopoverInit, NetworkPopoverInput, NetworkPopoverOutput,
 };
@@ -22,6 +25,7 @@ pub struct Network {
     scan_interval: u64,
     service: NetworkServiceHandle,
     popover: Controller<NetworkPopover>,
+    prompt_dialog: Controller<NetworkPromptDialog>,
 }
 
 pub struct NetworkInit {
@@ -33,6 +37,7 @@ pub struct NetworkInit {
 pub enum NetworkMsg {
     ServiceState(NetworkServiceState),
     PopoverOutput(NetworkPopoverOutput),
+    PromptDialogOutput(NetworkPromptDialogOutput),
     TogglePopover,
     Unavailable,
 }
@@ -91,6 +96,11 @@ impl Component for Network {
                 show_settings_button: !init.config.settings_command.is_empty(),
             })
             .forward(sender.input_sender(), NetworkMsg::PopoverOutput);
+        let prompt_dialog = NetworkPromptDialog::builder()
+            .launch(NetworkPromptDialogInit {
+                parent: root.clone().upcast(),
+            })
+            .forward(sender.input_sender(), NetworkMsg::PromptDialogOutput);
 
         let model = Network {
             primary_icon: "network-offline-symbolic".into(),
@@ -102,6 +112,7 @@ impl Component for Network {
             scan_interval: init.config.scan_interval,
             service: init.service.clone(),
             popover,
+            prompt_dialog,
         };
 
         let service = init.service;
@@ -145,6 +156,9 @@ impl Component for Network {
                 self.connecting = is_connecting(&state);
                 self.primary_icon = state.snapshot.status.icon.clone();
                 self.tooltip = tooltip_text(&state, self.vpn_icon_visible, self.connecting);
+                self.prompt_dialog.emit(NetworkPromptDialogInput::Update {
+                    prompt: state.prompt.clone(),
+                });
                 self.popover.emit(NetworkPopoverInput::UpdateState {
                     snapshot: state.snapshot,
                     active_action: state.active_action,
@@ -152,6 +166,9 @@ impl Component for Network {
                 });
             }
             NetworkMsg::PopoverOutput(output) => self.handle_popover_output(output, sender),
+            NetworkMsg::PromptDialogOutput(NetworkPromptDialogOutput::Reply { id, reply }) => {
+                self.send_command(sender, NetworkServiceCommand::PromptReply { id, reply });
+            }
             NetworkMsg::TogglePopover => {
                 self.popover.emit(NetworkPopoverInput::Toggle);
             }
