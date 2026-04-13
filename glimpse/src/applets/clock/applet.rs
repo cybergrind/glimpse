@@ -37,6 +37,7 @@ pub struct ClockInit {
 #[derive(Debug, Clone)]
 pub enum ClockInput {
     Tick,
+    Reconfigure(ClockConfig),
     TogglePopover,
     CalendarState(CalendarServiceState),
     PopoverOutput(PopoverOutput),
@@ -167,6 +168,13 @@ impl Component for Clock {
                 }
                 if should_sync_popover(self.popover.widget().is_visible()) {
                     self.popover.emit(PopoverInput::Tick);
+                }
+            }
+            ClockInput::Reconfigure(config) => {
+                self.config = config;
+                self.value = Local::now().format(&self.config.format).to_string();
+                if should_sync_popover(self.popover.widget().is_visible()) {
+                    self.sync_popover(false);
                 }
             }
             ClockInput::TogglePopover => {

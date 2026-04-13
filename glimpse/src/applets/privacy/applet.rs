@@ -35,6 +35,7 @@ pub struct PrivacyInit {
 #[derive(Debug, Clone)]
 pub enum PrivacyMsg {
     ServiceState(PrivacyServiceState),
+    Reconfigure(PrivacyConfig),
     Tick,
     StopScreenCapture,
     IndicatorsOutput(PrivacyIndicatorsOutput),
@@ -147,6 +148,9 @@ impl Component for Privacy {
                     self.camera_active,
                     self.screen_capture_active,
                 );
+                self.sync_indicators();
+            }
+            PrivacyMsg::Reconfigure(_config) => {
                 self.sync_indicators();
             }
             PrivacyMsg::Tick => {

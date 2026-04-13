@@ -12,6 +12,7 @@ use relm4::{
 };
 
 pub struct Notifications {
+    config: NotificationsConfig,
     icon_name: String,
     badge_label: String,
     badge_count: u32,
@@ -19,6 +20,7 @@ pub struct Notifications {
     badge_style: String, // "count", "dot", ""
     tooltip: String,
     service: NotificationsServiceHandle,
+    latest_state: Option<NotificationsServiceState>,
     dnd: bool,
     started_at: u64,
     popover: Controller<NotificationsPopover>,
@@ -35,6 +37,7 @@ pub struct NotificationsInit {
 #[derive(Debug)]
 pub enum NotificationsMsg {
     ServiceState(NotificationsServiceState),
+    Reconfigure(NotificationsConfig),
     TogglePopover,
     Command(NotificationActionCommand),
     Unavailable,
@@ -164,6 +167,7 @@ impl Component for Notifications {
         let widgets = view_output!();
 
         let model = Notifications {
+            config: init.config.clone(),
             icon_name: "preferences-system-notifications-symbolic".into(),
             badge_label: String::new(),
             badge_count: 0,
@@ -171,6 +175,7 @@ impl Component for Notifications {
             badge_style: init.config.badge_style.clone(),
             tooltip: "Notifications".into(),
             service: init.service.clone(),
+            latest_state: None,
             dnd: false,
             started_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -215,6 +220,7 @@ impl Component for Notifications {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             NotificationsMsg::ServiceState(state) => {
+                self.latest_state = Some(state.clone());
                 let dnd = state.dnd;
                 tracing::info!(dnd, "notifications applet: status update");
                 self.dnd = dnd;
@@ -240,6 +246,18 @@ impl Component for Notifications {
                 });
                 self.popover
                     .emit(NotificationsPopoverInput::UpdateList(fresh));
+            }
+            NotificationsMsg::Reconfigure(config) => {
+                self.config = config.clone();
+                self.badge_style = config.badge_style;
+                if let Some(state) = self.latest_state.clone() {
+                    _sender.input(NotificationsMsg::ServiceState(state));
+                } else {
+                    self.badge_visible = false;
+                    self.badge_count = 0;
+                    self.badge_label.clear();
+                    self.refresh_indicator_widgets(_root);
+                }
             }
             NotificationsMsg::TogglePopover => {
                 self.popover.emit(NotificationsPopoverInput::Toggle);

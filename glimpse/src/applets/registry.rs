@@ -147,7 +147,7 @@ const APPLET_SPECS: &[AppletSpec] = &[
     AppletSpec {
         applet_type: "audio",
         create: create_audio,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_audio),
     },
     AppletSpec {
         applet_type: "bluetooth",
@@ -157,7 +157,7 @@ const APPLET_SPECS: &[AppletSpec] = &[
     AppletSpec {
         applet_type: "brightness",
         create: create_brightness,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_brightness),
     },
     AppletSpec {
         applet_type: "network",
@@ -167,62 +167,62 @@ const APPLET_SPECS: &[AppletSpec] = &[
     AppletSpec {
         applet_type: "mpris",
         create: create_mpris,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_mpris),
     },
     AppletSpec {
         applet_type: "exec",
         create: create_exec,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_exec),
     },
     AppletSpec {
         applet_type: "notifications",
         create: create_notifications,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_notifications),
     },
     AppletSpec {
         applet_type: "battery",
         create: create_battery,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_battery),
     },
     AppletSpec {
         applet_type: "clock",
         create: create_clock,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_clock),
     },
     AppletSpec {
         applet_type: "power",
         create: create_power,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_power),
     },
     AppletSpec {
         applet_type: "privacy",
         create: create_privacy,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_privacy),
     },
     AppletSpec {
         applet_type: "tray",
         create: create_tray,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_tray),
     },
     AppletSpec {
         applet_type: "weather",
         create: create_weather,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_weather),
     },
     AppletSpec {
         applet_type: "session",
         create: create_session,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_session),
     },
     AppletSpec {
         applet_type: "keyboard",
         create: create_keyboard,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_keyboard),
     },
     AppletSpec {
         applet_type: "pager",
         create: create_pager,
-        reconfigure: None,
+        reconfigure: Some(reconfigure_pager),
     },
 ];
 
@@ -235,6 +235,21 @@ fn create_audio(request: AppletCreateRequest<'_>) -> Option<AppletController> {
         .launch(audio::AudioInit { config })
         .detach();
     Some(AppletController::Audio(applet))
+}
+
+fn reconfigure_audio(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Audio(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: audio::AudioConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(audio::AudioMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 fn create_bluetooth(request: AppletCreateRequest<'_>) -> Option<AppletController> {
@@ -280,6 +295,21 @@ fn create_brightness(request: AppletCreateRequest<'_>) -> Option<AppletControlle
     Some(AppletController::Brightness(applet))
 }
 
+fn reconfigure_brightness(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Brightness(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: brightness::BrightnessConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(brightness::BrightnessMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_network(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: network::NetworkConfig = request
         .applet_config
@@ -323,6 +353,21 @@ fn create_mpris(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     Some(AppletController::Mpris(applet))
 }
 
+fn reconfigure_mpris(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Mpris(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: mpris::MprisConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(mpris::MprisMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_exec(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: exec::ExecConfig = request
         .applet_config
@@ -341,6 +386,21 @@ fn create_exec(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     Some(AppletController::Exec(applet))
 }
 
+fn reconfigure_exec(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Exec(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: exec::ExecConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(exec::ExecMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_notifications(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: notifications::NotificationsConfig = request
         .applet_config
@@ -353,6 +413,21 @@ fn create_notifications(request: AppletCreateRequest<'_>) -> Option<AppletContro
         })
         .detach();
     Some(AppletController::Notifications(applet))
+}
+
+fn reconfigure_notifications(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Notifications(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: notifications::NotificationsConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(notifications::NotificationsMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 fn create_battery(request: AppletCreateRequest<'_>) -> Option<AppletController> {
@@ -369,6 +444,21 @@ fn create_battery(request: AppletCreateRequest<'_>) -> Option<AppletController> 
     Some(AppletController::Battery(applet))
 }
 
+fn reconfigure_battery(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Battery(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: battery::BatteryConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(battery::BatteryInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_clock(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: clock::ClockConfig = request
         .applet_config
@@ -381,6 +471,21 @@ fn create_clock(request: AppletCreateRequest<'_>) -> Option<AppletController> {
         })
         .detach();
     Some(AppletController::Clock(applet))
+}
+
+fn reconfigure_clock(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Clock(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: clock::ClockConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(clock::ClockInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 fn create_power(request: AppletCreateRequest<'_>) -> Option<AppletController> {
@@ -397,6 +502,21 @@ fn create_power(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     Some(AppletController::Power(applet))
 }
 
+fn reconfigure_power(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Power(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: power::PowerConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(power::PowerInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_privacy(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: privacy::PrivacyConfig = request
         .applet_config
@@ -409,6 +529,21 @@ fn create_privacy(request: AppletCreateRequest<'_>) -> Option<AppletController> 
         })
         .detach();
     Some(AppletController::Privacy(applet))
+}
+
+fn reconfigure_privacy(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Privacy(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: privacy::PrivacyConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(privacy::PrivacyMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 fn create_tray(request: AppletCreateRequest<'_>) -> Option<AppletController> {
@@ -425,6 +560,21 @@ fn create_tray(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     Some(AppletController::Tray(applet))
 }
 
+fn reconfigure_tray(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Tray(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: tray::TrayConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(tray::TrayInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_weather(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: weather::WeatherConfig = request
         .applet_config
@@ -432,6 +582,21 @@ fn create_weather(request: AppletCreateRequest<'_>) -> Option<AppletController> 
         .unwrap_or_default();
     let applet = weather::Weather::builder().launch(config).detach();
     Some(AppletController::Weather(applet))
+}
+
+fn reconfigure_weather(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Weather(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: weather::WeatherConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(weather::WeatherMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 fn create_session(request: AppletCreateRequest<'_>) -> Option<AppletController> {
@@ -448,6 +613,21 @@ fn create_session(request: AppletCreateRequest<'_>) -> Option<AppletController> 
     Some(AppletController::Session(applet))
 }
 
+fn reconfigure_session(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Session(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: session::SessionConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(session::SessionMsg::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_keyboard(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: keyboard::KeyboardConfig = request
         .applet_config
@@ -462,6 +642,21 @@ fn create_keyboard(request: AppletCreateRequest<'_>) -> Option<AppletController>
     Some(AppletController::Keyboard(applet))
 }
 
+fn reconfigure_keyboard(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Keyboard(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: keyboard::KeyboardConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(keyboard::KeyboardInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
+}
+
 fn create_pager(request: AppletCreateRequest<'_>) -> Option<AppletController> {
     let config: pager::PagerConfig = request
         .applet_config
@@ -474,6 +669,21 @@ fn create_pager(request: AppletCreateRequest<'_>) -> Option<AppletController> {
         })
         .detach();
     Some(AppletController::Pager(applet))
+}
+
+fn reconfigure_pager(
+    controller: &AppletController,
+    request: AppletReconfigureRequest<'_>,
+) -> ReconfigureOutcome {
+    let AppletController::Pager(controller) = controller else {
+        return ReconfigureOutcome::RecreateRequired;
+    };
+    let config: pager::PagerConfig = request
+        .applet_config
+        .map(|c| c.settings.clone().try_into().unwrap_or_default())
+        .unwrap_or_default();
+    controller.emit(pager::PagerInput::Reconfigure(config));
+    ReconfigureOutcome::Updated
 }
 
 #[cfg(test)]

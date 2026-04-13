@@ -41,6 +41,10 @@ pub enum SessionAction {
 pub enum SessionPopoverInput {
     Toggle,
     Update(SessionSnapshot),
+    Reconfigure {
+        config: SessionConfig,
+        snapshot: SessionSnapshot,
+    },
     Close,
 }
 
@@ -122,6 +126,10 @@ impl SimpleComponent for SessionPopover {
                 self.hero
                     .emit(SessionHeroInput::Update(SessionHeroView::from(&snapshot)));
                 self.actions.emit(SessionActionListInput::Update(snapshot));
+            }
+            SessionPopoverInput::Reconfigure { config, snapshot } => {
+                self.actions
+                    .emit(SessionActionListInput::Reconfigure { config, snapshot });
             }
             SessionPopoverInput::Close => self.popover.popdown(),
         }

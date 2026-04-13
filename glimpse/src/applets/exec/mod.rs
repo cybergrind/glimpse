@@ -5,5 +5,5 @@ mod protocol;
 mod renderer;
 mod supervisor;
 
-pub use applet::{Exec, ExecInit};
+pub use applet::{Exec, ExecInit, ExecMsg};
 pub use glimpse::config::ExecConfig;

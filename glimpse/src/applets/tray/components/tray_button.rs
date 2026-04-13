@@ -47,6 +47,7 @@ pub struct TrayButtonInit {
 #[derive(Debug)]
 pub enum TrayButtonInput {
     Update(TrayButtonView),
+    SetIconSize(i32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,8 +131,10 @@ impl SimpleComponent for TrayButton {
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
-        let TrayButtonInput::Update(view) = msg;
-        self.view = view;
+        match msg {
+            TrayButtonInput::Update(view) => self.view = view,
+            TrayButtonInput::SetIconSize(icon_size) => self.icon_size = icon_size,
+        }
         self.apply_view();
     }
 }

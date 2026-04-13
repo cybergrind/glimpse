@@ -30,6 +30,7 @@ pub struct PagerInit {
 #[derive(Debug, Clone)]
 pub enum PagerInput {
     ServiceState(WorkspaceState),
+    Reconfigure(PagerConfig),
     StripOutput(PagerIndicatorStripOutput),
 }
 
@@ -103,6 +104,10 @@ impl Component for Pager {
                     &state.snapshot.windows,
                 );
                 self.state = state;
+                self.render_from_state();
+            }
+            PagerInput::Reconfigure(config) => {
+                self.config = config;
                 self.render_from_state();
             }
             PagerInput::StripOutput(PagerIndicatorStripOutput::Click(index)) => {

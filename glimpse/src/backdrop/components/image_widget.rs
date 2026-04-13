@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use relm4::gtk::{self, gdk, glib, prelude::*};
 use relm4::prelude::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackdropImageWidgetInit {
     pub path: PathBuf,
     pub width: i32,
@@ -17,11 +18,19 @@ pub struct BackdropImageWidgetInit {
     pub blur_radius: u32,
 }
 
-pub struct BackdropImageWidget;
+pub struct BackdropImageWidget {
+    request_id: u64,
+    current: Option<BackdropImageWidgetInit>,
+}
 
 #[derive(Debug)]
 pub enum BackdropImageWidgetMsg {
-    Loaded(Result<DecodedBackdrop, String>),
+    Reconfigure(BackdropImageWidgetInit),
+    Clear,
+    Loaded {
+        request_id: u64,
+        result: Result<DecodedBackdrop, String>,
+    },
 }
 
 #[derive(Debug)]
@@ -55,37 +64,65 @@ impl Component for BackdropImageWidget {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        relm4::spawn({
-            let sender = sender.input_sender().clone();
-            let path = init.path.clone();
-            let width = init.width;
-            let height = init.height;
-            let blur_radius = init.blur_radius;
-            async move {
-                let loaded = tokio::task::spawn_blocking(move || {
-                    load_processed_image(&path, width, height, blur_radius)
-                        .map(DecodedBackdrop::from)
-                })
-                .await
-                .map_err(|error| format!("backdrop worker failed: {error}"))
-                .and_then(|result| result.map_err(|error| error.to_string()));
-                let _ = sender.send(BackdropImageWidgetMsg::Loaded(loaded));
-            }
-        });
-
-        let model = BackdropImageWidget;
+        let model = BackdropImageWidget {
+            request_id: 0,
+            current: Some(init),
+        };
         let widgets = view_output!();
+        sender.input(BackdropImageWidgetMsg::Reconfigure(
+            model.current.clone().expect("initial backdrop config"),
+        ));
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
-            BackdropImageWidgetMsg::Loaded(result) => match result {
-                Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
-                Err(error) => tracing::warn!(%error, "backdrop: failed to load image"),
-            },
+            BackdropImageWidgetMsg::Reconfigure(next) => {
+                let changed = self.current.as_ref() != Some(&next);
+                self.current = Some(next.clone());
+                if changed || self.request_id == 0 {
+                    self.request_id += 1;
+                    root.set_paintable(None::<&gdk::Paintable>);
+                    spawn_backdrop_load(self.request_id, next, sender.input_sender().clone());
+                }
+            }
+            BackdropImageWidgetMsg::Clear => {
+                self.request_id += 1;
+                self.current = None;
+                root.set_paintable(None::<&gdk::Paintable>);
+            }
+            BackdropImageWidgetMsg::Loaded { request_id, result } => {
+                if request_id != self.request_id {
+                    return;
+                }
+
+                match result {
+                    Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
+                    Err(error) => tracing::warn!(%error, "backdrop: failed to load image"),
+                }
+            }
         }
     }
+}
+
+fn spawn_backdrop_load(
+    request_id: u64,
+    init: BackdropImageWidgetInit,
+    sender: relm4::Sender<BackdropImageWidgetMsg>,
+) {
+    relm4::spawn(async move {
+        let path = init.path;
+        let width = init.width;
+        let height = init.height;
+        let blur_radius = init.blur_radius;
+        let result = tokio::task::spawn_blocking(move || {
+            load_processed_image(&path, width, height, blur_radius).map(DecodedBackdrop::from)
+        })
+        .await
+        .map_err(|error| format!("backdrop worker failed: {error}"))
+        .and_then(|result| result.map_err(|error| error.to_string()));
+        let _ = sender.send(BackdropImageWidgetMsg::Loaded { request_id, result });
+    });
 }
 
 impl DecodedBackdrop {

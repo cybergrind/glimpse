@@ -23,6 +23,7 @@ pub struct Brightness {
     tooltip: String,
     hidden: bool,
     displays: Vec<BrightnessDisplay>,
+    latest_state: Option<BrightnessServiceState>,
     popover: Controller<BrightnessPopover>,
 }
 
@@ -34,6 +35,7 @@ pub struct BrightnessInit {
 #[derive(Debug, Clone)]
 pub enum BrightnessMsg {
     ServiceState(BrightnessServiceState),
+    Reconfigure(BrightnessConfig),
     Scroll(f64),
     TogglePopover,
     Popover(BrightnessPopoverOutput),
@@ -111,6 +113,7 @@ impl Component for Brightness {
             tooltip: String::new(),
             hidden: true,
             displays: Vec::new(),
+            latest_state: None,
             popover,
         };
 
@@ -150,6 +153,7 @@ impl Component for Brightness {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             BrightnessMsg::ServiceState(state) => {
+                self.latest_state = Some(state.clone());
                 self.displays = state.snapshot.displays;
                 if let Some(primary) = choose_primary_display(&self.displays) {
                     self.hidden = false;
@@ -166,6 +170,14 @@ impl Component for Brightness {
                 self.popover.emit(BrightnessPopoverInput::UpdateDisplays(
                     self.displays.clone(),
                 ));
+            }
+            BrightnessMsg::Reconfigure(config) => {
+                self.config = config;
+                if let Some(state) = self.latest_state.clone() {
+                    sender.input(BrightnessMsg::ServiceState(state));
+                } else {
+                    self.hidden = self.config.hide_when_unavailable;
+                }
             }
             BrightnessMsg::Scroll(dy) => {
                 let Some(primary) = choose_primary_display(&self.displays) else {

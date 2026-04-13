@@ -42,6 +42,7 @@ pub struct TrayInit {
 #[derive(Debug, Clone)]
 pub enum TrayInput {
     ServiceState(TrayServiceState),
+    Reconfigure(TrayConfig),
     PrimaryClick {
         address: String,
         x: i32,
@@ -138,6 +139,10 @@ impl Component for Tray {
                 self.snapshot = state.snapshot;
                 self.sync_items(root, &sender);
             }
+            TrayInput::Reconfigure(config) => {
+                self.config = config;
+                self.sync_items(root, &sender);
+            }
             TrayInput::PrimaryClick { address, x, y } => {
                 self.handle_click(&address, ClickKind::Primary, x, y, sender);
             }
@@ -189,6 +194,9 @@ impl Tray {
 
         for item in &self.snapshot.items {
             if let Some(state) = self.items.get_mut(&item.address) {
+                state
+                    .controller
+                    .emit(TrayButtonInput::SetIconSize(self.config.icon_size));
                 state
                     .controller
                     .emit(TrayButtonInput::Update(TrayButtonView::from(item)));

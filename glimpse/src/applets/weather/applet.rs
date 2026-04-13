@@ -4,6 +4,7 @@ use relm4::{
     gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
 };
+use tokio_util::sync::CancellationToken;
 
 use super::WeatherConfig;
 use super::popover::{WeatherPopover, WeatherPopoverInit, WeatherPopoverInput};
@@ -79,12 +80,15 @@ pub struct Weather {
     icon_name: String,
     label: String,
     tooltip: String,
+    latest_snapshot: Option<WeatherSnapshot>,
+    fetch_cancel: CancellationToken,
     popover: Controller<WeatherPopover>,
 }
 
 #[derive(Debug)]
 pub enum WeatherMsg {
     Snapshot(WeatherSnapshot),
+    Reconfigure(WeatherConfig),
     TogglePopover,
     Unavailable,
 }
@@ -142,55 +146,19 @@ impl Component for Weather {
             })
             .detach();
 
-        let config = init.clone();
-        let refresh_interval = init.refresh_interval;
+        let fetch_cancel = CancellationToken::new();
 
         let model = Weather {
             config: init,
             icon_name: "weather-overcast-symbolic".into(),
             label: String::new(),
             tooltip: String::new(),
+            latest_snapshot: None,
+            fetch_cancel: fetch_cancel.clone(),
             popover,
         };
 
-        sender.command(move |out, shutdown| {
-            shutdown
-                .register(async move {
-                    tracing::info!("weather applet: starting local fetch loop");
-                    let http = reqwest::Client::new();
-                    let Some(city_name) = resolve_city_name(&config, ip_geolocate_city).await else {
-                        tracing::warn!("weather applet: no city configured and fallback disabled");
-                        let _ = out.send(WeatherMsg::Unavailable);
-                        return;
-                    };
-                    let Some((latitude, longitude, city)) = geocode_city(&http, &city_name).await else {
-                        let _ = out.send(WeatherMsg::Unavailable);
-                        return;
-                    };
-                    tracing::info!(lat = latitude, lon = longitude, city = %city, "weather applet: resolved location");
-                    loop {
-                        match fetch_weather_snapshot(
-                            &http,
-                            latitude,
-                            longitude,
-                            &city,
-                            config.hourly_slots,
-                        )
-                        .await
-                        {
-                            Ok(snapshot) => {
-                                let _ = out.send(WeatherMsg::Snapshot(snapshot));
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "weather applet: forecast fetch failed");
-                                let _ = out.send(WeatherMsg::Unavailable);
-                            }
-                        }
-                        tokio::time::sleep(Duration::from_secs(refresh_interval.max(60))).await;
-                    }
-                })
-                .drop_on_shutdown()
-        });
+        spawn_weather_loop(sender.clone(), model.config.clone(), fetch_cancel);
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -208,6 +176,7 @@ impl Component for Weather {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             WeatherMsg::Snapshot(snapshot) => {
+                self.latest_snapshot = Some(snapshot.clone());
                 let display = WeatherDisplayState::from_snapshot(&self.config, &snapshot);
                 self.icon_name = display.icon_name;
                 self.label = display.label;
@@ -219,6 +188,15 @@ impl Component for Weather {
                     "weather applet: snapshot update"
                 );
                 self.popover.emit(WeatherPopoverInput::UpdateSnapshot(snapshot));
+            }
+            WeatherMsg::Reconfigure(config) => {
+                self.config = config.clone();
+                self.fetch_cancel.cancel();
+                self.fetch_cancel = CancellationToken::new();
+                spawn_weather_loop(_sender.clone(), config, self.fetch_cancel.clone());
+                if let Some(snapshot) = self.latest_snapshot.clone() {
+                    _sender.input(WeatherMsg::Snapshot(snapshot));
+                }
             }
             WeatherMsg::TogglePopover => {
                 self.popover.emit(WeatherPopoverInput::Toggle);
@@ -233,6 +211,54 @@ impl Component for Weather {
             }
         }
     }
+}
+
+fn spawn_weather_loop(
+    sender: ComponentSender<Weather>,
+    config: WeatherConfig,
+    cancel: CancellationToken,
+) {
+    sender.command(move |out, shutdown| {
+        shutdown
+            .register(async move {
+                tracing::info!("weather applet: starting local fetch loop");
+                let http = reqwest::Client::new();
+                let Some(city_name) = resolve_city_name(&config, ip_geolocate_city).await else {
+                    tracing::warn!("weather applet: no city configured and fallback disabled");
+                    let _ = out.send(WeatherMsg::Unavailable);
+                    return;
+                };
+                let Some((latitude, longitude, city)) = geocode_city(&http, &city_name).await else {
+                    let _ = out.send(WeatherMsg::Unavailable);
+                    return;
+                };
+                tracing::info!(lat = latitude, lon = longitude, city = %city, "weather applet: resolved location");
+                loop {
+                    match fetch_weather_snapshot(
+                        &http,
+                        latitude,
+                        longitude,
+                        &city,
+                        config.hourly_slots,
+                    )
+                    .await
+                    {
+                        Ok(snapshot) => {
+                            let _ = out.send(WeatherMsg::Snapshot(snapshot));
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "weather applet: forecast fetch failed");
+                            let _ = out.send(WeatherMsg::Unavailable);
+                        }
+                    }
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = tokio::time::sleep(Duration::from_secs(config.refresh_interval.max(60))) => {}
+                    }
+                }
+            })
+            .drop_on_shutdown()
+    });
 }
 
 impl WeatherDisplayState {

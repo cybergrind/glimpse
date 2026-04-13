@@ -17,6 +17,9 @@ pub struct Audio {
     volume: u32,
     mic_muted: bool,
     visible: bool,
+    latest_outputs: Option<DeviceList>,
+    latest_inputs: Option<DeviceList>,
+    latest_streams: Vec<AudioStream>,
     popover: Controller<AudioPopover>,
 }
 
@@ -29,6 +32,7 @@ pub enum AudioMsg {
     OutputsChanged(DeviceList),
     InputsChanged(DeviceList),
     StreamsChanged(Vec<AudioStream>),
+    Reconfigure(AudioConfig),
     Scroll(f64),
     TogglePopover,
     ToggleMute,
@@ -123,6 +127,9 @@ impl Component for Audio {
             volume: 0,
             mic_muted: false,
             visible: false,
+            latest_outputs: None,
+            latest_inputs: None,
+            latest_streams: Vec::new(),
             popover,
         };
 
@@ -167,9 +174,10 @@ impl Component for Audio {
         self.update(msg, sender, root);
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             AudioMsg::OutputsChanged(outputs) => {
+                self.latest_outputs = Some(outputs.clone());
                 if let Some(device) = outputs.default_device() {
                     self.volume = device.volume;
                     self.icon_name = volume_icon(device.volume, device.muted).to_owned();
@@ -188,6 +196,7 @@ impl Component for Audio {
                 self.popover.emit(AudioPopoverInput::UpdateOutputs(outputs));
             }
             AudioMsg::InputsChanged(inputs) => {
+                self.latest_inputs = Some(inputs.clone());
                 self.mic_muted = inputs
                     .default_device()
                     .map(|device| device.muted)
@@ -195,7 +204,18 @@ impl Component for Audio {
                 self.popover.emit(AudioPopoverInput::UpdateInputs(inputs));
             }
             AudioMsg::StreamsChanged(streams) => {
+                self.latest_streams = streams.clone();
                 self.popover.emit(AudioPopoverInput::UpdateStreams(streams));
+            }
+            AudioMsg::Reconfigure(config) => {
+                self.config = config;
+                if let Some(outputs) = self.latest_outputs.clone() {
+                    sender.input(AudioMsg::OutputsChanged(outputs));
+                }
+                if let Some(inputs) = self.latest_inputs.clone() {
+                    sender.input(AudioMsg::InputsChanged(inputs));
+                }
+                sender.input(AudioMsg::StreamsChanged(self.latest_streams.clone()));
             }
             AudioMsg::Scroll(dy) => {
                 let step = self.config.scroll_step as i64;

@@ -15,11 +15,12 @@ use super::{
 #[derive(Debug)]
 pub enum SupervisorControl {
     Restart,
+    Reconfigure(ExecConfig),
 }
 
 pub async fn run_supervisor(
     name: String,
-    config: ExecConfig,
+    mut config: ExecConfig,
     mut outbound_rx: mpsc::UnboundedReceiver<PanelMessage>,
     mut restart_rx: mpsc::UnboundedReceiver<SupervisorControl>,
     out: relm4::Sender<ExecMsg>,
@@ -84,6 +85,13 @@ pub async fn run_supervisor(
                     match maybe_restart {
                         Some(SupervisorControl::Restart) => {
                             tracing::info!(applet = %name, "exec applet: restart requested");
+                            restart_now = true;
+                            let _ = child.kill().await;
+                            break;
+                        }
+                        Some(SupervisorControl::Reconfigure(next_config)) => {
+                            tracing::info!(applet = %name, "exec applet: config updated");
+                            config = next_config;
                             restart_now = true;
                             let _ = child.kill().await;
                             break;

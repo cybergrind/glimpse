@@ -14,6 +14,7 @@ use super::{
 
 pub struct Exec {
     pub(super) name: String,
+    config: ExecConfig,
     status: Vec<StatusItem>,
     tree: Option<TreeNode>,
     outbound_tx: mpsc::UnboundedSender<PanelMessage>,
@@ -34,6 +35,7 @@ pub struct ExecInit {
 pub enum ExecMsg {
     ChildMessage(ChildMessage),
     ChildExited,
+    Reconfigure(ExecConfig),
     Callback(CallbackData),
     RestartCommand,
     TogglePopover,
@@ -95,6 +97,7 @@ impl Component for Exec {
 
         let model = Exec {
             name: init.name,
+            config: init.config,
             status: Vec::new(),
             tree: None,
             outbound_tx,
@@ -138,6 +141,16 @@ impl Component for Exec {
                 self.context_menu.popdown();
                 self.rebuild_status(&sender);
                 root.set_visible(false);
+            }
+            ExecMsg::Reconfigure(config) => {
+                if self.config != config {
+                    self.config = config.clone();
+                    self.trigger.popdown();
+                    self.context_menu.popdown();
+                    if let Err(error) = self.restart_tx.send(SupervisorControl::Reconfigure(config)) {
+                        tracing::warn!(%error, applet = %self.name, "exec applet: failed to reconfigure");
+                    }
+                }
             }
             ExecMsg::Callback(callback) => {
                 self.popover

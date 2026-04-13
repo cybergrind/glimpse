@@ -35,6 +35,7 @@ pub struct BatteryInit {
 pub enum BatteryInput {
     Update(BatteryStatus),
     UpdateProfiles(PowerProfiles),
+    Reconfigure(BatteryConfig),
     PopoverOutput(BatteryPopoverOutput),
     TogglePopover,
     Unavailable,
@@ -232,6 +233,15 @@ impl Component for Battery {
                 if should_sync_popover(self.popover.widget().is_visible()) {
                     self.popover
                         .emit(BatteryPopoverInput::UpdateProfiles(profiles));
+                }
+            }
+            BatteryInput::Reconfigure(config) => {
+                self.config = config;
+                if let Some(status) = self.latest_status.clone() {
+                    sender.input(BatteryInput::Update(status));
+                }
+                if let Some(profiles) = self.latest_profiles.clone() {
+                    sender.input(BatteryInput::UpdateProfiles(profiles));
                 }
             }
             BatteryInput::PopoverOutput(BatteryPopoverOutput::SetProfile(profile)) => {

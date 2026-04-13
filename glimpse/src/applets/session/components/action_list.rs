@@ -26,6 +26,10 @@ pub struct SessionActionRowView {
 #[derive(Debug)]
 pub enum SessionActionListInput {
     Update(SessionSnapshot),
+    Reconfigure {
+        config: SessionConfig,
+        snapshot: SessionSnapshot,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +67,13 @@ impl SimpleComponent for SessionActionList {
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
-        let SessionActionListInput::Update(snapshot) = message;
+        let snapshot = match message {
+            SessionActionListInput::Update(snapshot) => snapshot,
+            SessionActionListInput::Reconfigure { config, snapshot } => {
+                self.config = config;
+                snapshot
+            }
+        };
         self.rows = build_action_rows(&self.config, &snapshot);
         render_action_rows(&self.container, &self.rows, &sender);
     }

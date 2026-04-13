@@ -39,6 +39,6 @@ impl NotificationActionCommand {
     }
 }
 
-pub use applet::{Notifications, NotificationsInit};
+pub use applet::{Notifications, NotificationsInit, NotificationsMsg};
 pub use glimpse::config::NotificationsConfig;
 pub use popup::{NotificationPopup, NotificationPopupInit};

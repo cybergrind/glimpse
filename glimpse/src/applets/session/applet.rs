@@ -14,6 +14,7 @@ pub struct Session {
     config: SessionConfig,
     conn: zbus::Connection,
     label: String,
+    latest_snapshot: Option<SessionSnapshot>,
     popover: Controller<SessionPopover>,
 }
 
@@ -24,6 +25,7 @@ pub struct SessionInit {
 
 #[derive(Debug)]
 pub enum SessionMsg {
+    Reconfigure(SessionConfig),
     TogglePopover,
     SnapshotLoaded(SessionSnapshot),
     SnapshotUnavailable,
@@ -88,6 +90,7 @@ impl Component for Session {
             config: init.config,
             conn: conn.clone(),
             label: std::env::var("USER").unwrap_or_else(|_| "user".into()),
+            latest_snapshot: None,
             popover,
         };
 
@@ -122,15 +125,24 @@ impl Component for Session {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
+            SessionMsg::Reconfigure(config) => {
+                self.config = config.clone();
+                if let Some(snapshot) = self.latest_snapshot.clone() {
+                    self.popover
+                        .emit(SessionPopoverInput::Reconfigure { config, snapshot });
+                }
+            }
             SessionMsg::TogglePopover => {
                 self.popover.emit(SessionPopoverInput::Toggle);
             }
             SessionMsg::SnapshotLoaded(snapshot) => {
                 self.label = user_label(&snapshot.user_name);
+                self.latest_snapshot = Some(snapshot.clone());
                 self.popover.emit(SessionPopoverInput::Update(snapshot));
             }
             SessionMsg::SnapshotUnavailable => {
                 self.label = std::env::var("USER").unwrap_or_else(|_| "user".into());
+                self.latest_snapshot = Some(SessionSnapshot::default());
                 self.popover
                     .emit(SessionPopoverInput::Update(SessionSnapshot::default()));
             }

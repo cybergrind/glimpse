@@ -14,6 +14,7 @@ use relm4::{
 
 use glimpse::backdrop;
 use glimpse::config::Config;
+use glimpse::display::connector_name;
 use glimpse::wallpaper;
 
 use crate::{
@@ -142,31 +143,34 @@ impl SimpleComponent for App {
                     self.dbus.system.clone(),
                     self.services.handle.clone(),
                 );
-                if let Some(popup) = self.notification_popup.take() {
-                    popup.widget().close();
-                }
                 if self.config.wallpaper != new_config.wallpaper
                     || self.config.backdrop != new_config.backdrop
                 {
-                    rebuild_background_windows(
+                    sync_background_windows(
                         Display::default(),
                         &new_config,
                         &mut self.wallpaper_windows,
                         &mut self.backdrop_windows,
                     );
                 }
-                self.notification_popup = setup_notification_popup(
-                    &new_config,
-                    self.services.handle.notifications.clone(),
-                    _sender.clone(),
-                );
+                if notifications_popup_config(&self.config) != notifications_popup_config(&new_config)
+                {
+                    if let Some(popup) = self.notification_popup.take() {
+                        popup.widget().close();
+                    }
+                    self.notification_popup = setup_notification_popup(
+                        &new_config,
+                        self.services.handle.notifications.clone(),
+                        _sender.clone(),
+                    );
+                }
                 self.config = new_config;
             }
             Input::CssChanged => {
                 load_css(&self.theme_css, &self.config.theme_path());
             }
             Input::MonitorsChanged => {
-                rebuild_background_windows(
+                sync_background_windows(
                     Display::default(),
                     &self.config,
                     &mut self.wallpaper_windows,
@@ -185,21 +189,20 @@ impl SimpleComponent for App {
     }
 }
 
-fn rebuild_background_windows(
+fn sync_background_windows(
     display: Option<Display>,
     config: &Config,
     wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
     backdrop_windows: &mut std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
 ) {
-    close_wallpaper_windows(wallpaper_windows);
-    close_backdrop_windows(backdrop_windows);
-
     let Some(display) = display else {
+        close_wallpaper_windows(wallpaper_windows);
+        close_backdrop_windows(backdrop_windows);
         return;
     };
 
-    *wallpaper_windows = wallpaper::open_all_monitors(&display, &config.wallpaper);
-    *backdrop_windows = backdrop::open_all_monitors(&display, &config.backdrop);
+    sync_wallpaper_windows(&display, &config.wallpaper, wallpaper_windows);
+    sync_backdrop_windows(&display, &config.backdrop, backdrop_windows);
 }
 
 fn close_wallpaper_windows(
@@ -216,6 +219,89 @@ fn close_backdrop_windows(
     for (_, window) in backdrop_windows.drain() {
         window.widget().close();
     }
+}
+
+fn sync_wallpaper_windows(
+    display: &Display,
+    config: &wallpaper::WallpaperConfig,
+    wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
+) {
+    let mut current = std::mem::take(wallpaper_windows);
+    let mut next = std::collections::HashMap::new();
+    let monitors = display.monitors();
+
+    for i in 0..monitors.n_items() {
+        let Some(obj) = monitors.item(i) else {
+            continue;
+        };
+        let Ok(monitor) = obj.downcast::<gtk::gdk::Monitor>() else {
+            continue;
+        };
+        let name = connector_name(&monitor);
+        if let Some(existing) = current.remove(&name) {
+            existing.emit(wallpaper::MonitorWindowInput::Reconfigure(config.clone()));
+            next.insert(name, existing);
+            continue;
+        }
+
+        let controller = wallpaper::MonitorWindow::builder()
+            .launch(wallpaper::MonitorWindowInit {
+                monitor,
+                config: config.clone(),
+            })
+            .detach();
+        next.insert(name, controller);
+    }
+
+    for controller in current.into_values() {
+        controller.widget().close();
+    }
+
+    *wallpaper_windows = next;
+}
+
+fn sync_backdrop_windows(
+    display: &Display,
+    config: &backdrop::BackdropConfig,
+    backdrop_windows: &mut std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
+) {
+    if !backdrop::is_active_config(config) {
+        close_backdrop_windows(backdrop_windows);
+        return;
+    }
+
+    let mut current = std::mem::take(backdrop_windows);
+    let mut next = std::collections::HashMap::new();
+    let monitors = display.monitors();
+
+    for i in 0..monitors.n_items() {
+        let Some(obj) = monitors.item(i) else {
+            continue;
+        };
+        let Ok(monitor) = obj.downcast::<gtk::gdk::Monitor>() else {
+            continue;
+        };
+        let name = connector_name(&monitor);
+        if let Some(existing) = current.remove(&name) {
+            existing.emit(backdrop::BackdropWindowInput::Reconfigure(config.clone()));
+            next.insert(name, existing);
+            continue;
+        }
+
+        let controller = backdrop::BackdropWindow::builder()
+            .launch(backdrop::BackdropWindowInit {
+                monitor,
+                config: config.clone(),
+            })
+            .detach();
+        next.insert(name, controller);
+    }
+
+    for controller in current.into_values() {
+        controller.widget().close();
+    }
+
+    *backdrop_windows = next;
 }
 
 fn setup_panels(

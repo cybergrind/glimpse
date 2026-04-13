@@ -18,6 +18,7 @@ pub struct Mpris {
     label: String,
     tooltip: String,
     hidden: bool,
+    latest_state: Option<MprisServiceState>,
     popover: Controller<MprisPopover>,
 }
 
@@ -29,6 +30,7 @@ pub struct MprisInit {
 #[derive(Debug, Clone)]
 pub enum MprisMsg {
     ServiceState(MprisServiceState),
+    Reconfigure(MprisConfig),
     PopoverOutput(MprisPopoverOutput),
     TogglePopover,
     Unavailable,
@@ -125,6 +127,7 @@ impl Component for Mpris {
             label: String::new(),
             tooltip: String::new(),
             hidden: true,
+            latest_state: None,
             popover,
         };
 
@@ -165,9 +168,18 @@ impl Component for Mpris {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             MprisMsg::ServiceState(state) => {
+                self.latest_state = Some(state.clone());
                 self.sync_from_state(&state);
                 self.popover
                     .emit(MprisPopoverInput::UpdatePlayers(state.snapshot.players));
+            }
+            MprisMsg::Reconfigure(config) => {
+                self.config = config;
+                if let Some(state) = self.latest_state.clone() {
+                    sender.input(MprisMsg::ServiceState(state));
+                } else {
+                    self.hidden = self.config.hide_when_empty;
+                }
             }
             MprisMsg::PopoverOutput(output) => {
                 self.handle_popover_output(output, sender);

@@ -5,8 +5,8 @@ use relm4::prelude::*;
 
 use crate::wallpaper::{WallpaperConfig, WallpaperMode};
 
-use super::color_widget::ColorWidget;
-use super::image_widget::{ImageWidget, ImageWidgetInit};
+use super::color_widget::{ColorWidget, ColorWidgetInput};
+use super::image_widget::{ImageWidget, ImageWidgetInit, ImageWidgetMsg};
 
 pub struct MonitorWindowInit {
     pub monitor: gdk::Monitor,
@@ -28,13 +28,19 @@ impl Content {
 }
 
 pub struct MonitorWindow {
-    _content: Content,
+    window: gtk::Window,
+    content: Content,
+}
+
+#[derive(Debug, Clone)]
+pub enum MonitorWindowInput {
+    Reconfigure(WallpaperConfig),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for MonitorWindow {
     type Init = MonitorWindowInit;
-    type Input = ();
+    type Input = MonitorWindowInput;
     type Output = ();
 
     view! {
@@ -57,12 +63,19 @@ impl SimpleComponent for MonitorWindow {
 
         root.present();
 
-        let model = MonitorWindow { _content: content };
+        let model = MonitorWindow {
+            window: root.clone(),
+            content,
+        };
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>) {}
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            MonitorWindowInput::Reconfigure(config) => self.reconfigure(config),
+        }
+    }
 }
 
 fn launch_content(config: &WallpaperConfig) -> Content {
@@ -82,6 +95,28 @@ fn launch_content(config: &WallpaperConfig) -> Content {
                     })
                     .detach(),
             )
+        }
+    }
+}
+
+impl MonitorWindow {
+    fn reconfigure(&mut self, config: WallpaperConfig) {
+        match (&self.content, config.mode.clone()) {
+            (Content::Color(color), WallpaperMode::Color) => {
+                color.emit(ColorWidgetInput::SetColor(config.color));
+            }
+            (Content::Image(image), WallpaperMode::Image) => {
+                let path = config.path.unwrap_or_default();
+                image.emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
+                    path,
+                    fit: config.fit,
+                }));
+            }
+            _ => {
+                let content = launch_content(&config);
+                self.window.set_child(Some(&content.widget()));
+                self.content = content;
+            }
         }
     }
 }

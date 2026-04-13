@@ -3,22 +3,30 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk::{self, gdk};
 use relm4::prelude::*;
 
-use super::image_widget::{BackdropImageWidget, BackdropImageWidgetInit};
+use crate::backdrop::{self, BackdropConfig};
+
+use super::image_widget::{BackdropImageWidget, BackdropImageWidgetInit, BackdropImageWidgetMsg};
 
 pub struct BackdropWindowInit {
     pub monitor: gdk::Monitor,
-    pub path: std::path::PathBuf,
-    pub blur_radius: u32,
+    pub config: BackdropConfig,
 }
 
 pub struct BackdropWindow {
-    _content: Controller<BackdropImageWidget>,
+    window: gtk::Window,
+    monitor: gdk::Monitor,
+    content: Controller<BackdropImageWidget>,
+}
+
+#[derive(Debug, Clone)]
+pub enum BackdropWindowInput {
+    Reconfigure(BackdropConfig),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for BackdropWindow {
     type Init = BackdropWindowInit;
-    type Input = ();
+    type Input = BackdropWindowInput;
     type Output = ();
 
     view! {
@@ -37,22 +45,49 @@ impl SimpleComponent for BackdropWindow {
         let geometry = init.monitor.geometry();
         let content = BackdropImageWidget::builder()
             .launch(BackdropImageWidgetInit {
-                path: init.path,
+                path: init.config.path.clone().unwrap_or_default(),
                 width: geometry.width(),
                 height: geometry.height(),
-                blur_radius: init.blur_radius,
+                blur_radius: init.config.blur_radius,
             })
             .detach();
 
         root.set_child(Some(content.widget()));
         root.present();
+        apply_backdrop_visibility(&root, &init.config);
+        if !backdrop::is_active_config(&init.config) {
+            content.emit(BackdropImageWidgetMsg::Clear);
+        }
 
-        let model = BackdropWindow { _content: content };
+        let model = BackdropWindow {
+            window: root.clone(),
+            monitor: init.monitor,
+            content,
+        };
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>) {}
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            BackdropWindowInput::Reconfigure(config) => {
+                apply_backdrop_visibility(&self.window, &config);
+                if is_active_backdrop_config(&config) {
+                    let geometry = self.monitor.geometry();
+                    self.content.emit(BackdropImageWidgetMsg::Reconfigure(
+                        BackdropImageWidgetInit {
+                            path: config.path.unwrap_or_default(),
+                            width: geometry.width(),
+                            height: geometry.height(),
+                            blur_radius: config.blur_radius,
+                        },
+                    ));
+                } else {
+                    self.content.emit(BackdropImageWidgetMsg::Clear);
+                }
+            }
+        }
+    }
 }
 
 fn setup_layer_shell(window: &gtk::Window, monitor: &gdk::Monitor) {
@@ -67,4 +102,14 @@ fn setup_layer_shell(window: &gtk::Window, monitor: &gdk::Monitor) {
     for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         window.set_anchor(edge, true);
     }
+}
+
+fn is_active_backdrop_config(config: &BackdropConfig) -> bool {
+    config.enabled
+        && detect_compositor().capabilities().backdrop
+        && config.path.as_ref().is_some_and(|path| path.is_file())
+}
+
+fn apply_backdrop_visibility(window: &gtk::Window, config: &BackdropConfig) {
+    window.set_visible(is_active_backdrop_config(config));
 }

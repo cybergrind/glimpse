@@ -33,6 +33,7 @@ pub struct PowerInit {
 
 #[derive(Debug)]
 pub enum PowerInput {
+    Reconfigure(PowerConfig),
     BatteryUpdate {
         percentage: u8,
         charging: bool,
@@ -200,6 +201,19 @@ impl Component for Power {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
+            PowerInput::Reconfigure(config) => {
+                self.config = config;
+                if self.state.profiles.is_empty() {
+                    self.state.hidden = self.config.hide_on_no_battery;
+                }
+                self.refresh_view(root);
+                if !self.state.profiles.is_empty() {
+                    self.popover.emit(PowerPopoverInput::Update {
+                        profiles: self.state.profiles.clone(),
+                        active: self.state.active_profile.clone(),
+                    });
+                }
+            }
             PowerInput::BatteryUpdate {
                 percentage,
                 charging,
@@ -209,11 +223,7 @@ impl Component for Power {
                 self.state.percentage = percentage;
                 self.state.charging = charging;
                 self.state.icon_name = icon_name;
-                if percentage <= self.config.low_battery_treshold && !charging {
-                    root.add_css_class("low");
-                } else {
-                    root.remove_css_class("low");
-                }
+                self.refresh_view(root);
             }
             PowerInput::ProfilesUpdate { profiles, active } => {
                 tracing::info!(active = %active, profiles = ?profiles, "power applet: profiles update");
@@ -269,6 +279,16 @@ impl Component for Power {
             PowerInput::PowerOff => {
                 self.action_tx.try_send(PowerAction::PowerOff).ok();
             }
+        }
+    }
+}
+
+impl Power {
+    fn refresh_view(&self, root: &gtk::Box) {
+        if self.state.percentage <= self.config.low_battery_treshold && !self.state.charging {
+            root.add_css_class("low");
+        } else {
+            root.remove_css_class("low");
         }
     }
 }
