@@ -30,7 +30,7 @@ pub struct App {
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
     wallpaper_windows: std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
-    backdrop_windows: std::collections::HashMap<String, backdrop::BackdropWindow>,
+    backdrop_windows: std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
     dbus: DbusProvider,
     services: Services,
     notification_popup: Option<Controller<NotificationPopup>>,
@@ -181,7 +181,7 @@ fn rebuild_background_windows(
     display: Option<Display>,
     config: &Config,
     wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
-    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
+    backdrop_windows: &mut std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
 ) {
     close_wallpaper_windows(wallpaper_windows);
     close_backdrop_windows(backdrop_windows);
@@ -203,10 +203,10 @@ fn close_wallpaper_windows(
 }
 
 fn close_backdrop_windows(
-    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
+    backdrop_windows: &mut std::collections::HashMap<String, Controller<backdrop::BackdropWindow>>,
 ) {
     for (_, window) in backdrop_windows.drain() {
-        window.close();
+        window.widget().close();
     }
 }
 

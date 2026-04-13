@@ -1,20 +1,20 @@
-mod widget;
-mod window;
+pub mod components;
 
 use std::collections::HashMap;
 
 use adw::prelude::*;
+use relm4::{Component, Controller};
 use relm4::gtk::gdk;
 
 use crate::compositor::detect as detect_compositor;
+use crate::display::connector_name;
 pub use crate::config::BackdropConfig;
-pub use widget::build_backdrop_widget;
-pub use window::BackdropWindow;
+pub use components::{BackdropWindow, BackdropWindowInit};
 
 pub fn open_all_monitors(
     display: &gdk::Display,
     config: &BackdropConfig,
-) -> HashMap<String, BackdropWindow> {
+) -> HashMap<String, Controller<BackdropWindow>> {
     if !config.enabled {
         return HashMap::new();
     }
@@ -45,27 +45,15 @@ pub fn open_all_monitors(
             continue;
         };
         let name = connector_name(&monitor);
-
-        match BackdropWindow::open(monitor, config) {
-            Ok(window) => {
-                windows.insert(name, window);
-            }
-            Err(error) => {
-                tracing::warn!(error = %error, "backdrop: failed to open backdrop windows; disabling");
-                for (_, window) in windows.drain() {
-                    window.close();
-                }
-                return HashMap::new();
-            }
-        }
+        let ctrl = BackdropWindow::builder()
+            .launch(BackdropWindowInit {
+                monitor,
+                path: path.to_path_buf(),
+                blur_radius: config.blur_radius,
+            })
+            .detach();
+        windows.insert(name, ctrl);
     }
 
     windows
-}
-
-fn connector_name(monitor: &gdk::Monitor) -> String {
-    monitor
-        .connector()
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("unknown-{}", monitor.model().unwrap_or_default()))
 }

@@ -3,77 +3,120 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::mpsc,
-    time::{Duration, UNIX_EPOCH},
+    time::UNIX_EPOCH,
 };
 
-use anyhow::{Context, Result, anyhow};
-use gtk::{
-    Align,
-    gdk::{self, MemoryFormat},
-    glib,
-};
-use gtk4 as gtk;
-use gtk4::prelude::{Cast, WidgetExt};
-use image::{DynamicImage, RgbaImage, imageops::FilterType};
+use anyhow::{Context, Result};
+use relm4::gtk::{self, gdk, glib, prelude::*};
+use relm4::prelude::*;
 
-use super::BackdropConfig;
-
-pub fn build_backdrop_widget(
-    config: &BackdropConfig,
-    width: i32,
-    height: i32,
-) -> Result<gtk::Widget> {
-    let path = config
-        .path
-        .as_deref()
-        .context("backdrop image path is required")?;
-    if !path.is_file() {
-        return Err(anyhow!("failed to load {}", path.display()));
-    }
-
-    Ok(build_image_widget(
-        path.to_path_buf(),
-        width,
-        height,
-        config.blur_radius,
-    )
-    .upcast())
+pub struct BackdropImageWidgetInit {
+    pub path: PathBuf,
+    pub width: i32,
+    pub height: i32,
+    pub blur_radius: u32,
 }
 
-fn build_image_widget(path: PathBuf, width: i32, height: i32, blur_radius: u32) -> gtk::Picture {
-    let picture = gtk::Picture::new();
-    picture.set_hexpand(true);
-    picture.set_vexpand(true);
-    picture.set_halign(Align::Fill);
-    picture.set_valign(Align::Fill);
-    picture.set_can_shrink(true);
-    picture.set_content_fit(gtk::ContentFit::Cover);
+pub struct BackdropImageWidget;
 
-    let (tx, rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let result = load_processed_image(&path, width, height, blur_radius)
-            .map(ImageTextureData::from)
-            .map_err(|error| error.to_string());
-        let _ = tx.send(result);
-    });
+#[derive(Debug)]
+pub enum BackdropImageWidgetMsg {
+    Loaded(Result<DecodedBackdrop, String>),
+}
 
-    let picture_clone = picture.clone();
-    glib::timeout_add_local(Duration::from_millis(16), move || match rx.try_recv() {
-        Ok(Ok(image)) => {
-            let texture = memory_texture_from_data(image);
-            picture_clone.set_paintable(Some(&texture));
-            glib::ControlFlow::Break
+#[derive(Debug)]
+pub struct DecodedBackdrop {
+    width: i32,
+    height: i32,
+    stride: usize,
+    pixels: Vec<u8>,
+}
+
+#[relm4::component(pub)]
+impl Component for BackdropImageWidget {
+    type Init = BackdropImageWidgetInit;
+    type Input = ();
+    type Output = ();
+    type CommandOutput = BackdropImageWidgetMsg;
+
+    view! {
+        gtk::Picture {
+            set_hexpand: true,
+            set_vexpand: true,
+            set_halign: gtk::Align::Fill,
+            set_valign: gtk::Align::Fill,
+            set_can_shrink: true,
+            set_content_fit: gtk::ContentFit::Cover,
         }
-        Ok(Err(error)) => {
-            tracing::warn!(%error, "backdrop: failed to load image");
-            glib::ControlFlow::Break
-        }
-        Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-        Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-    });
+    }
 
-    picture
+    fn init(
+        init: Self::Init,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        sender.command(move |out, shutdown| {
+            let path = init.path.clone();
+            let width = init.width;
+            let height = init.height;
+            let blur_radius = init.blur_radius;
+            shutdown
+                .register(async move {
+                    let loaded = tokio::task::spawn_blocking(move || {
+                        load_processed_image(&path, width, height, blur_radius).map(DecodedBackdrop::from)
+                    })
+                    .await
+                    .map_err(|error| format!("backdrop worker failed: {error}"))
+                    .and_then(|result| result.map_err(|error| error.to_string()));
+                    let _ = out.send(BackdropImageWidgetMsg::Loaded(loaded));
+                })
+                .drop_on_shutdown()
+        });
+
+        let model = BackdropImageWidget;
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {}
+
+    fn update_cmd(
+        &mut self,
+        msg: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        let BackdropImageWidgetMsg::Loaded(result) = msg;
+        match result {
+            Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
+            Err(error) => tracing::warn!(%error, "backdrop: failed to load image"),
+        }
+    }
+}
+
+impl DecodedBackdrop {
+    fn into_texture(self) -> gdk::MemoryTexture {
+        let bytes = glib::Bytes::from_owned(self.pixels);
+        gdk::MemoryTexture::new(
+            self.width,
+            self.height,
+            gdk::MemoryFormat::R8g8b8a8,
+            &bytes,
+            self.stride,
+        )
+    }
+}
+
+impl From<image::RgbaImage> for DecodedBackdrop {
+    fn from(image: image::RgbaImage) -> Self {
+        let (width, height) = image.dimensions();
+        Self {
+            width: width as i32,
+            height: height as i32,
+            stride: (width * 4) as usize,
+            pixels: image.into_raw(),
+        }
+    }
 }
 
 pub(crate) fn load_processed_image(
@@ -81,7 +124,7 @@ pub(crate) fn load_processed_image(
     width: i32,
     height: i32,
     blur_radius: u32,
-) -> Result<RgbaImage> {
+) -> Result<image::RgbaImage> {
     load_processed_image_with_cache(path, width, height, blur_radius, cache_root().as_deref())
 }
 
@@ -91,7 +134,7 @@ fn load_processed_image_with_cache(
     height: i32,
     blur_radius: u32,
     cache_root: Option<&Path>,
-) -> Result<RgbaImage> {
+) -> Result<image::RgbaImage> {
     let width = width.max(1) as u32;
     let height = height.max(1) as u32;
 
@@ -113,8 +156,7 @@ fn load_processed_image_with_cache(
     let rgba = processed.to_rgba8();
 
     if let Some(cache_root) = cache_root {
-        if let Err(error) =
-            write_cached_image(path, width, height, blur_radius, cache_root, &rgba)
+        if let Err(error) = write_cached_image(path, width, height, blur_radius, cache_root, &rgba)
         {
             tracing::warn!(%error, "backdrop: failed to update image cache");
         }
@@ -123,13 +165,13 @@ fn load_processed_image_with_cache(
     Ok(rgba)
 }
 
-fn resize_to_cover(image: DynamicImage, width: u32, height: u32) -> DynamicImage {
-    image.resize_to_fill(width, height, FilterType::Lanczos3)
+fn resize_to_cover(image: image::DynamicImage, width: u32, height: u32) -> image::DynamicImage {
+    image.resize_to_fill(width, height, image::imageops::FilterType::Lanczos3)
 }
 
-fn load_image(path: &Path) -> Result<DynamicImage> {
+fn load_image(path: &Path) -> Result<image::DynamicImage> {
     if crate::wallpaper::heic::is_heic_path(path) {
-        Ok(DynamicImage::ImageRgba8(
+        Ok(image::DynamicImage::ImageRgba8(
             crate::wallpaper::heic::decode(path)?.into_rgba_image(),
         ))
     } else {
@@ -176,7 +218,7 @@ fn maybe_load_cached_image(
     height: u32,
     blur_radius: u32,
     cache_root: Option<&Path>,
-) -> Result<Option<RgbaImage>> {
+) -> Result<Option<image::RgbaImage>> {
     let Some(cache_root) = cache_root else {
         return Ok(None);
     };
@@ -198,11 +240,7 @@ fn maybe_load_cached_image(
     match image::open(&cache_path) {
         Ok(cached) => Ok(Some(cached.to_rgba8())),
         Err(error) => {
-            tracing::warn!(
-                path = %cache_path.display(),
-                %error,
-                "backdrop: failed to load cached image"
-            );
+            tracing::warn!(path = %cache_path.display(), %error, "backdrop: failed to load cached image");
             Ok(None)
         }
     }
@@ -224,14 +262,13 @@ fn write_cached_image(
     height: u32,
     blur_radius: u32,
     cache_root: &Path,
-    image: &RgbaImage,
+    image: &image::RgbaImage,
 ) -> Result<()> {
     let cache_path = processed_cache_path(source_path, width, height, blur_radius, cache_root)?;
     let metadata_path = cache_metadata_path(&cache_path);
 
     if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
     image
@@ -261,41 +298,15 @@ fn source_signature(source_path: &Path) -> Result<Option<String>> {
         .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
         .unwrap_or((0, 0));
 
-    Ok(Some(format!(
-        "{}:{}:{}",
-        metadata.len(),
-        modified.0,
-        modified.1
-    )))
+    Ok(Some(format!("{}:{}:{}", metadata.len(), modified.0, modified.1)))
 }
 
-fn memory_texture_from_data(image: ImageTextureData) -> gdk::MemoryTexture {
-    let bytes = glib::Bytes::from_owned(image.bytes);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    gdk::MemoryTexture::new(
-        image.width,
-        image.height,
-        MemoryFormat::R8g8b8a8,
-        &bytes,
-        image.stride,
-    )
-}
-
-struct ImageTextureData {
-    width: i32,
-    height: i32,
-    stride: usize,
-    bytes: Vec<u8>,
-}
-
-impl From<RgbaImage> for ImageTextureData {
-    fn from(image: RgbaImage) -> Self {
-        let (width, height) = image.dimensions();
-        Self {
-            width: width as i32,
-            height: height as i32,
-            stride: (width * 4) as usize,
-            bytes: image.into_raw(),
-        }
+    #[test]
+    fn blur_processing_dimensions_downsample_large_blurs() {
+        assert_eq!(blur_processing_dimensions(3840, 2160, 32), (960, 540, 8));
     }
 }
