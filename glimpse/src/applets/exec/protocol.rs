@@ -241,6 +241,7 @@ pub enum TreeNode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChildMessage {
     Status(StatusData),
+    Hero(HeroNode),
     Tree { content: Option<TreeNode> },
 }
 
@@ -300,6 +301,9 @@ impl<'de> Deserialize<'de> for ChildMessage {
             "status" => serde_json::from_value(raw.data)
                 .map(ChildMessage::Status)
                 .map_err(serde::de::Error::custom),
+            "hero" => serde_json::from_value(raw.data)
+                .map(ChildMessage::Hero)
+                .map_err(serde::de::Error::custom),
             "tree" => {
                 #[derive(Deserialize, Default)]
                 struct TreePayload {
@@ -332,7 +336,8 @@ impl fmt::Display for AlignValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        CallbackData, ChildMessage, IconSource, PanelMessage, StatusData, StatusItem, TreeNode,
+        CallbackData, ChildMessage, HeroNode, IconSource, PanelMessage, StatusData, StatusItem,
+        TreeNode,
     };
 
     #[test]
@@ -432,6 +437,29 @@ mod tests {
             panic!("expected tree message");
         };
         assert!(matches!(content, Some(TreeNode::Box(_))));
+    }
+
+    #[test]
+    fn child_top_level_hero_message_parses() {
+        let message = serde_json::from_value::<ChildMessage>(serde_json::json!({
+            "type": "hero",
+            "data": {
+                "title": "System Stats",
+                "subtitle": "CPU 6% · RAM 84%",
+                "icon": {"type": "name", "value": "computer-symbolic"}
+            }
+        }))
+        .expect("top-level hero messages should parse");
+
+        assert_eq!(
+            message,
+            ChildMessage::Hero(HeroNode {
+                common: Default::default(),
+                title: "System Stats".into(),
+                subtitle: "CPU 6% · RAM 84%".into(),
+                icon: Some(IconSource::Name("computer-symbolic".into())),
+            })
+        );
     }
 
     #[test]

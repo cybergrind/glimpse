@@ -72,7 +72,7 @@ impl SimpleComponent for BackdropWindow {
         match msg {
             BackdropWindowInput::Reconfigure(config) => {
                 apply_backdrop_visibility(&self.window, &config);
-                if is_active_backdrop_config(&config) {
+                if backdrop::is_active_config(&config) {
                     let geometry = self.monitor.geometry();
                     self.content.emit(BackdropImageWidgetMsg::Reconfigure(
                         BackdropImageWidgetInit {
@@ -104,12 +104,6 @@ fn setup_layer_shell(window: &gtk::Window, monitor: &gdk::Monitor) {
     }
 }
 
-fn is_active_backdrop_config(config: &BackdropConfig) -> bool {
-    config.enabled
-        && detect_compositor().capabilities().backdrop
-        && config.path.as_ref().is_some_and(|path| path.is_file())
-}
-
 fn apply_backdrop_visibility(window: &gtk::Window, config: &BackdropConfig) {
-    window.set_visible(is_active_backdrop_config(config));
+    window.set_visible(backdrop::is_active_config(config));
 }

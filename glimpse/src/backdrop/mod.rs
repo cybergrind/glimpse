@@ -6,9 +6,16 @@ use adw::prelude::*;
 use relm4::{Component, Controller};
 use relm4::gtk::gdk;
 
+use crate::compositor::detect as detect_compositor;
 use crate::display::connector_name;
 pub use crate::config::BackdropConfig;
 pub use components::{BackdropWindow, BackdropWindowInit, BackdropWindowInput};
+
+pub fn is_active_config(config: &BackdropConfig) -> bool {
+    config.enabled
+        && detect_compositor().capabilities().backdrop
+        && config.path.as_ref().is_some_and(|path| path.is_file())
+}
 
 pub fn open_all_monitors(
     display: &gdk::Display,

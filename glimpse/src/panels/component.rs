@@ -1,7 +1,7 @@
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use relm4::{
     Component, ComponentParts, ComponentSender,
-    gtk::{self, prelude::*},
+    gtk::{self, glib, prelude::*},
 };
 
 use std::collections::HashMap;
@@ -20,6 +20,7 @@ pub struct Panel {
     dbus: zbus::Connection,
     system: zbus::Connection,
     services: ServicesHandle,
+    revealer: gtk::Revealer,
     left_box: gtk::Box,
     center_box: gtk::Box,
     right_box: gtk::Box,
@@ -77,7 +78,10 @@ impl Component for Panel {
             set_decorated: false,
 
             #[local_ref]
-            layout -> gtk::CenterBox {}
+            revealer -> gtk::Revealer {
+                #[local_ref]
+                layout -> gtk::CenterBox {}
+            }
         }
     }
 
@@ -106,6 +110,12 @@ impl Component for Panel {
         right_box.set_halign(gtk::Align::End);
 
         let layout = gtk::CenterBox::new();
+        let revealer = gtk::Revealer::new();
+        revealer.set_transition_duration(180);
+        revealer.set_transition_type(reveal_transition_for_position(
+            init.config.position.clone(),
+        ));
+        revealer.set_reveal_child(false);
 
         let left_applets = build_section_applets(
             &left_box,
@@ -145,6 +155,7 @@ impl Component for Panel {
             dbus: init.dbus,
             system: init.system,
             services: init.services,
+            revealer: revealer.clone(),
             left_box: left_box.clone(),
             center_box: center_box.clone(),
             right_box: right_box.clone(),
@@ -158,6 +169,10 @@ impl Component for Panel {
         layout.set_end_widget(Some(&right_box));
         let widgets = view_output!();
         root.present();
+        let revealer_clone = revealer.clone();
+        glib::idle_add_local_once(move || {
+            revealer_clone.set_reveal_child(true);
+        });
         ComponentParts { model, widgets }
     }
 
@@ -241,9 +256,21 @@ impl Component for Panel {
                 self.dbus = runtime.dbus;
                 self.system = runtime.system;
                 self.services = runtime.services;
+                self.revealer
+                    .set_transition_type(reveal_transition_for_position(
+                        self.config.position.clone(),
+                    ));
+                self.revealer.set_reveal_child(true);
                 Self::apply_window_config(root, &self.config);
             }
         }
+    }
+}
+
+fn reveal_transition_for_position(position: PanelPosition) -> gtk::RevealerTransitionType {
+    match position {
+        PanelPosition::Top => gtk::RevealerTransitionType::SlideDown,
+        PanelPosition::Bottom => gtk::RevealerTransitionType::SlideUp,
     }
 }
 
@@ -262,6 +289,10 @@ impl Panel {
         window.set_margin(Edge::Right, config.margin.right);
         window.set_margin(Edge::Top, config.margin.top);
         window.set_margin(Edge::Bottom, config.margin.bottom);
+        window.set_anchor(Edge::Top, false);
+        window.set_anchor(Edge::Bottom, false);
+        window.set_anchor(Edge::Left, false);
+        window.set_anchor(Edge::Right, false);
 
         match config.position {
             PanelPosition::Top => {
@@ -405,4 +436,27 @@ fn configs_match_for_names(
     names
         .iter()
         .all(|name| old_applet_configs.get(name) == new_applet_configs.get(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reveal_transition_for_position;
+    use glimpse::config::PanelPosition;
+    use relm4::gtk;
+
+    #[test]
+    fn top_panels_reveal_from_top_edge() {
+        assert_eq!(
+            reveal_transition_for_position(PanelPosition::Top),
+            gtk::RevealerTransitionType::SlideDown
+        );
+    }
+
+    #[test]
+    fn bottom_panels_reveal_from_bottom_edge() {
+        assert_eq!(
+            reveal_transition_for_position(PanelPosition::Bottom),
+            gtk::RevealerTransitionType::SlideUp
+        );
+    }
 }

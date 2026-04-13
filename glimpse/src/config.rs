@@ -11,7 +11,7 @@ pub enum PanelPosition {
     Bottom,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Margin {
     #[serde(default)]
     pub left: i32,
@@ -78,7 +78,7 @@ fn default_wallpaper_transition_ms() -> u32 {
     800
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PanelConfig {
     pub position: PanelPosition,
     #[serde(default = "default_panel_height")]
@@ -100,7 +100,7 @@ pub struct AppletConfig {
     pub settings: toml::Value,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AudioConfig {
     pub show_icon: bool,
@@ -128,7 +128,7 @@ impl Default for AudioConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BatteryConfig {
     pub show_icon: bool,
@@ -152,7 +152,7 @@ impl Default for BatteryConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BluetoothConfig {
     pub settings_command: String,
@@ -166,7 +166,7 @@ impl Default for BluetoothConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BrightnessConfig {
     pub show_icon: bool,
@@ -188,7 +188,7 @@ impl Default for BrightnessConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct TimezoneEntry {
     pub name: String,
     pub timezone: String,
@@ -196,7 +196,7 @@ pub struct TimezoneEntry {
     pub format: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct ClockConfig {
     #[serde(default = "default_clock_format")]
     pub format: String,
@@ -232,14 +232,14 @@ impl Default for ExecConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyboardFormat {
     Short,
     Full,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct KeyboardConfig {
     #[serde(default = "default_keyboard_format")]
     pub format: KeyboardFormat,
@@ -259,7 +259,7 @@ impl Default for KeyboardConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct MprisConfig {
     pub label_format: String,
@@ -279,7 +279,7 @@ impl Default for MprisConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct NetworkConfig {
     pub label_format: String,
@@ -301,7 +301,7 @@ impl Default for NetworkConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct NotificationsConfig {
     pub popup_position: String,
@@ -325,21 +325,21 @@ impl Default for NotificationsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PagerStyle {
     Pills,
     Numbered,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ScrollAction {
     Windows,
     Workspaces,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PagerConfig {
     #[serde(default = "default_pager_style")]
     pub style: PagerStyle,
@@ -359,7 +359,7 @@ impl Default for PagerConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PowerConfig {
     pub percentage: bool,
     pub low_battery_treshold: u8,
@@ -378,11 +378,11 @@ impl Default for PowerConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct PrivacyConfig {}
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct SessionConfig {
     pub show_lock: bool,
@@ -416,7 +416,7 @@ impl Default for SessionConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct TrayConfig {
     #[serde(default = "default_tray_icon_size")]
     pub icon_size: i32,
@@ -430,7 +430,7 @@ impl Default for TrayConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WeatherConfig {
     pub city_name: String,
