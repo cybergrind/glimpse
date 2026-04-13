@@ -1,4 +1,5 @@
 use anyhow::Context;
+use image::{ImageBuffer, RgbaImage};
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 
 pub struct DecodedHeic {
@@ -6,6 +7,23 @@ pub struct DecodedHeic {
     pub height: i32,
     pub stride: usize,
     pub pixels: Vec<u8>,
+}
+
+impl DecodedHeic {
+    pub fn into_rgba_image(self) -> RgbaImage {
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, self.pixels)
+            .expect("decoded HEIC dimensions should match pixel buffer")
+    }
+}
+
+pub fn is_heic_path(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref(),
+        Some("heic" | "heif")
+    )
 }
 
 pub fn decode(path: &std::path::Path) -> anyhow::Result<DecodedHeic> {

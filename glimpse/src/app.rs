@@ -1,6 +1,5 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     time::Duration,
@@ -15,6 +14,7 @@ use relm4::{
     gtk::{self, CssProvider, gdk::Display},
 };
 
+use glimpse::backdrop;
 use glimpse::bluetooth::protocol::{
     BluetoothPrompt, BluetoothPromptKind, BluetoothPromptReply, BluetoothServiceCommand,
     BluetoothServiceState,
@@ -40,7 +40,7 @@ pub struct App {
     theme_css: CssProvider,
     panels: Vec<Controller<panels::Panel>>,
     wallpaper_windows: std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
-    backdrop_windows: std::collections::HashMap<String, Controller<wallpaper::BackdropWindow>>,
+    backdrop_windows: std::collections::HashMap<String, backdrop::BackdropWindow>,
     dbus: DbusProvider,
     services: Services,
     bluetooth_dialog: BluetoothPromptDialog,
@@ -215,19 +215,10 @@ impl SimpleComponent for App {
             sender.clone(),
         );
 
-        let (wallpaper_windows, backdrop_windows) = Display::default()
-            .map(|d| {
-                (
-                    wallpaper::open_all_monitors(&d, &config.wallpaper),
-                    wallpaper::open_backdrop_all_monitors(&d, &config.backdrop),
-                )
-            })
-            .unwrap_or_default();
-
         let model = App {
             panels,
-            wallpaper_windows,
-            backdrop_windows,
+            wallpaper_windows: std::collections::HashMap::new(),
+            backdrop_windows: std::collections::HashMap::new(),
             theme_css,
             config,
             dbus,
@@ -273,6 +264,11 @@ impl SimpleComponent for App {
                     }
                 })
                 .drop_on_shutdown()
+        });
+
+        let startup_sender = sender.input_sender().clone();
+        gtk::glib::idle_add_local_once(move || {
+            let _ = startup_sender.send(Input::MonitorsChanged);
         });
 
         let widgets = view_output!();
@@ -372,7 +368,7 @@ fn rebuild_background_windows(
     display: Option<Display>,
     config: &Config,
     wallpaper_windows: &mut std::collections::HashMap<String, Controller<wallpaper::MonitorWindow>>,
-    backdrop_windows: &mut std::collections::HashMap<String, Controller<wallpaper::BackdropWindow>>,
+    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
 ) {
     close_wallpaper_windows(wallpaper_windows);
     close_backdrop_windows(backdrop_windows);
@@ -382,7 +378,7 @@ fn rebuild_background_windows(
     };
 
     *wallpaper_windows = wallpaper::open_all_monitors(&display, &config.wallpaper);
-    *backdrop_windows = wallpaper::open_backdrop_all_monitors(&display, &config.backdrop);
+    *backdrop_windows = backdrop::open_all_monitors(&display, &config.backdrop);
 }
 
 fn close_wallpaper_windows(
@@ -394,10 +390,10 @@ fn close_wallpaper_windows(
 }
 
 fn close_backdrop_windows(
-    backdrop_windows: &mut std::collections::HashMap<String, Controller<wallpaper::BackdropWindow>>,
+    backdrop_windows: &mut std::collections::HashMap<String, backdrop::BackdropWindow>,
 ) {
     for (_, window) in backdrop_windows.drain() {
-        window.widget().close();
+        window.close();
     }
 }
 
