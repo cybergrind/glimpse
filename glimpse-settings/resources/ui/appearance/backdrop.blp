@@ -1,0 +1,25 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.PreferencesGroup appearance_backdrop_group {
+  visible: false;
+  title: "Backdrop";
+  description: "Optional Niri backdrop using the current wallpaper image.";
+
+  Adw.SwitchRow appearance_backdrop_enabled_row {
+    title: "Enable Backdrop";
+    subtitle: "Place Glimpse backdrop within the compositor backdrop.";
+  }
+
+  Adw.SpinRow appearance_backdrop_blur_row {
+    title: "Blur Radius";
+    digits: 0;
+    adjustment: Gtk.Adjustment {
+      lower: 0;
+      upper: 128;
+      step-increment: 1;
+      page-increment: 4;
+      value: 24;
+    };
+  }
+}

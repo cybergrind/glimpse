@@ -1,4 +1,8 @@
-use std::{collections::HashMap, env, fs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use gtk4::ContentFit;
 use serde::{Deserialize, Serialize};
@@ -606,11 +610,115 @@ impl Config {
         tracing::debug!("possible config file {:?}", config_path);
         config_path.exists().then_some(config_path)
     }
+
+    pub fn persist_background_settings(
+        &self,
+        wallpaper: &WallpaperConfig,
+        backdrop: &BackdropConfig,
+    ) -> Result<PathBuf, String> {
+        let path = self
+            .path
+            .clone()
+            .unwrap_or_else(|| Self::config_directory().join("config.toml"));
+        persist_background_settings_at_path(&path, wallpaper, backdrop)?;
+        Ok(path)
+    }
+}
+
+pub fn persist_background_settings_at_path(
+    path: &Path,
+    wallpaper: &WallpaperConfig,
+    backdrop: &BackdropConfig,
+) -> Result<(), String> {
+    let mut document = if path.exists() {
+        let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        toml::from_str::<toml::Value>(&content).map_err(|error| error.to_string())?
+    } else {
+        toml::Value::Table(Default::default())
+    };
+
+    let table = document
+        .as_table_mut()
+        .ok_or("glimpse config root must be a TOML table")?;
+    table.insert("wallpaper".into(), wallpaper_toml_value(wallpaper));
+    table.insert("backdrop".into(), backdrop_toml_value(backdrop));
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    let content = toml::to_string_pretty(&document).map_err(|error| error.to_string())?;
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn wallpaper_toml_value(config: &WallpaperConfig) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    table.insert("color".into(), toml::Value::String(config.color.clone()));
+    table.insert(
+        "transition_ms".into(),
+        toml::Value::Integer(i64::from(config.transition_ms)),
+    );
+    table.insert(
+        "mode".into(),
+        toml::Value::String(match config.mode {
+            WallpaperMode::Color => "color".into(),
+            WallpaperMode::Image => "image".into(),
+        }),
+    );
+    if let Some(path) = &config.path {
+        table.insert(
+            "path".into(),
+            toml::Value::String(path.to_string_lossy().into_owned()),
+        );
+    }
+    table.insert(
+        "fit".into(),
+        toml::Value::String(match config.fit {
+            ImageFit::Fill => "fill".into(),
+            ImageFit::Contain => "contain".into(),
+            ImageFit::Cover => "cover".into(),
+        }),
+    );
+    toml::Value::Table(table)
+}
+
+fn backdrop_toml_value(config: &BackdropConfig) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    table.insert("enabled".into(), toml::Value::Boolean(config.enabled));
+    if let Some(path) = &config.path {
+        table.insert(
+            "path".into(),
+            toml::Value::String(path.to_string_lossy().into_owned()),
+        );
+    }
+    table.insert(
+        "blur_radius".into(),
+        toml::Value::Integer(i64::from(config.blur_radius)),
+    );
+    toml::Value::Table(table)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BrightnessConfig, Config, ExecConfig, PanelConfig, PanelPosition, WeatherConfig};
+    use super::{
+        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig,
+        PanelPosition, WallpaperConfig, WallpaperMode, WeatherConfig,
+    };
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should work")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("glimpse-config-{label}-{unique}"));
+        fs::create_dir_all(&path).expect("temp dir should exist");
+        path
+    }
 
     #[test]
     fn default_brightness_config_shows_icon_and_internal_label() {
@@ -720,5 +828,71 @@ command = ["/tmp/sysstats-applet"]
             .try_into()
             .expect("sysinfo settings should parse as exec config");
         assert_eq!(exec.command, vec!["/tmp/sysstats-applet".to_string()]);
+    }
+
+    #[test]
+    fn persist_background_settings_preserves_unrelated_config() {
+        let root = temp_dir("persist-background-preserves");
+        let config_path = root.join("config.toml");
+        fs::write(
+            &config_path,
+            r#"
+[[panels]]
+position = "top"
+left = ["clock"]
+
+[applets.network]
+extends = "network"
+"#,
+        )
+        .expect("seed config should be written");
+
+        let wallpaper = WallpaperConfig {
+            color: "#203040".into(),
+            transition_ms: 800,
+            mode: WallpaperMode::Image,
+            path: Some(PathBuf::from("/tmp/example.png")),
+            fit: ImageFit::Cover,
+        };
+        let backdrop = BackdropConfig {
+            enabled: true,
+            path: Some(PathBuf::from("/tmp/backdrop.png")),
+            blur_radius: 24,
+        };
+
+        super::persist_background_settings_at_path(&config_path, &wallpaper, &backdrop)
+            .expect("background settings should persist");
+
+        let written = fs::read_to_string(&config_path).expect("config should be readable");
+        assert!(written.contains("[[panels]]"));
+        assert!(written.contains("[applets.network]"));
+        assert!(written.contains("[wallpaper]"));
+        assert!(written.contains("[backdrop]"));
+    }
+
+    #[test]
+    fn persist_background_settings_creates_missing_config_file() {
+        let root = temp_dir("persist-background-create");
+        let config_path = root.join("config.toml");
+        let wallpaper = WallpaperConfig {
+            color: "#101010".into(),
+            transition_ms: 500,
+            mode: WallpaperMode::Color,
+            path: None,
+            fit: ImageFit::Contain,
+        };
+        let backdrop = BackdropConfig {
+            enabled: false,
+            path: None,
+            blur_radius: 8,
+        };
+
+        super::persist_background_settings_at_path(&config_path, &wallpaper, &backdrop)
+            .expect("missing config should be created");
+
+        let written = fs::read_to_string(&config_path).expect("config should exist");
+        assert!(written.contains("[wallpaper]"));
+        assert!(written.contains("mode = \"color\""));
+        assert!(written.contains("[backdrop]"));
     }
 }

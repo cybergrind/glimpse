@@ -1,0 +1,19 @@
+using Gtk 4.0;
+using Adw 1;
+
+Gtk.Box appearance_wallpaper_gallery_widget {
+  orientation: vertical;
+  spacing: 0;
+  hexpand: true;
+  margin-top: 6;
+  margin-bottom: 6;
+  styles ["appearance-wallpaper-gallery"]
+
+  Gtk.Grid appearance_wallpaper_gallery_grid {
+    hexpand: true;
+    column-homogeneous: true;
+    column-spacing: 12;
+    row-spacing: 12;
+    styles ["appearance-wallpaper-gallery-grid"]
+  }
+}

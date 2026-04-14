@@ -21,7 +21,8 @@ pub(super) fn sync_background_windows(
     };
 
     sync_wallpaper_windows(&display, &config.wallpaper, wallpaper_windows);
-    sync_backdrop_windows(&display, &config.backdrop, backdrop_windows);
+    let resolved_backdrop = backdrop::resolved_config(&config.backdrop, &config.wallpaper);
+    sync_backdrop_windows(&display, &resolved_backdrop, backdrop_windows);
 }
 
 fn close_wallpaper_windows(

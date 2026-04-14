@@ -8,7 +8,7 @@ use crate::wallpaper::ImageFit;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageWidgetInit {
-    pub path: PathBuf,
+    pub path: Option<PathBuf>,
     pub fit: ImageFit,
     pub transition_ms: u32,
 }
@@ -87,6 +87,7 @@ impl Component for ImageWidget {
         let back_picture = gtk::Picture::new();
         let widgets = view_output!();
         root.set_transition_duration(init.transition_ms);
+        root.set_visible(init.path.is_some());
         root.set_visible_child(&back_picture);
         let model = ImageWidget {
             request_id: 0,
@@ -114,9 +115,20 @@ impl Component for ImageWidget {
                 if transition_changed {
                     root.set_transition_duration(next.transition_ms);
                 }
+                root.set_visible(next.path.is_some());
+                if next.path.is_none() {
+                    self.request_id += 1;
+                    self.front_picture.set_paintable(None::<&gdk::Paintable>);
+                    self.back_picture.set_paintable(None::<&gdk::Paintable>);
+                    return;
+                }
                 if path_changed || self.request_id == 0 {
                     self.request_id += 1;
-                    spawn_wallpaper_load(self.request_id, next.path, sender.input_sender().clone());
+                    spawn_wallpaper_load(
+                        self.request_id,
+                        next.path.clone().expect("path presence checked above"),
+                        sender.input_sender().clone(),
+                    );
                 }
             }
             ImageWidgetMsg::Loaded { request_id, result } => {

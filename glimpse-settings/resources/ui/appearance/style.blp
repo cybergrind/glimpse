@@ -1,0 +1,32 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.PreferencesGroup appearance_style_group {
+  visible: false;
+  title: "Color Theme";
+  description: "Choose how desktop surfaces should look by default.";
+
+  Gtk.Box appearance_style_box {
+    orientation: horizontal;
+    spacing: 8;
+    homogeneous: true;
+
+    Gtk.ToggleButton appearance_style_auto_button {
+      label: "Auto";
+      active: true;
+      styles ["appearance-style-pill"]
+    }
+
+    Gtk.ToggleButton appearance_style_light_button {
+      label: "Light";
+      group: appearance_style_auto_button;
+      styles ["appearance-style-pill"]
+    }
+
+    Gtk.ToggleButton appearance_style_dark_button {
+      label: "Dark";
+      group: appearance_style_auto_button;
+      styles ["appearance-style-pill"]
+    }
+  }
+}

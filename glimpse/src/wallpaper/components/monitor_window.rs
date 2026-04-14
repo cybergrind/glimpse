@@ -3,7 +3,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk::{self, gdk};
 use relm4::prelude::*;
 
-use crate::wallpaper::{WallpaperConfig, WallpaperMode};
+use crate::wallpaper::WallpaperConfig;
 
 use super::color_widget::{ColorWidget, ColorWidgetInput};
 use super::image_widget::{ImageWidget, ImageWidgetInit, ImageWidgetMsg};
@@ -13,23 +13,9 @@ pub struct MonitorWindowInit {
     pub config: WallpaperConfig,
 }
 
-enum Content {
-    Color(Controller<ColorWidget>),
-    Image(Controller<ImageWidget>),
-}
-
-impl Content {
-    fn widget(&self) -> gtk::Widget {
-        match self {
-            Content::Color(c) => c.widget().clone().upcast(),
-            Content::Image(c) => c.widget().clone().upcast(),
-        }
-    }
-}
-
 pub struct MonitorWindow {
-    window: gtk::Window,
-    content: Content,
+    color: Controller<ColorWidget>,
+    image: Controller<ImageWidget>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +23,7 @@ pub enum MonitorWindowInput {
     Reconfigure(WallpaperConfig),
 }
 
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl SimpleComponent for MonitorWindow {
     type Init = MonitorWindowInit;
@@ -46,6 +33,10 @@ impl SimpleComponent for MonitorWindow {
     view! {
         gtk::Window {
             set_decorated: false,
+
+            #[name(overlay)]
+            gtk::Overlay {
+            }
         }
     }
 
@@ -56,17 +47,34 @@ impl SimpleComponent for MonitorWindow {
     ) -> ComponentParts<Self> {
         setup_layer_shell(&root, &init.monitor);
 
+        tracing::info!(
+            color = %init.config.color,
+            path = init
+                .config
+                .path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<none>".into()),
+            fit = ?init.config.fit,
+            "launching wallpaper"
+        );
+
+        let color = ColorWidget::builder().launch(init.config.color.clone()).detach();
+        let image = ImageWidget::builder()
+            .launch(ImageWidgetInit {
+                path: init.config.path.clone(),
+                fit: init.config.fit.clone(),
+                transition_ms: init.config.transition_ms,
+            })
+            .detach();
+        let color_widget = color.widget().clone().upcast::<gtk::Widget>();
+        let image_widget = image.widget().clone().upcast::<gtk::Widget>();
         let widgets = view_output!();
-
-        let content = launch_content(&init.config);
-        root.set_child(Some(&content.widget()));
-
+        widgets.overlay.set_child(Some(&color_widget));
+        widgets.overlay.add_overlay(&image_widget);
         root.present();
 
-        let model = MonitorWindow {
-            window: root.clone(),
-            content,
-        };
+        let model = MonitorWindow { color, image };
 
         ComponentParts { model, widgets }
     }
@@ -78,48 +86,14 @@ impl SimpleComponent for MonitorWindow {
     }
 }
 
-fn launch_content(config: &WallpaperConfig) -> Content {
-    match config.mode {
-        WallpaperMode::Color => {
-            tracing::info!(mode = "color", color = %config.color, "launching wallpaper");
-            Content::Color(ColorWidget::builder().launch(config.color.clone()).detach())
-        }
-        WallpaperMode::Image => {
-            let path = config.path.clone().unwrap_or_default();
-            tracing::info!(mode = "image", path = %path.display(), fit = ?config.fit, "launching wallpaper");
-            Content::Image(
-                ImageWidget::builder()
-                    .launch(ImageWidgetInit {
-                        path,
-                        fit: config.fit.clone(),
-                        transition_ms: config.transition_ms,
-                    })
-                    .detach(),
-            )
-        }
-    }
-}
-
 impl MonitorWindow {
     fn reconfigure(&mut self, config: WallpaperConfig) {
-        match (&self.content, config.mode.clone()) {
-            (Content::Color(color), WallpaperMode::Color) => {
-                color.emit(ColorWidgetInput::SetColor(config.color));
-            }
-            (Content::Image(image), WallpaperMode::Image) => {
-                let path = config.path.unwrap_or_default();
-                image.emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
-                    path,
-                    fit: config.fit,
-                    transition_ms: config.transition_ms,
-                }));
-            }
-            _ => {
-                let content = launch_content(&config);
-                self.window.set_child(Some(&content.widget()));
-                self.content = content;
-            }
-        }
+        self.color.emit(ColorWidgetInput::SetColor(config.color.clone()));
+        self.image.emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
+            path: config.path,
+            fit: config.fit,
+            transition_ms: config.transition_ms,
+        }));
     }
 }
 

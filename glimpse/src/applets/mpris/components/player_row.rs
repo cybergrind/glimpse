@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, time::{Duration, Instant}};
 
 use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
 use image::{DynamicImage, ImageReader, imageops::FilterType};
@@ -15,6 +15,8 @@ pub struct MprisPlayerRow {
     artwork_image: Option<gtk::Image>,
     artwork_revision: Rc<Cell<u64>>,
     player: MprisPlayer,
+    display_position: Option<u64>,
+    position_updated_at: Instant,
     current_artwork: MprisArtwork,
     show_artwork: bool,
 }
@@ -27,6 +29,7 @@ pub struct MprisPlayerRowInit {
 #[derive(Debug)]
 pub enum MprisPlayerRowInput {
     Update(MprisPlayer),
+    Tick,
     PreviousPressed,
     PlayPausePressed,
     NextPressed,
@@ -119,14 +122,14 @@ impl SimpleComponent for MprisPlayerRow {
 
                     gtk::Label {
                         #[watch]
-                        set_label: &format_duration(model.player.position.unwrap_or(0)),
+                        set_label: &format_duration(model.display_position.unwrap_or(0)),
                         set_xalign: 0.0,
                     },
 
                     gtk::ProgressBar {
                         #[watch]
                         set_fraction: progress_fraction(
-                            model.player.position.unwrap_or(0),
+                            model.display_position.unwrap_or(0),
                             model.player.length.unwrap_or(0),
                         ),
                         set_hexpand: true,
@@ -190,15 +193,26 @@ impl SimpleComponent for MprisPlayerRow {
             artwork_image: None,
             artwork_revision: Rc::new(Cell::new(0)),
             player: init.player,
+            display_position: None,
+            position_updated_at: Instant::now(),
             current_artwork: MprisArtwork::None,
             show_artwork: init.show_artwork,
         };
+        model.display_position = effective_position_micros(&model.player, 0);
         let widgets = view_output!();
         model.artwork_image = Some(widgets.artwork_image.clone());
         add_raise_click_controller(&widgets.artwork_image, sender.clone());
         add_raise_click_controller(&widgets.copy_box, sender.clone());
         add_raise_click_controller(&widgets.progress_box, sender.clone());
         model.refresh_artwork();
+        let tick_sender = sender.input_sender().clone();
+        glib::timeout_add_local(Duration::from_secs(1), move || {
+            if tick_sender.send(MprisPlayerRowInput::Tick).is_err() {
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
 
         ComponentParts { model, widgets }
     }
@@ -206,7 +220,14 @@ impl SimpleComponent for MprisPlayerRow {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             MprisPlayerRowInput::Update(player) => {
+                self.position_updated_at = Instant::now();
                 self.player = player;
+                self.display_position = effective_position_micros(&self.player, 0);
+                self.refresh_artwork();
+            }
+            MprisPlayerRowInput::Tick => {
+                let elapsed = self.position_updated_at.elapsed().as_micros() as u64;
+                self.display_position = effective_position_micros(&self.player, elapsed);
                 self.refresh_artwork();
             }
             MprisPlayerRowInput::PreviousPressed => {
@@ -316,6 +337,22 @@ fn play_pause_icon(status: MprisPlaybackStatus) -> &'static str {
 
 fn shows_progress(player: &MprisPlayer) -> bool {
     matches!((player.position, player.length), (Some(_), Some(length)) if player.progress_visible && length > 0)
+}
+
+fn effective_position_micros(player: &MprisPlayer, elapsed_micros: u64) -> Option<u64> {
+    let position = player.position?;
+    let length = player.length?;
+    if !player.progress_visible || length == 0 {
+        return None;
+    }
+
+    let effective = if matches!(player.playback_status, MprisPlaybackStatus::Playing) {
+        position.saturating_add(elapsed_micros)
+    } else {
+        position
+    };
+
+    Some(effective.min(length))
 }
 
 fn format_duration(value_micros: u64) -> String {
@@ -452,8 +489,8 @@ mod tests {
     };
 
     use super::{
-        ARTWORK_SIZE, MprisPlayerRow, MprisPlayerRowInit, MprisPlayerRowOutput, player_title,
-        player_tooltip, shows_artwork, shows_progress,
+        ARTWORK_SIZE, MprisPlayerRow, MprisPlayerRowInit, MprisPlayerRowOutput,
+        effective_position_micros, player_title, player_tooltip, shows_artwork, shows_progress,
     };
 
     fn test_player() -> MprisPlayer {
@@ -597,5 +634,19 @@ mod tests {
 
         player.title.clear();
         assert_eq!(player_tooltip(&player), "Spotify");
+    }
+
+    #[test]
+    fn effective_position_advances_for_playing_players_and_clamps_to_length() {
+        let mut player = test_player();
+        player.progress_visible = true;
+        player.position = Some(5_000_000);
+        player.length = Some(6_000_000);
+
+        assert_eq!(effective_position_micros(&player, 500_000), Some(5_500_000));
+        assert_eq!(effective_position_micros(&player, 2_000_000), Some(6_000_000));
+
+        player.playback_status = MprisPlaybackStatus::Paused;
+        assert_eq!(effective_position_micros(&player, 2_000_000), Some(5_000_000));
     }
 }

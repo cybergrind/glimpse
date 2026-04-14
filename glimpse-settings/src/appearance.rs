@@ -1,4 +1,5 @@
 use gio::prelude::*;
+use glimpse::config::{BackdropConfig, Config, WallpaperConfig, WallpaperMode};
 use gtk4::{gio, glib};
 use std::path::{Path, PathBuf};
 
@@ -39,6 +40,8 @@ pub struct AppearanceDraft {
     pub interface_font: String,
     pub monospace_font: String,
     pub text_scale: f64,
+    pub wallpaper: WallpaperConfig,
+    pub backdrop: BackdropConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +232,17 @@ impl AppearanceDraft {
             return Err("required fields must not be empty");
         }
 
+        if self.wallpaper.mode == WallpaperMode::Image && self.wallpaper.path.is_none() {
+            return Err("choose a wallpaper image or switch to solid color");
+        }
+
+        if self.backdrop.enabled
+            && self.backdrop.path.is_none()
+            && self.wallpaper.mode != WallpaperMode::Image
+        {
+            return Err("choose a backdrop image or use an image wallpaper");
+        }
+
         Ok(())
     }
 }
@@ -241,6 +255,7 @@ impl AppearanceSettings {
     }
 
     pub fn snapshot(&self) -> AppearanceDraft {
+        let config = Config::load();
         AppearanceDraft {
             color_scheme: ColorScheme::from_gsettings_value(
                 self.settings.string(COLOR_SCHEME_KEY).as_str(),
@@ -254,10 +269,12 @@ impl AppearanceSettings {
             interface_font: self.settings.string(FONT_KEY).to_string(),
             monospace_font: self.settings.string(MONOSPACE_FONT_KEY).to_string(),
             text_scale: self.settings.double(TEXT_SCALING_KEY),
+            wallpaper: config.wallpaper,
+            backdrop: config.backdrop,
         }
     }
 
-    pub fn apply(&self, draft: &AppearanceDraft) -> Result<(), glib::BoolError> {
+    pub fn apply_desktop_settings(&self, draft: &AppearanceDraft) -> Result<(), glib::BoolError> {
         self.settings
             .set_string(COLOR_SCHEME_KEY, draft.color_scheme.gsettings_value())?;
         self.settings
@@ -354,7 +371,8 @@ pub fn theme_name_allowed(kind: ThemeKind, path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccentColor, AppearanceDraft, ColorScheme, ExternalAppearanceUpdate, ThemeKind,
+        AccentColor, AppearanceDraft, BackdropConfig, ColorScheme, ExternalAppearanceUpdate,
+        ThemeKind, WallpaperConfig,
         discover_theme_options, reconcile_external_snapshot, theme_name_allowed,
         theme_search_roots,
     };
@@ -442,6 +460,8 @@ mod tests {
             interface_font: "Noto Sans 10".into(),
             monospace_font: "Hack 10".into(),
             text_scale: 3.5,
+            wallpaper: WallpaperConfig::default(),
+            backdrop: BackdropConfig::default(),
         };
 
         assert_eq!(draft.validate(), Err("text scale out of range"));
@@ -503,6 +523,8 @@ mod tests {
             interface_font: "Noto Sans 10".into(),
             monospace_font: "Hack 10".into(),
             text_scale: 1.0,
+            wallpaper: WallpaperConfig::default(),
+            backdrop: BackdropConfig::default(),
         }
     }
 }

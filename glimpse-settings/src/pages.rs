@@ -22,9 +22,10 @@ pub const PAGES: &[PageSpec] = &[
     PageSpec {
         route_head: "appearance",
         title: "Appearance",
-        summary: "Theme mode, accent color, fonts, and text scaling.",
+        summary: "Wallpaper, backdrop, theme mode, accent color, fonts, and text scaling.",
         keywords: &[
             "theme", "accent", "dark", "light", "fonts", "icon", "cursor", "scale",
+            "wallpaper", "background", "backdrop", "color",
         ],
         kind: PageKind::Appearance,
     },

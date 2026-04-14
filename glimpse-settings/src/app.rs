@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -31,6 +32,7 @@ use glimpse::network::{
 use glimpse::{
     audio::provider::{AudioDevice, AudioEvent, AudioProvider, AudioStream},
     bluetooth::provider::{BluetoothAdapter, BluetoothDevice},
+    compositor::CompositorKind,
     power_policy::provider::PowerPolicyAction,
 };
 use gtk4::{self as gtk, gio, glib};
@@ -41,6 +43,7 @@ use uuid::Uuid;
 
 use glimpse_settings::{
     appearance::{self, AccentColor, AppearanceDraft, ColorScheme, ThemeKind},
+    background::{self, WallpaperGalleryItem},
     bluetooth::BluetoothPageState,
     debounce::DebounceTracker,
     display::{self, DisplayDraft, DisplayOutput},
@@ -116,6 +119,10 @@ struct SettingsWindow {
 
 #[derive(Clone)]
 struct AppearanceUi {
+    style_group: adw::PreferencesGroup,
+    accent_group: adw::PreferencesGroup,
+    background_group: adw::PreferencesGroup,
+    backdrop_group: adw::PreferencesGroup,
     theme_group: adw::PreferencesGroup,
     typography_group: adw::PreferencesGroup,
     content_header: adw::HeaderBar,
@@ -124,8 +131,16 @@ struct AppearanceUi {
     cancel_button: gtk::Button,
     apply_button: gtk::Button,
     banner: adw::Banner,
-    color_scheme_row: adw::ComboRow,
-    accent_color_row: adw::ComboRow,
+    style_auto_button: gtk::ToggleButton,
+    style_light_button: gtk::ToggleButton,
+    style_dark_button: gtk::ToggleButton,
+    accent_box: gtk::Box,
+    wallpaper_gallery_bin: adw::Bin,
+    wallpaper_gallery_grid: gtk::Grid,
+    wallpaper_gallery_file_row: adw::ActionRow,
+    wallpaper_color_button: gtk::ColorButton,
+    backdrop_enabled_row: adw::SwitchRow,
+    backdrop_blur_row: adw::SpinRow,
     gtk_theme_row: adw::ComboRow,
     icon_theme_row: adw::ComboRow,
     cursor_theme_row: adw::ComboRow,
@@ -143,8 +158,12 @@ struct AppearanceUi {
     gtk_theme_values: Rc<RefCell<Vec<String>>>,
     icon_theme_values: Rc<RefCell<Vec<String>>>,
     cursor_theme_values: Rc<RefCell<Vec<String>>>,
+    accent_buttons: Rc<RefCell<Vec<gtk::Button>>>,
+    wallpaper_gallery: Rc<RefCell<Vec<WallpaperGalleryItem>>>,
+    compositor: CompositorKind,
     syncing: Rc<Cell<bool>>,
     error_message: Rc<RefCell<Option<String>>>,
+    window: adw::ApplicationWindow,
 }
 
 #[derive(Clone)]
@@ -453,7 +472,7 @@ impl SettingsWindow {
             ("about", row(&builder, "row_about")),
         ]);
 
-        let appearance_ui = AppearanceUi::from_builder(&builder);
+        let appearance_ui = AppearanceUi::from_builder(&builder, &content_preferences_page, &window);
         appearance_ui.refresh_snapshot();
         appearance_ui.sync();
 
@@ -732,30 +751,14 @@ impl SoundUi {
 }
 
 impl AppearanceUi {
-    fn from_builder(builder: &gtk::Builder) -> Self {
-        let color_scheme_model = gtk::StringList::new(
-            &ColorScheme::all()
-                .iter()
-                .map(|item| item.label())
-                .collect::<Vec<_>>(),
-        );
-        let accent_color_model = gtk::StringList::new(
-            &AccentColor::all()
-                .iter()
-                .map(|item| item.label())
-                .collect::<Vec<_>>(),
-        );
+    fn from_builder(
+        builder: &gtk::Builder,
+        preferences_page: &adw::PreferencesPage,
+        window: &adw::ApplicationWindow,
+    ) -> Self {
         let gtk_theme_model = gtk::StringList::new(&[]);
         let icon_theme_model = gtk::StringList::new(&[]);
         let cursor_theme_model = gtk::StringList::new(&[]);
-        let color_scheme_row: adw::ComboRow = builder
-            .object("appearance_color_scheme_row")
-            .expect("appearance color scheme row should exist");
-        color_scheme_row.set_model(Some(&color_scheme_model));
-        let accent_color_row: adw::ComboRow = builder
-            .object("appearance_accent_color_row")
-            .expect("appearance accent color row should exist");
-        accent_color_row.set_model(Some(&accent_color_model));
         let gtk_theme_row: adw::ComboRow = builder
             .object("appearance_gtk_theme_row")
             .expect("appearance gtk theme row should exist");
@@ -769,16 +772,63 @@ impl AppearanceUi {
             .expect("appearance cursor theme row should exist");
         cursor_theme_row.set_model(Some(&cursor_theme_model));
 
+        let style_builder =
+            gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/appearance/style.ui");
+        let accent_builder =
+            gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/appearance/accent.ui");
+        let background_builder =
+            gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/appearance/background.ui");
+        let backdrop_builder =
+            gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/appearance/backdrop.ui");
+        let wallpaper_gallery_builder = gtk::Builder::from_resource(
+            "/me/aresa/GlimpseSettings/ui/appearance/wallpaper-gallery.ui",
+        );
+        let style_group: adw::PreferencesGroup = style_builder
+            .object("appearance_style_group")
+            .expect("appearance style group should exist");
+        let accent_group: adw::PreferencesGroup = accent_builder
+            .object("appearance_accent_group")
+            .expect("appearance accent group should exist");
+        let background_group: adw::PreferencesGroup = background_builder
+            .object("appearance_background_group")
+            .expect("appearance background group should exist");
+        let backdrop_group: adw::PreferencesGroup = backdrop_builder
+            .object("appearance_backdrop_group")
+            .expect("appearance backdrop group should exist");
+        let theme_group: adw::PreferencesGroup = builder
+            .object("appearance_theme_group")
+            .expect("appearance theme group should exist");
+        let typography_group: adw::PreferencesGroup = builder
+            .object("appearance_typography_group")
+            .expect("appearance typography group should exist");
+        let color_scheme_row: adw::ComboRow = builder
+            .object("appearance_color_scheme_row")
+            .expect("appearance color scheme row should exist");
+        color_scheme_row.set_visible(false);
+        let accent_color_row: adw::ComboRow = builder
+            .object("appearance_accent_color_row")
+            .expect("appearance accent color row should exist");
+        accent_color_row.set_visible(false);
+        preferences_page.remove(&theme_group);
+        preferences_page.remove(&typography_group);
+        preferences_page.add(&background_group);
+        preferences_page.add(&accent_group);
+        preferences_page.add(&style_group);
+        preferences_page.add(&backdrop_group);
+        preferences_page.add(&theme_group);
+        preferences_page.add(&typography_group);
+
         let settings = appearance::AppearanceSettings::new();
         let initial_draft = settings.snapshot();
+        let compositor = CompositorKind::detect();
 
-        Self {
-            theme_group: builder
-                .object("appearance_theme_group")
-                .expect("appearance theme group should exist"),
-            typography_group: builder
-                .object("appearance_typography_group")
-                .expect("appearance typography group should exist"),
+        let ui = Self {
+            style_group,
+            accent_group,
+            background_group,
+            backdrop_group,
+            theme_group,
+            typography_group,
             content_header: builder
                 .object("content_header")
                 .expect("content header should exist"),
@@ -797,8 +847,36 @@ impl AppearanceUi {
             banner: builder
                 .object("appearance_banner")
                 .expect("appearance banner should exist"),
-            color_scheme_row,
-            accent_color_row,
+            style_auto_button: style_builder
+                .object("appearance_style_auto_button")
+                .expect("appearance style auto button should exist"),
+            style_light_button: style_builder
+                .object("appearance_style_light_button")
+                .expect("appearance style light button should exist"),
+            style_dark_button: style_builder
+                .object("appearance_style_dark_button")
+                .expect("appearance style dark button should exist"),
+            accent_box: accent_builder
+                .object("appearance_accent_box")
+                .expect("appearance accent box should exist"),
+            wallpaper_gallery_bin: background_builder
+                .object("appearance_wallpaper_gallery_bin")
+                .expect("appearance wallpaper gallery bin should exist"),
+            wallpaper_gallery_grid: wallpaper_gallery_builder
+                .object("appearance_wallpaper_gallery_grid")
+                .expect("appearance wallpaper gallery grid should exist"),
+            wallpaper_gallery_file_row: background_builder
+                .object("appearance_wallpaper_gallery_file_row")
+                .expect("appearance wallpaper file row should exist"),
+            wallpaper_color_button: background_builder
+                .object("appearance_wallpaper_color_button")
+                .expect("appearance wallpaper color button should exist"),
+            backdrop_enabled_row: backdrop_builder
+                .object("appearance_backdrop_enabled_row")
+                .expect("appearance backdrop enabled row should exist"),
+            backdrop_blur_row: backdrop_builder
+                .object("appearance_backdrop_blur_row")
+                .expect("appearance backdrop blur row should exist"),
             gtk_theme_row,
             icon_theme_row,
             cursor_theme_row,
@@ -826,9 +904,22 @@ impl AppearanceUi {
             gtk_theme_values: Rc::new(RefCell::new(Vec::new())),
             icon_theme_values: Rc::new(RefCell::new(Vec::new())),
             cursor_theme_values: Rc::new(RefCell::new(Vec::new())),
+            accent_buttons: Rc::new(RefCell::new(Vec::new())),
+            wallpaper_gallery: Rc::new(RefCell::new(background::scan_wallpaper_gallery(
+                &background::wallpaper_search_roots(),
+            ))),
+            compositor,
             syncing: Rc::new(Cell::new(false)),
             error_message: Rc::new(RefCell::new(None)),
-        }
+            window: window.clone(),
+        };
+        let wallpaper_gallery_widget: gtk::Widget = wallpaper_gallery_builder
+            .object("appearance_wallpaper_gallery_widget")
+            .expect("appearance wallpaper gallery widget should exist");
+        ui.wallpaper_gallery_bin
+            .set_child(Some(&wallpaper_gallery_widget));
+        populate_accent_buttons(&ui);
+        ui
     }
 
     fn refresh_snapshot(&self) {
@@ -893,21 +984,35 @@ impl AppearanceUi {
             &draft.cursor_theme,
         );
 
-        let scheme_index = ColorScheme::all()
-            .iter()
-            .position(|item| *item == draft.color_scheme)
-            .unwrap_or(0);
-        self.color_scheme_row.set_selected(scheme_index as u32);
-        let accent_index = AccentColor::all()
-            .iter()
-            .position(|item| *item == draft.accent_color)
-            .unwrap_or(0);
-        self.accent_color_row.set_selected(accent_index as u32);
+        self.style_auto_button
+            .set_active(draft.color_scheme == ColorScheme::Default);
+        self.style_light_button
+            .set_active(draft.color_scheme == ColorScheme::Light);
+        self.style_dark_button
+            .set_active(draft.color_scheme == ColorScheme::Dark);
+        sync_accent_button_selection(self, draft.accent_color);
         self.interface_font_row.set_subtitle(&draft.interface_font);
         self.interface_font_button.set_font(&draft.interface_font);
         self.monospace_font_row.set_subtitle(&draft.monospace_font);
         self.monospace_font_button.set_font(&draft.monospace_font);
         self.text_scale_row.set_value(draft.text_scale);
+        drop(draft);
+        let gallery = self.wallpaper_gallery.borrow().clone();
+        sync_inline_background_gallery(&self.wallpaper_gallery_grid, self, &gallery);
+        let draft = self.draft.borrow();
+        self.wallpaper_color_button
+            .set_rgba(&parse_color_rgba(&draft.wallpaper.color));
+        self.backdrop_group
+            .set_visible(self.compositor.capabilities().backdrop);
+        self.backdrop_enabled_row.set_active(draft.backdrop.enabled);
+        let backdrop_available =
+            draft.wallpaper.mode == glimpse::config::WallpaperMode::Image
+                && draft.wallpaper.path.is_some();
+        self.backdrop_enabled_row.set_sensitive(backdrop_available);
+        self.backdrop_blur_row
+            .set_sensitive(draft.backdrop.enabled && backdrop_available);
+        self.backdrop_blur_row
+            .set_value(draft.backdrop.blur_radius as f64);
 
         self.syncing.set(false);
         update_appearance_apply_state(self);
@@ -4655,36 +4760,78 @@ fn bluetooth_prompt_reply(
 }
 
 fn wire_appearance_controls(appearance_ui: AppearanceUi) {
-    let color_scheme_ui = appearance_ui.clone();
+    let auto_ui = appearance_ui.clone();
+    appearance_ui.style_auto_button.connect_toggled(move |button| {
+        if auto_ui.syncing.get() || !button.is_active() {
+            return;
+        }
+        auto_ui.draft.borrow_mut().color_scheme = ColorScheme::Default;
+        auto_ui.clear_error();
+        auto_ui.sync();
+    });
+
+    let light_ui = appearance_ui.clone();
+    appearance_ui.style_light_button.connect_toggled(move |button| {
+        if light_ui.syncing.get() || !button.is_active() {
+            return;
+        }
+        light_ui.draft.borrow_mut().color_scheme = ColorScheme::Light;
+        light_ui.clear_error();
+        light_ui.sync();
+    });
+
+    let dark_ui = appearance_ui.clone();
+    appearance_ui.style_dark_button.connect_toggled(move |button| {
+        if dark_ui.syncing.get() || !button.is_active() {
+            return;
+        }
+        dark_ui.draft.borrow_mut().color_scheme = ColorScheme::Dark;
+        dark_ui.clear_error();
+        dark_ui.sync();
+    });
+
+    let wallpaper_color_ui = appearance_ui.clone();
     appearance_ui
-        .color_scheme_row
-        .connect_selected_notify(move |row| {
-            if color_scheme_ui.syncing.get() {
+        .wallpaper_color_button
+        .connect_color_set(move |button| {
+            if wallpaper_color_ui.syncing.get() {
                 return;
             }
-            let value = ColorScheme::all()
-                .get(row.selected() as usize)
-                .copied()
-                .unwrap_or(ColorScheme::Default);
-            color_scheme_ui.draft.borrow_mut().color_scheme = value;
-            color_scheme_ui.clear_error();
-            color_scheme_ui.sync();
+            wallpaper_color_ui.draft.borrow_mut().wallpaper.color =
+                rgba_to_hex(&button.rgba());
+            wallpaper_color_ui.clear_error();
+            wallpaper_color_ui.sync();
         });
 
-    let accent_ui = appearance_ui.clone();
+    let wallpaper_gallery_ui = appearance_ui.clone();
     appearance_ui
-        .accent_color_row
-        .connect_selected_notify(move |row| {
-            if accent_ui.syncing.get() {
+        .wallpaper_gallery_file_row
+        .connect_activated(move |_| {
+            present_background_file_chooser(&wallpaper_gallery_ui);
+        });
+
+    let backdrop_enabled_ui = appearance_ui.clone();
+    appearance_ui
+        .backdrop_enabled_row
+        .connect_active_notify(move |row| {
+            if backdrop_enabled_ui.syncing.get() {
                 return;
             }
-            let value = AccentColor::all()
-                .get(row.selected() as usize)
-                .copied()
-                .unwrap_or(AccentColor::Blue);
-            accent_ui.draft.borrow_mut().accent_color = value;
-            accent_ui.clear_error();
-            accent_ui.sync();
+            backdrop_enabled_ui.draft.borrow_mut().backdrop.enabled = row.is_active();
+            backdrop_enabled_ui.clear_error();
+            backdrop_enabled_ui.sync();
+        });
+
+    let backdrop_blur_ui = appearance_ui.clone();
+    appearance_ui
+        .backdrop_blur_row
+        .connect_changed(move |row| {
+            if backdrop_blur_ui.syncing.get() {
+                return;
+            }
+            backdrop_blur_ui.draft.borrow_mut().backdrop.blur_radius = row.value() as u32;
+            backdrop_blur_ui.clear_error();
+            backdrop_blur_ui.sync();
         });
 
     let gtk_theme_ui = appearance_ui.clone();
@@ -4806,11 +4953,24 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
             }
         }
 
-        match apply_ui.settings.apply(&draft) {
+        match apply_ui.settings.apply_desktop_settings(&draft) {
             Ok(()) => {
-                *apply_ui.baseline.borrow_mut() = draft;
-                apply_ui.clear_error();
-                apply_ui.refresh_snapshot();
+                match background::apply_background_settings(
+                    apply_ui.compositor,
+                    &draft.wallpaper,
+                    &draft.backdrop,
+                ) {
+                    Ok(_) => {
+                        *apply_ui.baseline.borrow_mut() = draft;
+                        apply_ui.clear_error();
+                        apply_ui.refresh_snapshot();
+                    }
+                    Err(error) => {
+                        tracing::warn!("background apply failed: {error}");
+                        *apply_ui.error_message.borrow_mut() =
+                            Some("Background settings could not be applied".into());
+                    }
+                }
             }
             Err(error) => {
                 tracing::warn!("appearance apply failed: {error}");
@@ -4820,6 +4980,267 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
         }
         apply_ui.sync();
     });
+}
+
+const WALLPAPER_GALLERY_COLUMNS: usize = 4;
+const WALLPAPER_GALLERY_ROWS: usize = 3;
+const WALLPAPER_GALLERY_IMAGE_LIMIT: usize =
+    WALLPAPER_GALLERY_COLUMNS * WALLPAPER_GALLERY_ROWS - 1;
+
+fn sync_inline_background_gallery(
+    grid: &gtk::Grid,
+    appearance_ui: &AppearanceUi,
+    items: &[WallpaperGalleryItem],
+) {
+    while let Some(child) = grid.first_child() {
+        grid.remove(&child);
+    }
+
+    let mut slot = 0usize;
+    let no_background_tile = build_no_background_tile(appearance_ui);
+    grid.attach(
+        &no_background_tile,
+        (slot % WALLPAPER_GALLERY_COLUMNS) as i32,
+        (slot / WALLPAPER_GALLERY_COLUMNS) as i32,
+        1,
+        1,
+    );
+    slot += 1;
+
+    for item in items.iter().take(WALLPAPER_GALLERY_IMAGE_LIMIT) {
+        let tile = build_background_gallery_tile(appearance_ui, item);
+        grid.attach(
+            &tile,
+            (slot % WALLPAPER_GALLERY_COLUMNS) as i32,
+            (slot / WALLPAPER_GALLERY_COLUMNS) as i32,
+            1,
+            1,
+        );
+        slot += 1;
+    }
+
+    while slot < WALLPAPER_GALLERY_COLUMNS * WALLPAPER_GALLERY_ROWS {
+        let placeholder = build_background_gallery_placeholder();
+        grid.attach(
+            &placeholder,
+            (slot % WALLPAPER_GALLERY_COLUMNS) as i32,
+            (slot / WALLPAPER_GALLERY_COLUMNS) as i32,
+            1,
+            1,
+        );
+        slot += 1;
+    }
+}
+
+fn build_no_background_tile(appearance_ui: &AppearanceUi) -> gtk::Button {
+    let icon = gtk::Image::from_icon_name("edit-clear-symbolic");
+    icon.set_pixel_size(28);
+    icon.add_css_class("dim-label");
+    let label = gtk::Label::new(Some("No Image"));
+    label.add_css_class("dim-label");
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    content.add_css_class("appearance-wallpaper-thumb");
+    content.add_css_class("appearance-wallpaper-empty-tile");
+    content.append(&icon);
+    content.append(&label);
+
+    let selected = appearance_ui.draft.borrow().wallpaper.path.is_none();
+    let tile = build_wallpaper_tile_shell(&content, selected);
+    let button = gtk::Button::new();
+    button.set_child(Some(&tile));
+    button.add_css_class("flat");
+    button.add_css_class("appearance-wallpaper-tile-button");
+    if selected {
+        button.add_css_class("appearance-wallpaper-tile-selected");
+    }
+
+    let clear_ui = appearance_ui.clone();
+    button.connect_clicked(move |_| {
+        let mut draft = clear_ui.draft.borrow_mut();
+        draft.wallpaper.mode = glimpse::config::WallpaperMode::Color;
+        draft.wallpaper.path = None;
+        draft.backdrop.enabled = false;
+        clear_ui.clear_error();
+        drop(draft);
+        clear_ui.sync();
+    });
+    button
+}
+
+fn build_background_gallery_tile(
+    appearance_ui: &AppearanceUi,
+    item: &WallpaperGalleryItem,
+) -> gtk::Button {
+    let picture = gtk::Picture::for_filename(&item.path);
+    picture.set_content_fit(gtk::ContentFit::Cover);
+    picture.set_can_shrink(true);
+    picture.add_css_class("appearance-wallpaper-thumb");
+    let selected = background_tile_is_selected(appearance_ui, &item.path);
+    let tile = build_wallpaper_tile_shell(&picture, selected);
+
+    let button = gtk::Button::new();
+    button.set_child(Some(&tile));
+    button.add_css_class("flat");
+    button.add_css_class("appearance-wallpaper-tile-button");
+    if selected {
+        button.add_css_class("appearance-wallpaper-tile-selected");
+    }
+
+    let selected_ui = appearance_ui.clone();
+    let selected_path = item.path.clone();
+    button.connect_clicked(move |_| {
+        apply_background_selection(&selected_ui, selected_path.clone());
+    });
+    button
+}
+
+fn build_wallpaper_tile_shell(content: &impl IsA<gtk::Widget>, selected: bool) -> gtk::Overlay {
+    let frame = gtk::Frame::new(None);
+    frame.add_css_class("appearance-wallpaper-frame");
+    frame.set_child(Some(content));
+
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&frame));
+
+    let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    badge.add_css_class("appearance-wallpaper-selected-badge");
+    badge.set_halign(gtk::Align::End);
+    badge.set_valign(gtk::Align::Start);
+    badge.set_margin_top(8);
+    badge.set_margin_end(8);
+    badge.set_visible(selected);
+
+    let badge_icon = gtk::Image::from_icon_name("object-select-symbolic");
+    badge_icon.set_pixel_size(14);
+    badge.append(&badge_icon);
+
+    overlay.add_overlay(&badge);
+    overlay
+}
+
+fn build_background_gallery_placeholder() -> gtk::Box {
+    let placeholder = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    placeholder.add_css_class("appearance-wallpaper-placeholder");
+    placeholder.set_sensitive(false);
+    placeholder
+}
+
+fn present_background_file_chooser(appearance_ui: &AppearanceUi) {
+    let chooser = gtk::FileChooserNative::builder()
+        .title("Select Wallpaper Image")
+        .transient_for(&appearance_ui.window)
+        .modal(true)
+        .action(gtk::FileChooserAction::Open)
+        .accept_label("Select")
+        .cancel_label("Cancel")
+        .build();
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("Images"));
+    filter.add_mime_type("image/*");
+    chooser.add_filter(&filter);
+
+    let appearance_ui = appearance_ui.clone();
+    glib::spawn_future_local(async move {
+        if chooser.run_future().await != gtk::ResponseType::Accept {
+            return;
+        }
+        let Some(file) = chooser.file() else {
+            return;
+        };
+        let Some(path) = file.path() else {
+            return;
+        };
+        apply_background_selection(&appearance_ui, path);
+    });
+}
+
+fn apply_background_selection(appearance_ui: &AppearanceUi, path: PathBuf) {
+    let mut draft = appearance_ui.draft.borrow_mut();
+    draft.wallpaper.mode = glimpse::config::WallpaperMode::Image;
+    draft.wallpaper.path = Some(path);
+    appearance_ui.clear_error();
+    drop(draft);
+    appearance_ui.sync();
+}
+
+fn background_tile_is_selected(appearance_ui: &AppearanceUi, path: &Path) -> bool {
+    appearance_ui.draft.borrow().wallpaper.path.as_deref() == Some(path)
+}
+
+fn parse_color_rgba(color: &str) -> gtk::gdk::RGBA {
+    gtk::gdk::RGBA::parse(color).unwrap_or_else(|_| gtk::gdk::RGBA::BLACK)
+}
+
+fn rgba_to_hex(color: &gtk::gdk::RGBA) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (color.red() * 255.0).round() as u8,
+        (color.green() * 255.0).round() as u8,
+        (color.blue() * 255.0).round() as u8
+    )
+}
+
+fn populate_accent_buttons(appearance_ui: &AppearanceUi) {
+    while let Some(child) = appearance_ui.accent_box.first_child() {
+        appearance_ui.accent_box.remove(&child);
+    }
+
+    let mut buttons = Vec::new();
+    for accent in AccentColor::all() {
+        let button = gtk::Button::new();
+        button.add_css_class("flat");
+        button.add_css_class("appearance-accent-swatch");
+        button.add_css_class(accent_color_css_class(*accent));
+        button.set_tooltip_text(Some(accent.label()));
+
+        let inner = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        inner.add_css_class("appearance-accent-swatch-inner");
+        button.set_child(Some(&inner));
+
+        let accent_ui = appearance_ui.clone();
+        let accent_value = *accent;
+        button.connect_clicked(move |_| {
+            if accent_ui.syncing.get() {
+                return;
+            }
+            accent_ui.draft.borrow_mut().accent_color = accent_value;
+            accent_ui.clear_error();
+            accent_ui.sync();
+        });
+
+        appearance_ui.accent_box.append(&button);
+        buttons.push(button);
+    }
+
+    *appearance_ui.accent_buttons.borrow_mut() = buttons;
+}
+
+fn sync_accent_button_selection(appearance_ui: &AppearanceUi, selected: AccentColor) {
+    for (index, button) in appearance_ui.accent_buttons.borrow().iter().enumerate() {
+        let is_selected = AccentColor::all()
+            .get(index)
+            .is_some_and(|accent| *accent == selected);
+        if is_selected {
+            button.add_css_class("appearance-accent-swatch-selected");
+        } else {
+            button.remove_css_class("appearance-accent-swatch-selected");
+        }
+    }
+}
+
+fn accent_color_css_class(accent: AccentColor) -> &'static str {
+    match accent {
+        AccentColor::Blue => "appearance-accent-blue",
+        AccentColor::Teal => "appearance-accent-teal",
+        AccentColor::Green => "appearance-accent-green",
+        AccentColor::Yellow => "appearance-accent-yellow",
+        AccentColor::Orange => "appearance-accent-orange",
+        AccentColor::Red => "appearance-accent-red",
+        AccentColor::Pink => "appearance-accent-pink",
+        AccentColor::Purple => "appearance-accent-purple",
+        AccentColor::Slate => "appearance-accent-slate",
+    }
 }
 
 fn wire_display_controls(display_ui: DisplayUi) {
@@ -6825,6 +7246,12 @@ fn update_page(
         .set_visible(
             !is_appearance && !is_network && !is_bluetooth && !is_displays && !is_power && !is_sound,
         );
+    appearance_ui.style_group.set_visible(is_appearance);
+    appearance_ui.accent_group.set_visible(is_appearance);
+    appearance_ui.background_group.set_visible(is_appearance);
+    appearance_ui
+        .backdrop_group
+        .set_visible(is_appearance && appearance_ui.compositor.capabilities().backdrop);
     appearance_ui.theme_group.set_visible(is_appearance);
     appearance_ui.typography_group.set_visible(is_appearance);
     network_ui.general_group.set_visible(is_network);

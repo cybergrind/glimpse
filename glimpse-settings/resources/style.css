@@ -6,3 +6,118 @@
 @define-color settings-display-box-selected-border #6ea8ff;
 @define-color settings-display-box-selected-fg white;
 @define-color settings-display-box-disabled-bg rgba(255, 255, 255, 0.045);
+
+.appearance-wallpaper-gallery {
+  margin: 0;
+}
+
+.appearance-wallpaper-gallery-grid {
+  margin: 0;
+}
+
+.appearance-wallpaper-tile-button {
+  padding: 0;
+  border-radius: 18px;
+  background: transparent;
+}
+
+.appearance-wallpaper-tile-button:hover {
+  background: transparent;
+}
+
+.appearance-wallpaper-tile-selected {
+  outline: none;
+}
+
+.appearance-wallpaper-placeholder {
+  min-height: 152px;
+}
+
+.appearance-wallpaper-frame {
+  border-radius: 18px;
+  padding: 0;
+  background: alpha(currentColor, 0.05);
+  box-shadow: inset 0 0 0 1px alpha(currentColor, 0.08);
+}
+
+.appearance-wallpaper-tile-selected .appearance-wallpaper-frame {
+  box-shadow:
+    inset 0 0 0 2px @accent_color,
+    0 8px 20px alpha(@accent_color, 0.12);
+}
+
+.appearance-wallpaper-thumb {
+  min-width: 0;
+  min-height: 152px;
+  border-radius: 16px;
+  background: alpha(currentColor, 0.08);
+}
+
+.appearance-wallpaper-empty-tile {
+  min-width: 0;
+  min-height: 152px;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 20% 20%, alpha(currentColor, 0.05), transparent 42%),
+    alpha(currentColor, 0.025);
+  border: 1px dashed alpha(currentColor, 0.15);
+  color: alpha(currentColor, 0.75);
+}
+
+.appearance-wallpaper-selected-badge {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: @accent_color;
+  color: white;
+  box-shadow: 0 2px 8px alpha(black, 0.2);
+}
+
+.appearance-background-card {
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.appearance-background-preview-media {
+  border-radius: 14px;
+  background: alpha(currentColor, 0.06);
+}
+
+.appearance-background-preview-empty {
+  min-height: 176px;
+  border-radius: 14px;
+  background: alpha(currentColor, 0.04);
+}
+
+.appearance-accent-swatch {
+  min-width: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.appearance-accent-swatch-inner {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+
+.appearance-accent-swatch-selected .appearance-accent-swatch-inner {
+  border-color: @accent_color;
+}
+
+.appearance-accent-blue .appearance-accent-swatch-inner { background: #3584e4; }
+.appearance-accent-teal .appearance-accent-swatch-inner { background: #2190a4; }
+.appearance-accent-green .appearance-accent-swatch-inner { background: #3a944a; }
+.appearance-accent-yellow .appearance-accent-swatch-inner { background: #c88800; }
+.appearance-accent-orange .appearance-accent-swatch-inner { background: #ed5b00; }
+.appearance-accent-red .appearance-accent-swatch-inner { background: #e62d42; }
+.appearance-accent-pink .appearance-accent-swatch-inner { background: #d56199; }
+.appearance-accent-purple .appearance-accent-swatch-inner { background: #9141ac; }
+.appearance-accent-slate .appearance-accent-swatch-inner { background: #6f8396; }
+
+.appearance-style-pill {
+  font-weight: 500;
+}
