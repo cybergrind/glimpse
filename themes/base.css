@@ -336,6 +336,74 @@
   outline-offset: 2px;
 }
 
+.pager {
+  padding: 0 var(--space-2);
+}
+
+.pager-dot {
+  min-width: var(--space-4);
+  min-height: var(--space-4);
+  margin: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  transition:
+    min-width var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard);
+}
+
+.pager-dot.active {
+  min-width: calc(var(--space-6) + var(--space-3));
+  background: color-mix(in srgb, currentColor 90%, transparent);
+}
+
+.pager-dot.occupied {
+  background: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.pager-dot.urgent {
+  background: var(--color-accent);
+}
+
+.pager-num {
+  min-height: 20px;
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard);
+}
+
+.pager-num label {
+  color: color-mix(in srgb, currentColor 35%, transparent);
+}
+
+.pager-num.active {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.pager-num.active label {
+  color: currentColor;
+}
+
+.pager-num.occupied label {
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.pager-num.urgent {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+
+.pager-num.urgent label {
+  color: currentColor;
+}
+
 popover {
   padding: var(--space-2);
 }
@@ -532,6 +600,16 @@ popover separator {
 .empty-state__subtitle {
   color: var(--color-muted-fg);
   font-size: var(--font-size-sm);
+}
+
+.section-title {
+  color: var(--row-fg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.dim-label {
+  color: var(--color-muted-fg);
 }
 
 .badge {
@@ -812,6 +890,139 @@ popover separator {
 .brightness-popover .brightness-row-scale,
 .brightness-popover .brightness-row scale {
   min-width: 220px;
+}
+
+/* Clock */
+
+.clock-popover {
+  --popover-min-width: 620px;
+}
+
+.clock-popover .clock-popover-left {
+  padding-right: 18px;
+  margin-right: 18px;
+  border-right: var(--border-width) solid var(--color-border);
+}
+
+.clock-popover .clock-popover-left > *:not(:last-child) {
+  margin-bottom: var(--popover-section-gap);
+}
+
+.clock-popover .clock-popover-right {
+  min-width: 250px;
+}
+
+.clock-popover .date {
+  padding-top: 0;
+  padding-left: 0;
+  margin-bottom: var(--space-6);
+}
+
+.clock-popover .date-day-of-week {
+  font-weight: var(--font-weight-medium);
+}
+
+.clock-popover .date-date {
+  font-size: 130%;
+  font-weight: var(--font-weight-semibold);
+}
+
+.clock-popover .calendar-header {
+  margin-bottom: var(--space-4);
+}
+
+.clock-popover .calendar-month-label {
+  font-weight: var(--font-weight-medium);
+}
+
+.clock-popover .calendar-weekdays {
+  margin-bottom: var(--space-3);
+}
+
+.clock-popover .calendar-weekday {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-muted-fg);
+}
+
+.clock-popover .calendar-day {
+  min-width: 40px;
+  min-height: 40px;
+  padding: var(--space-2) 0 3px;
+  border-radius: var(--row-radius);
+  background: transparent;
+}
+
+.clock-popover .calendar-day.other-month {
+  opacity: var(--opacity-disabled);
+}
+
+.clock-popover .calendar-day.today {
+  color: var(--color-accent);
+  box-shadow: inset 0 0 0 var(--border-width) var(--color-accent);
+}
+
+.clock-popover .calendar-day.selected {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  box-shadow: none;
+}
+
+.clock-popover .calendar-day.today.selected {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  box-shadow: inset 0 0 0 var(--border-width) var(--color-accent);
+}
+
+.clock-popover .calendar-day-number {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-popover .calendar-day.selected .calendar-day-number {
+  font-weight: var(--font-weight-medium);
+}
+
+.clock-popover .calendar-day-dots {
+  min-height: 10px;
+  margin-top: 1px;
+  font-size: 10px;
+}
+
+.clock-popover .events-list {
+  margin-bottom: 0;
+}
+
+.clock-popover .event-row:not(:last-child) {
+  margin-bottom: var(--space-5);
+}
+
+.clock-popover .event-title {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.clock-popover .event-time,
+.clock-popover .world-clock-time,
+.clock-popover .world-clock-tz {
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-popover .events-empty {
+  font-weight: var(--font-weight-medium);
+}
+
+.clock-popover .world-clock-list .world-clock-timezone:not(:last-child) {
+  padding-bottom: var(--space-2);
+}
+
+.clock-popover .world-clock-time {
+  font-weight: var(--font-weight-semibold);
+}
+
+.clock-popover .world-clock-tz {
+  padding-left: var(--space-4);
 }
 
 /* Weather */

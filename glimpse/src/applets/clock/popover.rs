@@ -14,10 +14,13 @@ use super::components::{
     events::{Events, EventsInit, EventsInput, EventsOutput},
     world::WorldClock,
 };
-use crate::applets::clock::{TimezoneEntry, components::world::WorldClockInput};
+use crate::applets::clock::{components::world::WorldClockInput, TimezoneEntry};
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 
 pub struct Popover {
     popover: gtk::Popover,
+    #[allow(dead_code)]
+    shell: Controller<PopoverShell>,
     #[allow(dead_code)]
     date: Controller<Date>,
     #[allow(dead_code)]
@@ -65,33 +68,8 @@ impl SimpleComponent for Popover {
         gtk::Popover {
             add_css_class: "clock-popover",
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 20,
-                add_css_class: "clock-popover-layout",
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    add_css_class: "clock-popover-left",
-
-                    #[local_ref]
-                    date_widget -> gtk::Box {},
-
-                    #[local_ref]
-                    calendar_widget -> gtk::Box {},
-
-                    #[local_ref]
-                    world_widget -> gtk::Box {},
-                },
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    add_css_class: "clock-popover-right",
-
-                    #[local_ref]
-                    events_widget -> gtk::Box {},
-                },
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -101,6 +79,9 @@ impl SimpleComponent for Popover {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let selected_date = Local::now().date_naive();
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit::default())
+            .detach();
         let date = Date::builder().launch(()).detach();
         let calendar = Calendar::builder()
             .launch(CalendarInit { selected_date })
@@ -126,9 +107,29 @@ impl SimpleComponent for Popover {
                 widget
             });
         let events_widget = events.widget().clone();
+        let layout = gtk::Box::new(gtk::Orientation::Horizontal, 20);
+        layout.add_css_class("clock-popover-layout");
+        let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        left.add_css_class("clock-popover-left");
+        left.append(&date_widget);
+        left.append(&calendar_widget);
+        left.append(&world_widget);
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        right.add_css_class("clock-popover-right");
+        right.append(&events_widget);
+        layout.append(&left);
+        layout.append(&right);
+
+        let shell_widget = shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        shell_content.append(&layout);
 
         let model = Popover {
             popover: root.clone(),
+            shell,
             date,
             calendar,
             world_clock,
