@@ -23,7 +23,9 @@ use glimpse::network::{
     },
     provider::{
         HotspotConfig, NetworkConnection, NetworkConnectionConfig, NetworkDevice, NetworkIpConfig,
-        NetworkIpMethod, NetworkSnapshot, SavedVpn, WifiAccessPoint,
+        NetworkIpMethod, NetworkSnapshot, OpenVpnConfig, SavedVpn, VpnConfigKind,
+        VpnProfileConfig, VpnTransportProtocol, WifiAccessPoint, WireGuardConfig,
+        WireGuardPeerConfig,
     },
 };
 use glimpse::{
@@ -35,6 +37,7 @@ use gtk4::{self as gtk, gio, glib};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use glimpse_settings::{
     appearance::{self, AccentColor, AppearanceDraft, ColorScheme, ThemeKind},
@@ -256,6 +259,7 @@ struct NetworkUi {
     wifi_enabled_row: adw::SwitchRow,
     active_wifi_adapter_row: adw::ComboRow,
     primary_connection_row: adw::ActionRow,
+    vpn_add_row: adw::ActionRow,
     hotspot_enabled_row: adw::SwitchRow,
     hotspot_config_row: adw::ActionRow,
     state: Rc<RefCell<NetworkPageState>>,
@@ -991,6 +995,9 @@ impl NetworkUi {
             primary_connection_row: builder
                 .object("network_primary_connection_row")
                 .expect("network primary connection row should exist"),
+            vpn_add_row: builder
+                .object("network_vpn_add_row")
+                .expect("network vpn add row should exist"),
             hotspot_enabled_row: builder
                 .object("network_hotspot_enabled_row")
                 .expect("network hotspot enabled row should exist"),
@@ -2131,6 +2138,11 @@ fn wire_network_controls(
     network_ui.hotspot_config_row.connect_activated(move |_| {
         show_network_hotspot_config_dialog(&hotspot_config_ui);
     });
+
+    let vpn_add_ui = network_ui.clone();
+    network_ui.vpn_add_row.connect_activated(move |_| {
+        show_network_vpn_type_dialog(&vpn_add_ui);
+    });
 }
 
 fn start_network_subscription(
@@ -2986,7 +2998,7 @@ fn build_network_vpn_row(ui: &NetworkUi, uuid: &str) -> NetworkVpnRowWidgets {
     row.add_suffix(&menu_button);
 
     let action_group = gio::SimpleActionGroup::new();
-    for action_name in ["connect", "disconnect", "configure", "info"] {
+    for action_name in ["connect", "disconnect", "edit", "delete", "info"] {
         let ui_ref = ui.clone();
         let uuid_ref = uuid.to_owned();
         let action = gio::SimpleAction::new(action_name, None);
@@ -3005,7 +3017,8 @@ fn build_network_vpn_row(ui: &NetworkUi, uuid: &str) -> NetworkVpnRowWidgets {
                     uuid: uuid_ref.clone(),
                 },
             ),
-            "configure" => show_network_connection_config_dialog_for_uuid(&ui_ref, &uuid_ref),
+            "edit" => show_network_vpn_edit_dialog_for_uuid(&ui_ref, &uuid_ref),
+            "delete" => show_network_vpn_delete_dialog(&ui_ref, &uuid_ref),
             "info" => show_network_vpn_info_dialog(&ui_ref, &uuid_ref),
             _ => {}
         });
@@ -3125,7 +3138,8 @@ fn network_vpn_menu(vpn: &SavedVpn) -> gio::Menu {
     } else {
         menu.append(Some("Connect"), Some("net-vpn.connect"));
     }
-    menu.append(Some("Configure"), Some("net-vpn.configure"));
+    menu.append(Some("Edit"), Some("net-vpn.edit"));
+    menu.append(Some("Delete"), Some("net-vpn.delete"));
     menu.append(Some("Info"), Some("net-vpn.info"));
     menu
 }
@@ -3446,6 +3460,120 @@ fn show_network_vpn_info_dialog(ui: &NetworkUi, uuid: &str) {
     );
 }
 
+fn show_network_vpn_type_dialog(ui: &NetworkUi) {
+    let builder = gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/vpn-type.ui");
+    let root: gtk::Box = builder
+        .object("network_vpn_type_root")
+        .expect("network vpn type root should exist");
+
+    let dialog = AlertDialog::new(Some("Add VPN"), None);
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("openvpn", "OpenVPN");
+    dialog.add_response("wireguard", "WireGuard");
+    dialog.set_default_response(Some("openvpn"));
+    dialog.set_close_response("cancel");
+    dialog.set_extra_child(Some(&root));
+
+    let parent = ui.window.clone();
+    let ui_ref = ui.clone();
+    glib::spawn_future_local(async move {
+        match dialog.choose_future(&parent).await.as_str() {
+            "openvpn" => present_network_openvpn_dialog(
+                &ui_ref.window,
+                ui_ref.backend.clone(),
+                default_openvpn_vpn_profile_config(),
+                true,
+            ),
+            "wireguard" => present_network_wireguard_dialog(
+                &ui_ref.window,
+                ui_ref.backend.clone(),
+                default_wireguard_vpn_profile_config(),
+                true,
+            ),
+            _ => {}
+        }
+    });
+}
+
+fn show_network_vpn_edit_dialog_for_uuid(ui: &NetworkUi, uuid: &str) {
+    let state = ui.state.borrow();
+    let Some(settings_path) = state.vpn(uuid).map(|vpn| vpn.settings_path.clone()) else {
+        return;
+    };
+    drop(state);
+
+    let backend = ui.backend.clone();
+    let window = ui.window.clone();
+    let runtime = ui.runtime.handle().clone();
+    glib::spawn_future_local(async move {
+        match runtime
+            .spawn({
+                let backend = backend.clone();
+                let settings_path = settings_path.clone();
+                async move { backend.load_vpn_profile(&settings_path).await }
+            })
+            .await
+        {
+            Ok(Ok(config)) => match config.kind {
+                VpnConfigKind::OpenVpn(_) => {
+                    present_network_openvpn_dialog(&window, backend.clone(), config, false);
+                }
+                VpnConfigKind::WireGuard(_) => {
+                    present_network_wireguard_dialog(&window, backend.clone(), config, false);
+                }
+            },
+            Ok(Err(error)) => tracing::warn!(error = %error, "failed to load vpn profile"),
+            Err(error) => tracing::error!(error = %error, "vpn profile load task failed"),
+        }
+    });
+}
+
+fn show_network_vpn_delete_dialog(ui: &NetworkUi, uuid: &str) {
+    let state = ui.state.borrow();
+    let Some(vpn) = state.vpn(uuid).cloned() else {
+        return;
+    };
+    drop(state);
+
+    let dialog = AlertDialog::new(
+        Some("Delete VPN"),
+        Some(&format!("Delete the VPN profile \"{}\"?", vpn.id)),
+    );
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("delete", "Delete");
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+
+    let parent = ui.window.clone();
+    let backend = ui.backend.clone();
+    let runtime = ui.runtime.handle().clone();
+    let service = ui.backend.service().clone();
+    glib::spawn_future_local(async move {
+        if dialog.choose_future(&parent).await != "delete" {
+            return;
+        }
+
+        match runtime
+            .spawn(async move {
+                if vpn.active {
+                    let _ = service
+                        .send(NetworkServiceCommand::Disconnect {
+                            uuid: vpn.uuid.clone(),
+                        })
+                        .await;
+                }
+                backend.delete_connection_path(&vpn.settings_path).await
+            })
+            .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(error = %error, "failed to delete vpn profile"),
+            Err(error) => tracing::error!(error = %error, "vpn profile delete task failed"),
+        }
+    });
+}
+
 fn show_blueprint_info_dialog(
     parent: &adw::ApplicationWindow,
     title: &str,
@@ -3477,6 +3605,365 @@ fn show_blueprint_info_dialog(
     glib::spawn_future_local(async move {
         let _ = dialog.choose_future(&parent).await;
     });
+}
+
+fn present_network_openvpn_dialog(
+    parent: &adw::ApplicationWindow,
+    backend: Arc<NetworkBackend>,
+    config: VpnProfileConfig,
+    is_new: bool,
+) {
+    let builder = gtk::Builder::from_resource(
+        "/me/aresa/GlimpseSettings/ui/network/vpn-openvpn-config.ui",
+    );
+    let root: gtk::Box = builder
+        .object("network_vpn_openvpn_config_root")
+        .expect("network vpn openvpn config root should exist");
+    let name_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_name_row")
+        .expect("network vpn openvpn name row should exist");
+    let autoconnect_row: adw::SwitchRow = builder
+        .object("network_vpn_openvpn_autoconnect_row")
+        .expect("network vpn openvpn autoconnect row should exist");
+    let gateway_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_gateway_row")
+        .expect("network vpn openvpn gateway row should exist");
+    let port_row: adw::SpinRow = builder
+        .object("network_vpn_openvpn_port_row")
+        .expect("network vpn openvpn port row should exist");
+    let protocol_row: adw::ComboRow = builder
+        .object("network_vpn_openvpn_protocol_row")
+        .expect("network vpn openvpn protocol row should exist");
+    let username_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_username_row")
+        .expect("network vpn openvpn username row should exist");
+    let password_row: adw::PasswordEntryRow = builder
+        .object("network_vpn_openvpn_password_row")
+        .expect("network vpn openvpn password row should exist");
+    let ca_cert_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ca_cert_row")
+        .expect("network vpn openvpn ca cert row should exist");
+    let client_cert_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_client_cert_row")
+        .expect("network vpn openvpn client cert row should exist");
+    let private_key_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_private_key_row")
+        .expect("network vpn openvpn private key row should exist");
+    let ipv4_method_row: adw::ComboRow = builder
+        .object("network_vpn_openvpn_ipv4_method_row")
+        .expect("network vpn openvpn ipv4 method row should exist");
+    let ipv4_address_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv4_address_row")
+        .expect("network vpn openvpn ipv4 address row should exist");
+    let ipv4_prefix_row: adw::SpinRow = builder
+        .object("network_vpn_openvpn_ipv4_prefix_row")
+        .expect("network vpn openvpn ipv4 prefix row should exist");
+    let ipv4_gateway_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv4_gateway_row")
+        .expect("network vpn openvpn ipv4 gateway row should exist");
+    let ipv4_dns_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv4_dns_row")
+        .expect("network vpn openvpn ipv4 dns row should exist");
+    let ipv6_method_row: adw::ComboRow = builder
+        .object("network_vpn_openvpn_ipv6_method_row")
+        .expect("network vpn openvpn ipv6 method row should exist");
+    let ipv6_address_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv6_address_row")
+        .expect("network vpn openvpn ipv6 address row should exist");
+    let ipv6_prefix_row: adw::SpinRow = builder
+        .object("network_vpn_openvpn_ipv6_prefix_row")
+        .expect("network vpn openvpn ipv6 prefix row should exist");
+    let ipv6_gateway_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv6_gateway_row")
+        .expect("network vpn openvpn ipv6 gateway row should exist");
+    let ipv6_dns_row: adw::EntryRow = builder
+        .object("network_vpn_openvpn_ipv6_dns_row")
+        .expect("network vpn openvpn ipv6 dns row should exist");
+
+    let protocol_model = gtk::StringList::new(&["UDP", "TCP"]);
+    protocol_row.set_model(Some(&protocol_model));
+    install_network_ip_method_model(&ipv4_method_row);
+    install_network_ip_method_model(&ipv6_method_row);
+
+    let openvpn = match &config.kind {
+        VpnConfigKind::OpenVpn(openvpn) => openvpn.clone(),
+        _ => OpenVpnConfig::default(),
+    };
+
+    name_row.set_text(&config.id);
+    autoconnect_row.set_active(config.autoconnect);
+    gateway_row.set_text(&openvpn.gateway);
+    port_row.set_value(openvpn.port.unwrap_or(1194) as f64);
+    protocol_row.set_selected(match openvpn.protocol {
+        VpnTransportProtocol::Udp => 0,
+        VpnTransportProtocol::Tcp => 1,
+    });
+    username_row.set_text(&openvpn.username);
+    password_row.set_text(&openvpn.password);
+    ca_cert_row.set_text(&openvpn.ca_cert);
+    client_cert_row.set_text(&openvpn.client_cert);
+    private_key_row.set_text(&openvpn.private_key);
+    fill_network_ip_rows(
+        &config.ipv4,
+        &ipv4_method_row,
+        &ipv4_address_row,
+        &ipv4_prefix_row,
+        &ipv4_gateway_row,
+        &ipv4_dns_row,
+        24,
+    );
+    fill_network_ip_rows(
+        &config.ipv6,
+        &ipv6_method_row,
+        &ipv6_address_row,
+        &ipv6_prefix_row,
+        &ipv6_gateway_row,
+        &ipv6_dns_row,
+        64,
+    );
+
+    let dialog = AlertDialog::new(
+        Some(if is_new { "Add OpenVPN" } else { "Edit OpenVPN" }),
+        None,
+    );
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("save", if is_new { "Add" } else { "Save" });
+    dialog.set_default_response(Some("save"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+    dialog.set_extra_child(Some(&root));
+
+    let parent = parent.clone();
+    glib::spawn_future_local(async move {
+        if dialog.choose_future(&parent).await != "save" {
+            return;
+        }
+
+        let updated = VpnProfileConfig {
+            id: name_row.text().to_string(),
+            uuid: config.uuid.clone().or_else(|| Some(Uuid::new_v4().to_string())),
+            settings_path: config.settings_path.clone(),
+            autoconnect: autoconnect_row.is_active(),
+            interface_name: config.interface_name.clone(),
+            ipv4: read_network_ip_rows(
+                &ipv4_method_row,
+                &ipv4_address_row,
+                &ipv4_prefix_row,
+                &ipv4_gateway_row,
+                &ipv4_dns_row,
+            ),
+            ipv6: read_network_ip_rows(
+                &ipv6_method_row,
+                &ipv6_address_row,
+                &ipv6_prefix_row,
+                &ipv6_gateway_row,
+                &ipv6_dns_row,
+            ),
+            kind: VpnConfigKind::OpenVpn(OpenVpnConfig {
+                gateway: gateway_row.text().to_string(),
+                port: spin_value_to_optional_u16(&port_row),
+                protocol: if protocol_row.selected() == 1 {
+                    VpnTransportProtocol::Tcp
+                } else {
+                    VpnTransportProtocol::Udp
+                },
+                username: username_row.text().to_string(),
+                password: password_row.text().to_string(),
+                ca_cert: ca_cert_row.text().to_string(),
+                client_cert: client_cert_row.text().to_string(),
+                private_key: private_key_row.text().to_string(),
+            }),
+        };
+
+        if let Err(error) = save_vpn_profile(backend.clone(), updated, is_new).await {
+            tracing::warn!(error = %error, "failed to save openvpn profile");
+        }
+    });
+}
+
+fn present_network_wireguard_dialog(
+    parent: &adw::ApplicationWindow,
+    backend: Arc<NetworkBackend>,
+    config: VpnProfileConfig,
+    is_new: bool,
+) {
+    let builder = gtk::Builder::from_resource(
+        "/me/aresa/GlimpseSettings/ui/network/vpn-wireguard-config.ui",
+    );
+    let root: gtk::Box = builder
+        .object("network_vpn_wireguard_config_root")
+        .expect("network vpn wireguard config root should exist");
+    let name_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_name_row")
+        .expect("network vpn wireguard name row should exist");
+    let autoconnect_row: adw::SwitchRow = builder
+        .object("network_vpn_wireguard_autoconnect_row")
+        .expect("network vpn wireguard autoconnect row should exist");
+    let interface_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_interface_row")
+        .expect("network vpn wireguard interface row should exist");
+    let private_key_row: adw::PasswordEntryRow = builder
+        .object("network_vpn_wireguard_private_key_row")
+        .expect("network vpn wireguard private key row should exist");
+    let listen_port_row: adw::SpinRow = builder
+        .object("network_vpn_wireguard_listen_port_row")
+        .expect("network vpn wireguard listen port row should exist");
+    let mtu_row: adw::SpinRow = builder
+        .object("network_vpn_wireguard_mtu_row")
+        .expect("network vpn wireguard mtu row should exist");
+    let peer_public_key_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_peer_public_key_row")
+        .expect("network vpn wireguard peer public key row should exist");
+    let peer_preshared_key_row: adw::PasswordEntryRow = builder
+        .object("network_vpn_wireguard_peer_preshared_key_row")
+        .expect("network vpn wireguard peer preshared key row should exist");
+    let peer_endpoint_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_peer_endpoint_row")
+        .expect("network vpn wireguard peer endpoint row should exist");
+    let peer_allowed_ips_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_peer_allowed_ips_row")
+        .expect("network vpn wireguard peer allowed ips row should exist");
+    let peer_keepalive_row: adw::SpinRow = builder
+        .object("network_vpn_wireguard_peer_keepalive_row")
+        .expect("network vpn wireguard peer keepalive row should exist");
+    let ipv4_method_row: adw::ComboRow = builder
+        .object("network_vpn_wireguard_ipv4_method_row")
+        .expect("network vpn wireguard ipv4 method row should exist");
+    let ipv4_address_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv4_address_row")
+        .expect("network vpn wireguard ipv4 address row should exist");
+    let ipv4_prefix_row: adw::SpinRow = builder
+        .object("network_vpn_wireguard_ipv4_prefix_row")
+        .expect("network vpn wireguard ipv4 prefix row should exist");
+    let ipv4_gateway_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv4_gateway_row")
+        .expect("network vpn wireguard ipv4 gateway row should exist");
+    let ipv4_dns_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv4_dns_row")
+        .expect("network vpn wireguard ipv4 dns row should exist");
+    let ipv6_method_row: adw::ComboRow = builder
+        .object("network_vpn_wireguard_ipv6_method_row")
+        .expect("network vpn wireguard ipv6 method row should exist");
+    let ipv6_address_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv6_address_row")
+        .expect("network vpn wireguard ipv6 address row should exist");
+    let ipv6_prefix_row: adw::SpinRow = builder
+        .object("network_vpn_wireguard_ipv6_prefix_row")
+        .expect("network vpn wireguard ipv6 prefix row should exist");
+    let ipv6_gateway_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv6_gateway_row")
+        .expect("network vpn wireguard ipv6 gateway row should exist");
+    let ipv6_dns_row: adw::EntryRow = builder
+        .object("network_vpn_wireguard_ipv6_dns_row")
+        .expect("network vpn wireguard ipv6 dns row should exist");
+
+    install_network_ip_method_model(&ipv4_method_row);
+    install_network_ip_method_model(&ipv6_method_row);
+
+    let wireguard = match &config.kind {
+        VpnConfigKind::WireGuard(wireguard) => wireguard.clone(),
+        _ => WireGuardConfig::default(),
+    };
+    let peer = wireguard.peers.first().cloned().unwrap_or_default();
+
+    name_row.set_text(&config.id);
+    autoconnect_row.set_active(config.autoconnect);
+    interface_row.set_text(config.interface_name.as_deref().unwrap_or("wg0"));
+    private_key_row.set_text(&wireguard.private_key);
+    listen_port_row.set_value(wireguard.listen_port.unwrap_or(51820) as f64);
+    mtu_row.set_value(wireguard.mtu.unwrap_or(1420) as f64);
+    peer_public_key_row.set_text(&peer.public_key);
+    peer_preshared_key_row.set_text(&peer.preshared_key);
+    peer_endpoint_row.set_text(&peer.endpoint);
+    peer_allowed_ips_row.set_text(&peer.allowed_ips.join(", "));
+    peer_keepalive_row.set_value(peer.persistent_keepalive.unwrap_or(25) as f64);
+    fill_network_ip_rows(
+        &config.ipv4,
+        &ipv4_method_row,
+        &ipv4_address_row,
+        &ipv4_prefix_row,
+        &ipv4_gateway_row,
+        &ipv4_dns_row,
+        24,
+    );
+    fill_network_ip_rows(
+        &config.ipv6,
+        &ipv6_method_row,
+        &ipv6_address_row,
+        &ipv6_prefix_row,
+        &ipv6_gateway_row,
+        &ipv6_dns_row,
+        64,
+    );
+
+    let dialog = AlertDialog::new(
+        Some(if is_new { "Add WireGuard" } else { "Edit WireGuard" }),
+        None,
+    );
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("save", if is_new { "Add" } else { "Save" });
+    dialog.set_default_response(Some("save"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+    dialog.set_extra_child(Some(&root));
+
+    let parent = parent.clone();
+    glib::spawn_future_local(async move {
+        if dialog.choose_future(&parent).await != "save" {
+            return;
+        }
+
+        let updated = VpnProfileConfig {
+            id: name_row.text().to_string(),
+            uuid: config.uuid.clone().or_else(|| Some(Uuid::new_v4().to_string())),
+            settings_path: config.settings_path.clone(),
+            autoconnect: autoconnect_row.is_active(),
+            interface_name: Some(interface_row.text().to_string()),
+            ipv4: read_network_ip_rows(
+                &ipv4_method_row,
+                &ipv4_address_row,
+                &ipv4_prefix_row,
+                &ipv4_gateway_row,
+                &ipv4_dns_row,
+            ),
+            ipv6: read_network_ip_rows(
+                &ipv6_method_row,
+                &ipv6_address_row,
+                &ipv6_prefix_row,
+                &ipv6_gateway_row,
+                &ipv6_dns_row,
+            ),
+            kind: VpnConfigKind::WireGuard(WireGuardConfig {
+                private_key: private_key_row.text().to_string(),
+                listen_port: spin_value_to_optional_u16(&listen_port_row),
+                mtu: spin_value_to_optional_u32(&mtu_row),
+                peers: vec![WireGuardPeerConfig {
+                    public_key: peer_public_key_row.text().to_string(),
+                    preshared_key: peer_preshared_key_row.text().to_string(),
+                    endpoint: peer_endpoint_row.text().to_string(),
+                    allowed_ips: parse_network_dns(peer_allowed_ips_row.text().as_str()),
+                    persistent_keepalive: spin_value_to_optional_u16(&peer_keepalive_row),
+                }],
+            }),
+        };
+
+        if let Err(error) = save_vpn_profile(backend.clone(), updated, is_new).await {
+            tracing::warn!(error = %error, "failed to save wireguard profile");
+        }
+    });
+}
+
+async fn save_vpn_profile(
+    backend: Arc<NetworkBackend>,
+    config: VpnProfileConfig,
+    is_new: bool,
+) -> anyhow::Result<()> {
+    if is_new {
+        let _ = backend.create_vpn_profile(&config).await?;
+    } else {
+        backend.update_vpn_profile(&config).await?;
+    }
+    Ok(())
 }
 
 fn show_network_connection_config_dialog_for_ap(ui: &NetworkUi, access_point_path: &str) {
@@ -3792,6 +4279,92 @@ fn hotspot_band_label(band: &str) -> &'static str {
     } else {
         "2.4 GHz"
     }
+}
+
+fn default_openvpn_vpn_profile_config() -> VpnProfileConfig {
+    VpnProfileConfig {
+        id: "OpenVPN".into(),
+        uuid: Some(Uuid::new_v4().to_string()),
+        settings_path: None,
+        autoconnect: false,
+        interface_name: None,
+        ipv4: NetworkIpConfig::default(),
+        ipv6: NetworkIpConfig::default(),
+        kind: VpnConfigKind::OpenVpn(OpenVpnConfig {
+            protocol: VpnTransportProtocol::Udp,
+            port: Some(1194),
+            ..OpenVpnConfig::default()
+        }),
+    }
+}
+
+fn default_wireguard_vpn_profile_config() -> VpnProfileConfig {
+    VpnProfileConfig {
+        id: "WireGuard".into(),
+        uuid: Some(Uuid::new_v4().to_string()),
+        settings_path: None,
+        autoconnect: false,
+        interface_name: Some("wg0".into()),
+        ipv4: NetworkIpConfig::default(),
+        ipv6: NetworkIpConfig::default(),
+        kind: VpnConfigKind::WireGuard(WireGuardConfig {
+            listen_port: Some(51820),
+            mtu: Some(1420),
+            peers: vec![WireGuardPeerConfig {
+                allowed_ips: vec!["0.0.0.0/0".into()],
+                persistent_keepalive: Some(25),
+                ..WireGuardPeerConfig::default()
+            }],
+            ..WireGuardConfig::default()
+        }),
+    }
+}
+
+fn install_network_ip_method_model(row: &adw::ComboRow) {
+    let model = gtk::StringList::new(&["Automatic", "Manual", "Disabled"]);
+    row.set_model(Some(&model));
+}
+
+fn fill_network_ip_rows(
+    config: &NetworkIpConfig,
+    method_row: &adw::ComboRow,
+    address_row: &adw::EntryRow,
+    prefix_row: &adw::SpinRow,
+    gateway_row: &adw::EntryRow,
+    dns_row: &adw::EntryRow,
+    fallback_prefix: u32,
+) {
+    method_row.set_selected(network_ip_method_index(config.method));
+    address_row.set_text(&config.address);
+    prefix_row.set_value(config.prefix.unwrap_or(fallback_prefix) as f64);
+    gateway_row.set_text(&config.gateway);
+    dns_row.set_text(&config.dns.join(", "));
+}
+
+fn read_network_ip_rows(
+    method_row: &adw::ComboRow,
+    address_row: &adw::EntryRow,
+    prefix_row: &adw::SpinRow,
+    gateway_row: &adw::EntryRow,
+    dns_row: &adw::EntryRow,
+) -> NetworkIpConfig {
+    NetworkIpConfig {
+        method: network_ip_method_from_index(method_row.selected()),
+        address: address_row.text().to_string(),
+        prefix: Some(prefix_row.value() as u32),
+        gateway: gateway_row.text().to_string(),
+        dns: parse_network_dns(dns_row.text().as_str()),
+    }
+}
+
+fn spin_value_to_optional_u16(row: &adw::SpinRow) -> Option<u16> {
+    let value = row.value() as u16;
+    (value > 0).then_some(value)
+}
+
+fn spin_value_to_optional_u32(row: &adw::SpinRow) -> Option<u32> {
+    let value = row.value() as u32;
+    (value > 0).then_some(value)
 }
 
 fn network_ip_method_index(method: NetworkIpMethod) -> u32 {

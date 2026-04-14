@@ -19,6 +19,7 @@ tokio-util = "0.7"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zbus = { workspace = true }
+uuid = { workspace = true }
 
 [build-dependencies]
 glib-build-tools = "0.20"

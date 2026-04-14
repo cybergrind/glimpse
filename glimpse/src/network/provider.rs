@@ -5,6 +5,7 @@ use futures_util::{StreamExt, future};
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 use zbus::{
     MatchRule, MessageStream,
     message::Type,
@@ -129,6 +130,75 @@ pub struct HotspotConfig {
     pub ssid: String,
     pub password: String,
     pub band: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
+pub enum VpnTransportProtocol {
+    Tcp,
+    #[default]
+    Udp,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct OpenVpnConfig {
+    pub gateway: String,
+    pub port: Option<u16>,
+    pub protocol: VpnTransportProtocol,
+    pub username: String,
+    pub password: String,
+    pub ca_cert: String,
+    pub client_cert: String,
+    pub private_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct WireGuardPeerConfig {
+    pub public_key: String,
+    pub preshared_key: String,
+    pub endpoint: String,
+    pub allowed_ips: Vec<String>,
+    pub persistent_keepalive: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct WireGuardConfig {
+    pub private_key: String,
+    pub listen_port: Option<u16>,
+    pub mtu: Option<u32>,
+    pub peers: Vec<WireGuardPeerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum VpnConfigKind {
+    OpenVpn(OpenVpnConfig),
+    WireGuard(WireGuardConfig),
+}
+
+impl Default for VpnConfigKind {
+    fn default() -> Self {
+        Self::OpenVpn(OpenVpnConfig::default())
+    }
+}
+
+impl VpnConfigKind {
+    pub fn connection_type(&self) -> &'static str {
+        match self {
+            Self::OpenVpn(_) => "vpn",
+            Self::WireGuard(_) => "wireguard",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct VpnProfileConfig {
+    pub id: String,
+    pub uuid: Option<String>,
+    pub settings_path: Option<String>,
+    pub autoconnect: bool,
+    pub interface_name: Option<String>,
+    pub ipv4: NetworkIpConfig,
+    pub ipv6: NetworkIpConfig,
+    pub kind: VpnConfigKind,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -623,6 +693,39 @@ impl NetworkProvider {
             self.disconnect(uuid).await?;
         }
         Ok(())
+    }
+
+    pub async fn load_vpn_profile(&self, settings_path: &str) -> anyhow::Result<VpnProfileConfig> {
+        let settings = self
+            .settings_connection_proxy(settings_path)
+            .await?
+            .get_settings()
+            .await
+            .unwrap_or_default();
+        Ok(parse_vpn_profile_config(&settings, settings_path))
+    }
+
+    pub async fn create_vpn_profile(&self, config: &VpnProfileConfig) -> anyhow::Result<String> {
+        let settings_path = self
+            .settings_proxy()
+            .await?
+            .add_connection(vpn_profile_settings_map(config))
+            .await?
+            .to_string();
+        Ok(settings_path)
+    }
+
+    pub async fn update_vpn_profile(&self, config: &VpnProfileConfig) -> anyhow::Result<()> {
+        let settings_path = config
+            .settings_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("vpn settings path missing"))?;
+        self.settings_connection_proxy(settings_path)
+            .await?
+            .update2(vpn_profile_settings_map(config), NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
+            .await
+            .map(|_| ())
+            .map_err(Into::into)
     }
 
     pub async fn disconnect(&self, uuid: &str) -> anyhow::Result<()> {
@@ -1333,6 +1436,125 @@ fn parse_hotspot_config(
     }
 }
 
+fn parse_vpn_profile_config(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+    settings_path: &str,
+) -> VpnProfileConfig {
+    let connection = settings.get("connection");
+    let id = connection
+        .and_then(|section| section.get("id"))
+        .and_then(owned_value_to_string)
+        .unwrap_or_default();
+    let uuid = connection
+        .and_then(|section| section.get("uuid"))
+        .and_then(owned_value_to_string)
+        .filter(|value| !value.is_empty());
+    let interface_name = connection
+        .and_then(|section| section.get("interface-name"))
+        .and_then(owned_value_to_string)
+        .filter(|value| !value.is_empty());
+    let autoconnect = connection
+        .and_then(|section| section.get("autoconnect"))
+        .and_then(owned_value_to_bool)
+        .unwrap_or(true);
+
+    VpnProfileConfig {
+        id,
+        uuid,
+        settings_path: Some(settings_path.to_owned()),
+        autoconnect,
+        interface_name,
+        ipv4: parse_ip_config(settings.get("ipv4"), false),
+        ipv6: parse_ip_config(settings.get("ipv6"), true),
+        kind: match connection
+            .and_then(|section| section.get("type"))
+            .and_then(owned_value_to_string)
+            .as_deref()
+        {
+            Some("wireguard") => VpnConfigKind::WireGuard(parse_wireguard_config(settings)),
+            _ => VpnConfigKind::OpenVpn(parse_openvpn_config(settings)),
+        },
+    }
+}
+
+fn parse_openvpn_config(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+) -> OpenVpnConfig {
+    let vpn = settings.get("vpn");
+    let data = vpn
+        .and_then(|section| section.get("data"))
+        .and_then(owned_value_to_string_map)
+        .unwrap_or_default();
+    let secrets = vpn
+        .and_then(|section| section.get("secrets"))
+        .and_then(owned_value_to_string_map)
+        .unwrap_or_default();
+
+    OpenVpnConfig {
+        gateway: data.get("remote").cloned().unwrap_or_default(),
+        port: data.get("port").and_then(|value| value.parse::<u16>().ok()),
+        protocol: match data.get("proto").map(String::as_str) {
+            Some("tcp") => VpnTransportProtocol::Tcp,
+            _ => VpnTransportProtocol::Udp,
+        },
+        username: vpn
+            .and_then(|section| section.get("user-name"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_default(),
+        password: secrets.get("password").cloned().unwrap_or_default(),
+        ca_cert: data.get("ca").cloned().unwrap_or_default(),
+        client_cert: data.get("cert").cloned().unwrap_or_default(),
+        private_key: data.get("key").cloned().unwrap_or_default(),
+    }
+}
+
+fn parse_wireguard_config(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+) -> WireGuardConfig {
+    let section = settings.get("wireguard");
+    let peers = section
+        .and_then(|section| section.get("peers"))
+        .and_then(owned_value_to_address_data)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|peer| WireGuardPeerConfig {
+            public_key: peer
+                .get("public-key")
+                .and_then(owned_value_to_string)
+                .unwrap_or_default(),
+            preshared_key: peer
+                .get("preshared-key")
+                .and_then(owned_value_to_string)
+                .unwrap_or_default(),
+            endpoint: peer
+                .get("endpoint")
+                .and_then(owned_value_to_string)
+                .unwrap_or_default(),
+            allowed_ips: peer
+                .get("allowed-ips")
+                .and_then(owned_value_to_string_vec)
+                .unwrap_or_default(),
+            persistent_keepalive: peer
+                .get("persistent-keepalive")
+                .and_then(|value| owned_value_to_u16(value)),
+        })
+        .collect();
+
+    WireGuardConfig {
+        private_key: section
+            .and_then(|section| section.get("private-key"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_default(),
+        listen_port: section
+            .and_then(|section| section.get("listen-port"))
+            .and_then(owned_value_to_u16),
+        mtu: section
+            .and_then(|section| section.get("mtu"))
+            .and_then(|value| owned_value_to_u32(value, false)),
+        peers,
+    }
+}
+
 fn parse_ip_config(
     section: Option<&HashMap<String, OwnedValue>>,
     ipv6: bool,
@@ -1485,6 +1707,125 @@ fn hotspot_settings_map(config: &HotspotConfig) -> HashMap<String, HashMap<Strin
         settings.insert("802-11-wireless-security".into(), security);
         if let Some(wifi) = settings.get_mut("802-11-wireless") {
             wifi.insert("security".into(), owned_value("802-11-wireless-security"));
+        }
+    }
+
+    settings
+}
+
+fn vpn_profile_settings_map(
+    config: &VpnProfileConfig,
+) -> HashMap<String, HashMap<String, OwnedValue>> {
+    let mut connection = HashMap::new();
+    let uuid = config
+        .uuid
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    connection.insert("id".into(), owned_value(config.id.clone()));
+    connection.insert(
+        "type".into(),
+        owned_value(raw_connection_type(config.kind.connection_type())),
+    );
+    connection.insert("autoconnect".into(), owned_value(config.autoconnect));
+    connection.insert("uuid".into(), owned_value(uuid));
+    if let Some(interface_name) = &config.interface_name {
+        if !interface_name.trim().is_empty() {
+            connection.insert("interface-name".into(), owned_value(interface_name.clone()));
+        }
+    }
+
+    let mut settings = HashMap::from([
+        ("connection".into(), connection),
+        ("ipv4".into(), HashMap::new()),
+        ("ipv6".into(), HashMap::new()),
+    ]);
+    write_ip_config(settings.get_mut("ipv4").expect("ipv4 should exist"), &config.ipv4, false);
+    write_ip_config(settings.get_mut("ipv6").expect("ipv6 should exist"), &config.ipv6, true);
+
+    match &config.kind {
+        VpnConfigKind::OpenVpn(openvpn) => {
+            let mut vpn = HashMap::new();
+            vpn.insert(
+                "service-type".into(),
+                owned_value("org.freedesktop.NetworkManager.openvpn"),
+            );
+            if !openvpn.username.trim().is_empty() {
+                vpn.insert("user-name".into(), owned_value(openvpn.username.clone()));
+            }
+
+            let mut data = HashMap::new();
+            if !openvpn.gateway.trim().is_empty() {
+                data.insert("remote".to_string(), openvpn.gateway.clone());
+            }
+            if let Some(port) = openvpn.port {
+                data.insert("port".to_string(), port.to_string());
+            }
+            data.insert(
+                "proto".to_string(),
+                match openvpn.protocol {
+                    VpnTransportProtocol::Tcp => "tcp".to_string(),
+                    VpnTransportProtocol::Udp => "udp".to_string(),
+                },
+            );
+            if !openvpn.ca_cert.trim().is_empty() {
+                data.insert("ca".to_string(), openvpn.ca_cert.clone());
+            }
+            if !openvpn.client_cert.trim().is_empty() {
+                data.insert("cert".to_string(), openvpn.client_cert.clone());
+            }
+            if !openvpn.private_key.trim().is_empty() {
+                data.insert("key".to_string(), openvpn.private_key.clone());
+            }
+            vpn.insert("data".into(), owned_value(data));
+
+            if !openvpn.password.trim().is_empty() {
+                vpn.insert(
+                    "secrets".into(),
+                    owned_value(HashMap::from([(
+                        "password".to_string(),
+                        openvpn.password.clone(),
+                    )])),
+                );
+            }
+
+            settings.insert("vpn".into(), vpn);
+        }
+        VpnConfigKind::WireGuard(wireguard) => {
+            let mut wg = HashMap::new();
+            if !wireguard.private_key.trim().is_empty() {
+                wg.insert("private-key".into(), owned_value(wireguard.private_key.clone()));
+            }
+            if let Some(listen_port) = wireguard.listen_port {
+                wg.insert("listen-port".into(), owned_value(u32::from(listen_port)));
+            }
+            if let Some(mtu) = wireguard.mtu {
+                wg.insert("mtu".into(), owned_value(mtu));
+            }
+
+            let peers = wireguard
+                .peers
+                .iter()
+                .map(|peer| {
+                    let mut map: HashMap<String, OwnedValue> = HashMap::new();
+                    map.insert("public-key".into(), owned_value(peer.public_key.clone()));
+                    if !peer.preshared_key.trim().is_empty() {
+                        map.insert("preshared-key".into(), owned_value(peer.preshared_key.clone()));
+                    }
+                    if !peer.endpoint.trim().is_empty() {
+                        map.insert("endpoint".into(), owned_value(peer.endpoint.clone()));
+                    }
+                    if !peer.allowed_ips.is_empty() {
+                        map.insert("allowed-ips".into(), owned_value(peer.allowed_ips.clone()));
+                    }
+                    if let Some(keepalive) = peer.persistent_keepalive {
+                        map.insert("persistent-keepalive".into(), owned_value(u32::from(keepalive)));
+                    }
+                    map
+                })
+                .collect::<Vec<_>>();
+            wg.insert("peers".into(), owned_value(peers));
+            settings.insert("wireguard".into(), wg);
         }
     }
 
@@ -1702,6 +2043,14 @@ fn owned_value_to_bool(value: &OwnedValue) -> Option<bool> {
     bool::try_from(value.clone()).ok()
 }
 
+fn owned_value_to_u16(value: &OwnedValue) -> Option<u16> {
+    u16::try_from(value.clone()).ok().or_else(|| {
+        u32::try_from(value.clone())
+            .ok()
+            .and_then(|value| u16::try_from(value).ok())
+    })
+}
+
 fn owned_value_to_u32(value: &OwnedValue, allow_i32: bool) -> Option<u32> {
     u32::try_from(value.clone()).ok().or_else(|| {
         allow_i32
@@ -1713,6 +2062,10 @@ fn owned_value_to_u32(value: &OwnedValue, allow_i32: bool) -> Option<u32> {
 
 fn owned_value_to_string_vec(value: &OwnedValue) -> Option<Vec<String>> {
     Vec::<String>::try_from(value.clone()).ok()
+}
+
+fn owned_value_to_string_map(value: &OwnedValue) -> Option<HashMap<String, String>> {
+    HashMap::<String, String>::try_from(value.clone()).ok()
 }
 
 fn owned_value_to_address_data(
@@ -2078,5 +2431,104 @@ mod tests {
         assert_eq!(snapshot.connections[0].id, "a");
         assert_eq!(snapshot.devices[0].interface, "enp0s1");
         assert_eq!(snapshot.saved_vpns[0].id, "a");
+    }
+
+    #[test]
+    fn parse_openvpn_profile_extracts_typed_fields() {
+        let mut connection = HashMap::new();
+        connection.insert("id".into(), owned_value("Work VPN"));
+        connection.insert("uuid".into(), owned_value("vpn-1"));
+        connection.insert("type".into(), owned_value("vpn"));
+        connection.insert("autoconnect".into(), owned_value(true));
+
+        let mut vpn = HashMap::new();
+        vpn.insert(
+            "service-type".into(),
+            owned_value("org.freedesktop.NetworkManager.openvpn"),
+        );
+        vpn.insert("user-name".into(), owned_value("alice"));
+        vpn.insert(
+            "data".into(),
+            owned_value(HashMap::from([
+                ("remote".to_string(), "vpn.example.com".to_string()),
+                ("port".to_string(), "1194".to_string()),
+                ("proto".to_string(), "udp".to_string()),
+                ("ca".to_string(), "/etc/openvpn/ca.crt".to_string()),
+            ])),
+        );
+        vpn.insert(
+            "secrets".into(),
+            owned_value(HashMap::from([("password".to_string(), "secret".to_string())])),
+        );
+
+        let settings = HashMap::from([("connection".into(), connection), ("vpn".into(), vpn)]);
+        let config = parse_vpn_profile_config(&settings, "/settings/vpn-1");
+
+        assert_eq!(config.id, "Work VPN");
+        assert_eq!(config.settings_path.as_deref(), Some("/settings/vpn-1"));
+        assert_eq!(config.kind.connection_type(), "vpn");
+        match config.kind {
+            VpnConfigKind::OpenVpn(openvpn) => {
+                assert_eq!(openvpn.gateway, "vpn.example.com");
+                assert_eq!(openvpn.port, Some(1194));
+                assert_eq!(openvpn.protocol, VpnTransportProtocol::Udp);
+                assert_eq!(openvpn.username, "alice");
+                assert_eq!(openvpn.password, "secret");
+                assert_eq!(openvpn.ca_cert, "/etc/openvpn/ca.crt");
+            }
+            other => panic!("expected openvpn config, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn vpn_profile_settings_map_preserves_wireguard_fields() {
+        let config = VpnProfileConfig {
+            id: "Studio Tunnel".into(),
+            uuid: Some("wg-1".into()),
+            settings_path: Some("/settings/wg-1".into()),
+            autoconnect: false,
+            interface_name: Some("wg0".into()),
+            ipv4: NetworkIpConfig {
+                method: NetworkIpMethod::Manual,
+                address: "10.20.0.2".into(),
+                prefix: Some(24),
+                gateway: "10.20.0.1".into(),
+                dns: vec!["1.1.1.1".into()],
+            },
+            ipv6: NetworkIpConfig::default(),
+            kind: VpnConfigKind::WireGuard(WireGuardConfig {
+                private_key: "private-key".into(),
+                listen_port: Some(51820),
+                mtu: Some(1420),
+                peers: vec![WireGuardPeerConfig {
+                    public_key: "public-key".into(),
+                    preshared_key: "psk".into(),
+                    endpoint: "wg.example.com:51820".into(),
+                    allowed_ips: vec!["0.0.0.0/0".into(), "::/0".into()],
+                    persistent_keepalive: Some(25),
+                }],
+            }),
+        };
+
+        let settings = vpn_profile_settings_map(&config);
+        let reparsed = parse_vpn_profile_config(&settings, "/settings/wg-1");
+
+        assert_eq!(reparsed.id, "Studio Tunnel");
+        assert_eq!(reparsed.interface_name.as_deref(), Some("wg0"));
+        match reparsed.kind {
+            VpnConfigKind::WireGuard(wireguard) => {
+                assert_eq!(wireguard.private_key, "private-key");
+                assert_eq!(wireguard.listen_port, Some(51820));
+                assert_eq!(wireguard.mtu, Some(1420));
+                assert_eq!(wireguard.peers.len(), 1);
+                let peer = &wireguard.peers[0];
+                assert_eq!(peer.public_key, "public-key");
+                assert_eq!(peer.preshared_key, "psk");
+                assert_eq!(peer.endpoint, "wg.example.com:51820");
+                assert_eq!(peer.allowed_ips, vec!["0.0.0.0/0", "::/0"]);
+                assert_eq!(peer.persistent_keepalive, Some(25));
+            }
+            other => panic!("expected wireguard config, got {other:?}"),
+        }
     }
 }

@@ -36,6 +36,12 @@ Adw.PreferencesGroup network_vpn_group {
   visible: false;
   title: "VPN";
   description: "Saved VPN connections and their current status.";
+
+  Adw.ActionRow network_vpn_add_row {
+    activatable: true;
+    title: "Add VPN";
+    subtitle: "Create an OpenVPN or WireGuard profile";
+  }
 }
 
 Adw.PreferencesGroup network_hotspot_group {
