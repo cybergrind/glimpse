@@ -1,0 +1,28 @@
+using Gtk 4.0;
+using Adw 1;
+
+Gtk.Box network_hotspot_config_root {
+  orientation: vertical;
+  spacing: 12;
+  width-request: 420;
+
+  Adw.PreferencesGroup network_hotspot_general_group {
+    title: "Hotspot";
+
+    Adw.ActionRow network_hotspot_adapter_row {
+      title: "Adapter";
+    }
+
+    Adw.EntryRow network_hotspot_ssid_row {
+      title: "SSID";
+    }
+
+    Adw.PasswordEntryRow network_hotspot_password_row {
+      title: "Password";
+    }
+
+    Adw.ComboRow network_hotspot_band_row {
+      title: "Band";
+    }
+  }
+}

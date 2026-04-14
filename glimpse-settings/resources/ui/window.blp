@@ -364,10 +364,16 @@ Adw.ApplicationWindow settings_window {
           title: "Bluetooth is unavailable";
         }
 
+        [top]
+        Adw.Banner network_banner {
+          revealed: false;
+          title: "Network is unavailable";
+        }
+
         content: Adw.Clamp {
           maximum-size: 920;
 
-          child: Adw.PreferencesPage {
+          child: Adw.PreferencesPage content_preferences_page {
             margin-top: 18;
             margin-bottom: 24;
             margin-start: 18;

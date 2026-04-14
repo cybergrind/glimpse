@@ -1,0 +1,61 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.PreferencesGroup network_general_group {
+  visible: false;
+  title: "General";
+  description: "Manage Wi-Fi power, the active wireless adapter, and the primary connection.";
+
+  Adw.SwitchRow network_wifi_enabled_row {
+    title: "Wi-Fi";
+  }
+
+  Adw.ComboRow network_active_wifi_adapter_row {
+    title: "Active Wi-Fi Adapter";
+  }
+
+  Adw.ActionRow network_primary_connection_row {
+    title: "Primary Connection";
+    subtitle: "Offline";
+  }
+}
+
+Adw.PreferencesGroup network_wifi_group {
+  visible: false;
+  title: "Wi-Fi Networks";
+  description: "Networks for the selected wireless adapter.";
+}
+
+Adw.PreferencesGroup network_ethernet_group {
+  visible: false;
+  title: "Ethernet";
+  description: "Wired adapters and active wired connections.";
+}
+
+Adw.PreferencesGroup network_vpn_group {
+  visible: false;
+  title: "VPN";
+  description: "Saved VPN connections and their current status.";
+}
+
+Adw.PreferencesGroup network_hotspot_group {
+  visible: false;
+  title: "Hotspot";
+  description: "Share the selected Wi-Fi adapter as a hotspot.";
+
+  Adw.SwitchRow network_hotspot_enabled_row {
+    title: "Enable Hotspot";
+  }
+
+  Adw.ActionRow network_hotspot_config_row {
+    activatable: true;
+    title: "Configure Hotspot";
+    subtitle: "SSID, password, and band";
+  }
+}
+
+Adw.PreferencesGroup network_adapters_group {
+  visible: false;
+  title: "Adapters";
+  description: "Available network adapters and adapter information.";
+}

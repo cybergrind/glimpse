@@ -15,6 +15,17 @@ use glimpse::bluetooth::{
         BluetoothServiceHealth, BluetoothServiceState,
     },
 };
+use glimpse::network::{
+    NetworkServiceHandle,
+    protocol::{
+        NetworkPrompt, NetworkPromptKind, NetworkPromptReply, NetworkServiceCommand,
+        NetworkServiceHealth, NetworkServiceState,
+    },
+    provider::{
+        HotspotConfig, NetworkConnection, NetworkConnectionConfig, NetworkDevice, NetworkIpConfig,
+        NetworkIpMethod, NetworkSnapshot, SavedVpn, WifiAccessPoint,
+    },
+};
 use glimpse::{
     audio::provider::{AudioDevice, AudioEvent, AudioProvider, AudioStream},
     bluetooth::provider::{BluetoothAdapter, BluetoothDevice},
@@ -30,6 +41,8 @@ use glimpse_settings::{
     bluetooth::BluetoothPageState,
     debounce::DebounceTracker,
     display::{self, DisplayDraft, DisplayOutput},
+    network::NetworkPageState,
+    network_backend::{NetworkBackend, NetworkBackendEvent},
     pages::{self, PageKind, PageSpec},
     power::{
         self, PowerPageState, action_label, action_options, format_battery_health,
@@ -77,6 +90,7 @@ fn register_resources() {
 struct SettingsWindow {
     _runtime: Arc<Runtime>,
     _audio_cancel: CancellationToken,
+    _network_cancel: CancellationToken,
     _power_cancel: CancellationToken,
     window: adw::ApplicationWindow,
     content_page: adw::NavigationPage,
@@ -85,6 +99,8 @@ struct SettingsWindow {
     stub_details_row: adw::ActionRow,
     appearance_ui: AppearanceUi,
     display_ui: DisplayUi,
+    network_ui: NetworkUi,
+    _network_prompt_host: NetworkPromptHost,
     bluetooth_ui: BluetoothUi,
     _bluetooth_prompt_host: BluetoothPromptHost,
     power_ui: PowerUi,
@@ -226,6 +242,63 @@ struct BluetoothUi {
     adapter_rows: Rc<RefCell<HashMap<String, BluetoothAdapterRowWidgets>>>,
 }
 
+#[derive(Clone)]
+struct NetworkUi {
+    window: adw::ApplicationWindow,
+    runtime: Arc<Runtime>,
+    banner: adw::Banner,
+    general_group: adw::PreferencesGroup,
+    wifi_group: adw::PreferencesGroup,
+    ethernet_group: adw::PreferencesGroup,
+    vpn_group: adw::PreferencesGroup,
+    hotspot_group: adw::PreferencesGroup,
+    adapters_group: adw::PreferencesGroup,
+    wifi_enabled_row: adw::SwitchRow,
+    active_wifi_adapter_row: adw::ComboRow,
+    primary_connection_row: adw::ActionRow,
+    hotspot_enabled_row: adw::SwitchRow,
+    hotspot_config_row: adw::ActionRow,
+    state: Rc<RefCell<NetworkPageState>>,
+    backend: Arc<NetworkBackend>,
+    syncing: Rc<Cell<bool>>,
+    adapter_model: gtk::StringList,
+    adapter_ids: Rc<RefCell<Vec<String>>>,
+    page_visible: Rc<Cell<bool>>,
+    wifi_rows: Rc<RefCell<HashMap<String, NetworkWifiRowWidgets>>>,
+    ethernet_rows: Rc<RefCell<HashMap<String, NetworkEthernetRowWidgets>>>,
+    vpn_rows: Rc<RefCell<HashMap<String, NetworkVpnRowWidgets>>>,
+    adapter_rows: Rc<RefCell<HashMap<String, NetworkAdapterRowWidgets>>>,
+    hotspot_config: Rc<RefCell<Option<HotspotConfig>>>,
+}
+
+struct NetworkWifiRowWidgets {
+    row: adw::ActionRow,
+    menu_button: gtk::MenuButton,
+}
+
+struct NetworkEthernetRowWidgets {
+    row: adw::ActionRow,
+    menu_button: gtk::MenuButton,
+}
+
+struct NetworkVpnRowWidgets {
+    row: adw::ActionRow,
+    menu_button: gtk::MenuButton,
+}
+
+struct NetworkAdapterRowWidgets {
+    row: adw::ActionRow,
+    menu_button: gtk::MenuButton,
+}
+
+#[derive(Clone)]
+struct NetworkPromptHost {
+    parent: adw::ApplicationWindow,
+    service: NetworkServiceHandle,
+    dialog: Rc<RefCell<Option<AlertDialog>>>,
+    current_prompt: Rc<RefCell<Option<NetworkPrompt>>>,
+}
+
 struct BluetoothDeviceRowWidgets {
     row: adw::ActionRow,
     icon: gtk::Image,
@@ -341,6 +414,9 @@ impl SettingsWindow {
         let content_page: adw::NavigationPage = builder
             .object("content_page")
             .expect("content page should exist");
+        let content_preferences_page: adw::PreferencesPage = builder
+            .object("content_preferences_page")
+            .expect("content preferences page should exist");
         let stub_group: adw::PreferencesGroup = builder
             .object("stub_group")
             .expect("stub group should exist");
@@ -377,6 +453,31 @@ impl SettingsWindow {
         appearance_ui.refresh_snapshot();
         appearance_ui.sync();
 
+        let network_banner: adw::Banner = builder
+            .object("network_banner")
+            .expect("network banner should exist");
+        let network_service = runtime.handle().block_on(async {
+            match zbus::Connection::system().await {
+                Ok(system) => Some(NetworkServiceHandle::new(system)),
+                Err(error) => {
+                    tracing::warn!("network settings system bus unavailable: {error}");
+                    None
+                }
+            }
+        });
+        let network_ui = NetworkUi::from_resources(
+            &content_preferences_page,
+            &network_banner,
+            &window,
+            runtime.clone(),
+            network_service,
+        );
+        let network_prompt_host = NetworkPromptHost::new(
+            &window,
+            network_ui.backend.service().clone(),
+        );
+        network_ui.sync();
+
         let bluetooth_service = runtime.handle().block_on(async {
             match zbus::Connection::system().await {
                 Ok(system) => Some(BluetoothServiceHandle::new(system)),
@@ -403,9 +504,11 @@ impl SettingsWindow {
 
         let sound_ui = SoundUi::from_builder(&builder);
         let audio_cancel = CancellationToken::new();
+        let network_cancel = CancellationToken::new();
         let power_cancel = CancellationToken::new();
         wire_sound_controls(runtime.clone(), sound_ui.clone(), audio_cancel.clone());
         wire_power_controls(runtime.clone(), power_ui.clone());
+        wire_network_controls(runtime.clone(), network_ui.clone(), network_cancel.clone());
         wire_bluetooth_controls(runtime.clone(), bluetooth_ui.clone());
         wire_appearance_controls(appearance_ui.clone());
         wire_display_controls(display_ui.clone());
@@ -414,6 +517,12 @@ impl SettingsWindow {
             runtime.clone(),
             bluetooth_ui.clone(),
             bluetooth_prompt_host.clone(),
+        );
+        start_network_subscription(
+            runtime.clone(),
+            network_ui.clone(),
+            network_prompt_host.clone(),
+            network_cancel.clone(),
         );
         start_display_subscription(runtime.clone(), display_ui.clone());
         start_power_subscription(runtime.clone(), power_ui.clone(), power_cancel.clone());
@@ -428,6 +537,7 @@ impl SettingsWindow {
             &stub_status_row,
             &stub_details_row,
             &appearance_ui,
+            &network_ui,
             &bluetooth_ui,
             &display_ui,
             &power_ui,
@@ -439,6 +549,7 @@ impl SettingsWindow {
         Self {
             _runtime: runtime,
             _audio_cancel: audio_cancel,
+            _network_cancel: network_cancel,
             _power_cancel: power_cancel,
             window,
             content_page,
@@ -446,6 +557,8 @@ impl SettingsWindow {
             stub_status_row,
             stub_details_row,
             appearance_ui,
+            network_ui,
+            _network_prompt_host: network_prompt_host,
             bluetooth_ui,
             _bluetooth_prompt_host: bluetooth_prompt_host,
             display_ui,
@@ -468,6 +581,7 @@ impl SettingsWindow {
             &self.stub_status_row,
             &self.stub_details_row,
             &self.appearance_ui,
+            &self.network_ui,
             &self.bluetooth_ui,
             &self.display_ui,
             &self.power_ui,
@@ -802,6 +916,322 @@ fn default_bluetooth_service_state() -> BluetoothServiceState {
         snapshot: Default::default(),
         prompt: None,
         active_action: None,
+    }
+}
+
+fn default_network_service_state() -> NetworkServiceState {
+    NetworkServiceState {
+        health: NetworkServiceHealth::Starting,
+        snapshot: NetworkSnapshot::default(),
+        prompt: None,
+        active_action: None,
+        scanning: false,
+    }
+}
+
+impl NetworkUi {
+    fn from_resources(
+        preferences_page: &adw::PreferencesPage,
+        banner: &adw::Banner,
+        window: &adw::ApplicationWindow,
+        runtime: Arc<Runtime>,
+        service: Option<NetworkServiceHandle>,
+    ) -> Self {
+        let builder = gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/page.ui");
+
+        let general_group: adw::PreferencesGroup = builder
+            .object("network_general_group")
+            .expect("network general group should exist");
+        let wifi_group: adw::PreferencesGroup = builder
+            .object("network_wifi_group")
+            .expect("network wifi group should exist");
+        let ethernet_group: adw::PreferencesGroup = builder
+            .object("network_ethernet_group")
+            .expect("network ethernet group should exist");
+        let vpn_group: adw::PreferencesGroup = builder
+            .object("network_vpn_group")
+            .expect("network vpn group should exist");
+        let hotspot_group: adw::PreferencesGroup = builder
+            .object("network_hotspot_group")
+            .expect("network hotspot group should exist");
+        let adapters_group: adw::PreferencesGroup = builder
+            .object("network_adapters_group")
+            .expect("network adapters group should exist");
+        preferences_page.add(&general_group);
+        preferences_page.add(&wifi_group);
+        preferences_page.add(&ethernet_group);
+        preferences_page.add(&vpn_group);
+        preferences_page.add(&hotspot_group);
+        preferences_page.add(&adapters_group);
+
+        let adapter_model = gtk::StringList::new(&[]);
+        let active_wifi_adapter_row: adw::ComboRow = builder
+            .object("network_active_wifi_adapter_row")
+            .expect("network active wifi adapter row should exist");
+        active_wifi_adapter_row.set_model(Some(&adapter_model));
+
+        let backend = Arc::new(NetworkBackend::new(
+            service.expect("network service should exist for settings"),
+        ));
+
+        Self {
+            window: window.clone(),
+            runtime,
+            banner: banner.clone(),
+            general_group,
+            wifi_group,
+            ethernet_group,
+            vpn_group,
+            hotspot_group,
+            adapters_group,
+            wifi_enabled_row: builder
+                .object("network_wifi_enabled_row")
+                .expect("network wifi enabled row should exist"),
+            active_wifi_adapter_row,
+            primary_connection_row: builder
+                .object("network_primary_connection_row")
+                .expect("network primary connection row should exist"),
+            hotspot_enabled_row: builder
+                .object("network_hotspot_enabled_row")
+                .expect("network hotspot enabled row should exist"),
+            hotspot_config_row: builder
+                .object("network_hotspot_config_row")
+                .expect("network hotspot config row should exist"),
+            state: Rc::new(RefCell::new(NetworkPageState::from_service_state(
+                default_network_service_state(),
+            ))),
+            backend,
+            syncing: Rc::new(Cell::new(false)),
+            adapter_model,
+            adapter_ids: Rc::new(RefCell::new(Vec::new())),
+            page_visible: Rc::new(Cell::new(false)),
+            wifi_rows: Rc::new(RefCell::new(HashMap::new())),
+            ethernet_rows: Rc::new(RefCell::new(HashMap::new())),
+            vpn_rows: Rc::new(RefCell::new(HashMap::new())),
+            adapter_rows: Rc::new(RefCell::new(HashMap::new())),
+            hotspot_config: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    fn reconcile_state(&self, service_state: NetworkServiceState) {
+        self.state.borrow_mut().apply_service_state(service_state);
+        self.sync();
+    }
+
+    fn set_unavailable(&self, message: &str) {
+        let mut state = self.state.borrow_mut();
+        let mut current = state.service_state().clone();
+        current.health = NetworkServiceHealth::Degraded {
+            message: message.to_owned(),
+        };
+        state.apply_service_state(current);
+        drop(state);
+        self.sync();
+    }
+
+    fn sync(&self) {
+        self.syncing.set(true);
+        let state = self.state.borrow();
+        let service_state = state.service_state();
+        let wifi_adapters = state.wifi_adapters();
+
+        let adapter_labels = wifi_adapters
+            .iter()
+            .map(|adapter| network_adapter_title(adapter))
+            .collect::<Vec<_>>();
+        let adapter_refs = adapter_labels
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        self.adapter_model
+            .splice(0, self.adapter_model.n_items(), &adapter_refs);
+        *self.adapter_ids.borrow_mut() = wifi_adapters
+            .iter()
+            .map(|adapter| adapter.path.clone())
+            .collect();
+
+        let selected_index = state
+            .selected_wifi_adapter_path()
+            .and_then(|selected| wifi_adapters.iter().position(|adapter| adapter.path == selected))
+            .unwrap_or(0);
+        self.active_wifi_adapter_row.set_selected(selected_index as u32);
+        self.active_wifi_adapter_row
+            .set_visible(state.show_wifi_adapter_selector());
+        self.active_wifi_adapter_row
+            .set_sensitive(wifi_adapters.len() > 1 && !wifi_adapters.is_empty());
+
+        self.wifi_enabled_row
+            .set_active(service_state.snapshot.status.wifi_enabled);
+        self.primary_connection_row.set_subtitle(
+            &network_primary_connection_subtitle(service_state, state.primary_connection()),
+        );
+
+        let wifi_description = match state.selected_wifi_adapter() {
+            Some(adapter) if service_state.snapshot.status.wifi_enabled => {
+                format!("Networks for {}.", network_adapter_title(adapter))
+            }
+            Some(_) => "Wi-Fi is turned off.".into(),
+            None => "No wireless adapters detected.".into(),
+        };
+        self.wifi_group.set_description(Some(&wifi_description));
+        self.ethernet_group.set_description(Some(if state.ethernet_devices().is_empty() {
+            "No ethernet adapters detected."
+        } else {
+            "Wired adapters and active wired connections."
+        }));
+        self.vpn_group.set_description(Some(if state.saved_vpns().is_empty() {
+            "No saved VPNs detected."
+        } else {
+            "Saved VPN connections."
+        }));
+        self.adapters_group.set_description(Some(if state.adapters().is_empty() {
+            "No network adapters detected."
+        } else {
+            "Available network adapters and adapter information."
+        }));
+
+        let hotspot_enabled = self
+            .hotspot_config
+            .borrow()
+            .as_ref()
+            .map(|config| config.active)
+            .unwrap_or(false);
+        self.hotspot_enabled_row.set_active(hotspot_enabled);
+        self.hotspot_enabled_row
+            .set_sensitive(state.selected_wifi_adapter().is_some());
+        self.hotspot_config_row
+            .set_sensitive(state.selected_wifi_adapter().is_some());
+        let hotspot_subtitle = self
+            .hotspot_config
+            .borrow()
+            .as_ref()
+            .map(|config| format!("{} · {}", config.ssid, hotspot_band_label(&config.band)))
+            .unwrap_or_else(|| "SSID, password, and band".into());
+        self.hotspot_config_row.set_subtitle(&hotspot_subtitle);
+
+        let banner_message = match &service_state.health {
+            NetworkServiceHealth::Degraded { message } => Some(message.as_str()),
+            _ => None,
+        };
+        self.banner.set_revealed(banner_message.is_some());
+        self.banner
+            .set_title(banner_message.unwrap_or("Network is unavailable"));
+
+        drop(state);
+        sync_network_wifi_rows(self);
+        sync_network_ethernet_rows(self);
+        sync_network_vpn_rows(self);
+        sync_network_adapter_rows(self);
+        self.syncing.set(false);
+    }
+
+    fn set_page_visible(&self, visible: bool) {
+        if self.page_visible.replace(visible) == visible {
+            return;
+        }
+
+        let service = self.backend.service().clone();
+        let command = if visible {
+            NetworkServiceCommand::StartScanning { interval_secs: 8 }
+        } else {
+            NetworkServiceCommand::StopScanning
+        };
+        self.runtime.spawn(async move {
+            let _ = service.send(command).await;
+        });
+    }
+}
+
+impl NetworkPromptHost {
+    fn new(parent: &adw::ApplicationWindow, service: NetworkServiceHandle) -> Self {
+        Self {
+            parent: parent.clone(),
+            service,
+            dialog: Rc::new(RefCell::new(None)),
+            current_prompt: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    fn update(&self, prompt: Option<&NetworkPrompt>) {
+        let Some(prompt) = prompt.cloned() else {
+            *self.current_prompt.borrow_mut() = None;
+            if let Some(dialog) = self.dialog.borrow_mut().take() {
+                dialog.force_close();
+            }
+            return;
+        };
+
+        if self.current_prompt.borrow().as_ref() == Some(&prompt) {
+            return;
+        }
+
+        if let Some(dialog) = self.dialog.borrow_mut().take() {
+            dialog.force_close();
+        }
+
+        let entry = gtk::Entry::new();
+        entry.set_visibility(false);
+        entry.set_hexpand(true);
+        if let Some(message) = prompt.error_message.as_deref() {
+            entry.set_placeholder_text(Some(message));
+        } else {
+            entry.set_placeholder_text(Some("Password"));
+        }
+
+        let dialog = AlertDialog::new(
+            Some("Wi-Fi Password Required"),
+            Some(&network_prompt_body(&prompt)),
+        );
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("submit", "Connect");
+        dialog.set_default_response(Some("submit"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("submit", adw::ResponseAppearance::Suggested);
+        dialog.set_response_enabled("submit", false);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.append(&entry);
+        dialog.set_extra_child(Some(&content));
+
+        let enable_dialog = dialog.clone();
+        entry.connect_changed(move |entry| {
+            enable_dialog.set_response_enabled("submit", !entry.text().trim().is_empty());
+        });
+
+        let response_parent = self.parent.clone();
+        let response_dialog = dialog.clone();
+        let response_entry = entry.clone();
+        let response_prompt = self.current_prompt.clone();
+        let service = self.service.clone();
+
+        *self.current_prompt.borrow_mut() = Some(prompt.clone());
+        *self.dialog.borrow_mut() = Some(dialog);
+
+        glib::spawn_future_local(async move {
+            let response = response_dialog.choose_future(&response_parent).await;
+            let Some(active_prompt) = response_prompt.borrow().clone() else {
+                return;
+            };
+            if active_prompt.id != prompt.id {
+                return;
+            }
+
+            let reply = if response == "submit" {
+                NetworkPromptReply::SubmitPassword(response_entry.text().to_string())
+            } else {
+                NetworkPromptReply::Cancel
+            };
+
+            if let Err(error) = service
+                .send(NetworkServiceCommand::PromptReply {
+                    id: active_prompt.id,
+                    reply,
+                })
+                .await
+            {
+                tracing::warn!(error = %error, "network settings: failed to send prompt reply");
+            }
+        });
     }
 }
 
@@ -1648,6 +2078,313 @@ impl BluetoothPromptHost {
     }
 }
 
+fn wire_network_controls(
+    runtime: Arc<Runtime>,
+    network_ui: NetworkUi,
+    _cancel: CancellationToken,
+) {
+    let wifi_ui = network_ui.clone();
+    let wifi_runtime = runtime.clone();
+    network_ui.wifi_enabled_row.connect_active_notify(move |row| {
+        if wifi_ui.syncing.get() {
+            return;
+        }
+        wifi_ui.sync();
+        spawn_network_command(
+            wifi_runtime.clone(),
+            wifi_ui.backend.clone(),
+            NetworkServiceCommand::SetWifiEnabled(row.is_active()),
+        );
+    });
+
+    let adapter_ui = network_ui.clone();
+    network_ui
+        .active_wifi_adapter_row
+        .connect_selected_notify(move |row| {
+            if adapter_ui.syncing.get() {
+                return;
+            }
+            let Some(path) = adapter_ui
+                .adapter_ids
+                .borrow()
+                .get(row.selected() as usize)
+                .cloned()
+            else {
+                return;
+            };
+            adapter_ui.state.borrow_mut().select_wifi_adapter(&path);
+            adapter_ui.sync();
+            refresh_network_hotspot_config(adapter_ui.clone());
+        });
+
+    let hotspot_ui = network_ui.clone();
+    network_ui
+        .hotspot_enabled_row
+        .connect_active_notify(move |row| {
+            if hotspot_ui.syncing.get() {
+                return;
+            }
+            spawn_network_hotspot_toggle(hotspot_ui.clone(), row.is_active());
+        });
+
+    let hotspot_config_ui = network_ui.clone();
+    network_ui.hotspot_config_row.connect_activated(move |_| {
+        show_network_hotspot_config_dialog(&hotspot_config_ui);
+    });
+}
+
+fn start_network_subscription(
+    runtime: Arc<Runtime>,
+    network_ui: NetworkUi,
+    prompt_host: NetworkPromptHost,
+    cancel: CancellationToken,
+) {
+    let (tx, mut rx) = mpsc::channel::<NetworkBackendEvent>(8);
+    let backend = network_ui.backend.clone();
+    runtime.spawn(async move {
+        if let Err(error) = backend.run(tx, cancel).await {
+            tracing::warn!("network settings backend failed: {error}");
+        }
+    });
+
+    glib::spawn_future_local(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                NetworkBackendEvent::ServiceState(state) => {
+                    prompt_host.update(state.prompt.as_ref());
+                    network_ui.reconcile_state(state);
+                    refresh_network_hotspot_config(network_ui.clone());
+                }
+                NetworkBackendEvent::Unavailable(message) => {
+                    network_ui.set_unavailable(&message);
+                }
+            }
+        }
+    });
+}
+
+fn spawn_network_command(
+    runtime: Arc<Runtime>,
+    backend: Arc<NetworkBackend>,
+    command: NetworkServiceCommand,
+) {
+    let service = backend.service().clone();
+    let handle = runtime.handle().clone();
+    glib::spawn_future_local(async move {
+        match handle.spawn(async move { service.send(command).await }).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(error = %error, "network settings command failed"),
+            Err(error) => tracing::error!(error = %error, "network settings task failed"),
+        }
+    });
+}
+
+fn refresh_network_hotspot_config(ui: NetworkUi) {
+    let Some(device_path) = ui
+        .state
+        .borrow()
+        .selected_wifi_adapter_path()
+        .map(str::to_owned)
+    else {
+        ui.hotspot_config.borrow_mut().take();
+        ui.sync();
+        return;
+    };
+
+    let backend = ui.backend.clone();
+    let handle = ui.runtime.handle().clone();
+    glib::spawn_future_local(async move {
+        match handle
+            .spawn(async move { backend.load_hotspot_config(&device_path).await })
+            .await
+        {
+            Ok(Ok(config)) => {
+                *ui.hotspot_config.borrow_mut() = Some(config);
+                ui.sync();
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(error = %error, "failed to load hotspot config");
+            }
+            Err(error) => tracing::error!(error = %error, "network hotspot load task failed"),
+        }
+    });
+}
+
+fn spawn_network_hotspot_toggle(ui: NetworkUi, enabled: bool) {
+    let Some(device_path) = ui
+        .state
+        .borrow()
+        .selected_wifi_adapter_path()
+        .map(str::to_owned)
+    else {
+        return;
+    };
+
+    let backend = ui.backend.clone();
+    let current = ui.hotspot_config.borrow().clone();
+    let handle = ui.runtime.handle().clone();
+    glib::spawn_future_local(async move {
+        let config = match current {
+            Some(config) => Ok(config),
+            None => backend.load_hotspot_config(&device_path).await,
+        };
+        match config {
+            Ok(config) => match handle
+                .spawn({
+                    let backend = backend.clone();
+                    async move { backend.set_hotspot_enabled(&config, enabled).await }
+                })
+                .await
+            {
+                Ok(Ok(())) => refresh_network_hotspot_config(ui.clone()),
+                Ok(Err(error)) => tracing::warn!(error = %error, "failed to toggle hotspot"),
+                Err(error) => tracing::error!(error = %error, "network hotspot toggle task failed"),
+            },
+            Err(error) => tracing::warn!(error = %error, "failed to load hotspot config"),
+        }
+    });
+}
+
+fn sync_network_wifi_rows(ui: &NetworkUi) {
+    let visible_access_points = ui
+        .state
+        .borrow()
+        .visible_wifi_access_points()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let visible_paths = visible_access_points
+        .iter()
+        .map(|access_point| access_point.path.clone())
+        .collect::<HashSet<_>>();
+
+    let mut rows = ui.wifi_rows.borrow_mut();
+    let stale = rows
+        .keys()
+        .filter(|path| !visible_paths.contains(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    for path in stale {
+        if let Some(row) = rows.remove(&path) {
+            if row.row.parent().is_some() {
+                ui.wifi_group.remove(&row.row);
+            }
+        }
+    }
+
+    for access_point in &visible_access_points {
+        let row = rows
+            .entry(access_point.path.clone())
+            .or_insert_with(|| build_network_wifi_row(ui, &access_point.path));
+        update_network_wifi_row(row, access_point);
+        if row.row.parent().is_none() {
+            ui.wifi_group.add(&row.row);
+        }
+    }
+}
+
+fn sync_network_ethernet_rows(ui: &NetworkUi) {
+    let devices = ui
+        .state
+        .borrow()
+        .ethernet_devices()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let visible_paths = devices
+        .iter()
+        .map(|device| device.path.clone())
+        .collect::<HashSet<_>>();
+
+    let mut rows = ui.ethernet_rows.borrow_mut();
+    let stale = rows
+        .keys()
+        .filter(|path| !visible_paths.contains(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    for path in stale {
+        if let Some(row) = rows.remove(&path) {
+            if row.row.parent().is_some() {
+                ui.ethernet_group.remove(&row.row);
+            }
+        }
+    }
+
+    for device in &devices {
+        let row = rows
+            .entry(device.path.clone())
+            .or_insert_with(|| build_network_ethernet_row(ui, &device.path));
+        update_network_ethernet_row(ui, row, device);
+        if row.row.parent().is_none() {
+            ui.ethernet_group.add(&row.row);
+        }
+    }
+}
+
+fn sync_network_vpn_rows(ui: &NetworkUi) {
+    let vpns = ui.state.borrow().saved_vpns().to_vec();
+    let visible_ids = vpns
+        .iter()
+        .map(|vpn| vpn.uuid.clone())
+        .collect::<HashSet<_>>();
+
+    let mut rows = ui.vpn_rows.borrow_mut();
+    let stale = rows
+        .keys()
+        .filter(|uuid| !visible_ids.contains(*uuid))
+        .cloned()
+        .collect::<Vec<_>>();
+    for uuid in stale {
+        if let Some(row) = rows.remove(&uuid) {
+            if row.row.parent().is_some() {
+                ui.vpn_group.remove(&row.row);
+            }
+        }
+    }
+
+    for vpn in &vpns {
+        let row = rows
+            .entry(vpn.uuid.clone())
+            .or_insert_with(|| build_network_vpn_row(ui, &vpn.uuid));
+        update_network_vpn_row(row, vpn);
+        if row.row.parent().is_none() {
+            ui.vpn_group.add(&row.row);
+        }
+    }
+}
+
+fn sync_network_adapter_rows(ui: &NetworkUi) {
+    let adapters = ui.state.borrow().adapters().to_vec();
+    let visible_paths = adapters
+        .iter()
+        .map(|device| device.path.clone())
+        .collect::<HashSet<_>>();
+
+    let mut rows = ui.adapter_rows.borrow_mut();
+    let stale = rows
+        .keys()
+        .filter(|path| !visible_paths.contains(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    for path in stale {
+        if let Some(row) = rows.remove(&path) {
+            if row.row.parent().is_some() {
+                ui.adapters_group.remove(&row.row);
+            }
+        }
+    }
+
+    for adapter in &adapters {
+        let row = rows
+            .entry(adapter.path.clone())
+            .or_insert_with(|| build_network_adapter_row(ui, &adapter.path));
+        update_network_adapter_row(row, adapter);
+        if row.row.parent().is_none() {
+            ui.adapters_group.add(&row.row);
+        }
+    }
+}
+
 fn wire_bluetooth_controls(runtime: Arc<Runtime>, bluetooth_ui: BluetoothUi) {
     let power_ui = bluetooth_ui.clone();
     let power_runtime = runtime.clone();
@@ -2141,6 +2878,258 @@ fn bluetooth_adapter_subtitle(adapter: &BluetoothAdapter) -> String {
     parts.join(" · ")
 }
 
+fn build_network_wifi_row(ui: &NetworkUi, access_point_path: &str) -> NetworkWifiRowWidgets {
+    let row = adw::ActionRow::builder().activatable(true).build();
+    let icon = gtk::Image::from_icon_name("network-wireless-signal-good-symbolic");
+    row.add_prefix(&icon);
+
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_valign(gtk::Align::Center);
+    menu_button.add_css_class("flat");
+    row.add_suffix(&menu_button);
+
+    let action_group = gio::SimpleActionGroup::new();
+    for action_name in ["connect", "disconnect", "forget", "configure", "info"] {
+        let ui_ref = ui.clone();
+        let path_ref = access_point_path.to_owned();
+        let action = gio::SimpleAction::new(action_name, None);
+        action.connect_activate(move |_, _| match action_name {
+            "connect" => activate_network_access_point(&ui_ref, &path_ref),
+            "disconnect" => disconnect_network_access_point(&ui_ref, &path_ref),
+            "forget" => forget_network_access_point(&ui_ref, &path_ref),
+            "configure" => show_network_connection_config_dialog_for_ap(&ui_ref, &path_ref),
+            "info" => show_network_wifi_info_dialog(&ui_ref, &path_ref),
+            _ => {}
+        });
+        action_group.add_action(&action);
+    }
+    row.insert_action_group("net-ap", Some(&action_group));
+
+    let ui_for_click = ui.clone();
+    let path_for_click = access_point_path.to_owned();
+    row.connect_activated(move |_| {
+        let connected = ui_for_click
+            .state
+            .borrow()
+            .access_point(&path_for_click)
+            .map(|ap| ap.connected)
+            .unwrap_or(false);
+        if connected {
+            disconnect_network_access_point(&ui_for_click, &path_for_click);
+        } else {
+            activate_network_access_point(&ui_for_click, &path_for_click);
+        }
+    });
+
+    NetworkWifiRowWidgets { row, menu_button }
+}
+
+fn update_network_wifi_row(row: &NetworkWifiRowWidgets, access_point: &WifiAccessPoint) {
+    row.row.set_title(&access_point.ssid);
+    row.row
+        .set_subtitle(&network_wifi_subtitle(access_point));
+    if !row.menu_button.property::<bool>("active") {
+        row.menu_button
+            .set_menu_model(Some(&network_wifi_menu(access_point)));
+    }
+}
+
+fn build_network_ethernet_row(ui: &NetworkUi, device_path: &str) -> NetworkEthernetRowWidgets {
+    let row = adw::ActionRow::builder().activatable(false).build();
+    let icon = gtk::Image::from_icon_name("network-wired-symbolic");
+    row.add_prefix(&icon);
+
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_valign(gtk::Align::Center);
+    menu_button.add_css_class("flat");
+    row.add_suffix(&menu_button);
+
+    let action_group = gio::SimpleActionGroup::new();
+    for action_name in ["disconnect", "configure", "info"] {
+        let ui_ref = ui.clone();
+        let path_ref = device_path.to_owned();
+        let action = gio::SimpleAction::new(action_name, None);
+        action.connect_activate(move |_, _| match action_name {
+            "disconnect" => disconnect_network_device(&ui_ref, &path_ref),
+            "configure" => show_network_connection_config_dialog_for_device(&ui_ref, &path_ref),
+            "info" => show_network_adapter_info_dialog(&ui_ref, &path_ref),
+            _ => {}
+        });
+        action_group.add_action(&action);
+    }
+    row.insert_action_group("net-eth", Some(&action_group));
+
+    NetworkEthernetRowWidgets { row, menu_button }
+}
+
+fn update_network_ethernet_row(ui: &NetworkUi, row: &NetworkEthernetRowWidgets, device: &NetworkDevice) {
+    row.row.set_title(&network_adapter_title(device));
+    row.row
+        .set_subtitle(&network_ethernet_subtitle(ui, device));
+    if !row.menu_button.property::<bool>("active") {
+        row.menu_button
+            .set_menu_model(Some(&network_ethernet_menu(ui, device)));
+    }
+}
+
+fn build_network_vpn_row(ui: &NetworkUi, uuid: &str) -> NetworkVpnRowWidgets {
+    let row = adw::ActionRow::builder().activatable(true).build();
+    let icon = gtk::Image::from_icon_name("network-vpn-symbolic");
+    row.add_prefix(&icon);
+
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_valign(gtk::Align::Center);
+    menu_button.add_css_class("flat");
+    row.add_suffix(&menu_button);
+
+    let action_group = gio::SimpleActionGroup::new();
+    for action_name in ["connect", "disconnect", "configure", "info"] {
+        let ui_ref = ui.clone();
+        let uuid_ref = uuid.to_owned();
+        let action = gio::SimpleAction::new(action_name, None);
+        action.connect_activate(move |_, _| match action_name {
+            "connect" => spawn_network_command(
+                ui_ref.runtime.clone(),
+                ui_ref.backend.clone(),
+                NetworkServiceCommand::ConnectSaved {
+                    uuid: uuid_ref.clone(),
+                },
+            ),
+            "disconnect" => spawn_network_command(
+                ui_ref.runtime.clone(),
+                ui_ref.backend.clone(),
+                NetworkServiceCommand::Disconnect {
+                    uuid: uuid_ref.clone(),
+                },
+            ),
+            "configure" => show_network_connection_config_dialog_for_uuid(&ui_ref, &uuid_ref),
+            "info" => show_network_vpn_info_dialog(&ui_ref, &uuid_ref),
+            _ => {}
+        });
+        action_group.add_action(&action);
+    }
+    row.insert_action_group("net-vpn", Some(&action_group));
+
+    let ui_for_click = ui.clone();
+    let uuid_for_click = uuid.to_owned();
+    row.connect_activated(move |_| {
+        let active = ui_for_click
+            .state
+            .borrow()
+            .vpn(&uuid_for_click)
+            .map(|vpn| vpn.active)
+            .unwrap_or(false);
+        spawn_network_command(
+            ui_for_click.runtime.clone(),
+            ui_for_click.backend.clone(),
+            if active {
+                NetworkServiceCommand::Disconnect {
+                    uuid: uuid_for_click.clone(),
+                }
+            } else {
+                NetworkServiceCommand::ConnectSaved {
+                    uuid: uuid_for_click.clone(),
+                }
+            },
+        );
+    });
+
+    NetworkVpnRowWidgets { row, menu_button }
+}
+
+fn update_network_vpn_row(row: &NetworkVpnRowWidgets, vpn: &SavedVpn) {
+    row.row.set_title(&vpn.id);
+    row.row.set_subtitle(&network_vpn_subtitle(vpn));
+    if !row.menu_button.property::<bool>("active") {
+        row.menu_button.set_menu_model(Some(&network_vpn_menu(vpn)));
+    }
+}
+
+fn build_network_adapter_row(ui: &NetworkUi, device_path: &str) -> NetworkAdapterRowWidgets {
+    let row = adw::ActionRow::builder().activatable(false).build();
+    let icon_name = ui
+        .state
+        .borrow()
+        .device(device_path)
+        .map(network_adapter_icon)
+        .unwrap_or("network-wired-symbolic");
+    let icon = gtk::Image::from_icon_name(icon_name);
+    row.add_prefix(&icon);
+
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_valign(gtk::Align::Center);
+    menu_button.add_css_class("flat");
+    row.add_suffix(&menu_button);
+
+    let action_group = gio::SimpleActionGroup::new();
+    let ui_ref = ui.clone();
+    let path_ref = device_path.to_owned();
+    let info = gio::SimpleAction::new("info", None);
+    info.connect_activate(move |_, _| show_network_adapter_info_dialog(&ui_ref, &path_ref));
+    action_group.add_action(&info);
+    row.insert_action_group("net-adapter", Some(&action_group));
+
+    NetworkAdapterRowWidgets { row, menu_button }
+}
+
+fn update_network_adapter_row(row: &NetworkAdapterRowWidgets, device: &NetworkDevice) {
+    row.row.set_title(&network_adapter_title(device));
+    row.row.set_subtitle(&network_device_subtitle(device));
+    if !row.menu_button.property::<bool>("active") {
+        let menu = gio::Menu::new();
+        menu.append(Some("Info"), Some("net-adapter.info"));
+        row.menu_button.set_menu_model(Some(&menu));
+    }
+}
+
+fn network_wifi_menu(access_point: &WifiAccessPoint) -> gio::Menu {
+    let menu = gio::Menu::new();
+    if access_point.connected {
+        menu.append(Some("Disconnect"), Some("net-ap.disconnect"));
+    } else {
+        menu.append(Some("Connect"), Some("net-ap.connect"));
+    }
+    if access_point.uuid.is_some() {
+        menu.append(Some("Configure"), Some("net-ap.configure"));
+        menu.append(Some("Forget"), Some("net-ap.forget"));
+    }
+    menu.append(Some("Info"), Some("net-ap.info"));
+    menu
+}
+
+fn network_ethernet_menu(ui: &NetworkUi, device: &NetworkDevice) -> gio::Menu {
+    let menu = gio::Menu::new();
+    if ui
+        .state
+        .borrow()
+        .connection_for_device(&device.interface)
+        .is_some_and(|connection| connection.state == "activated")
+    {
+        menu.append(Some("Disconnect"), Some("net-eth.disconnect"));
+    }
+    if ui.state.borrow().connection_for_device(&device.interface).is_some() {
+        menu.append(Some("Configure"), Some("net-eth.configure"));
+    }
+    menu.append(Some("Info"), Some("net-eth.info"));
+    menu
+}
+
+fn network_vpn_menu(vpn: &SavedVpn) -> gio::Menu {
+    let menu = gio::Menu::new();
+    if vpn.active {
+        menu.append(Some("Disconnect"), Some("net-vpn.disconnect"));
+    } else {
+        menu.append(Some("Connect"), Some("net-vpn.connect"));
+    }
+    menu.append(Some("Configure"), Some("net-vpn.configure"));
+    menu.append(Some("Info"), Some("net-vpn.info"));
+    menu
+}
+
 fn show_bluetooth_device_info_dialog(ui: &BluetoothUi, address: &str) {
     let state = ui.state.borrow();
     let Some(device) = state.device(address) else {
@@ -2249,6 +3238,605 @@ fn show_info_dialog(parent: &adw::ApplicationWindow, title: &str, rows: &[(&str,
     glib::spawn_future_local(async move {
         let _ = dialog.choose_future(&parent).await;
     });
+}
+
+fn activate_network_access_point(ui: &NetworkUi, access_point_path: &str) {
+    let state = ui.state.borrow();
+    let Some(access_point) = state.access_point(access_point_path) else {
+        return;
+    };
+    let command = if let Some(uuid) = access_point.uuid.clone() {
+        NetworkServiceCommand::ConnectSaved { uuid }
+    } else {
+        NetworkServiceCommand::ConnectWifi {
+            ssid: access_point.ssid.clone(),
+            path: access_point.path.clone(),
+        }
+    };
+    drop(state);
+    spawn_network_command(ui.runtime.clone(), ui.backend.clone(), command);
+}
+
+fn disconnect_network_access_point(ui: &NetworkUi, access_point_path: &str) {
+    let state = ui.state.borrow();
+    let Some(access_point) = state.access_point(access_point_path) else {
+        return;
+    };
+    let Some(uuid) = access_point.uuid.clone() else {
+        return;
+    };
+    drop(state);
+    spawn_network_command(
+        ui.runtime.clone(),
+        ui.backend.clone(),
+        NetworkServiceCommand::Disconnect { uuid },
+    );
+}
+
+fn forget_network_access_point(ui: &NetworkUi, access_point_path: &str) {
+    let state = ui.state.borrow();
+    let Some(access_point) = state.access_point(access_point_path) else {
+        return;
+    };
+    let Some(uuid) = access_point.uuid.clone() else {
+        return;
+    };
+    drop(state);
+    spawn_network_command(
+        ui.runtime.clone(),
+        ui.backend.clone(),
+        NetworkServiceCommand::Forget { uuid },
+    );
+}
+
+fn disconnect_network_device(ui: &NetworkUi, device_path: &str) {
+    let state = ui.state.borrow();
+    let Some(device) = state.device(device_path) else {
+        return;
+    };
+    let Some(connection) = state.connection_for_device(&device.interface) else {
+        return;
+    };
+    let uuid = connection.uuid.clone();
+    drop(state);
+    spawn_network_command(
+        ui.runtime.clone(),
+        ui.backend.clone(),
+        NetworkServiceCommand::Disconnect { uuid },
+    );
+}
+
+fn show_network_adapter_info_dialog(ui: &NetworkUi, device_path: &str) {
+    let state = ui.state.borrow();
+    let Some(device) = state.device(device_path) else {
+        return;
+    };
+
+    let rows = vec![
+        ("Interface", device.interface.clone()),
+        ("Type", device.device_type.clone()),
+        ("State", device.state.clone()),
+        (
+            "Hardware Address",
+            device
+                .hardware_address
+                .clone()
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        ("Driver", device.driver.clone().unwrap_or_else(|| "Unavailable".into())),
+        ("Managed", yes_no(device.managed)),
+        (
+            "MTU",
+            device
+                .mtu
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        (
+            "Carrier",
+            device
+                .carrier
+                .map(yes_no)
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        ("Speed", network_speed_text(device.speed)),
+        ("Hotspot", yes_no(device.hotspot_supported)),
+        ("Object Path", device.path.clone()),
+    ];
+    show_blueprint_info_dialog(
+        &ui.window,
+        "Adapter Information",
+        "/me/aresa/GlimpseSettings/ui/network/adapter-info.ui",
+        "network_adapter_info_root",
+        "network_adapter_info_group",
+        &rows,
+    );
+}
+
+fn show_network_wifi_info_dialog(ui: &NetworkUi, access_point_path: &str) {
+    let state = ui.state.borrow();
+    let Some(access_point) = state.access_point(access_point_path) else {
+        return;
+    };
+    let adapter = state
+        .device(&access_point.device_path)
+        .map(network_adapter_title)
+        .unwrap_or_else(|| access_point.device_path.clone());
+    let active = access_point
+        .uuid
+        .as_deref()
+        .and_then(|uuid| state.connection_by_uuid(uuid));
+
+    let rows = vec![
+        ("SSID", access_point.ssid.clone()),
+        ("Adapter", adapter),
+        ("Security", access_point.security.clone()),
+        ("Signal", format!("{}%", access_point.strength)),
+        ("Frequency", format!("{} MHz", access_point.frequency)),
+        ("Saved", yes_no(access_point.saved)),
+        ("Connected", yes_no(access_point.connected)),
+        (
+            "IP Address",
+            active
+                .and_then(|connection| connection.ip4_address.clone())
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        (
+            "Gateway",
+            active
+                .and_then(|connection| connection.gateway.clone())
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        (
+            "DNS",
+            active
+                .map(|connection| join_network_list(&connection.dns))
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        ("Object Path", access_point.path.clone()),
+    ];
+    show_blueprint_info_dialog(
+        &ui.window,
+        "Network Information",
+        "/me/aresa/GlimpseSettings/ui/network/connection-info.ui",
+        "network_connection_info_root",
+        "network_connection_info_group",
+        &rows,
+    );
+}
+
+fn show_network_vpn_info_dialog(ui: &NetworkUi, uuid: &str) {
+    let state = ui.state.borrow();
+    let Some(vpn) = state.vpn(uuid) else {
+        return;
+    };
+    let active = state.connection_by_uuid(uuid);
+    let rows = vec![
+        ("Name", vpn.id.clone()),
+        ("UUID", vpn.uuid.clone()),
+        ("Type", vpn.connection_type.clone()),
+        ("State", vpn.state.clone().unwrap_or_else(|| "Inactive".into())),
+        (
+            "IP Address",
+            active
+                .and_then(|connection| connection.ip4_address.clone())
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        (
+            "Gateway",
+            active
+                .and_then(|connection| connection.gateway.clone())
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        (
+            "DNS",
+            active
+                .map(|connection| join_network_list(&connection.dns))
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
+        ("Settings Path", vpn.settings_path.clone()),
+    ];
+    show_blueprint_info_dialog(
+        &ui.window,
+        "VPN Information",
+        "/me/aresa/GlimpseSettings/ui/network/connection-info.ui",
+        "network_connection_info_root",
+        "network_connection_info_group",
+        &rows,
+    );
+}
+
+fn show_blueprint_info_dialog(
+    parent: &adw::ApplicationWindow,
+    title: &str,
+    resource: &str,
+    root_id: &str,
+    group_id: &str,
+    rows: &[(&str, String)],
+) {
+    let builder = gtk::Builder::from_resource(resource);
+    let root: gtk::Box = builder.object(root_id).expect("info dialog root should exist");
+    let group: adw::PreferencesGroup = builder
+        .object(group_id)
+        .expect("info dialog group should exist");
+
+    for (label, value) in rows {
+        let row = adw::ActionRow::builder().title(*label).build();
+        row.set_subtitle(value);
+        row.set_subtitle_selectable(true);
+        group.add(&row);
+    }
+
+    let dialog = AlertDialog::new(Some(title), None);
+    dialog.add_response("close", "Close");
+    dialog.set_default_response(Some("close"));
+    dialog.set_close_response("close");
+    dialog.set_extra_child(Some(&root));
+
+    let parent = parent.clone();
+    glib::spawn_future_local(async move {
+        let _ = dialog.choose_future(&parent).await;
+    });
+}
+
+fn show_network_connection_config_dialog_for_ap(ui: &NetworkUi, access_point_path: &str) {
+    let state = ui.state.borrow();
+    let Some(uuid) = state.access_point(access_point_path).and_then(|ap| ap.uuid.clone()) else {
+        return;
+    };
+    drop(state);
+    show_network_connection_config_dialog_for_uuid(ui, &uuid);
+}
+
+fn show_network_connection_config_dialog_for_device(ui: &NetworkUi, device_path: &str) {
+    let state = ui.state.borrow();
+    let Some(device) = state.device(device_path) else {
+        return;
+    };
+    let Some(connection) = state.connection_for_device(&device.interface) else {
+        return;
+    };
+    let uuid = connection.uuid.clone();
+    drop(state);
+    show_network_connection_config_dialog_for_uuid(ui, &uuid);
+}
+
+fn show_network_connection_config_dialog_for_uuid(ui: &NetworkUi, uuid: &str) {
+    let backend = ui.backend.clone();
+    let window = ui.window.clone();
+    let runtime = ui.runtime.handle().clone();
+    let uuid = uuid.to_owned();
+    glib::spawn_future_local(async move {
+        match runtime
+            .spawn({
+                let backend = backend.clone();
+                async move { backend.load_connection_config(&uuid).await }
+            })
+            .await
+        {
+            Ok(Ok(config)) => present_network_connection_config_dialog(&window, backend, config),
+            Ok(Err(error)) => tracing::warn!(error = %error, "failed to load network config"),
+            Err(error) => tracing::error!(error = %error, "network config load task failed"),
+        }
+    });
+}
+
+fn present_network_connection_config_dialog(
+    parent: &adw::ApplicationWindow,
+    backend: Arc<NetworkBackend>,
+    config: NetworkConnectionConfig,
+) {
+    let builder = gtk::Builder::from_resource(
+        "/me/aresa/GlimpseSettings/ui/network/connection-config.ui",
+    );
+    let root: gtk::Box = builder
+        .object("network_connection_config_root")
+        .expect("network connection config root should exist");
+    let name_row: adw::EntryRow = builder
+        .object("network_connection_name_row")
+        .expect("network connection name row should exist");
+    let autoconnect_row: adw::SwitchRow = builder
+        .object("network_connection_autoconnect_row")
+        .expect("network connection autoconnect row should exist");
+    let ipv4_method_row: adw::ComboRow = builder
+        .object("network_connection_ipv4_method_row")
+        .expect("network connection ipv4 method row should exist");
+    let ipv4_address_row: adw::EntryRow = builder
+        .object("network_connection_ipv4_address_row")
+        .expect("network connection ipv4 address row should exist");
+    let ipv4_prefix_row: adw::SpinRow = builder
+        .object("network_connection_ipv4_prefix_row")
+        .expect("network connection ipv4 prefix row should exist");
+    let ipv4_gateway_row: adw::EntryRow = builder
+        .object("network_connection_ipv4_gateway_row")
+        .expect("network connection ipv4 gateway row should exist");
+    let ipv4_dns_row: adw::EntryRow = builder
+        .object("network_connection_ipv4_dns_row")
+        .expect("network connection ipv4 dns row should exist");
+    let ipv6_method_row: adw::ComboRow = builder
+        .object("network_connection_ipv6_method_row")
+        .expect("network connection ipv6 method row should exist");
+    let ipv6_address_row: adw::EntryRow = builder
+        .object("network_connection_ipv6_address_row")
+        .expect("network connection ipv6 address row should exist");
+    let ipv6_prefix_row: adw::SpinRow = builder
+        .object("network_connection_ipv6_prefix_row")
+        .expect("network connection ipv6 prefix row should exist");
+    let ipv6_gateway_row: adw::EntryRow = builder
+        .object("network_connection_ipv6_gateway_row")
+        .expect("network connection ipv6 gateway row should exist");
+    let ipv6_dns_row: adw::EntryRow = builder
+        .object("network_connection_ipv6_dns_row")
+        .expect("network connection ipv6 dns row should exist");
+
+    let method_model = gtk::StringList::new(&["Automatic", "Manual", "Disabled"]);
+    ipv4_method_row.set_model(Some(&method_model));
+    let method_model6 = gtk::StringList::new(&["Automatic", "Manual", "Disabled"]);
+    ipv6_method_row.set_model(Some(&method_model6));
+
+    name_row.set_text(&config.id);
+    autoconnect_row.set_active(config.autoconnect);
+    ipv4_method_row.set_selected(network_ip_method_index(config.ipv4.method));
+    ipv4_address_row.set_text(&config.ipv4.address);
+    ipv4_prefix_row.set_value(config.ipv4.prefix.unwrap_or(24) as f64);
+    ipv4_gateway_row.set_text(&config.ipv4.gateway);
+    ipv4_dns_row.set_text(&config.ipv4.dns.join(", "));
+    ipv6_method_row.set_selected(network_ip_method_index(config.ipv6.method));
+    ipv6_address_row.set_text(&config.ipv6.address);
+    ipv6_prefix_row.set_value(config.ipv6.prefix.unwrap_or(64) as f64);
+    ipv6_gateway_row.set_text(&config.ipv6.gateway);
+    ipv6_dns_row.set_text(&config.ipv6.dns.join(", "));
+
+    let dialog = AlertDialog::new(Some("Connection Configuration"), None);
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("apply", "Apply");
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_extra_child(Some(&root));
+
+    let parent = parent.clone();
+    glib::spawn_future_local(async move {
+        if dialog.choose_future(&parent).await != "apply" {
+            return;
+        }
+
+        let config = NetworkConnectionConfig {
+            id: name_row.text().to_string(),
+            autoconnect: autoconnect_row.is_active(),
+            ipv4: NetworkIpConfig {
+                method: network_ip_method_from_index(ipv4_method_row.selected()),
+                address: ipv4_address_row.text().to_string(),
+                prefix: Some(ipv4_prefix_row.value() as u32),
+                gateway: ipv4_gateway_row.text().to_string(),
+                dns: parse_network_dns(ipv4_dns_row.text().as_str()),
+            },
+            ipv6: NetworkIpConfig {
+                method: network_ip_method_from_index(ipv6_method_row.selected()),
+                address: ipv6_address_row.text().to_string(),
+                prefix: Some(ipv6_prefix_row.value() as u32),
+                gateway: ipv6_gateway_row.text().to_string(),
+                dns: parse_network_dns(ipv6_dns_row.text().as_str()),
+            },
+            ..config
+        };
+
+        let handle = glib::MainContext::default();
+        let _guard = handle.acquire();
+        if let Err(error) = backend.apply_connection_config(&config).await {
+            tracing::warn!(error = %error, "failed to apply network config");
+        }
+    });
+}
+
+fn show_network_hotspot_config_dialog(ui: &NetworkUi) {
+    let Some(config) = ui.hotspot_config.borrow().clone() else {
+        return;
+    };
+
+    let builder = gtk::Builder::from_resource(
+        "/me/aresa/GlimpseSettings/ui/network/hotspot-config.ui",
+    );
+    let root: gtk::Box = builder
+        .object("network_hotspot_config_root")
+        .expect("network hotspot config root should exist");
+    let adapter_row: adw::ActionRow = builder
+        .object("network_hotspot_adapter_row")
+        .expect("network hotspot adapter row should exist");
+    let ssid_row: adw::EntryRow = builder
+        .object("network_hotspot_ssid_row")
+        .expect("network hotspot ssid row should exist");
+    let password_row: adw::PasswordEntryRow = builder
+        .object("network_hotspot_password_row")
+        .expect("network hotspot password row should exist");
+    let band_row: adw::ComboRow = builder
+        .object("network_hotspot_band_row")
+        .expect("network hotspot band row should exist");
+    let band_model = gtk::StringList::new(&["2.4 GHz", "5 GHz"]);
+    band_row.set_model(Some(&band_model));
+
+    adapter_row.set_subtitle(&config.interface_name);
+    ssid_row.set_text(&config.ssid);
+    password_row.set_text(&config.password);
+    band_row.set_selected(if config.band == "a" { 1 } else { 0 });
+
+    let dialog = AlertDialog::new(Some("Hotspot Configuration"), None);
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("apply", "Apply");
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_extra_child(Some(&root));
+
+    let parent = ui.window.clone();
+    let backend = ui.backend.clone();
+    let refresh_ui = ui.clone();
+    glib::spawn_future_local(async move {
+        if dialog.choose_future(&parent).await != "apply" {
+            return;
+        }
+
+        let updated = HotspotConfig {
+            ssid: ssid_row.text().to_string(),
+            password: password_row.text().to_string(),
+            band: if band_row.selected() == 1 { "a".into() } else { "bg".into() },
+            ..config
+        };
+
+        match backend.apply_hotspot_config(&updated).await {
+            Ok(config) => {
+                *refresh_ui.hotspot_config.borrow_mut() = Some(config);
+                refresh_ui.sync();
+            }
+            Err(error) => tracing::warn!(error = %error, "failed to apply hotspot config"),
+        }
+    });
+}
+
+fn network_adapter_title(device: &NetworkDevice) -> String {
+    if device.interface.trim().is_empty() {
+        device.path.clone()
+    } else {
+        device.interface.clone()
+    }
+}
+
+fn network_adapter_icon(device: &NetworkDevice) -> &'static str {
+    match device.device_type.as_str() {
+        "wifi" => "network-wireless-signal-excellent-symbolic",
+        "ethernet" => "network-wired-symbolic",
+        "vpn" | "wireguard" => "network-vpn-symbolic",
+        _ => "network-workgroup-symbolic",
+    }
+}
+
+fn network_wifi_subtitle(access_point: &WifiAccessPoint) -> String {
+    let mut parts = vec![access_point.security.clone(), format!("{}%", access_point.strength)];
+    if access_point.connected {
+        parts.push("Connected".into());
+    } else if access_point.saved {
+        parts.push("Saved".into());
+    }
+    parts.join(" · ")
+}
+
+fn network_ethernet_subtitle(ui: &NetworkUi, device: &NetworkDevice) -> String {
+    let mut parts = vec![device.state.clone()];
+    if let Some(connection) = ui.state.borrow().connection_for_device(&device.interface) {
+        if !connection.id.trim().is_empty() {
+            parts.insert(0, connection.id.clone());
+        }
+    }
+    if device.speed > 0 {
+        parts.push(network_speed_text(device.speed));
+    }
+    parts.join(" · ")
+}
+
+fn network_vpn_subtitle(vpn: &SavedVpn) -> String {
+    let mut parts = vec![vpn.connection_type.clone()];
+    if let Some(state) = &vpn.state {
+        parts.push(state.clone());
+    } else if vpn.active {
+        parts.push("Active".into());
+    } else {
+        parts.push("Inactive".into());
+    }
+    parts.join(" · ")
+}
+
+fn network_device_subtitle(device: &NetworkDevice) -> String {
+    let mut parts = vec![device.device_type.clone(), device.state.clone()];
+    if device.speed > 0 {
+        parts.push(network_speed_text(device.speed));
+    }
+    parts.join(" · ")
+}
+
+fn network_primary_connection_subtitle(
+    state: &NetworkServiceState,
+    primary: Option<&NetworkConnection>,
+) -> String {
+    if let Some(primary) = primary {
+        let mut parts = vec![primary.id.clone()];
+        if !primary.connection_type.is_empty() {
+            parts.push(primary.connection_type.clone());
+        }
+        if primary.speed > 0 {
+            parts.push(network_speed_text(primary.speed));
+        }
+        if state.snapshot.status.metered {
+            parts.push("Metered".into());
+        }
+        return parts.join(" · ");
+    }
+
+    if state.snapshot.status.connectivity == "none" {
+        "Offline".into()
+    } else {
+        state.snapshot.status.primary_connection.clone()
+    }
+}
+
+fn network_speed_text(speed: u32) -> String {
+    if speed == 0 {
+        "Unknown speed".into()
+    } else {
+        format!("{speed} Mbps")
+    }
+}
+
+fn hotspot_band_label(band: &str) -> &'static str {
+    if band == "a" {
+        "5 GHz"
+    } else {
+        "2.4 GHz"
+    }
+}
+
+fn network_ip_method_index(method: NetworkIpMethod) -> u32 {
+    match method {
+        NetworkIpMethod::Automatic => 0,
+        NetworkIpMethod::Manual => 1,
+        NetworkIpMethod::Disabled => 2,
+    }
+}
+
+fn network_ip_method_from_index(index: u32) -> NetworkIpMethod {
+    match index {
+        1 => NetworkIpMethod::Manual,
+        2 => NetworkIpMethod::Disabled,
+        _ => NetworkIpMethod::Automatic,
+    }
+}
+
+fn parse_network_dns(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn join_network_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "Unavailable".into()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn network_prompt_body(prompt: &NetworkPrompt) -> String {
+    match &prompt.kind {
+        NetworkPromptKind::WifiPassword { ssid } => {
+            if let Some(error) = prompt.error_message.as_deref() {
+                format!("Enter the password for {ssid}.\n\n{error}")
+            } else {
+                format!("Enter the password for {ssid}.")
+            }
+        }
+    }
 }
 
 fn yes_no(value: bool) -> String {
@@ -4003,6 +5591,7 @@ fn wire_navigation(
     stub_status_row: &adw::ActionRow,
     stub_details_row: &adw::ActionRow,
     appearance_ui: &AppearanceUi,
+    network_ui: &NetworkUi,
     bluetooth_ui: &BluetoothUi,
     display_ui: &DisplayUi,
     power_ui: &PowerUi,
@@ -4016,6 +5605,7 @@ fn wire_navigation(
     let stub_status_for_selection = stub_status_row.clone();
     let stub_details_for_selection = stub_details_row.clone();
     let appearance_ui_for_selection = appearance_ui.clone();
+    let network_ui_for_selection = network_ui.clone();
     let bluetooth_ui_for_selection = bluetooth_ui.clone();
     let display_ui_for_selection = display_ui.clone();
     let power_ui_for_selection = power_ui.clone();
@@ -4039,6 +5629,7 @@ fn wire_navigation(
             &stub_status_for_selection,
             &stub_details_for_selection,
             &appearance_ui_for_selection,
+            &network_ui_for_selection,
             &bluetooth_ui_for_selection,
             &display_ui_for_selection,
             &power_ui_for_selection,
@@ -4641,6 +6232,7 @@ fn update_page(
     stub_status_row: &adw::ActionRow,
     stub_details_row: &adw::ActionRow,
     appearance_ui: &AppearanceUi,
+    network_ui: &NetworkUi,
     bluetooth_ui: &BluetoothUi,
     display_ui: &DisplayUi,
     power_ui: &PowerUi,
@@ -4650,15 +6242,24 @@ fn update_page(
 ) {
     content_page.set_title(page.title);
     let is_appearance = page.kind == PageKind::Appearance;
+    let is_network = page.kind == PageKind::Network;
     let is_bluetooth = page.kind == PageKind::Bluetooth;
     let is_displays = page.kind == PageKind::Displays;
     let is_power = page.kind == PageKind::Power;
     let is_sound = page.kind == PageKind::Sound;
 
     stub_group
-        .set_visible(!is_appearance && !is_bluetooth && !is_displays && !is_power && !is_sound);
+        .set_visible(
+            !is_appearance && !is_network && !is_bluetooth && !is_displays && !is_power && !is_sound,
+        );
     appearance_ui.theme_group.set_visible(is_appearance);
     appearance_ui.typography_group.set_visible(is_appearance);
+    network_ui.general_group.set_visible(is_network);
+    network_ui.wifi_group.set_visible(is_network);
+    network_ui.ethernet_group.set_visible(is_network);
+    network_ui.vpn_group.set_visible(is_network);
+    network_ui.hotspot_group.set_visible(is_network);
+    network_ui.adapters_group.set_visible(is_network);
     bluetooth_ui.general_group.set_visible(is_bluetooth);
     bluetooth_ui.devices_group.set_visible(is_bluetooth);
     bluetooth_ui.adapters_group.set_visible(is_bluetooth);
@@ -4685,12 +6286,19 @@ fn update_page(
     appearance_ui.content_header.set_visible(true);
     power_ui.content_header.set_visible(true);
     let _ = runtime;
+    network_ui.set_page_visible(is_network);
     bluetooth_ui.set_page_visible(is_bluetooth);
 
     if is_displays {
         display_ui.refresh_snapshot();
         display_ui.sync();
         route_label.set_label("displays");
+        return;
+    }
+
+    if is_network {
+        network_ui.sync();
+        route_label.set_label("network");
         return;
     }
 

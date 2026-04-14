@@ -66,6 +66,14 @@ pub trait Device {
     fn state_reason(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn interface(&self) -> zbus::Result<String>;
+    #[zbus(property, name = "HwAddress")]
+    fn hw_address(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn driver(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn managed(&self) -> zbus::Result<bool>;
+    #[zbus(property, name = "Mtu")]
+    fn mtu(&self) -> zbus::Result<u32>;
 }
 
 #[zbus::proxy(
@@ -89,6 +97,12 @@ pub trait DeviceWireless {
 
     #[zbus(property)]
     fn bitrate(&self) -> zbus::Result<u32>;
+    #[zbus(property, name = "PermHwAddress")]
+    fn perm_hw_address(&self) -> zbus::Result<String>;
+    #[zbus(property, name = "WirelessCapabilities")]
+    fn wireless_capabilities(&self) -> zbus::Result<u32>;
+    #[zbus(property, name = "ActiveAccessPoint")]
+    fn active_access_point(&self) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[zbus::proxy(
@@ -154,6 +168,10 @@ pub trait Ip4Config {
 pub trait Settings {
     fn list_connections(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
     fn get_connection_by_uuid(&self, uuid: &str) -> zbus::Result<OwnedObjectPath>;
+    fn add_connection(
+        &self,
+        connection: HashMap<String, HashMap<String, OwnedValue>>,
+    ) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[zbus::proxy(

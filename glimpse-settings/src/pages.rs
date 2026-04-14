@@ -4,6 +4,7 @@ pub enum PageKind {
     Appearance,
     Bluetooth,
     Displays,
+    Network,
     Power,
     Sound,
 }
@@ -46,7 +47,7 @@ pub const PAGES: &[PageSpec] = &[
         title: "Wi-Fi & Network",
         summary: "Wireless, wired, VPN, and connection details.",
         keywords: &["wifi", "wireless", "ethernet", "vpn", "internet"],
-        kind: PageKind::Stub,
+        kind: PageKind::Network,
     },
     PageSpec {
         route_head: "bluetooth",
@@ -172,6 +173,7 @@ mod tests {
         assert_ne!(appearance.kind, PageKind::Stub);
         assert_eq!(bluetooth.kind, PageKind::Bluetooth);
         assert_eq!(displays.kind, PageKind::Displays);
+        assert_eq!(find_by_route_head("network").unwrap().kind, PageKind::Network);
         assert_ne!(power.kind, PageKind::Stub);
         assert_eq!(sound.kind, PageKind::Sound);
         assert_eq!(about.kind, PageKind::Stub);

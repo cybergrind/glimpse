@@ -36,6 +36,7 @@ pub struct NetworkStatus {
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct WifiAccessPoint {
     pub path: String,
+    pub device_path: String,
     pub ssid: String,
     pub strength: u8,
     pub frequency: u32,
@@ -48,6 +49,7 @@ pub struct WifiAccessPoint {
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct NetworkConnection {
     pub active_path: String,
+    pub settings_path: Option<String>,
     pub id: String,
     pub uuid: String,
     pub connection_type: String,
@@ -63,21 +65,70 @@ pub struct NetworkConnection {
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct NetworkDevice {
+    pub path: String,
     pub interface: String,
     pub device_type: String,
     pub state: String,
     pub failure: Option<NetworkFailureClassification>,
     pub speed: u32,
     pub carrier: Option<bool>,
+    pub hardware_address: Option<String>,
+    pub driver: Option<String>,
+    pub managed: bool,
+    pub mtu: Option<u32>,
+    pub hotspot_supported: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct SavedVpn {
     pub id: String,
     pub uuid: String,
+    pub settings_path: String,
     pub connection_type: String,
     pub active: bool,
     pub state: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
+pub enum NetworkIpMethod {
+    #[default]
+    Automatic,
+    Manual,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct NetworkIpConfig {
+    pub method: NetworkIpMethod,
+    pub address: String,
+    pub prefix: Option<u32>,
+    pub gateway: String,
+    pub dns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct NetworkConnectionConfig {
+    pub id: String,
+    pub uuid: String,
+    pub settings_path: String,
+    pub connection_type: String,
+    pub interface_name: Option<String>,
+    pub autoconnect: bool,
+    pub ipv4: NetworkIpConfig,
+    pub ipv6: NetworkIpConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct HotspotConfig {
+    pub id: String,
+    pub uuid: Option<String>,
+    pub settings_path: Option<String>,
+    pub device_path: String,
+    pub interface_name: String,
+    pub active: bool,
+    pub ssid: String,
+    pub password: String,
+    pub band: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -436,6 +487,144 @@ impl NetworkProvider {
         Ok(())
     }
 
+    pub async fn load_connection_config(
+        &self,
+        uuid: &str,
+    ) -> anyhow::Result<NetworkConnectionConfig> {
+        let settings_path = self
+            .settings_proxy()
+            .await?
+            .get_connection_by_uuid(uuid)
+            .await?
+            .to_string();
+        self.load_connection_config_by_path(&settings_path).await
+    }
+
+    pub async fn load_connection_config_by_path(
+        &self,
+        settings_path: &str,
+    ) -> anyhow::Result<NetworkConnectionConfig> {
+        let settings = self
+            .settings_connection_proxy(settings_path)
+            .await?
+            .get_settings()
+            .await
+            .unwrap_or_default();
+
+        Ok(parse_connection_config(&settings, settings_path))
+    }
+
+    pub async fn apply_connection_config(
+        &self,
+        config: &NetworkConnectionConfig,
+    ) -> anyhow::Result<()> {
+        let proxy = self.settings_connection_proxy(&config.settings_path).await?;
+        let mut settings = proxy.get_settings().await.unwrap_or_default();
+
+        let connection_section = settings.entry("connection".into()).or_default();
+        connection_section.insert("id".into(), owned_value(config.id.clone()));
+        connection_section.insert("uuid".into(), owned_value(config.uuid.clone()));
+        connection_section.insert(
+            "type".into(),
+            owned_value(raw_connection_type(&config.connection_type)),
+        );
+        if let Some(interface_name) = &config.interface_name {
+            if !interface_name.trim().is_empty() {
+                connection_section.insert("interface-name".into(), owned_value(interface_name.clone()));
+            } else {
+                connection_section.remove("interface-name");
+            }
+        }
+        connection_section.insert("autoconnect".into(), owned_value(config.autoconnect));
+
+        write_ip_config(settings.entry("ipv4".into()).or_default(), &config.ipv4, false);
+        write_ip_config(settings.entry("ipv6".into()).or_default(), &config.ipv6, true);
+
+        proxy
+            .update2(settings, NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
+            .await
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    pub async fn load_hotspot_config(&self, device_path: &str) -> anyhow::Result<HotspotConfig> {
+        let device = self.device_proxy(device_path).await?;
+        let interface_name = device.interface().await.unwrap_or_default();
+        let path = self.find_hotspot_profile_path(&interface_name).await?;
+        let active_uuid = self.find_active_hotspot_uuid(&interface_name).await?;
+
+        if let Some(settings_path) = path {
+            let settings = self
+                .settings_connection_proxy(settings_path.as_str())
+                .await?
+                .get_settings()
+                .await
+                .unwrap_or_default();
+            let mut config = parse_hotspot_config(&settings, &settings_path, device_path, &interface_name);
+            config.active = active_uuid
+                .as_deref()
+                .is_some_and(|uuid| config.uuid.as_deref() == Some(uuid));
+            return Ok(config);
+        }
+
+        Ok(HotspotConfig {
+            id: format!("Hotspot ({interface_name})"),
+            uuid: None,
+            settings_path: None,
+            device_path: device_path.to_owned(),
+            interface_name,
+            active: false,
+            ssid: "Glimpse Hotspot".into(),
+            password: String::new(),
+            band: "bg".into(),
+        })
+    }
+
+    pub async fn apply_hotspot_config(&self, config: &HotspotConfig) -> anyhow::Result<HotspotConfig> {
+        let settings = hotspot_settings_map(config);
+        let settings_path = if let Some(path) = &config.settings_path {
+            self.settings_connection_proxy(path)
+                .await?
+                .update2(settings, NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
+                .await?;
+            path.clone()
+        } else {
+            self.settings_proxy().await?.add_connection(settings).await?.to_string()
+        };
+
+        self.load_hotspot_config(config.device_path.as_str()).await
+            .or_else(|_| Ok(HotspotConfig {
+                settings_path: Some(settings_path),
+                ..config.clone()
+            }))
+    }
+
+    pub async fn set_hotspot_enabled(
+        &self,
+        config: &HotspotConfig,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
+        let saved = self.apply_hotspot_config(config).await?;
+        let settings_path = saved
+            .settings_path
+            .clone()
+            .ok_or_else(|| anyhow!("hotspot settings path missing"))?;
+
+        if enabled {
+            let manager = self.manager_proxy().await?;
+            let connection = ObjectPath::try_from(settings_path.as_str())?;
+            let device = ObjectPath::try_from(saved.device_path.as_str())?;
+            let specific = ObjectPath::try_from("/")?;
+            let _ = manager.activate_connection(connection, device, specific).await?;
+            return Ok(());
+        }
+
+        if let Some(uuid) = saved.uuid.as_deref() {
+            self.disconnect(uuid).await?;
+        }
+        Ok(())
+    }
+
     pub async fn disconnect(&self, uuid: &str) -> anyhow::Result<()> {
         let active_connections = self.manager_proxy().await?.active_connections().await?;
         for connection_path in active_connections {
@@ -532,13 +721,36 @@ impl NetworkProvider {
                 status.speed = speed;
             }
 
+            let hardware_address = device.hw_address().await.ok().filter(|value| !value.is_empty());
+            let driver = device.driver().await.ok().filter(|value| !value.is_empty());
+            let managed = device.managed().await.unwrap_or(true);
+            let mtu = device.mtu().await.ok().filter(|value| *value > 0);
+            let hotspot_supported = if device_type == "wifi" {
+                match self.wireless_device_proxy(path.as_str()).await {
+                    Ok(wireless) => wireless
+                        .wireless_capabilities()
+                        .await
+                        .map(|caps| caps & 0x00000040 != 0)
+                        .unwrap_or(true),
+                    Err(_) => true,
+                }
+            } else {
+                false
+            };
+
             devices.push(NetworkDevice {
+                path: path.to_string(),
                 interface,
                 device_type: device_type.into(),
                 state: device_state_str(state).into(),
                 failure: device_failure_classification(device_type, state, state_reason),
                 speed,
                 carrier,
+                hardware_address,
+                driver,
+                managed,
+                mtu,
+                hotspot_supported,
             });
         }
 
@@ -613,6 +825,7 @@ impl NetworkProvider {
 
             connections.push(NetworkConnection {
                 active_path: path.to_string(),
+                settings_path: self.settings_path_for_uuid(&uuid).await.ok().flatten(),
                 id,
                 uuid,
                 connection_type: connection_type.into(),
@@ -686,6 +899,7 @@ impl NetworkProvider {
 
                 access_points.push(WifiAccessPoint {
                     path: access_point_path.to_string(),
+                    device_path: device_path.to_string(),
                     ssid,
                     strength,
                     frequency,
@@ -806,6 +1020,7 @@ impl NetworkProvider {
             saved_vpns.push(SavedVpn {
                 id,
                 uuid,
+                settings_path: path.to_string(),
                 connection_type: connection_type_str(&connection_type).into(),
                 active: active_state.is_some(),
                 state: active_state.cloned(),
@@ -838,6 +1053,57 @@ impl NetworkProvider {
             .and_then(|connection| connection.get("uuid"))
             .and_then(owned_value_to_string)
             .filter(|uuid| !uuid.is_empty()))
+    }
+
+    async fn settings_path_for_uuid(&self, uuid: &str) -> anyhow::Result<Option<String>> {
+        if uuid.trim().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.settings_proxy()
+                .await?
+                .get_connection_by_uuid(uuid)
+                .await?
+                .to_string(),
+        ))
+    }
+
+    async fn find_hotspot_profile_path(&self, interface_name: &str) -> anyhow::Result<Option<String>> {
+        for path in self.settings_proxy().await?.list_connections().await? {
+            let settings = self
+                .settings_connection_proxy(path.as_str())
+                .await?
+                .get_settings()
+                .await
+                .unwrap_or_default();
+            if is_hotspot_profile(&settings, interface_name) {
+                return Ok(Some(path.to_string()));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn find_active_hotspot_uuid(&self, interface_name: &str) -> anyhow::Result<Option<String>> {
+        for connection in self.scan().await?.connections {
+            if connection.connection_type != "wifi" {
+                continue;
+            }
+            if connection.device != interface_name || connection.state != "activated" {
+                continue;
+            }
+            if let Some(settings_path) = &connection.settings_path {
+                let settings = self
+                    .settings_connection_proxy(settings_path)
+                    .await?
+                    .get_settings()
+                    .await
+                    .unwrap_or_default();
+                if is_hotspot_profile(&settings, interface_name) {
+                    return Ok(Some(connection.uuid));
+                }
+            }
+        }
+        Ok(None)
     }
 
     async fn wifi_profile_paths_for_ssid(&self, ssid: &str) -> anyhow::Result<Vec<String>> {
@@ -988,6 +1254,270 @@ fn connectivity_str(value: u32) -> &'static str {
         4 => "full",
         _ => "unknown",
     }
+}
+
+fn parse_connection_config(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+    settings_path: &str,
+) -> NetworkConnectionConfig {
+    let connection = settings.get("connection");
+    let id = connection
+        .and_then(|section| section.get("id"))
+        .and_then(owned_value_to_string)
+        .unwrap_or_default();
+    let uuid = connection
+        .and_then(|section| section.get("uuid"))
+        .and_then(owned_value_to_string)
+        .unwrap_or_default();
+    let connection_type = connection
+        .and_then(|section| section.get("type"))
+        .and_then(owned_value_to_string)
+        .map(|value| connection_type_str(&value).to_owned())
+        .unwrap_or_else(|| "other".into());
+    let interface_name = connection
+        .and_then(|section| section.get("interface-name"))
+        .and_then(owned_value_to_string)
+        .filter(|value| !value.is_empty());
+    let autoconnect = connection
+        .and_then(|section| section.get("autoconnect"))
+        .and_then(owned_value_to_bool)
+        .unwrap_or(true);
+
+    NetworkConnectionConfig {
+        id,
+        uuid,
+        settings_path: settings_path.to_owned(),
+        connection_type,
+        interface_name,
+        autoconnect,
+        ipv4: parse_ip_config(settings.get("ipv4"), false),
+        ipv6: parse_ip_config(settings.get("ipv6"), true),
+    }
+}
+
+fn parse_hotspot_config(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+    settings_path: &str,
+    device_path: &str,
+    interface_name: &str,
+) -> HotspotConfig {
+    let connection = settings.get("connection");
+    let wifi = settings.get("802-11-wireless");
+    let security = settings.get("802-11-wireless-security");
+
+    HotspotConfig {
+        id: connection
+            .and_then(|section| section.get("id"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_else(|| format!("Hotspot ({interface_name})")),
+        uuid: connection
+            .and_then(|section| section.get("uuid"))
+            .and_then(owned_value_to_string)
+            .filter(|value| !value.is_empty()),
+        settings_path: Some(settings_path.to_owned()),
+        device_path: device_path.to_owned(),
+        interface_name: interface_name.to_owned(),
+        active: false,
+        ssid: wifi
+            .and_then(|section| section.get("ssid"))
+            .and_then(owned_value_to_ssid)
+            .unwrap_or_else(|| "Glimpse Hotspot".into()),
+        password: security
+            .and_then(|section| section.get("psk"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_default(),
+        band: wifi
+            .and_then(|section| section.get("band"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_else(|| "bg".into()),
+    }
+}
+
+fn parse_ip_config(
+    section: Option<&HashMap<String, OwnedValue>>,
+    ipv6: bool,
+) -> NetworkIpConfig {
+    let method = section
+        .and_then(|section| section.get("method"))
+        .and_then(owned_value_to_string)
+        .as_deref()
+        .map(parse_ip_method)
+        .unwrap_or(NetworkIpMethod::Automatic);
+
+    let mut address = String::new();
+    let mut prefix = None;
+    if let Some(first) = section
+        .and_then(|section| section.get("address-data"))
+        .and_then(owned_value_to_address_data)
+        .and_then(|entries| entries.into_iter().next())
+    {
+        address = first
+            .get("address")
+            .and_then(owned_value_to_string)
+            .unwrap_or_default();
+        prefix = first
+            .get("prefix")
+            .and_then(|value| owned_value_to_u32(value, ipv6));
+    }
+
+    let dns = section
+        .and_then(|section| section.get("dns-data"))
+        .and_then(owned_value_to_string_vec)
+        .unwrap_or_default();
+
+    NetworkIpConfig {
+        method,
+        address,
+        prefix,
+        gateway: section
+            .and_then(|section| section.get("gateway"))
+            .and_then(owned_value_to_string)
+            .unwrap_or_default(),
+        dns,
+    }
+}
+
+fn parse_ip_method(value: &str) -> NetworkIpMethod {
+    match value {
+        "manual" => NetworkIpMethod::Manual,
+        "disabled" | "ignore" => NetworkIpMethod::Disabled,
+        _ => NetworkIpMethod::Automatic,
+    }
+}
+
+fn raw_connection_type(value: &str) -> String {
+    match value {
+        "wifi" => "802-11-wireless".into(),
+        "ethernet" => "802-3-ethernet".into(),
+        "vpn" => "vpn".into(),
+        "wireguard" => "wireguard".into(),
+        _ => value.to_owned(),
+    }
+}
+
+fn raw_ip_method(method: NetworkIpMethod, ipv6: bool) -> &'static str {
+    match method {
+        NetworkIpMethod::Automatic => "auto",
+        NetworkIpMethod::Manual => "manual",
+        NetworkIpMethod::Disabled if ipv6 => "ignore",
+        NetworkIpMethod::Disabled => "disabled",
+    }
+}
+
+fn write_ip_config(
+    section: &mut HashMap<String, OwnedValue>,
+    config: &NetworkIpConfig,
+    ipv6: bool,
+) {
+    section.insert("method".into(), owned_value(raw_ip_method(config.method, ipv6)));
+
+    if matches!(config.method, NetworkIpMethod::Manual) && !config.address.trim().is_empty() {
+        let mut address: HashMap<String, OwnedValue> = HashMap::new();
+        address.insert("address".into(), owned_value(config.address.clone()));
+        address.insert(
+            "prefix".into(),
+            owned_value(config.prefix.unwrap_or(if ipv6 { 64 } else { 24 })),
+        );
+        section.insert("address-data".into(), owned_value(vec![address]));
+    } else {
+        section.remove("address-data");
+    }
+
+    if matches!(config.method, NetworkIpMethod::Manual) && !config.gateway.trim().is_empty() {
+        section.insert("gateway".into(), owned_value(config.gateway.clone()));
+    } else {
+        section.remove("gateway");
+    }
+
+    let dns = config
+        .dns
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if dns.is_empty() || !matches!(config.method, NetworkIpMethod::Manual) {
+        section.remove("dns-data");
+    } else {
+        section.insert("dns-data".into(), owned_value(dns));
+    }
+}
+
+fn hotspot_settings_map(config: &HotspotConfig) -> HashMap<String, HashMap<String, OwnedValue>> {
+    let mut connection = HashMap::new();
+    connection.insert("id".into(), owned_value(config.id.clone()));
+    connection.insert("type".into(), owned_value("802-11-wireless"));
+    connection.insert("autoconnect".into(), owned_value(false));
+    connection.insert(
+        "interface-name".into(),
+        owned_value(config.interface_name.clone()),
+    );
+    if let Some(uuid) = &config.uuid {
+        if !uuid.is_empty() {
+            connection.insert("uuid".into(), owned_value(uuid.clone()));
+        }
+    }
+
+    let mut wifi = HashMap::new();
+    wifi.insert("ssid".into(), owned_value(config.ssid.as_bytes().to_vec()));
+    wifi.insert("mode".into(), owned_value("ap"));
+    if !config.band.trim().is_empty() {
+        wifi.insert("band".into(), owned_value(config.band.clone()));
+    }
+
+    let mut ipv4 = HashMap::new();
+    ipv4.insert("method".into(), owned_value("shared"));
+
+    let mut ipv6 = HashMap::new();
+    ipv6.insert("method".into(), owned_value("ignore"));
+
+    let mut settings = HashMap::from([
+        ("connection".into(), connection),
+        ("802-11-wireless".into(), wifi),
+        ("ipv4".into(), ipv4),
+        ("ipv6".into(), ipv6),
+    ]);
+
+    if !config.password.trim().is_empty() {
+        let mut security = HashMap::new();
+        security.insert("key-mgmt".into(), owned_value("wpa-psk"));
+        security.insert("psk".into(), owned_value(config.password.clone()));
+        settings.insert("802-11-wireless-security".into(), security);
+        if let Some(wifi) = settings.get_mut("802-11-wireless") {
+            wifi.insert("security".into(), owned_value("802-11-wireless-security"));
+        }
+    }
+
+    settings
+}
+
+fn is_hotspot_profile(
+    settings: &HashMap<String, HashMap<String, OwnedValue>>,
+    interface_name: &str,
+) -> bool {
+    let connection = settings.get("connection");
+    let connection_type = connection
+        .and_then(|section| section.get("type"))
+        .and_then(owned_value_to_string)
+        .unwrap_or_default();
+    if connection_type != "802-11-wireless" {
+        return false;
+    }
+
+    let profile_interface = connection
+        .and_then(|section| section.get("interface-name"))
+        .and_then(owned_value_to_string)
+        .unwrap_or_default();
+    if !profile_interface.is_empty() && profile_interface != interface_name {
+        return false;
+    }
+
+    settings
+        .get("802-11-wireless")
+        .and_then(|section| section.get("mode"))
+        .and_then(owned_value_to_string)
+        .as_deref()
+        == Some("ap")
 }
 
 fn device_state_str(value: u32) -> &'static str {
@@ -1166,6 +1696,29 @@ fn owned_value(value: impl Into<Value<'static>>) -> OwnedValue {
 
 fn owned_value_to_string(value: &OwnedValue) -> Option<String> {
     String::try_from(value.clone()).ok()
+}
+
+fn owned_value_to_bool(value: &OwnedValue) -> Option<bool> {
+    bool::try_from(value.clone()).ok()
+}
+
+fn owned_value_to_u32(value: &OwnedValue, allow_i32: bool) -> Option<u32> {
+    u32::try_from(value.clone()).ok().or_else(|| {
+        allow_i32
+            .then(|| i32::try_from(value.clone()).ok())
+            .flatten()
+            .and_then(|value| u32::try_from(value).ok())
+    })
+}
+
+fn owned_value_to_string_vec(value: &OwnedValue) -> Option<Vec<String>> {
+    Vec::<String>::try_from(value.clone()).ok()
+}
+
+fn owned_value_to_address_data(
+    value: &OwnedValue,
+) -> Option<Vec<HashMap<String, OwnedValue>>> {
+    Vec::<HashMap<String, OwnedValue>>::try_from(value.clone()).ok()
 }
 
 fn owned_value_to_ssid(value: &OwnedValue) -> Option<String> {

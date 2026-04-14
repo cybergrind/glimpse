@@ -1,0 +1,82 @@
+using Gtk 4.0;
+using Adw 1;
+
+Gtk.Box network_connection_config_root {
+  orientation: vertical;
+  spacing: 12;
+  width-request: 480;
+
+  Adw.PreferencesGroup network_connection_general_group {
+    title: "Connection";
+
+    Adw.EntryRow network_connection_name_row {
+      title: "Name";
+    }
+
+    Adw.SwitchRow network_connection_autoconnect_row {
+      title: "Connect Automatically";
+    }
+  }
+
+  Adw.PreferencesGroup network_connection_ipv4_group {
+    title: "IPv4";
+
+    Adw.ComboRow network_connection_ipv4_method_row {
+      title: "Method";
+    }
+
+    Adw.EntryRow network_connection_ipv4_address_row {
+      title: "Address";
+    }
+
+    Adw.SpinRow network_connection_ipv4_prefix_row {
+      title: "Prefix";
+      adjustment: Gtk.Adjustment {
+        lower: 0;
+        upper: 32;
+        step-increment: 1;
+        page-increment: 4;
+        value: 24;
+      };
+    }
+
+    Adw.EntryRow network_connection_ipv4_gateway_row {
+      title: "Gateway";
+    }
+
+    Adw.EntryRow network_connection_ipv4_dns_row {
+      title: "DNS";
+    }
+  }
+
+  Adw.PreferencesGroup network_connection_ipv6_group {
+    title: "IPv6";
+
+    Adw.ComboRow network_connection_ipv6_method_row {
+      title: "Method";
+    }
+
+    Adw.EntryRow network_connection_ipv6_address_row {
+      title: "Address";
+    }
+
+    Adw.SpinRow network_connection_ipv6_prefix_row {
+      title: "Prefix";
+      adjustment: Gtk.Adjustment {
+        lower: 0;
+        upper: 128;
+        step-increment: 1;
+        page-increment: 8;
+        value: 64;
+      };
+    }
+
+    Adw.EntryRow network_connection_ipv6_gateway_row {
+      title: "Gateway";
+    }
+
+    Adw.EntryRow network_connection_ipv6_dns_row {
+      title: "DNS";
+    }
+  }
+}
