@@ -75,7 +75,7 @@ impl SimpleComponent for App {
         root.set_opacity(0.0);
 
         let theme_css = CssProvider::new();
-        load_css(&theme_css, &config.theme_path());
+        sync_theme_css(&theme_css, &config);
         if let Some(display) = Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -147,6 +147,7 @@ impl SimpleComponent for App {
                         }
                     });
                 }
+                sync_theme_css(&self.theme_css, &new_config);
                 reconfigure_panels(
                     &mut self.panels,
                     &new_config,
@@ -174,7 +175,7 @@ impl SimpleComponent for App {
                 self.config = new_config;
             }
             Input::CssChanged => {
-                load_css(&self.theme_css, &self.config.theme_path());
+                sync_theme_css(&self.theme_css, &self.config);
             }
             Input::MonitorsChanged => {
                 sync_background_windows(
@@ -194,4 +195,8 @@ impl SimpleComponent for App {
             }
         }
     }
+}
+
+fn sync_theme_css(provider: &CssProvider, config: &Config) {
+    load_css(provider, config.active_theme_path().as_deref());
 }
