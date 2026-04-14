@@ -814,6 +814,104 @@ popover separator {
   min-width: 220px;
 }
 
+/* Weather */
+
+.weather-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-popover {
+  --popover-min-width: 400px;
+}
+
+.weather-popover .weather-hero {
+  margin-bottom: var(--space-1);
+}
+
+.weather-popover .weather-hero-temp {
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-hero-row2 {
+  margin-bottom: var(--space-2);
+}
+
+.weather-popover .weather-hero-condition {
+  font-size: var(--font-size-md);
+  color: var(--color-muted-fg);
+}
+
+.weather-popover .weather-hourly {
+  padding: var(--space-3) 0;
+}
+
+.weather-popover .weather-hourly-col {
+  padding: var(--space-3) var(--space-1);
+}
+
+.weather-popover .weather-hourly-time {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-fg);
+}
+
+.weather-popover .weather-hourly-temp {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-stats {
+  padding: var(--space-1) 0;
+}
+
+.weather-popover .weather-detail-row {
+  margin-bottom: var(--space-2);
+}
+
+.weather-popover .weather-detail-row:last-child {
+  margin-bottom: 0;
+}
+
+.weather-popover .weather-detail-pair {
+  padding: var(--space-2) var(--space-5);
+}
+
+.weather-popover .weather-detail-key {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted-fg);
+}
+
+.weather-popover .weather-detail-val {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-popover .weather-forecast-row {
+  padding: var(--space-3) 0;
+}
+
+.weather-popover .weather-forecast-today .weather-forecast-day {
+  font-weight: var(--font-weight-semibold);
+}
+
+.weather-popover .weather-forecast-day {
+  font-size: var(--font-size-md);
+}
+
+.weather-popover .weather-forecast-temps {
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-semibold);
+}
+
+.weather-popover .weather-forecast-cond {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+}
+
 /* Notifications */
 
 .notification-badge-anchor {

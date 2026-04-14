@@ -5,6 +5,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 use super::{
     applet::WeatherSnapshot,
     components::{
@@ -17,6 +18,8 @@ use super::{
 
 pub struct WeatherPopover {
     popover: gtk::Popover,
+    #[allow(dead_code)]
+    shell: Controller<PopoverShell>,
     #[allow(dead_code)]
     hero: Controller<WeatherHero>,
     #[allow(dead_code)]
@@ -51,34 +54,8 @@ impl SimpleComponent for WeatherPopover {
             add_css_class: "weather-popover",
             set_hexpand: false,
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_overflow: gtk::Overflow::Hidden,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                hourly_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                details_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                forecast_widget -> gtk::Box {},
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -87,6 +64,9 @@ impl SimpleComponent for WeatherPopover {
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit { show_footer: false })
+            .detach();
         let hero = WeatherHero::builder().launch(()).detach();
         let hourly = WeatherHourlyStrip::builder()
             .launch(init.hourly_slots)
@@ -100,9 +80,22 @@ impl SimpleComponent for WeatherPopover {
         let hourly_widget = hourly.widget().clone();
         let details_widget = details.widget().clone();
         let forecast_widget = forecast.widget().clone();
+        let shell_widget = shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        shell_content.append(&hero_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&hourly_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&details_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&forecast_widget);
 
         let model = WeatherPopover {
             popover: root.clone(),
+            shell,
             hero,
             hourly,
             details,
