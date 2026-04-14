@@ -834,6 +834,10 @@ popover separator {
 .notification-popup {
   min-width: var(--notification-popup-min-width);
   background: transparent;
+}
+
+.popup-card-list {
+  padding: var(--notification-popup-padding);
   --card-shell-padding: var(--notification-popup-card-padding);
   --card-padding: 0px;
   --card-radius: var(--notification-popup-card-radius);
@@ -841,10 +845,6 @@ popover separator {
   --card-hover-bg: var(--notification-popup-hover-bg);
   --card-extra-shadow: var(--notification-popup-shadow);
   --card-hover-extra-shadow: var(--notification-popup-shadow);
-}
-
-.popup-card-list {
-  padding: var(--notification-popup-padding);
 }
 
 .popup-card-critical {
