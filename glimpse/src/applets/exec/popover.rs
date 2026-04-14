@@ -20,6 +20,7 @@ pub struct ExecPopover {
 
 pub struct ExecPopoverInit {
     pub applet_name: String,
+    pub parent: gtk::Widget,
 }
 
 #[derive(Debug)]
@@ -52,6 +53,7 @@ impl SimpleComponent for ExecPopover {
     ) -> ComponentParts<Self> {
         root.set_autohide(true);
         root.add_css_class("exec-popover");
+        root.set_parent(&init.parent);
 
         let model = ExecPopover {
             popover: root.clone(),
@@ -184,5 +186,11 @@ mod tests {
         focus_targets.insert("version".to_string(), entry.upcast());
 
         let _ = focused_target_id(&focus_targets);
+    }
+
+    #[test]
+    fn restore_target_id_returns_none_without_interaction() {
+        let focus_targets = HashMap::new();
+        assert_eq!(restore_target_id(None, &focus_targets), None);
     }
 }

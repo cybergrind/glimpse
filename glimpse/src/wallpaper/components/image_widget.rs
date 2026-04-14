@@ -10,11 +10,15 @@ use crate::wallpaper::ImageFit;
 pub struct ImageWidgetInit {
     pub path: PathBuf,
     pub fit: ImageFit,
+    pub transition_ms: u32,
 }
 
 pub struct ImageWidget {
     request_id: u64,
     current: ImageWidgetInit,
+    active_slot: PictureSlot,
+    front_picture: gtk::Picture,
+    back_picture: gtk::Picture,
 }
 
 #[derive(Debug)]
@@ -34,6 +38,13 @@ pub struct DecodedWallpaper {
     pixels: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PictureSlot {
+    Front,
+    Back,
+}
+
+#[allow(unused_assignments)]
 #[relm4::component(pub)]
 impl Component for ImageWidget {
     type Init = ImageWidgetInit;
@@ -42,21 +53,47 @@ impl Component for ImageWidget {
     type CommandOutput = ();
 
     view! {
-        gtk::Picture {
+        gtk::Stack {
             set_hexpand: true,
             set_vexpand: true,
             set_halign: gtk::Align::Fill,
             set_valign: gtk::Align::Fill,
-            set_can_shrink: true,
-            set_content_fit: init.fit.to_gtk(),
+            set_transition_type: gtk::StackTransitionType::Crossfade,
+
+            #[local_ref]
+            front_picture -> gtk::Picture {
+                set_hexpand: true,
+                set_vexpand: true,
+                set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Fill,
+                set_can_shrink: true,
+                set_content_fit: init.fit.to_gtk(),
+            },
+
+            #[local_ref]
+            back_picture -> gtk::Picture {
+                set_hexpand: true,
+                set_vexpand: true,
+                set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Fill,
+                set_can_shrink: true,
+                set_content_fit: init.fit.to_gtk(),
+            }
         }
     }
 
-    fn init(init: Self::Init, _root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+    fn init(init: Self::Init, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let front_picture = gtk::Picture::new();
+        let back_picture = gtk::Picture::new();
         let widgets = view_output!();
+        root.set_transition_duration(init.transition_ms);
+        root.set_visible_child(&back_picture);
         let model = ImageWidget {
             request_id: 0,
             current: init,
+            active_slot: PictureSlot::Back,
+            front_picture,
+            back_picture,
         };
         sender.input(ImageWidgetMsg::Reconfigure(model.current.clone()));
 
@@ -68,12 +105,14 @@ impl Component for ImageWidget {
             ImageWidgetMsg::Reconfigure(next) => {
                 let fit_changed = self.current.fit != next.fit;
                 let path_changed = self.current.path != next.path;
+                let transition_changed = self.current.transition_ms != next.transition_ms;
                 self.current = next.clone();
                 if fit_changed {
-                    root.set_content_fit(next.fit.to_gtk());
+                    self.front_picture.set_content_fit(next.fit.to_gtk());
+                    self.back_picture.set_content_fit(next.fit.to_gtk());
                 }
-                if path_changed {
-                    root.set_paintable(None::<&gdk::Paintable>);
+                if transition_changed {
+                    root.set_transition_duration(next.transition_ms);
                 }
                 if path_changed || self.request_id == 0 {
                     self.request_id += 1;
@@ -86,11 +125,33 @@ impl Component for ImageWidget {
                 }
 
                 match result {
-                    Ok(decoded) => root.set_paintable(Some(&decoded.into_texture())),
+                    Ok(decoded) => {
+                        let next_slot = hidden_slot(self.active_slot);
+                        let picture = self.picture_for_slot(next_slot);
+                        picture.set_paintable(Some(&decoded.into_texture()));
+                        root.set_visible_child(picture);
+                        self.active_slot = next_slot;
+                    }
                     Err(error) => tracing::warn!("wallpaper: failed to load: {error}"),
                 }
             }
         }
+    }
+}
+
+impl ImageWidget {
+    fn picture_for_slot(&self, slot: PictureSlot) -> &gtk::Picture {
+        match slot {
+            PictureSlot::Front => &self.front_picture,
+            PictureSlot::Back => &self.back_picture,
+        }
+    }
+}
+
+fn hidden_slot(active_slot: PictureSlot) -> PictureSlot {
+    match active_slot {
+        PictureSlot::Front => PictureSlot::Back,
+        PictureSlot::Back => PictureSlot::Front,
     }
 }
 
@@ -156,4 +217,19 @@ fn decode_via_image_crate(path: &std::path::Path) -> anyhow::Result<DecodedWallp
         stride: (width * 4) as usize,
         pixels: img.into_raw(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PictureSlot, hidden_slot};
+
+    #[test]
+    fn hidden_slot_flips_from_front_to_back() {
+        assert_eq!(hidden_slot(PictureSlot::Front), PictureSlot::Back);
+    }
+
+    #[test]
+    fn hidden_slot_flips_from_back_to_front() {
+        assert_eq!(hidden_slot(PictureSlot::Back), PictureSlot::Front);
+    }
 }

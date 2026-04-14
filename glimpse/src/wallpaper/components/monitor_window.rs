@@ -92,6 +92,7 @@ fn launch_content(config: &WallpaperConfig) -> Content {
                     .launch(ImageWidgetInit {
                         path,
                         fit: config.fit.clone(),
+                        transition_ms: config.transition_ms,
                     })
                     .detach(),
             )
@@ -110,6 +111,7 @@ impl MonitorWindow {
                 image.emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
                     path,
                     fit: config.fit,
+                    transition_ms: config.transition_ms,
                 }));
             }
             _ => {

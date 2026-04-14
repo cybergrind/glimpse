@@ -610,7 +610,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{BrightnessConfig, ExecConfig, PanelConfig, PanelPosition, WeatherConfig};
+    use super::{BrightnessConfig, Config, ExecConfig, PanelConfig, PanelPosition, WeatherConfig};
 
     #[test]
     fn default_brightness_config_shows_icon_and_internal_label() {
@@ -691,5 +691,34 @@ right = ["network", "network", "tray"]
         assert_eq!(panel.left, vec!["pager", "clock"]);
         assert_eq!(panel.center, vec!["mpris"]);
         assert_eq!(panel.right, vec!["network", "network", "tray"]);
+    }
+
+    #[test]
+    fn config_loads_named_exec_applet_blocks() {
+        let config: Config = toml::from_str(
+            r#"
+[[panels]]
+position = "top"
+left = ["sysinfo"]
+
+[applets.sysinfo]
+extends = "exec"
+command = ["/tmp/sysstats-applet"]
+"#,
+        )
+        .expect("config should parse");
+
+        let sysinfo = config
+            .applets
+            .get("sysinfo")
+            .expect("sysinfo applet config should be present");
+        assert_eq!(sysinfo.extends, "exec");
+
+        let exec: ExecConfig = sysinfo
+            .settings
+            .clone()
+            .try_into()
+            .expect("sysinfo settings should parse as exec config");
+        assert_eq!(exec.command, vec!["/tmp/sysstats-applet".to_string()]);
     }
 }
