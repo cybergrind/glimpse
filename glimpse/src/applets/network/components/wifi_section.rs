@@ -56,6 +56,7 @@ impl SimpleComponent for WifiSection {
                 set_label: "No access points",
                 set_halign: gtk::Align::Start,
                 add_css_class: "net-empty",
+                add_css_class: "empty-state__subtitle",
             },
 
             gtk::ScrolledWindow {
@@ -172,10 +173,12 @@ impl WifiRow {
         on_action: NetworkActionSender,
     ) -> Self {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.add_css_class("action-row__content-shell");
 
         let icon = gtk::Image::from_icon_name(signal_icon_name(access_point.strength));
         icon.set_pixel_size(16);
         icon.set_valign(gtk::Align::Center);
+        icon.add_css_class("action-row__leading");
         row.append(&icon);
 
         let name_label = gtk::Label::new(Some(&access_point.ssid));
@@ -183,6 +186,7 @@ impl WifiRow {
         name_label.set_halign(gtk::Align::Start);
         name_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name_label.set_max_width_chars(25);
+        name_label.add_css_class("action-row__title");
         row.append(&name_label);
 
         let right_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -202,6 +206,8 @@ impl WifiRow {
         button.set_child(Some(&row));
         button.add_css_class("flat");
         button.add_css_class("net-ap-btn");
+        button.add_css_class("action-row");
+        button.add_css_class("action-row__button");
 
         let state = Rc::new(RefCell::new(access_point.clone()));
         {

@@ -62,6 +62,7 @@
   --panel-bg: #000000;
   --panel-fg: #ffffff;
   --panel-border: rgb(255 255 255 / 0.08);
+  --panel-opacity: 1;
 
   --indicator-fg: var(--panel-fg);
   --indicator-hover-bg: rgb(255 255 255 / 0.08);
@@ -305,6 +306,7 @@
   border-radius: 0;
   box-shadow: var(--shadow-sm);
   background: var(--panel-bg);
+  opacity: var(--panel-opacity);
 }
 
 .applet {
@@ -729,6 +731,64 @@ popover separator {
 
 .audio .mic-muted-indicator {
   color: var(--color-warning);
+}
+
+/* Network popover */
+
+.network-popover {
+  --popover-min-width: 360px;
+}
+
+.network-popover .section-block__header,
+.network-popover .net-section-header {
+  padding: var(--space-2) 0;
+}
+
+.network-popover .net-empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+  padding: var(--space-2) 0;
+}
+
+.network-popover .net-ap-btn,
+.network-popover .net-device-btn,
+.network-popover .net-vpn-btn {
+  padding: var(--row-padding-y) calc(var(--row-padding-x) - var(--space-1));
+}
+
+.network-popover .net-ap-icon,
+.network-popover .net-lock-icon {
+  opacity: var(--opacity-muted);
+}
+
+.network-popover .net-lock-icon {
+  margin-right: var(--space-4);
+}
+
+.network-popover .net-ap-icon-active {
+  color: var(--color-accent);
+}
+
+@keyframes net-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.net-connecting {
+  animation: net-pulse 1.5s ease-in-out infinite;
+}
+
+.network-popover .net-dim {
+  opacity: var(--opacity-disabled);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Notifications */

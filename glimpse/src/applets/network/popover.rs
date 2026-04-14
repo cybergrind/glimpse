@@ -7,6 +7,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
+};
 use super::components::{
     NetworkAction, NetworkHero, NetworkHeroInput, VpnSection, VpnSectionInput, WifiSection,
     WifiSectionInput, WiredSection, WiredSectionInput,
@@ -14,10 +18,12 @@ use super::components::{
 
 pub struct NetworkPopover {
     popover: gtk::Popover,
+    shell: Controller<PopoverShell>,
     hero: Controller<NetworkHero>,
     wifi_section: Controller<WifiSection>,
     wired_section: Controller<WiredSection>,
     vpn_section: Controller<VpnSection>,
+    footer: Controller<FooterAction>,
     show_settings_button: bool,
 }
 
@@ -63,48 +69,8 @@ impl SimpleComponent for NetworkPopover {
             set_hexpand: false,
             add_css_class: "network-popover",
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 0,
-                set_overflow: gtk::Overflow::Hidden,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                wifi_widget -> gtk::Box {},
-
-                #[local_ref]
-                wired_widget -> gtk::Box {},
-
-                #[local_ref]
-                vpn_widget -> gtk::Box {},
-
-                gtk::Box {
-                    #[watch]
-                    set_visible: model.show_settings_button,
-                    set_orientation: gtk::Orientation::Vertical,
-
-                    gtk::Separator {
-                        set_orientation: gtk::Orientation::Horizontal,
-                    },
-
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "settings-btn",
-                        connect_clicked => NetworkPopoverInput::OpenSettings,
-
-                        gtk::Label {
-                            set_label: "Network Settings",
-                            set_halign: gtk::Align::Start,
-                        },
-                    },
-                },
-            },
+            #[local_ref]
+            shell_widget -> gtk::Box {},
         }
     }
 
@@ -113,6 +79,11 @@ impl SimpleComponent for NetworkPopover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit {
+                show_footer: init.show_settings_button,
+            })
+            .detach();
         let hero = NetworkHero::builder()
             .launch(())
             .forward(sender.input_sender(), NetworkPopoverInput::ComponentAction);
@@ -130,21 +101,59 @@ impl SimpleComponent for NetworkPopover {
             .launch(())
             .forward(sender.input_sender(), NetworkPopoverInput::ComponentAction);
         let vpn_widget = vpn_section.widget().clone();
+        let footer = FooterAction::builder()
+            .launch(FooterActionInit {
+                title: "Network Settings".into(),
+                subtitle: String::new(),
+            })
+            .detach();
 
         let mut model = NetworkPopover {
             popover: gtk::Popover::new(),
+            shell,
             hero,
             wifi_section,
             wired_section,
             vpn_section,
+            footer,
             show_settings_button: init.show_settings_button,
         };
+
+        let shell_widget = model.shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        let shell_footer = shell_content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose footer box");
+        shell_content.append(&hero_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&wifi_widget);
+        shell_content.append(&wired_widget);
+        shell_content.append(&vpn_widget);
+        shell_footer.append(model.footer.widget());
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
         widgets.root.add_css_class("network-popover");
         model.popover = widgets.root.clone();
+
+        let footer_button = model
+            .footer
+            .widget()
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("footer action should expose row root")
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("footer action row should expose button");
+        let footer_sender = sender.clone();
+        footer_button.connect_clicked(move |_| {
+            footer_sender.input(NetworkPopoverInput::OpenSettings);
+        });
 
         let show_sender = widgets.root.clone();
         let sender_clone = sender.clone();
@@ -172,6 +181,8 @@ impl SimpleComponent for NetworkPopover {
             NetworkPopoverInput::Close => self.popover.popdown(),
             NetworkPopoverInput::SetShowSettingsButton(show_settings_button) => {
                 self.show_settings_button = show_settings_button;
+                self.shell
+                    .emit(PopoverShellInput::SetFooterVisible(show_settings_button));
             }
             NetworkPopoverInput::UpdateState {
                 snapshot,

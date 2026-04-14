@@ -56,12 +56,14 @@ impl SimpleComponent for VpnSection {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 add_css_class: "net-section-header",
+                add_css_class: "section-block__header",
 
                 gtk::Label {
                     set_label: "VPN",
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
                     add_css_class: "net-section-title",
+                    add_css_class: "section-block__title",
                 },
             },
 
@@ -138,11 +140,13 @@ impl VpnRow {
         on_action: NetworkActionSender,
     ) -> Self {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.add_css_class("action-row__content-shell");
 
         let icon = gtk::Image::from_icon_name("network-vpn-symbolic");
         icon.set_pixel_size(16);
         icon.set_valign(gtk::Align::Center);
         icon.add_css_class("net-ap-icon");
+        icon.add_css_class("action-row__leading");
         row.append(&icon);
 
         let name = gtk::Label::new(Some(&vpn.id));
@@ -150,16 +154,20 @@ impl VpnRow {
         name.set_halign(gtk::Align::Start);
         name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name.set_max_width_chars(25);
+        name.add_css_class("action-row__title");
         row.append(&name);
 
         let spinner = gtk::Spinner::new();
         spinner.set_size_request(16, 16);
+        spinner.set_valign(gtk::Align::Center);
         row.append(&spinner);
 
         let button = gtk::Button::new();
         button.set_child(Some(&row));
         button.add_css_class("flat");
         button.add_css_class("net-vpn-btn");
+        button.add_css_class("action-row");
+        button.add_css_class("action-row__button");
 
         let state = Rc::new(RefCell::new(vpn.clone()));
         {

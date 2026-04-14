@@ -2,15 +2,16 @@ use std::{cell::Cell, rc::Rc};
 
 use glimpse::network::provider::NetworkStatus;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
 
+use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};
 use super::NetworkAction;
 
 pub struct NetworkHero {
-    icon_name: String,
-    subtitle: String,
+    row: Controller<HeroRow>,
+    icon: gtk::Image,
     wifi_enabled: bool,
     updating_switch: Rc<Cell<bool>>,
     wifi_switch: gtk::Switch,
@@ -32,44 +33,8 @@ impl SimpleComponent for NetworkHero {
 
     view! {
         gtk::Box {
-            set_spacing: 12,
-            add_css_class: "net-hero",
-
-            #[name(icon)]
-            gtk::Image {
-                set_pixel_size: 32,
-                #[watch]
-                set_icon_name: Some(&model.icon_name),
-            },
-
-            gtk::Box {
-                set_hexpand: true,
-                set_valign: gtk::Align::Center,
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 2,
-
-                gtk::Label {
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "net-title",
-                    set_label: "Network",
-                },
-
-                #[name(subtitle_label)]
-                gtk::Label {
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "net-subtitle",
-                    #[watch]
-                    set_label: &model.subtitle,
-                },
-            },
-
-            #[name(wifi_switch)]
-            gtk::Switch {
-                set_valign: gtk::Align::Center,
-                set_tooltip_text: Some("Toggle WiFi"),
-                #[watch]
-                set_active: model.wifi_enabled,
-            },
+            #[local_ref]
+            row_widget -> gtk::Box {}
         }
     }
 
@@ -78,20 +43,47 @@ impl SimpleComponent for NetworkHero {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let row = HeroRow::builder()
+            .launch(HeroRowInit {
+                title: "Network".into(),
+                subtitle: "Offline".into(),
+            })
+            .detach();
+        let row_widget = row.widget().clone();
+        let media = row_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose media slot");
+        let content = media
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose content slot");
+        let trailing = content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose trailing slot");
+
+        let icon = gtk::Image::from_icon_name("network-offline-symbolic");
+        icon.set_pixel_size(32);
+        media.append(&icon);
+
+        let wifi_switch = gtk::Switch::new();
+        wifi_switch.set_valign(gtk::Align::Center);
+        wifi_switch.set_tooltip_text(Some("Toggle WiFi"));
+        trailing.append(&wifi_switch);
+
         let model = NetworkHero {
-            icon_name: "network-offline-symbolic".into(),
-            subtitle: "Offline".into(),
+            row,
+            icon,
             wifi_enabled: false,
             updating_switch: Rc::new(Cell::new(false)),
-            wifi_switch: gtk::Switch::new(),
+            wifi_switch,
         };
         let widgets = view_output!();
-        let mut model = model;
-        model.wifi_switch = widgets.wifi_switch.clone();
 
         let guard = model.updating_switch.clone();
         let sender = sender.clone();
-        widgets.wifi_switch.connect_state_set(move |_, active| {
+        model.wifi_switch.connect_state_set(move |_, active| {
             if guard.get() {
                 return glib::Propagation::Stop;
             }
@@ -104,9 +96,11 @@ impl SimpleComponent for NetworkHero {
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         let NetworkHeroInput::Update { status, scanning } = message;
-
-        self.icon_name = status.icon.clone();
-        self.subtitle = hero_subtitle_text(&status, scanning);
+        self.icon.set_icon_name(Some(&status.icon));
+        self.row.emit(HeroRowInput::Update {
+            title: "Network".into(),
+            subtitle: hero_subtitle_text(&status, scanning),
+        });
 
         if self.wifi_switch.is_active() != status.wifi_enabled {
             self.updating_switch.set(true);

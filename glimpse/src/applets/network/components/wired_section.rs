@@ -41,12 +41,14 @@ impl SimpleComponent for WiredSection {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 add_css_class: "net-section-header",
+                add_css_class: "section-block__header",
 
                 gtk::Label {
                     set_label: "Wired",
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
                     add_css_class: "net-section-title",
+                    add_css_class: "section-block__title",
                 },
             },
 
