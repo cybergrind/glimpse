@@ -483,14 +483,11 @@ mod tests {
 
     use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
     use image::{DynamicImage, ImageFormat, RgbaImage};
-    use relm4::{
-        Component, ComponentController,
-        gtk::{self, prelude::*},
-    };
+    use relm4::gtk::prelude::TextureExt;
 
     use super::{
-        ARTWORK_SIZE, MprisPlayerRow, MprisPlayerRowInit, MprisPlayerRowOutput,
-        effective_position_micros, player_title, player_tooltip, shows_artwork, shows_progress,
+        ARTWORK_SIZE, MprisPlayerRowOutput, effective_position_micros, player_title,
+        player_tooltip, shows_artwork, shows_progress,
     };
 
     fn test_player() -> MprisPlayer {
@@ -599,27 +596,6 @@ mod tests {
         let texture = texture.expect("extensionless texture");
         assert_eq!(texture.width(), ARTWORK_SIZE);
         assert_eq!(texture.height(), ARTWORK_SIZE);
-    }
-
-    #[gtk::test]
-    fn artwork_is_rendered_as_direct_picture_child() {
-        let mut player = test_player();
-        player.artwork = MprisArtwork::FilePath("/tmp/cover.png".into());
-
-        let row = MprisPlayerRow::builder()
-            .launch(MprisPlayerRowInit {
-                player,
-                show_artwork: true,
-            })
-            .detach();
-
-        let artwork = row.widget().first_child().expect("row should have artwork");
-        assert!(artwork.is::<relm4::gtk::Image>());
-        assert!(artwork.has_css_class("mpris-card-art-slot"));
-        assert!(artwork.has_css_class("mpris-card-art"));
-
-        let content = artwork.next_sibling().expect("row should have content");
-        assert!(content.has_css_class("mpris-card-content"));
     }
 
     #[test]

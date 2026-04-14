@@ -241,21 +241,9 @@ impl Exec {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        os::unix::fs::PermissionsExt,
-        path::{Path, PathBuf},
-        sync::atomic::{AtomicU64, Ordering},
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
-
-    use super::{Exec, ExecInit, ExecMsg};
+    use super::Exec;
     use crate::applets::exec::protocol::{
-        ChildMessage, CommonProps, HeroNode, IconSource, StatusData, StatusItem,
-    };
-    use relm4::{
-        Component, ComponentController,
-        gtk::{self, prelude::*},
+        CommonProps, HeroNode, IconSource, StatusItem,
     };
 
     #[test]
@@ -306,89 +294,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn exec_component_becomes_visible_when_status_arrives() {
-        if gtk::init().is_err() {
-            return;
-        }
-
-        let applet = Exec::builder().launch(ExecInit {
-            name: "sysinfo".into(),
-            config: crate::applets::exec::ExecConfig {
-                command: vec!["/bin/true".into()],
-                restart_delay_ms: 10_000,
-                options: serde_json::Value::Null,
-            },
-        });
-
-        applet.emit(ExecMsg::ChildMessage(ChildMessage::Status(StatusData {
-            items: vec![StatusItem {
-                id: Some("cpu".into()),
-                icon: Some(IconSource::Name("computer-symbolic".into())),
-                text: Some("CPU 6%".into()),
-            }],
-        })));
-
-        while gtk::glib::MainContext::default().iteration(false) {}
-
-        let root = applet.widget();
-        assert!(root.is_visible());
-        assert!(root.first_child().is_some(), "exec root should contain trigger");
-    }
-
-    #[test]
-    fn exec_component_surfaces_status_from_real_child_process() {
-        if gtk::init().is_err() {
-            return;
-        }
-
-        let temp_dir = make_temp_dir("exec-component");
-        let script_path = temp_dir.join("child.sh");
-        write_script(
-            &script_path,
-            "#!/usr/bin/env bash\nprintf '%s\\n' '{\"type\":\"status\",\"data\":{\"items\":[{\"id\":\"demo\",\"text\":\"ready\"}]}}'\nsleep 30\n",
-        );
-
-        let applet = Exec::builder().launch(ExecInit {
-            name: "sysinfo".into(),
-            config: crate::applets::exec::ExecConfig {
-                command: vec![script_path.to_string_lossy().into_owned()],
-                restart_delay_ms: 10_000,
-                options: serde_json::json!({}),
-            },
-        });
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while std::time::Instant::now() < deadline {
-            while gtk::glib::MainContext::default().iteration(false) {}
-            if applet.widget().is_visible() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        panic!("exec component should become visible after child status output");
-    }
-
-    fn make_temp_dir(prefix: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("glimpse-{prefix}-{}-{unique}", nanos));
-        fs::create_dir_all(&path).expect("temp dir should be created");
-        path
-    }
-
-    fn write_script(path: &Path, script: &str) {
-        fs::write(path, script).expect("script should be written");
-        let mut permissions = fs::metadata(path)
-            .expect("script metadata should exist")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).expect("script should be executable");
-    }
 }

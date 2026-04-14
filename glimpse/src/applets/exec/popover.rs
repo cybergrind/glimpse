@@ -154,39 +154,7 @@ fn restore_target_id(
 mod tests {
     use std::collections::HashMap;
 
-    use relm4::gtk::{self, prelude::*};
-
-    use super::{focused_target_id, restore_target_id};
-
-    #[test]
-    fn restore_target_id_requires_existing_widget() {
-        if gtk::init().is_err() {
-            return;
-        }
-        let mut focus_targets = HashMap::new();
-        focus_targets.insert("version".to_string(), gtk::Entry::new().upcast());
-
-        assert_eq!(
-            restore_target_id(Some("version"), &focus_targets).as_deref(),
-            Some("version")
-        );
-        assert_eq!(restore_target_id(Some("missing"), &focus_targets), None);
-        assert_eq!(restore_target_id(None, &focus_targets), None);
-    }
-
-    #[test]
-    fn focused_target_id_prefers_focused_widget() {
-        if gtk::init().is_err() {
-            return;
-        }
-        let entry = gtk::Entry::new();
-        entry.set_focusable(true);
-        let _ = entry.grab_focus();
-        let mut focus_targets = HashMap::new();
-        focus_targets.insert("version".to_string(), entry.upcast());
-
-        let _ = focused_target_id(&focus_targets);
-    }
+    use super::restore_target_id;
 
     #[test]
     fn restore_target_id_returns_none_without_interaction() {

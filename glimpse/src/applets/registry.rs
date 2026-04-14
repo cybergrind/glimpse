@@ -743,11 +743,11 @@ extends = ""
     }
 
     #[test]
-    fn known_spec_reports_no_reconfigure_yet() {
+    fn known_spec_reports_reconfigure_support() {
         let spec = spec_for("clock").expect("clock spec");
 
         assert_eq!(spec.applet_type, "clock");
-        assert!(spec.reconfigure.is_none());
+        assert!(spec.reconfigure.is_some());
     }
 
     #[test]
