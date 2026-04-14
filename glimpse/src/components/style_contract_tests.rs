@@ -54,6 +54,16 @@ fn base_css_keeps_notification_popover_and_popup_geometry_contract() {
             "base.css should define notification token `{token}`",
         );
     }
+
+    for selector in [
+        "box-shadow: var(--shadow-md);",
+        "box-shadow: var(--shadow-sm);",
+    ] {
+        assert!(
+            BASE_CSS.contains(selector),
+            "base.css should reuse shared shadow token selector `{selector}`",
+        );
+    }
 }
 
 #[test]

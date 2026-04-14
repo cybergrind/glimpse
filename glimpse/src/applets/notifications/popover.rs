@@ -57,7 +57,6 @@ impl SimpleComponent for NotificationsPopover {
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_hexpand: false,
-                set_overflow: gtk::Overflow::Hidden,
 
                 #[name(shell_content_slot)]
                 gtk::Box {

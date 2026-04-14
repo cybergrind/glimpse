@@ -152,11 +152,8 @@
   --notification-stack-offset: 4px;
   --notification-stack-second-min-height: 66px;
   --notification-stack-third-min-height: 70px;
-  --notification-expand-opacity: 0.5;
-  --notification-icon-opacity: 0.7;
-  --notification-popup-app-opacity: 0.6;
   --notification-popup-card-margin-bottom: 8px;
-  --notification-popup-padding: 8px;
+  --notification-popup-padding: var(--space-5);
   --notification-popup-card-padding: 16px;
   --notification-popup-card-radius: 16px;
   --notification-popup-shadow:
@@ -329,10 +326,7 @@
 .popover-shell {
   min-width: var(--popover-min-width);
   min-height: var(--popover-min-height);
-  background: var(--popover-bg);
   color: var(--popover-fg);
-  border-radius: var(--popover-radius);
-  box-shadow: var(--popover-shadow);
 }
 
 .popover-shell__content {
@@ -582,7 +576,7 @@
 }
 
 .notifications-popover .notif-list {
-  padding: var(--notification-list-padding-y) 0;
+  padding: var(--space-4);
 }
 
 .notifications-popover .notif-group {
@@ -603,7 +597,7 @@
 .notifications-popover .notif-group-collapsed .notif-group-lead.card-surface {
   background: var(--notification-surface-bg);
   border-color: transparent;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  box-shadow: var(--shadow-md);
 }
 
 .notifications-popover .notif-group-header {
@@ -638,14 +632,14 @@
 .notifications-popover .notif-stack-backplate-second {
   min-height: var(--notification-stack-second-min-height);
   margin-top: var(--notification-stack-offset);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
-  opacity: 0.75;
+  box-shadow: var(--shadow-sm);
+  opacity: var(--opacity-muted);
 }
 
 .notifications-popover .notif-stack-backplate-lower {
   min-height: var(--notification-stack-third-min-height);
   margin-top: var(--notification-stack-offset);
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
 }
 
 .notifications-popover .notif-expand-btn {
@@ -653,7 +647,7 @@
   min-height: var(--notification-control-size);
   padding: 0;
   border-radius: 50%;
-  opacity: var(--notification-expand-opacity);
+  opacity: var(--opacity-disabled);
 }
 
 .notifications-popover .notif-expand-btn:hover {
@@ -663,11 +657,11 @@
 .notifications-popover .notif-app-name {
   font-size: var(--notification-app-name-size);
   font-weight: 600;
-  opacity: var(--notification-icon-opacity);
+  opacity: var(--opacity-muted);
 }
 
 .notifications-popover .notif-icon {
-  opacity: var(--notification-icon-opacity);
+  opacity: var(--opacity-muted);
 }
 
 .notifications-popover .notif-header-icon {
@@ -700,7 +694,7 @@
 
 .notifications-popover .notif-body {
   font-size: var(--notification-body-size);
-  opacity: var(--notification-icon-opacity);
+  opacity: var(--opacity-muted);
 }
 
 .notifications-popover .notif-time {
@@ -714,7 +708,7 @@
   min-width: var(--notification-control-size);
   min-height: var(--notification-control-size);
   padding: 0;
-  opacity: 0.3;
+  opacity: var(--opacity-disabled);
   border-radius: 50%;
 }
 
@@ -764,14 +758,14 @@
 }
 
 .popup-card-icon {
-  opacity: 0.8;
+  opacity: var(--opacity-muted);
   -gtk-icon-size: 16px;
 }
 
 .popup-card-app {
   font-size: var(--notification-app-name-size);
   font-weight: 600;
-  opacity: var(--notification-popup-app-opacity);
+  opacity: var(--opacity-muted);
 }
 
 .popup-card-summary {
@@ -781,7 +775,7 @@
 
 .popup-card-body {
   font-size: var(--notification-popup-body-size);
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
   margin-top: 2px;
 }
 
@@ -796,6 +790,6 @@
 .popup-overflow {
   font-size: var(--notification-app-name-size);
   font-weight: 600;
-  opacity: var(--notification-popup-app-opacity);
+  opacity: var(--opacity-muted);
   padding: var(--notification-popup-padding);
 }
