@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-const AGENT_ID: &str = "me.aresa.glimpsed";
 const AGENT_PATH: &str = "/org/freedesktop/NetworkManager/SecretAgent";
 
 #[derive(Clone, Default)]
@@ -10,6 +9,7 @@ pub struct NetworkSecretAgent;
 
 impl NetworkSecretAgent {
     pub async fn register(&self, conn: &zbus::Connection) -> zbus::Result<()> {
+        let agent_id = network_secret_agent_id();
         let _ = conn.object_server().remove::<Self, _>(AGENT_PATH).await;
         conn.object_server().at(AGENT_PATH, self.clone()).await?;
 
@@ -21,20 +21,21 @@ impl NetworkSecretAgent {
         )
         .await?;
 
-        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(AGENT_ID,)).await;
+        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(agent_id.as_str(),)).await;
 
         agent_mgr
-            .call::<_, _, ()>("Register", &(AGENT_ID,))
+            .call::<_, _, ()>("Register", &(agent_id.as_str(),))
             .await
             .map_err(|error| {
                 zbus::Error::Failure(format!("failed to register network secret agent: {error}"))
             })?;
 
-        tracing::info!("network-secret-agent: registered as \"{AGENT_ID}\"");
+        tracing::info!("network-secret-agent: registered as \"{agent_id}\"");
         Ok(())
     }
 
     pub async fn unregister(&self, conn: &zbus::Connection) -> zbus::Result<()> {
+        let agent_id = network_secret_agent_id();
         let agent_mgr = zbus::Proxy::new(
             conn,
             "org.freedesktop.NetworkManager",
@@ -43,11 +44,15 @@ impl NetworkSecretAgent {
         )
         .await?;
 
-        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(AGENT_ID,)).await;
+        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(agent_id.as_str(),)).await;
         let _ = conn.object_server().remove::<Self, _>(AGENT_PATH).await;
         tracing::info!("network-secret-agent: unregistered");
         Ok(())
     }
+}
+
+fn network_secret_agent_id() -> String {
+    format!("me.aresa.glimpse.network-agent.{}", std::process::id())
 }
 
 #[zbus::interface(name = "org.freedesktop.NetworkManager.SecretAgent")]
@@ -183,4 +188,16 @@ async fn lookup_keyring_secret(
     let mut result = HashMap::new();
     result.insert(setting_name.to_owned(), setting_secrets);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_secret_agent_id_is_process_scoped() {
+        let id = network_secret_agent_id();
+        assert!(id.starts_with("me.aresa.glimpse.network-agent."));
+        assert!(id.ends_with(&std::process::id().to_string()));
+    }
 }
