@@ -60,7 +60,6 @@ impl Component for Clock {
             set_orientation: gtk::Orientation::Horizontal,
             add_css_class: "applet",
             add_css_class: "clock",
-            add_css_class: "hoverable",
             add_controller = gtk::GestureClick {
                 set_button: 1,
                 connect_pressed[sender] => move |_, _, _, _| {

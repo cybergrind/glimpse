@@ -53,7 +53,6 @@ impl Component for Session {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,
             add_css_class: "applet",
-            add_css_class: "hoverable",
             add_css_class: "session",
             set_tooltip_text: Some("Session"),
 

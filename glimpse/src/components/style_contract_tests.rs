@@ -1,6 +1,7 @@
 const BASE_CSS: &str = include_str!("../../../themes/base.css");
 const ADWAITA_CSS: &str = include_str!("../../../themes/adwaita.css");
 const ACCENT_CSS: &str = include_str!("../../../themes/accent.css");
+const LEGACY_THEME_CSS: &str = include_str!("../../../theme.css");
 
 #[test]
 fn base_css_defines_shared_motion_state_contract() {
@@ -84,6 +85,53 @@ fn notification_styles_rely_on_shared_hero_card_and_footer_primitives() {
             "base.css should not keep notification override `{selector}` once shared primitives cover it",
         );
     }
+}
+
+#[test]
+fn notification_indicator_reuses_shared_badge_and_status_dot_primitives() {
+    for selector in [
+        ".notification-badge {",
+        ".notification-badge-label {",
+        ".notification-dot {",
+    ] {
+        assert!(
+            !BASE_CSS.contains(selector),
+            "base.css should not define notification-only indicator selector `{selector}`",
+        );
+    }
+
+    for selector in [
+        ".notification-badge {",
+        ".notification-badge-label {",
+        ".notification-dot {",
+    ] {
+        assert!(
+            !LEGACY_THEME_CSS.contains(selector),
+            "theme.css should not keep notification-only indicator selector `{selector}`",
+        );
+    }
+
+    for selector in [".badge {", ".status-dot {"] {
+        assert!(
+            BASE_CSS.contains(selector),
+            "base.css should define shared indicator selector `{selector}`",
+        );
+    }
+}
+
+#[test]
+fn panel_indicator_typography_does_not_keep_applet_specific_bold_overrides() {
+    for selector in [".clock {", ".session-label {"] {
+        assert!(
+            !LEGACY_THEME_CSS.contains(selector),
+            "theme.css should not keep panel-specific typography override `{selector}`",
+        );
+    }
+
+    assert!(
+        !LEGACY_THEME_CSS.contains(".weather-label {\n    font-variant-numeric: tabular-nums;\n    font-weight: 600;"),
+        "theme.css should not keep weather panel label bolding",
+    );
 }
 
 #[test]

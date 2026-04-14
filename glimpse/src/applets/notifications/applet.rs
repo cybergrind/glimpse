@@ -62,7 +62,7 @@ fn notification_counts(notifications: &[NotificationEntry]) -> (u32, u32) {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BadgePresentation {
-    css_class: &'static str,
+    css_classes: &'static [&'static str],
     label: String,
     show_label: bool,
 }
@@ -70,7 +70,7 @@ struct BadgePresentation {
 fn badge_presentation(style: &str, badge_count: u32) -> BadgePresentation {
     if style == "count" {
         BadgePresentation {
-            css_class: "notification-badge",
+            css_classes: &["badge", "is-accent"],
             label: if badge_count > 9 {
                 "9+".into()
             } else {
@@ -80,7 +80,7 @@ fn badge_presentation(style: &str, badge_count: u32) -> BadgePresentation {
         }
     } else {
         BadgePresentation {
-            css_class: "notification-dot",
+            css_classes: &["status-dot", "is-accent"],
             label: String::new(),
             show_label: false,
         }
@@ -138,7 +138,6 @@ impl Component for Notifications {
 
                     #[name = "badge_value_label"]
                     gtk::Label {
-                        add_css_class: "notification-badge-label",
                         set_valign: gtk::Align::Center,
                         set_halign: gtk::Align::Center,
                     }
@@ -286,8 +285,9 @@ impl Notifications {
         self.icon_widget.set_icon_name(Some(&self.icon_name));
 
         let presentation = badge_presentation(&self.badge_style, self.badge_count);
-        self.badge_widget
-            .set_css_classes(&["notification-badge-anchor", presentation.css_class]);
+        let mut classes = vec!["notification-badge-anchor"];
+        classes.extend_from_slice(presentation.css_classes);
+        self.badge_widget.set_css_classes(&classes);
         self.badge_widget.set_visible(self.badge_visible);
         self.badge_value_label.set_visible(presentation.show_label);
         self.badge_value_label.set_label(&self.badge_label);

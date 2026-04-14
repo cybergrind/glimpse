@@ -77,7 +77,6 @@ impl Component for Mpris {
             set_hexpand: false,
             add_css_class: "applet",
             add_css_class: "mpris",
-            add_css_class: "hoverable",
             #[watch]
             set_visible: !model.hidden,
             #[watch]

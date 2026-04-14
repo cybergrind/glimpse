@@ -508,10 +508,16 @@
 }
 
 .badge {
+  box-sizing: border-box;
+  min-width: var(--indicator-icon-size);
+  min-height: var(--indicator-icon-size);
   border-radius: var(--badge-radius);
   background: var(--badge-bg);
   color: var(--badge-fg);
   padding: var(--badge-padding-y) var(--badge-padding-x);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
   transition:
     background-color var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard),
