@@ -842,42 +842,6 @@
     min-width: 240px;
 }
 
-.session-popover contents>box {
-    margin: var(--popover-padding);
-}
-
-.session-popover separator {
-    margin-top: var(--popover-section-spacing);
-    margin-bottom: var(--popover-section-spacing);
-}
-
-.session-popover .session-hero {
-    margin-bottom: 4px;
-}
-
-.session-popover .session-hero-name {
-    font-size: 15px;
-    font-weight: 600;
-}
-
-.session-popover .session-hero-subtitle {
-    font-size: 12px;
-    opacity: var(--dim-opacity);
-}
-
-.session-popover .session-action-btn {
-    padding: 4px 6px;
-    font-weight: normal;
-}
-
-.session-popover .session-action-btn label {
-    font-weight: normal;
-}
-
-.session-popover .session-action-icon {
-    opacity: 0.6;
-}
-
 /* weather */
 
 .weather {}

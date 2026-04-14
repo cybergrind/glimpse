@@ -135,6 +135,25 @@ fn panel_indicator_typography_does_not_keep_applet_specific_bold_overrides() {
 }
 
 #[test]
+fn session_popover_reuses_shared_shell_hero_and_action_row_primitives() {
+    for selector in [
+        ".session-popover contents>box {",
+        ".session-popover separator {",
+        ".session-popover .session-hero {",
+        ".session-popover .session-hero-name {",
+        ".session-popover .session-hero-subtitle {",
+        ".session-popover .session-action-btn {",
+        ".session-popover .session-action-btn label {",
+        ".session-popover .session-action-icon {",
+    ] {
+        assert!(
+            !LEGACY_THEME_CSS.contains(selector),
+            "theme.css should not keep session-specific override `{selector}`",
+        );
+    }
+}
+
+#[test]
 fn adwaita_css_maps_semantic_tokens_from_gtk_symbolic_colors() {
     for token in [
         "--color-bg:",

@@ -6,6 +6,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 use super::{
     SessionConfig,
     components::{
@@ -16,6 +17,8 @@ use super::{
 
 pub struct SessionPopover {
     popover: gtk::Popover,
+    #[allow(dead_code)]
+    shell: Controller<PopoverShell>,
     #[allow(dead_code)]
     hero: Controller<SessionHero>,
     #[allow(dead_code)]
@@ -64,20 +67,8 @@ impl SimpleComponent for SessionPopover {
             add_css_class: "session-popover",
             set_hexpand: false,
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_overflow: gtk::Overflow::Hidden,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                actions_widget -> gtk::Box {},
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -86,6 +77,9 @@ impl SimpleComponent for SessionPopover {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit::default())
+            .detach();
         let hero = SessionHero::builder()
             .launch(SessionHeroView::default())
             .detach();
@@ -98,10 +92,17 @@ impl SimpleComponent for SessionPopover {
             },
         );
 
-        let hero_widget = hero.widget().clone();
-        let actions_widget = actions.widget().clone();
+        let shell_widget = shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        shell_content.append(hero.widget());
+        shell_content.append(actions.widget());
+
         let model = SessionPopover {
             popover: root.clone(),
+            shell,
             hero,
             actions,
         };

@@ -1,8 +1,11 @@
 use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, Controller,
     gtk::{self, prelude::*},
+    ComponentParts, ComponentSender, SimpleComponent,
 };
+
+use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};
 
 const FALLBACK_USER_NAME: &str = "user";
 
@@ -35,7 +38,7 @@ impl From<&SessionSnapshot> for SessionHeroView {
 }
 
 pub struct SessionHero {
-    view: SessionHeroView,
+    row: Controller<HeroRow>,
 }
 
 #[derive(Debug)]
@@ -52,34 +55,8 @@ impl SimpleComponent for SessionHero {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 12,
-            add_css_class: "session-hero",
-
-            gtk::Image {
-                set_icon_name: Some("avatar-default-symbolic"),
-                set_pixel_size: 32,
-            },
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 2,
-                set_hexpand: true,
-                set_valign: gtk::Align::Center,
-
-                gtk::Label {
-                    #[watch]
-                    set_label: &model.view.name,
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "session-hero-name",
-                },
-
-                gtk::Label {
-                    #[watch]
-                    set_label: &model.view.subtitle,
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "session-hero-subtitle",
-                },
-            }
+            #[local_ref]
+            row_widget -> gtk::Box {}
         }
     }
 
@@ -88,14 +65,30 @@ impl SimpleComponent for SessionHero {
         _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = SessionHero { view: init };
+        let row = HeroRow::builder()
+            .launch(HeroRowInit {
+                title: init.name,
+                subtitle: init.subtitle,
+            })
+            .detach();
+        let row_widget = row.widget().clone();
+        let media = row_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose media box");
+        media.append(&gtk::Image::from_icon_name("avatar-default-symbolic"));
+
+        let model = SessionHero { row };
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         let SessionHeroInput::Update(view) = message;
-        self.view = view;
+        self.row.emit(HeroRowInput::Update {
+            title: view.name,
+            subtitle: view.subtitle,
+        });
     }
 }
 

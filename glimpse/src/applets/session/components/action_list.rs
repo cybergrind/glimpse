@@ -2,16 +2,19 @@ use glimpse::session_actions::provider::{
     SessionActionAvailability, SessionBackendState, SessionSnapshot,
 };
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, Controller,
     gtk::{self, prelude::*},
+    ComponentParts, ComponentSender, SimpleComponent,
 };
 
-use super::super::{SessionConfig, popover::SessionAction};
+use crate::components::action_row::{ActionRow, ActionRowInit};
+use super::super::{popover::SessionAction, SessionConfig};
 
 pub struct SessionActionList {
     config: SessionConfig,
     rows: Vec<SessionActionRowView>,
     container: gtk::Box,
+    row_components: Vec<Controller<ActionRow>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,12 +58,14 @@ impl SimpleComponent for SessionActionList {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let rows = build_action_rows(&init, &SessionSnapshot::default());
-        render_action_rows(&root, &rows, &sender);
+        let mut row_components = Vec::new();
+        render_action_rows(&root, &rows, &sender, &mut row_components);
 
         let model = SessionActionList {
             config: init,
             rows,
             container: root.clone(),
+            row_components,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -75,7 +80,12 @@ impl SimpleComponent for SessionActionList {
             }
         };
         self.rows = build_action_rows(&self.config, &snapshot);
-        render_action_rows(&self.container, &self.rows, &sender);
+        render_action_rows(
+            &self.container,
+            &self.rows,
+            &sender,
+            &mut self.row_components,
+        );
     }
 }
 
@@ -162,49 +172,62 @@ fn render_action_rows(
     container: &gtk::Box,
     rows: &[SessionActionRowView],
     sender: &ComponentSender<SessionActionList>,
+    row_components: &mut Vec<Controller<ActionRow>>,
 ) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+    row_components.clear();
 
     for row in rows.iter().cloned() {
         if row.separated {
             container.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         }
-        container.append(&build_action_row(row, sender));
+        let row_component = build_action_row(row, sender);
+        container.append(row_component.widget());
+        row_components.push(row_component);
     }
 }
 
 fn build_action_row(
     row: SessionActionRowView,
     sender: &ComponentSender<SessionActionList>,
-) -> gtk::Button {
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    content.add_css_class("session-action-row");
+) -> Controller<ActionRow> {
+    let action = row.action;
+    let row_component = ActionRow::builder()
+        .launch(ActionRowInit {
+            title: row.label.into(),
+            subtitle: String::new(),
+            variant: Default::default(),
+        })
+        .detach();
+
+    let row_widget = row_component.widget().clone();
+    let button = row_widget
+        .first_child()
+        .and_downcast::<gtk::Button>()
+        .expect("action row should expose button");
+    let shell = button
+        .child()
+        .and_downcast::<gtk::Box>()
+        .expect("action row button should expose shell");
+    let leading = shell
+        .first_child()
+        .and_downcast::<gtk::Box>()
+        .expect("action row shell should expose leading slot");
 
     let icon = gtk::Image::from_icon_name(row.icon_name);
     icon.set_pixel_size(16);
-    icon.add_css_class("session-action-icon");
-    content.append(&icon);
+    leading.append(&icon);
 
-    let label = gtk::Label::new(Some(row.label));
-    label.set_hexpand(true);
-    label.set_halign(gtk::Align::Start);
-    content.append(&label);
-
-    let button = gtk::Button::new();
-    button.set_child(Some(&content));
-    button.add_css_class("flat");
-    button.add_css_class("session-action-btn");
     button.set_sensitive(row.enabled);
 
-    let action = row.action;
     let sender = sender.clone();
     button.connect_clicked(move |_| {
         let _ = sender.output(SessionActionListOutput::ActionRequested(action));
     });
 
-    button
+    row_component
 }
 
 #[cfg(test)]
@@ -239,10 +262,9 @@ mod tests {
 
         let rows = build_action_rows(&config, &snapshot);
 
-        assert!(
-            rows.iter()
-                .all(|row| row.action != SessionAction::Hibernate)
-        );
+        assert!(rows
+            .iter()
+            .all(|row| row.action != SessionAction::Hibernate));
         assert!(rows.iter().any(|row| row.action == SessionAction::Logout));
     }
 }
