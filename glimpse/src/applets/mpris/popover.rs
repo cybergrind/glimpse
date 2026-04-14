@@ -1,17 +1,25 @@
 #![allow(unused_assignments)]
 
-use glimpse::mpris::protocol::MprisPlayer;
+use glimpse::mpris::protocol::{MprisPlaybackStatus, MprisPlayer};
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     factory::FactoryVecDeque,
     gtk::{self, prelude::*},
 };
 
+use crate::components::{
+    empty_state::{EmptyState, EmptyStateInit},
+    popover_shell::{PopoverShell, PopoverShellInit},
+};
 use super::components::player_row_factory::{MprisPlayerRowItem, MprisPlayerRowItemInit};
 
 pub struct MprisPopover {
     popover: gtk::Popover,
-    empty_label: gtk::Label,
+    #[allow(dead_code)]
+    shell: Controller<PopoverShell>,
+    #[allow(dead_code)]
+    empty_state: Controller<EmptyState>,
+    rows_scroller: gtk::ScrolledWindow,
     max_rows: usize,
     show_artwork: bool,
     rows: FactoryVecDeque<MprisPlayerRowItem>,
@@ -45,7 +53,11 @@ enum RowSyncOp {
 }
 
 fn visible_players(players: Vec<MprisPlayer>, max_rows: usize) -> Vec<MprisPlayer> {
-    players.into_iter().take(max_rows).collect()
+    players
+        .into_iter()
+        .filter(|player| player.playback_status == MprisPlaybackStatus::Playing)
+        .take(max_rows)
+        .collect()
 }
 
 fn row_sync_ops(current_ids: &[String], next_ids: &[String]) -> Vec<RowSyncOp> {
@@ -88,24 +100,8 @@ impl SimpleComponent for MprisPopover {
         root = gtk::Popover {
             add_css_class: "mpris-popover",
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-
-                #[name(empty_label)]
-                gtk::Label {
-                    set_label: "No media players",
-                    set_halign: gtk::Align::Center,
-                    set_valign: gtk::Align::Center,
-                },
-
-                gtk::ScrolledWindow {
-                    set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
-                    set_propagate_natural_height: true,
-
-                    #[local_ref]
-                    rows_box -> gtk::Box {}
-                },
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -115,9 +111,30 @@ impl SimpleComponent for MprisPopover {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let rows_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let rows_scroller = gtk::ScrolledWindow::new();
+        rows_scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        rows_scroller.set_propagate_natural_height(true);
+        rows_scroller.set_child(Some(&rows_box));
         let rows = FactoryVecDeque::builder()
             .launch(rows_box.clone())
             .forward(sender.output_sender(), |output| output);
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit::default())
+            .detach();
+        let empty_state = EmptyState::builder()
+            .launch(EmptyStateInit {
+                title: "No media players".into(),
+                subtitle: String::new(),
+            })
+            .detach();
+
+        let shell_widget = shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        shell_content.append(empty_state.widget());
+        shell_content.append(&rows_scroller);
 
         let widgets = view_output!();
 
@@ -126,7 +143,9 @@ impl SimpleComponent for MprisPopover {
 
         let model = MprisPopover {
             popover: widgets.root.clone(),
-            empty_label: widgets.empty_label.clone(),
+            shell,
+            empty_state,
+            rows_scroller,
             max_rows: init.max_rows,
             show_artwork: init.show_artwork,
             rows,
@@ -154,7 +173,9 @@ impl SimpleComponent for MprisPopover {
 impl MprisPopover {
     fn sync_rows(&mut self, players: Vec<MprisPlayer>) {
         let players = visible_players(players, self.max_rows);
-        self.empty_label.set_visible(players.is_empty());
+        let is_empty = players.is_empty();
+        self.empty_state.widget().set_visible(is_empty);
+        self.rows_scroller.set_visible(!is_empty);
 
         let mut guard = self.rows.guard();
         let next_ids = players

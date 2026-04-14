@@ -1,6 +1,6 @@
 use glimpse::mpris::{
     MprisServiceHandle,
-    protocol::{MprisPlayer, MprisServiceCommand, MprisServiceState},
+    protocol::{MprisPlaybackStatus, MprisPlayer, MprisServiceCommand, MprisServiceState},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -61,6 +61,14 @@ fn panel_label(player: &MprisPlayer, format: &str) -> String {
     } else {
         player.identity.clone()
     }
+}
+
+fn visible_players(players: &[MprisPlayer]) -> Vec<MprisPlayer> {
+    players
+        .iter()
+        .filter(|player| player.playback_status == MprisPlaybackStatus::Playing)
+        .cloned()
+        .collect()
 }
 
 #[relm4::component(pub)]
@@ -170,7 +178,9 @@ impl Component for Mpris {
                 self.latest_state = Some(state.clone());
                 self.sync_from_state(&state);
                 self.popover
-                    .emit(MprisPopoverInput::UpdatePlayers(state.snapshot.players));
+                    .emit(MprisPopoverInput::UpdatePlayers(visible_players(
+                        &state.snapshot.players,
+                    )));
             }
             MprisMsg::Reconfigure(config) => {
                 self.config = config;
@@ -200,14 +210,14 @@ impl Component for Mpris {
 
 impl Mpris {
     fn sync_from_state(&mut self, state: &MprisServiceState) {
-        self.label = state
-            .snapshot
-            .current_player
+        let visible_players = visible_players(&state.snapshot.players);
+        self.label = visible_players
+            .first()
             .as_ref()
             .map(|player| panel_label(player, &self.config.label_format))
             .unwrap_or_default();
         self.tooltip = self.label.clone();
-        self.hidden = self.config.hide_when_empty && state.snapshot.players.is_empty();
+        self.hidden = self.config.hide_when_empty && visible_players.is_empty();
     }
 
     fn handle_popover_output(&self, output: MprisPopoverOutput, sender: ComponentSender<Self>) {

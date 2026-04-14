@@ -912,6 +912,73 @@ popover separator {
   color: var(--color-muted-fg);
 }
 
+/* MPRIS */
+
+.mpris-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.mpris-popover {
+  --popover-min-width: 598px;
+  --card-bg: color-mix(in srgb, var(--color-fg) 6%, transparent);
+  --card-hover-bg: color-mix(in srgb, var(--color-fg) 10%, transparent);
+  --card-border: transparent;
+  --card-radius: var(--radius-lg);
+  --card-shell-padding: var(--space-4) var(--space-5);
+  --card-extra-shadow: 0 0 transparent;
+  --card-hover-extra-shadow: 0 0 transparent;
+}
+
+.mpris-popover .mpris-card {
+  margin: var(--space-1) 0;
+}
+
+.mpris-popover .mpris-card-art-slot {
+  min-width: 92px;
+  min-height: 92px;
+  border-radius: calc(var(--radius-lg) - var(--space-1));
+  background: var(--overlay-hover);
+}
+
+.mpris-popover .mpris-card-art {
+  min-width: 92px;
+  min-height: 92px;
+}
+
+.mpris-popover .mpris-card-content,
+.mpris-popover .mpris-card-copy {
+  min-width: 0;
+}
+
+.mpris-popover .mpris-card-title {
+  font-weight: var(--font-weight-semibold);
+}
+
+.mpris-popover .mpris-card-subtitle {
+  color: var(--color-muted-fg);
+}
+
+.mpris-popover .mpris-card-progress {
+  color: var(--color-muted-fg);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.mpris-popover .mpris-card-progress progressbar {
+  min-height: 8px;
+}
+
+.mpris-popover .mpris-card-controls button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+}
+
+.mpris-popover .mpris-card-controls button label {
+  font-weight: var(--font-weight-normal);
+}
+
 /* Notifications */
 
 .notification-badge-anchor {

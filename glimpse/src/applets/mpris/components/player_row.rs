@@ -59,6 +59,7 @@ impl SimpleComponent for MprisPlayerRow {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 12,
             add_css_class: "mpris-card",
+            add_css_class: "card-surface",
             #[watch]
             set_tooltip_text: Some(&player_tooltip(&model.player)),
 
