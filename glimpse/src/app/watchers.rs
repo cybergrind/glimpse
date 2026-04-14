@@ -5,28 +5,13 @@ use std::{
 
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
-use relm4::{ComponentSender, gtk::CssProvider};
+use relm4::ComponentSender;
 
 use glimpse::config::Config;
 
 use crate::app::{App, Input};
-
-pub(super) fn load_css(provider: &CssProvider, path: Option<&Path>) {
-    provider.load_from_data("");
-
-    let Some(path) = path else {
-        tracing::info!("no named theme configured; user theme css cleared");
-        return;
-    };
-
-    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if resolved.exists() && resolved.is_file() {
-        provider.load_from_path(&resolved);
-        tracing::info!("loaded css from {}", resolved.display());
-    } else {
-        tracing::warn!("theme css file not found: {}", resolved.display());
-    }
-}
+#[cfg(feature = "dev")]
+use crate::app::theme_runtime;
 
 fn is_theme_css_change(config_dir: &Path, path: &Path) -> bool {
     if path.file_name().and_then(|name| name.to_str()) == Some("theme.css") {
@@ -39,7 +24,17 @@ fn is_theme_css_change(config_dir: &Path, path: &Path) -> bool {
             .next()
             .is_some_and(|component| component.as_os_str() == "themes")
             && path.extension().and_then(|ext| ext.to_str()) == Some("css")
-    })
+    }) || is_repo_theme_css_change(path)
+}
+
+#[cfg(feature = "dev")]
+fn is_repo_theme_css_change(path: &Path) -> bool {
+    theme_runtime::is_repo_theme_css_change(path)
+}
+
+#[cfg(not(feature = "dev"))]
+fn is_repo_theme_css_change(_path: &Path) -> bool {
+    false
 }
 
 pub(super) fn watch_for_config_changes(sender: ComponentSender<App>) {
@@ -104,6 +99,24 @@ pub(super) fn watch_for_config_changes(sender: ComponentSender<App>) {
         if let Err(e) = debouncer.watch(&config_dir, notify::RecursiveMode::Recursive) {
             tracing::error!("failed to watch config directory: {}", e);
             return;
+        }
+
+        #[cfg(feature = "dev")]
+        {
+            let repo_themes_dir = theme_runtime::repo_themes_directory();
+            if repo_themes_dir.exists() {
+                if let Err(error) =
+                    debouncer.watch(&repo_themes_dir, notify::RecursiveMode::Recursive)
+                {
+                    tracing::warn!(
+                        error = %error,
+                        path = %repo_themes_dir.display(),
+                        "failed to watch repo themes directory"
+                    );
+                } else {
+                    tracing::info!("watching repo themes directory: {}", repo_themes_dir.display());
+                }
+            }
         }
 
         for (name, recursive_mode) in [

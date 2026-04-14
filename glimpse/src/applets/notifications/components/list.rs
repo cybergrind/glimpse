@@ -5,6 +5,8 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::empty_state::{EmptyState, EmptyStateInit};
+
 use super::row::{
     NotificationCard, NotificationCardInit, NotificationCardInput, NotificationCardRole,
 };
@@ -12,12 +14,15 @@ use super::stack::{NotificationGroup, NotificationGroupInit, NotificationGroupIn
 use super::{NotifData, NotificationCommandEmitter, StackToggleEmitter};
 
 pub struct NotificationsList {
-    empty_label: gtk::Label,
+    empty_state: Controller<EmptyState>,
+    empty_state_slot: gtk::Box,
+    scroll: gtk::ScrolledWindow,
     notif_box: gtk::Box,
     emit_command: NotificationCommandEmitter,
     on_toggle_stack: StackToggleEmitter,
     groups: HashMap<String, Controller<NotificationGroup>>,
     singles: HashMap<u32, Controller<NotificationCard>>,
+    is_empty: bool,
 }
 
 pub struct NotificationsListInit {
@@ -43,13 +48,15 @@ impl SimpleComponent for NotificationsList {
     view! {
         root = gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            set_vexpand: true,
 
-            #[name(empty_label)]
-            gtk::Label {
-                set_label: "No notifications",
+            #[name(empty_state_slot)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_hexpand: true,
+                set_vexpand: true,
                 set_halign: gtk::Align::Center,
                 set_valign: gtk::Align::Center,
-                add_css_class: "notif-empty",
             },
 
             #[name(scroll)]
@@ -75,14 +82,24 @@ impl SimpleComponent for NotificationsList {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let widgets = view_output!();
+        let empty_state = EmptyState::builder()
+            .launch(EmptyStateInit {
+                title: "No notifications".into(),
+                subtitle: "You're caught up.".into(),
+            })
+            .detach();
+        widgets.empty_state_slot.append(empty_state.widget());
 
         let model = NotificationsList {
-            empty_label: widgets.empty_label.clone(),
+            empty_state,
+            empty_state_slot: widgets.empty_state_slot.clone(),
+            scroll: widgets.scroll.clone(),
             notif_box: widgets.notif_box.clone(),
             emit_command: init.emit_command,
             on_toggle_stack: init.on_toggle_stack,
             groups: HashMap::new(),
             singles: HashMap::new(),
+            is_empty: true,
         };
 
         ComponentParts { model, widgets }
@@ -101,9 +118,12 @@ impl SimpleComponent for NotificationsList {
 impl NotificationsList {
     fn sync(&mut self, notifications: &[NotifData], stack_state: &HashMap<String, bool>) {
         clear_children(&self.notif_box);
-        self.empty_label.set_visible(notifications.is_empty());
+        self.is_empty = notifications.is_empty();
+        self.empty_state_slot.set_visible(self.is_empty);
+        self.scroll.set_visible(!self.is_empty);
+        self.empty_state.widget().set_visible(self.is_empty);
 
-        if notifications.is_empty() {
+        if self.is_empty {
             return;
         }
 
@@ -230,5 +250,39 @@ mod tests {
 
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped[0].0, "Unknown");
+    }
+
+    #[test]
+    fn empty_state_owns_space_and_centers_when_list_is_empty() {
+        if gtk::init().is_err() {
+            return;
+        }
+
+        let component = NotificationsList::builder().launch(NotificationsListInit {
+            emit_command: std::rc::Rc::new(|_| {}),
+            on_toggle_stack: std::rc::Rc::new(|_| {}),
+        });
+        component.emit(NotificationsListInput::Sync {
+            notifications: Vec::new(),
+            stack_state: HashMap::new(),
+        });
+
+        let root = component.widget();
+        let empty_state_slot = root
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("list should expose empty state slot");
+        let scroll = empty_state_slot
+            .next_sibling()
+            .and_downcast::<gtk::ScrolledWindow>()
+            .expect("list should expose scroll container");
+
+        assert!(root.vexpands());
+        assert!(empty_state_slot.is_visible());
+        assert!(!scroll.is_visible());
+        assert!(empty_state_slot.hexpands());
+        assert!(empty_state_slot.vexpands());
+        assert_eq!(empty_state_slot.halign(), gtk::Align::Center);
+        assert_eq!(empty_state_slot.valign(), gtk::Align::Center);
     }
 }

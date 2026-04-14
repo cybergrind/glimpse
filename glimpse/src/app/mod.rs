@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use adw::prelude::*;
 use gtk4_layer_shell::LayerShell;
 use relm4::{
-    ComponentParts, ComponentSender, Controller, SimpleComponent,
+    ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, CssProvider, gdk::Display},
 };
 
@@ -20,15 +20,20 @@ use crate::{
 mod background_manager;
 mod notification_popup_manager;
 mod panel_manager;
+mod theme_runtime;
 mod watchers;
 
 use background_manager::sync_background_windows;
 use notification_popup_manager::{setup_notification_popup, sync_notification_popup};
 use panel_manager::{PanelState, reconfigure_panels, setup_panels};
-use watchers::{load_css, watch_for_config_changes};
+use theme_runtime::{apply_theme_mode, sync_accent_css, sync_base_css, sync_theme_css};
+use watchers::watch_for_config_changes;
 
 pub struct App {
+    window: adw::ApplicationWindow,
     config: Config,
+    base_css: CssProvider,
+    accent_css: CssProvider,
     theme_css: CssProvider,
     panels: Vec<PanelState>,
     wallpaper_windows: HashMap<String, Controller<wallpaper::MonitorWindow>>,
@@ -74,9 +79,23 @@ impl SimpleComponent for App {
         root.set_default_size(1, 1);
         root.set_opacity(0.0);
 
+        let base_css = CssProvider::new();
+        sync_base_css(&base_css);
+        let accent_css = CssProvider::new();
+        sync_accent_css(&accent_css);
         let theme_css = CssProvider::new();
         sync_theme_css(&theme_css, &config);
         if let Some(display) = Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &base_css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &accent_css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
             gtk::style_context_add_provider_for_display(
                 &display,
                 &theme_css,
@@ -111,11 +130,15 @@ impl SimpleComponent for App {
             services.handle.notifications.clone(),
             sender.clone(),
         );
+        apply_theme_mode_to_windows(&root, &panels, &notification_popup, config.theme.mode);
 
         let model = App {
+            window: root.clone(),
             panels,
             wallpaper_windows: HashMap::new(),
             backdrop_windows: HashMap::new(),
+            base_css,
+            accent_css,
             theme_css,
             config,
             dbus,
@@ -147,6 +170,8 @@ impl SimpleComponent for App {
                         }
                     });
                 }
+                sync_base_css(&self.base_css);
+                sync_accent_css(&self.accent_css);
                 sync_theme_css(&self.theme_css, &new_config);
                 reconfigure_panels(
                     &mut self.panels,
@@ -172,10 +197,24 @@ impl SimpleComponent for App {
                     self.services.handle.notifications.clone(),
                     sender,
                 );
+                apply_theme_mode_to_windows(
+                    &self.window,
+                    &self.panels,
+                    &self.notification_popup,
+                    new_config.theme.mode,
+                );
                 self.config = new_config;
             }
             Input::CssChanged => {
+                sync_base_css(&self.base_css);
+                sync_accent_css(&self.accent_css);
                 sync_theme_css(&self.theme_css, &self.config);
+                apply_theme_mode_to_windows(
+                    &self.window,
+                    &self.panels,
+                    &self.notification_popup,
+                    self.config.theme.mode,
+                );
             }
             Input::MonitorsChanged => {
                 sync_background_windows(
@@ -197,6 +236,19 @@ impl SimpleComponent for App {
     }
 }
 
-fn sync_theme_css(provider: &CssProvider, config: &Config) {
-    load_css(provider, config.active_theme_path().as_deref());
+fn apply_theme_mode_to_windows(
+    window: &adw::ApplicationWindow,
+    panels: &[PanelState],
+    notification_popup: &Option<Controller<NotificationPopup>>,
+    mode: glimpse::config::ThemeMode,
+) {
+    apply_theme_mode(window, mode);
+
+    for panel in panels {
+        apply_theme_mode(panel.controller.widget(), mode);
+    }
+
+    if let Some(notification_popup) = notification_popup {
+        apply_theme_mode(notification_popup.widget(), mode);
+    }
 }

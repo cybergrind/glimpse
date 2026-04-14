@@ -1,5 +1,6 @@
 mod app;
 mod applets;
+mod components;
 mod panels;
 mod providers;
 mod services;

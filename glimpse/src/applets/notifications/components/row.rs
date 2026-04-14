@@ -63,6 +63,7 @@ impl SimpleComponent for NotificationCard {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 4,
             add_css_class: "notif-card",
+            add_css_class: "card-surface",
 
             add_controller = gtk::GestureClick {
                 set_button: 1,
@@ -94,6 +95,7 @@ impl SimpleComponent for NotificationCard {
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
+                add_css_class: "card-surface__header",
 
                 #[name(icon)]
                 gtk::Image {
@@ -138,6 +140,7 @@ impl SimpleComponent for NotificationCard {
                 set_spacing: 12,
                 set_hexpand: true,
                 add_css_class: "notif-content",
+                add_css_class: "card-surface__body",
 
                 #[name(image)]
                 gtk::Picture {
@@ -416,6 +419,51 @@ pub fn time_ago(timestamp: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use relm4::{Component, ComponentController};
+    use std::rc::Rc;
+
+    fn notif_card_data() -> NotifData {
+        NotifData {
+            id: 1,
+            app_name: "Mail".into(),
+            app_icon: String::new(),
+            desktop_entry: None,
+            summary: "Summary".into(),
+            body: "Body".into(),
+            urgency: 1,
+            actions: Vec::new(),
+            image: None,
+            timestamp: 1,
+            resident: false,
+        }
+    }
+
+    #[test]
+    fn notification_card_uses_shared_card_surface_classes() {
+        if gtk::init().is_err() {
+            return;
+        }
+
+        let component = NotificationCard::builder().launch(NotificationCardInit {
+            notif: notif_card_data(),
+            emit_command: Rc::new(|_| {}),
+            role: NotificationCardRole::Full,
+        });
+        let root = component.widget();
+        let header = root
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("notification card should have header");
+        let content = header
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("notification card should have content");
+
+        assert!(root.has_css_class("notif-card"));
+        assert!(root.has_css_class("card-surface"));
+        assert!(header.has_css_class("card-surface__header"));
+        assert!(content.has_css_class("card-surface__body"));
+    }
 
     #[test]
     fn time_diff_now() {

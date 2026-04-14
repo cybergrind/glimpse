@@ -12,11 +12,17 @@ use super::components::{
     hero::{NotificationsHero, NotificationsHeroInit, NotificationsHeroInput},
     list::{NotificationsList, NotificationsListInit, NotificationsListInput},
 };
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit},
+};
 
 pub struct NotificationsPopover {
     popover: gtk::Popover,
+    shell: Controller<PopoverShell>,
     hero: Controller<NotificationsHero>,
     list: Controller<NotificationsList>,
+    footer: Controller<FooterAction>,
     emit_command: NotificationCommandEmitter,
     dnd: bool,
     count: u32,
@@ -47,41 +53,20 @@ impl SimpleComponent for NotificationsPopover {
 
     view! {
         root = gtk::Popover {
-            #[name(body)]
+            #[name(shell_slot)]
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_hexpand: false,
                 set_overflow: gtk::Overflow::Hidden,
 
-                #[name(hero_slot)]
+                #[name(shell_content_slot)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                 },
 
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[name(list_slot)]
+                #[name(shell_footer_slot)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
-                },
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                gtk::Button {
-                    add_css_class: "flat",
-                    add_css_class: "settings-btn",
-                    connect_clicked[sender] => move |_| {
-                        sender.input(NotificationsPopoverInput::ClearAll);
-                    },
-
-                    gtk::Label {
-                        set_label: "Clear All",
-                        set_halign: gtk::Align::Start,
-                    }
                 }
             }
         }
@@ -98,12 +83,16 @@ impl SimpleComponent for NotificationsPopover {
         widgets.root.set_autohide(true);
         widgets.root.add_css_class("notifications-popover");
 
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit { show_footer: true })
+            .detach();
+        widgets.shell_slot.append(shell.widget());
+
         let hero = NotificationsHero::builder()
             .launch(NotificationsHeroInit {
                 emit_command: init.emit_command.clone(),
             })
             .detach();
-        widgets.hero_slot.append(hero.widget());
 
         let on_toggle_stack: StackToggleEmitter = Rc::new({
             let sender = sender.clone();
@@ -115,12 +104,48 @@ impl SimpleComponent for NotificationsPopover {
                 on_toggle_stack,
             })
             .detach();
-        widgets.list_slot.append(list.widget());
+
+        let footer = FooterAction::builder()
+            .launch(FooterActionInit {
+                title: "Clear All".into(),
+                subtitle: String::new(),
+            })
+            .detach();
+
+        let shell_root = shell.widget().clone();
+        let shell_content = shell_root
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content");
+        let shell_footer = shell_content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose footer");
+
+        shell_content.append(hero.widget());
+        shell_content.append(list.widget());
+        shell_footer.append(footer.widget());
+
+        if let Some(button) = footer
+            .widget()
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .and_then(|row| row.first_child().and_downcast::<gtk::Button>())
+        {
+            button.connect_clicked({
+                let sender = sender.clone();
+                move |_| {
+                    sender.input(NotificationsPopoverInput::ClearAll);
+                }
+            });
+        }
 
         let model = NotificationsPopover {
             popover: widgets.root.clone(),
+            shell,
             hero,
             list,
+            footer,
             emit_command: init.emit_command,
             dnd: false,
             count: 0,
@@ -169,5 +194,19 @@ impl NotificationsPopover {
             notifications: self.last_notifications.clone(),
             stack_state: self.stack_state.clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    const POPOVER_SOURCE: &str = include_str!("popover.rs");
+
+    #[test]
+    fn notifications_popover_uses_shared_shell_and_footer() {
+        assert!(POPOVER_SOURCE.contains("PopoverShell::builder()"));
+        assert!(POPOVER_SOURCE.contains("FooterAction::builder()"));
+        assert!(POPOVER_SOURCE.contains("shell_content.append(hero.widget())"));
+        assert!(POPOVER_SOURCE.contains("shell_content.append(list.widget())"));
+        assert!(POPOVER_SOURCE.contains("shell_footer.append(footer.widget())"));
     }
 }

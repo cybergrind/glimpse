@@ -350,8 +350,10 @@ impl NotificationPopup {
     fn build_card(&self, notif: &NotifData, sender: &ComponentSender<Self>) -> gtk::Box {
         let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
         card.add_css_class("popup-card");
+        card.add_css_class("card-surface");
 
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        header.add_css_class("card-surface__header");
 
         let icon = build_notification_icon(notif, "popup-card-icon");
         header.append(&icon);
@@ -381,6 +383,7 @@ impl NotificationPopup {
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         content.set_hexpand(true);
         content.add_css_class("popup-card-content");
+        content.add_css_class("card-surface__body");
 
         if let Some(texture) = load_notification_image_texture(notif) {
             let image = gtk::Picture::new();
@@ -582,6 +585,8 @@ fn pending_popup_ids(
 
 #[cfg(test)]
 mod tests {
+    const POPUP_SOURCE: &str = include_str!("popup.rs");
+
     use super::{NotifData, PopupDismissMode, TimeoutSourcePolicy, pending_popup_ids};
 
     #[test]
@@ -601,6 +606,13 @@ mod tests {
             TimeoutSourcePolicy::Keep,
             TimeoutSourcePolicy::RemoveIfPresent
         );
+    }
+
+    #[test]
+    fn popup_cards_use_shared_card_surface_contract() {
+        assert!(POPUP_SOURCE.contains("card.add_css_class(\"card-surface\")"));
+        assert!(POPUP_SOURCE.contains("header.add_css_class(\"card-surface__header\")"));
+        assert!(POPUP_SOURCE.contains("content.add_css_class(\"card-surface__body\")"));
     }
 
     fn notif(id: u32, timestamp: u64, urgency: u8) -> NotifData {
