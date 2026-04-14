@@ -28,6 +28,8 @@ impl SimpleComponent for DeviceRow {
     view! {
         root = gtk::Button {
             add_css_class: "flat",
+            add_css_class: "action-row",
+            add_css_class: "action-row__button",
             #[watch]
             set_tooltip_text: Some(&model.device.description),
             connect_clicked => DeviceRowInput::Pressed,
@@ -36,12 +38,14 @@ impl SimpleComponent for DeviceRow {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 add_css_class: "device-item",
+                add_css_class: "action-row__content-shell",
 
                 gtk::Image {
                     #[watch]
                     set_icon_name: Some(device_icon_name(&model.device)),
                     set_pixel_size: 16,
                     add_css_class: "device-icon",
+                    add_css_class: "action-row__leading",
                 },
 
                 gtk::Label {
@@ -51,12 +55,14 @@ impl SimpleComponent for DeviceRow {
                     set_halign: gtk::Align::Start,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     set_max_width_chars: 30,
+                    add_css_class: "action-row__title",
                 },
 
                 gtk::Image {
                     set_icon_name: Some("object-select-symbolic"),
                     set_pixel_size: 16,
                     add_css_class: "device-check",
+                    add_css_class: "action-row__trailing",
                     #[watch]
                     set_visible: model.device.is_default,
                 },

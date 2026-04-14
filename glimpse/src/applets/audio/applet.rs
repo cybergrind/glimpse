@@ -85,6 +85,7 @@ impl Component for Audio {
                 #[watch]
                 set_icon_name: Some(&model.icon_name),
                 set_pixel_size: 16,
+                set_valign: gtk::Align::Center,
                 #[watch]
                 set_visible: model.config.show_icon,
             },
@@ -93,6 +94,8 @@ impl Component for Audio {
                 set_icon_name: Some("microphone-sensitivity-muted-symbolic"),
                 set_pixel_size: 16,
                 add_css_class: "mic-muted-indicator",
+                add_css_class: "is-warning",
+                set_valign: gtk::Align::Center,
                 #[watch]
                 set_visible: model.config.show_mic_indicator && model.mic_muted,
             },
@@ -101,6 +104,7 @@ impl Component for Audio {
                 #[watch]
                 set_label: &model.label,
                 add_css_class: "audio-label",
+                set_valign: gtk::Align::Center,
                 #[watch]
                 set_visible: !model.label.is_empty(),
             },

@@ -111,17 +111,22 @@ impl SimpleComponent for DeviceListSection {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 8,
+                    set_valign: gtk::Align::Center,
                     add_css_class: "device-header",
 
                     #[name(title_label)]
                     gtk::Label {
                         set_hexpand: true,
                         set_halign: gtk::Align::Start,
+                        set_xalign: 0.0,
+                        set_valign: gtk::Align::Center,
+                        add_css_class: "action-row__title",
                     },
 
                     #[name(chevron)]
                     gtk::Label {
                         set_label: "›",
+                        set_valign: gtk::Align::Center,
                         add_css_class: "chevron",
                     },
                 },

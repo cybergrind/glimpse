@@ -4,7 +4,6 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use super::AudioConfig;
 use super::components::devices::{
     DeviceSection, DeviceSectionInit, DeviceSectionInput, DeviceSectionOutput,
 };
@@ -13,13 +12,20 @@ use super::components::streams::{StreamList, StreamListInit, StreamListInput, St
 use super::components::volume::{
     VolumeSection, VolumeSectionInit, VolumeSectionInput, VolumeSectionOutput,
 };
+use super::AudioConfig;
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit},
+};
 
 pub struct AudioPopover {
     popover: gtk::Popover,
+    shell: Controller<PopoverShell>,
     hero: Controller<AudioHero>,
     volume: Controller<VolumeSection>,
     devices: Controller<DeviceSection>,
     streams: Controller<StreamList>,
+    footer: Controller<FooterAction>,
 }
 
 pub struct AudioPopoverInit {
@@ -58,53 +64,8 @@ impl SimpleComponent for AudioPopover {
     view! {
         root = gtk::Popover {
             add_css_class: "audio-popover",
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_hexpand: false,
-                set_overflow: gtk::Overflow::Hidden,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                volume_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                devices_widget -> gtk::Box {},
-
-                #[local_ref]
-                streams_widget -> gtk::Box {},
-
-                #[name(settings_sep)]
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_visible: !init.config.settings_command.is_empty(),
-                },
-
-                #[name(settings_button)]
-                gtk::Button {
-                    add_css_class: "flat",
-                    add_css_class: "settings-btn",
-                    set_visible: !init.config.settings_command.is_empty(),
-                    connect_clicked[sender] => move |_| {
-                        let _ = sender.output(AudioPopoverOutput::OpenSettings);
-                    },
-
-                    gtk::Label {
-                        set_label: "Audio Settings",
-                        set_halign: gtk::Align::Start,
-                    },
-                },
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -113,6 +74,11 @@ impl SimpleComponent for AudioPopover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit {
+                show_footer: !init.config.settings_command.is_empty(),
+            })
+            .detach();
         let hero = AudioHero::builder().launch(()).detach();
         let volume = VolumeSection::builder()
             .launch(VolumeSectionInit {
@@ -128,22 +94,59 @@ impl SimpleComponent for AudioPopover {
                 show_streams: init.config.show_streams,
             })
             .forward(sender.output_sender(), map_stream_output);
+        let footer = FooterAction::builder()
+            .launch(FooterActionInit {
+                title: "Audio Settings".into(),
+                subtitle: String::new(),
+            })
+            .detach();
 
+        let shell_widget = shell.widget().clone();
         let hero_widget = hero.widget().clone();
         let volume_widget = volume.widget().clone();
         let devices_widget = devices.widget().clone();
         let streams_widget = streams.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        let shell_footer = shell_content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose footer box");
+        shell_content.append(&hero_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&volume_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&devices_widget);
+        shell_content.append(&streams_widget);
+        shell_footer.append(footer.widget());
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
 
+        let footer_button = footer
+            .widget()
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("footer action should expose row root")
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("footer action row should expose button");
+        let footer_sender = sender.clone();
+        footer_button.connect_clicked(move |_| {
+            let _ = footer_sender.output(AudioPopoverOutput::OpenSettings);
+        });
+
         let model = AudioPopover {
             popover: widgets.root.clone(),
+            shell,
             hero,
             volume,
             devices,
             streams,
+            footer,
         };
 
         ComponentParts { model, widgets }

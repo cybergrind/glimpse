@@ -23,11 +23,13 @@ impl SimpleComponent for AudioHero {
         gtk::Box {
             set_spacing: 12,
             add_css_class: "audio-hero",
+            add_css_class: "hero-row",
 
             gtk::Image {
                 #[watch]
                 set_icon_name: Some(&model.icon_name),
                 set_pixel_size: 32,
+                add_css_class: "hero-row__media",
             },
 
             gtk::Box {
@@ -35,11 +37,13 @@ impl SimpleComponent for AudioHero {
                 set_spacing: 2,
                 set_hexpand: true,
                 set_valign: gtk::Align::Center,
+                add_css_class: "hero-row__content",
 
                 gtk::Label {
                     set_label: "Audio",
                     set_halign: gtk::Align::Start,
                     add_css_class: "audio-hero-title",
+                    add_css_class: "hero-row__title",
                 },
 
                 gtk::Label {
@@ -47,6 +51,7 @@ impl SimpleComponent for AudioHero {
                     set_label: &model.subtitle,
                     set_halign: gtk::Align::Start,
                     add_css_class: "audio-hero-subtitle",
+                    add_css_class: "hero-row__subtitle",
                 },
             },
         }

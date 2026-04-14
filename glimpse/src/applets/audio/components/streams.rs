@@ -113,6 +113,7 @@ impl SimpleComponent for StreamList {
 
                 gtk::Box {
                     set_spacing: 8,
+                    set_valign: gtk::Align::Center,
                     add_css_class: "device-header",
 
                     #[name(header_label)]
@@ -120,11 +121,15 @@ impl SimpleComponent for StreamList {
                         set_label: "Apps (0)",
                         set_hexpand: true,
                         set_halign: gtk::Align::Start,
+                        set_xalign: 0.0,
+                        set_valign: gtk::Align::Center,
+                        add_css_class: "action-row__title",
                     },
 
                     #[name(chevron)]
                     gtk::Label {
                         set_label: "›",
+                        set_valign: gtk::Align::Center,
                         add_css_class: "chevron",
                     },
                 },
