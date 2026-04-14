@@ -27,22 +27,26 @@ impl SimpleComponent for BrightnessHero {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 12,
             add_css_class: "brightness-hero",
+            add_css_class: "hero-row",
 
             gtk::Image {
                 #[watch]
                 set_icon_name: Some(&model.icon_name),
                 set_pixel_size: 32,
+                add_css_class: "hero-row__media",
             },
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 2,
                 set_valign: gtk::Align::Center,
+                add_css_class: "hero-row__content",
 
                 gtk::Label {
                     set_label: "Brightness",
                     set_halign: gtk::Align::Start,
                     add_css_class: "brightness-hero-title",
+                    add_css_class: "hero-row__title",
                 },
 
                 gtk::Label {
@@ -50,6 +54,7 @@ impl SimpleComponent for BrightnessHero {
                     set_label: &model.subtitle,
                     set_halign: gtk::Align::Start,
                     add_css_class: "brightness-hero-subtitle",
+                    add_css_class: "hero-row__subtitle",
                 },
             }
         }

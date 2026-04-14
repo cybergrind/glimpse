@@ -49,6 +49,7 @@ impl SimpleComponent for BrightnessDisplayRow {
                     set_max_width_chars: 24,
                     set_halign: gtk::Align::Start,
                     add_css_class: "brightness-row-name",
+                    add_css_class: "action-row__title",
                 },
             },
 

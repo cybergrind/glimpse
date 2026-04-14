@@ -6,6 +6,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
+};
 use super::components::{
     display_list::{
         BrightnessDisplayList, BrightnessDisplayListInput, BrightnessDisplayListOutput,
@@ -15,8 +19,11 @@ use super::components::{
 
 pub struct BrightnessPopover {
     popover: gtk::Popover,
+    shell: Controller<PopoverShell>,
     hero: Controller<BrightnessHero>,
     display_list: Controller<BrightnessDisplayList>,
+    footer: Controller<FooterAction>,
+    show_settings_button: bool,
 }
 
 pub struct BrightnessPopoverInit {
@@ -57,37 +64,8 @@ impl SimpleComponent for BrightnessPopover {
                 let _ = sender.output(BrightnessPopoverOutput::Closed);
             },
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                display_list_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_visible: has_settings_button(&init.settings_command),
-                },
-
-                gtk::Button {
-                    add_css_class: "flat",
-                    add_css_class: "settings-btn",
-                    set_visible: has_settings_button(&init.settings_command),
-                    connect_clicked[sender] => move |_| {
-                        let _ = sender.output(BrightnessPopoverOutput::OpenSettings);
-                    },
-
-                    gtk::Label {
-                        set_label: "Display Settings",
-                    }
-                },
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -96,6 +74,12 @@ impl SimpleComponent for BrightnessPopover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let show_settings_button = has_settings_button(&init.settings_command);
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit {
+                show_footer: show_settings_button,
+            })
+            .detach();
         let hero = BrightnessHero::builder().launch(()).detach();
         let hero_widget = hero.widget().clone();
 
@@ -112,14 +96,49 @@ impl SimpleComponent for BrightnessPopover {
                     },
                 });
         let display_list_widget = display_list.widget().clone();
+        let footer = FooterAction::builder()
+            .launch(FooterActionInit {
+                title: "Display Settings".into(),
+                subtitle: String::new(),
+            })
+            .detach();
+
+        let shell_widget = shell.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        let shell_footer = shell_content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose footer box");
+        shell_content.append(&hero_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&display_list_widget);
+        shell_footer.append(footer.widget());
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+        let footer_button = footer
+            .widget()
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("footer action should expose row root")
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("footer action row should expose button");
+        let footer_sender = sender.clone();
+        footer_button.connect_clicked(move |_| {
+            let _ = footer_sender.output(BrightnessPopoverOutput::OpenSettings);
+        });
         let model = BrightnessPopover {
             popover: widgets.root.clone(),
+            shell,
             hero,
             display_list,
+            footer,
+            show_settings_button,
         };
 
         ComponentParts { model, widgets }
@@ -135,6 +154,8 @@ impl SimpleComponent for BrightnessPopover {
                 }
             }
             BrightnessPopoverInput::UpdateDisplays(displays) => {
+                self.shell
+                    .emit(PopoverShellInput::SetFooterVisible(self.show_settings_button));
                 self.hero.emit(BrightnessHeroInput::Update(
                     choose_primary_display(&displays).cloned(),
                 ));

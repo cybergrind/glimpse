@@ -791,6 +791,29 @@ popover separator {
   font-variant-numeric: tabular-nums;
 }
 
+/* Brightness */
+
+.brightness-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.brightness-popover {
+  --popover-min-width: 360px;
+}
+
+.brightness-popover .brightness-row {
+  margin-bottom: 10px;
+}
+
+.brightness-popover .brightness-row-name {
+  font-weight: var(--font-weight-medium);
+}
+
+.brightness-popover .brightness-row-scale,
+.brightness-popover .brightness-row scale {
+  min-width: 220px;
+}
+
 /* Notifications */
 
 .notification-badge-anchor {

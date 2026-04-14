@@ -112,6 +112,7 @@ impl SimpleComponent for BrightnessDisplayList {
             gtk::Label {
                 set_label: "No controllable displays",
                 set_halign: gtk::Align::Start,
+                add_css_class: "empty-state__subtitle",
             },
 
             #[name(rows_box)]
