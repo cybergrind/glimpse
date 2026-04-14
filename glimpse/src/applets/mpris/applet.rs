@@ -66,7 +66,7 @@ fn panel_label(player: &MprisPlayer, format: &str) -> String {
 fn visible_players(players: &[MprisPlayer]) -> Vec<MprisPlayer> {
     players
         .iter()
-        .filter(|player| player.playback_status == MprisPlaybackStatus::Playing)
+        .filter(|player| player.playback_status != MprisPlaybackStatus::Stopped)
         .cloned()
         .collect()
 }

@@ -55,7 +55,7 @@ enum RowSyncOp {
 fn visible_players(players: Vec<MprisPlayer>, max_rows: usize) -> Vec<MprisPlayer> {
     players
         .into_iter()
-        .filter(|player| player.playback_status == MprisPlaybackStatus::Playing)
+        .filter(|player| player.playback_status != MprisPlaybackStatus::Stopped)
         .take(max_rows)
         .collect()
 }

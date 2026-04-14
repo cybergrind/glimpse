@@ -1,10 +1,13 @@
 use std::{error::Error, time::Duration};
 
 use tokio::sync::{mpsc, watch};
+use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    mpris::protocol::{MprisServiceCommand, MprisServiceHealth, MprisServiceState},
+    mpris::protocol::{
+        MprisPlaybackStatus, MprisServiceCommand, MprisServiceHealth, MprisServiceState,
+    },
     mpris::provider::{MprisProvider, MprisProviderEvent},
 };
 
@@ -98,6 +101,8 @@ async fn run_connected(
 ) -> ServiceResult<()> {
     let cancel = CancellationToken::new();
     let (event_tx, mut event_rx) = mpsc::channel(32);
+    let mut progress_refresh = tokio::time::interval(Duration::from_secs(1));
+    progress_refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut listener = tokio::spawn({
         let provider = provider.clone();
         let cancel = cancel.clone();
@@ -125,6 +130,16 @@ async fn run_connected(
                         }
                     }
                     None => break Err(service_error("mpris provider event channel closed")),
+                }
+            }
+            _ = progress_refresh.tick(), if should_refresh_progress(&provider) => {
+                if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
+                    tracing::warn!(error = %error, "mpris service: progress refresh failed");
+                    let _ = state_tx.send_modify(|state| {
+                        state.health = MprisServiceHealth::Degraded {
+                            message: error.to_string(),
+                        };
+                    });
                 }
             }
             maybe_command = cmd_rx.recv() => {
@@ -166,6 +181,12 @@ async fn run_connected(
 
     cancel.cancel();
     result
+}
+
+fn should_refresh_progress(provider: &MprisProvider) -> bool {
+    provider.snapshot().players.iter().any(|player| {
+        player.playback_status == MprisPlaybackStatus::Playing && player.progress_visible
+    })
 }
 
 async fn refresh_snapshot(
