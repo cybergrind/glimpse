@@ -6,120 +6,170 @@ Gtk.Box network_vpn_openvpn_config_root {
   spacing: 12;
   width-request: 520;
 
-  Adw.PreferencesGroup network_vpn_openvpn_general_group {
-    title: "Connection";
-
-    Adw.EntryRow network_vpn_openvpn_name_row {
-      title: "Name";
-    }
-
-    Adw.SwitchRow network_vpn_openvpn_autoconnect_row {
-      title: "Connect Automatically";
-    }
+  Adw.ViewSwitcher network_vpn_openvpn_switcher {
+    stack: network_vpn_openvpn_stack;
+    policy: wide;
   }
 
-  Adw.PreferencesGroup network_vpn_openvpn_settings_group {
-    title: "OpenVPN";
+  Adw.ViewStack network_vpn_openvpn_stack {
+    hexpand: true;
+    vexpand: true;
 
-    Adw.EntryRow network_vpn_openvpn_gateway_row {
-      title: "Gateway";
-    }
+    Adw.ViewStackPage {
+      name: "general";
+      title: "General";
 
-    Adw.SpinRow network_vpn_openvpn_port_row {
-      title: "Port";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 65535;
-        step-increment: 1;
-        page-increment: 100;
-        value: 1194;
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
+
+        Adw.PreferencesGroup network_vpn_openvpn_general_group {
+          title: "Connection";
+
+          Adw.EntryRow network_vpn_openvpn_name_row {
+            title: "Name";
+          }
+
+          Adw.SwitchRow network_vpn_openvpn_autoconnect_row {
+            title: "Connect Automatically";
+          }
+        }
       };
     }
 
-    Adw.ComboRow network_vpn_openvpn_protocol_row {
-      title: "Protocol";
-    }
+    Adw.ViewStackPage {
+      name: "vpn";
+      title: "OpenVPN";
 
-    Adw.EntryRow network_vpn_openvpn_username_row {
-      title: "Username";
-    }
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
 
-    Adw.PasswordEntryRow network_vpn_openvpn_password_row {
-      title: "Password";
-    }
+        Adw.PreferencesGroup network_vpn_openvpn_settings_group {
+          title: "OpenVPN";
 
-    Adw.EntryRow network_vpn_openvpn_ca_cert_row {
-      title: "CA Certificate";
-    }
+          Adw.EntryRow network_vpn_openvpn_gateway_row {
+            title: "Gateway";
+          }
 
-    Adw.EntryRow network_vpn_openvpn_client_cert_row {
-      title: "Client Certificate";
-    }
+          Adw.SpinRow network_vpn_openvpn_port_row {
+            title: "Port";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 65535;
+              step-increment: 1;
+              page-increment: 100;
+              value: 1194;
+            };
+          }
 
-    Adw.EntryRow network_vpn_openvpn_private_key_row {
-      title: "Private Key";
-    }
-  }
+          Adw.ComboRow network_vpn_openvpn_protocol_row {
+            title: "Protocol";
+          }
 
-  Adw.PreferencesGroup network_vpn_openvpn_ipv4_group {
-    title: "IPv4";
+          Adw.EntryRow network_vpn_openvpn_username_row {
+            title: "Username";
+          }
 
-    Adw.ComboRow network_vpn_openvpn_ipv4_method_row {
-      title: "Method";
-    }
+          Adw.PasswordEntryRow network_vpn_openvpn_password_row {
+            title: "Password";
+          }
 
-    Adw.EntryRow network_vpn_openvpn_ipv4_address_row {
-      title: "Address";
-    }
+          Adw.EntryRow network_vpn_openvpn_ca_cert_row {
+            title: "CA Certificate";
+          }
 
-    Adw.SpinRow network_vpn_openvpn_ipv4_prefix_row {
-      title: "Prefix";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 32;
-        step-increment: 1;
-        page-increment: 4;
-        value: 24;
+          Adw.EntryRow network_vpn_openvpn_client_cert_row {
+            title: "Client Certificate";
+          }
+
+          Adw.EntryRow network_vpn_openvpn_private_key_row {
+            title: "Private Key";
+          }
+        }
       };
     }
 
-    Adw.EntryRow network_vpn_openvpn_ipv4_gateway_row {
-      title: "Gateway";
-    }
+    Adw.ViewStackPage {
+      name: "ipv4";
+      title: "IPv4";
 
-    Adw.EntryRow network_vpn_openvpn_ipv4_dns_row {
-      title: "DNS";
-    }
-  }
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
 
-  Adw.PreferencesGroup network_vpn_openvpn_ipv6_group {
-    title: "IPv6";
+        Adw.PreferencesGroup network_vpn_openvpn_ipv4_group {
+          title: "IPv4";
 
-    Adw.ComboRow network_vpn_openvpn_ipv6_method_row {
-      title: "Method";
-    }
+          Adw.ComboRow network_vpn_openvpn_ipv4_method_row {
+            title: "Method";
+          }
 
-    Adw.EntryRow network_vpn_openvpn_ipv6_address_row {
-      title: "Address";
-    }
+          Adw.EntryRow network_vpn_openvpn_ipv4_address_row {
+            title: "Address";
+          }
 
-    Adw.SpinRow network_vpn_openvpn_ipv6_prefix_row {
-      title: "Prefix";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 128;
-        step-increment: 1;
-        page-increment: 8;
-        value: 64;
+          Adw.SpinRow network_vpn_openvpn_ipv4_prefix_row {
+            title: "Prefix";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 32;
+              step-increment: 1;
+              page-increment: 4;
+              value: 24;
+            };
+          }
+
+          Adw.EntryRow network_vpn_openvpn_ipv4_gateway_row {
+            title: "Gateway";
+          }
+
+          Adw.EntryRow network_vpn_openvpn_ipv4_dns_row {
+            title: "DNS";
+          }
+        }
       };
     }
 
-    Adw.EntryRow network_vpn_openvpn_ipv6_gateway_row {
-      title: "Gateway";
-    }
+    Adw.ViewStackPage {
+      name: "ipv6";
+      title: "IPv6";
 
-    Adw.EntryRow network_vpn_openvpn_ipv6_dns_row {
-      title: "DNS";
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
+
+        Adw.PreferencesGroup network_vpn_openvpn_ipv6_group {
+          title: "IPv6";
+
+          Adw.ComboRow network_vpn_openvpn_ipv6_method_row {
+            title: "Method";
+          }
+
+          Adw.EntryRow network_vpn_openvpn_ipv6_address_row {
+            title: "Address";
+          }
+
+          Adw.SpinRow network_vpn_openvpn_ipv6_prefix_row {
+            title: "Prefix";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 128;
+              step-increment: 1;
+              page-increment: 8;
+              value: 64;
+            };
+          }
+
+          Adw.EntryRow network_vpn_openvpn_ipv6_gateway_row {
+            title: "Gateway";
+          }
+
+          Adw.EntryRow network_vpn_openvpn_ipv6_dns_row {
+            title: "DNS";
+          }
+        }
+      };
     }
   }
 }

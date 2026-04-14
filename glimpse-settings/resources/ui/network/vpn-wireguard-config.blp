@@ -6,142 +6,202 @@ Gtk.Box network_vpn_wireguard_config_root {
   spacing: 12;
   width-request: 520;
 
-  Adw.PreferencesGroup network_vpn_wireguard_general_group {
-    title: "Connection";
+  Adw.ViewSwitcher network_vpn_wireguard_switcher {
+    stack: network_vpn_wireguard_stack;
+    policy: wide;
+  }
 
-    Adw.EntryRow network_vpn_wireguard_name_row {
-      title: "Name";
+  Adw.ViewStack network_vpn_wireguard_stack {
+    hexpand: true;
+    vexpand: true;
+
+    Adw.ViewStackPage {
+      name: "general";
+      title: "General";
+
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
+
+        Adw.PreferencesGroup network_vpn_wireguard_general_group {
+          title: "Connection";
+
+          Adw.EntryRow network_vpn_wireguard_name_row {
+            title: "Name";
+          }
+
+          Adw.SwitchRow network_vpn_wireguard_autoconnect_row {
+            title: "Connect Automatically";
+          }
+
+          Adw.EntryRow network_vpn_wireguard_interface_row {
+            title: "Interface";
+          }
+        }
+      };
     }
 
-    Adw.SwitchRow network_vpn_wireguard_autoconnect_row {
-      title: "Connect Automatically";
-    }
-
-    Adw.EntryRow network_vpn_wireguard_interface_row {
+    Adw.ViewStackPage {
+      name: "interface";
       title: "Interface";
-    }
-  }
 
-  Adw.PreferencesGroup network_vpn_wireguard_settings_group {
-    title: "WireGuard";
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
 
-    Adw.PasswordEntryRow network_vpn_wireguard_private_key_row {
-      title: "Private Key";
-    }
+        Adw.PreferencesGroup network_vpn_wireguard_settings_group {
+          title: "WireGuard";
 
-    Adw.SpinRow network_vpn_wireguard_listen_port_row {
-      title: "Listen Port";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 65535;
-        step-increment: 1;
-        page-increment: 100;
-        value: 51820;
+          Adw.PasswordEntryRow network_vpn_wireguard_private_key_row {
+            title: "Private Key";
+          }
+
+          Adw.SpinRow network_vpn_wireguard_listen_port_row {
+            title: "Listen Port";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 65535;
+              step-increment: 1;
+              page-increment: 100;
+              value: 51820;
+            };
+          }
+
+          Adw.SpinRow network_vpn_wireguard_mtu_row {
+            title: "MTU";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 65535;
+              step-increment: 1;
+              page-increment: 100;
+              value: 1420;
+            };
+          }
+        }
       };
     }
 
-    Adw.SpinRow network_vpn_wireguard_mtu_row {
-      title: "MTU";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 65535;
-        step-increment: 1;
-        page-increment: 100;
-        value: 1420;
-      };
-    }
-  }
+    Adw.ViewStackPage {
+      name: "peer";
+      title: "Peer";
 
-  Adw.PreferencesGroup network_vpn_wireguard_peer_group {
-    title: "Peer";
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
 
-    Adw.EntryRow network_vpn_wireguard_peer_public_key_row {
-      title: "Public Key";
-    }
+        Adw.PreferencesGroup network_vpn_wireguard_peer_group {
+          title: "Peer";
 
-    Adw.PasswordEntryRow network_vpn_wireguard_peer_preshared_key_row {
-      title: "Preshared Key";
-    }
+          Adw.EntryRow network_vpn_wireguard_peer_public_key_row {
+            title: "Public Key";
+          }
 
-    Adw.EntryRow network_vpn_wireguard_peer_endpoint_row {
-      title: "Endpoint";
-    }
+          Adw.PasswordEntryRow network_vpn_wireguard_peer_preshared_key_row {
+            title: "Preshared Key";
+          }
 
-    Adw.EntryRow network_vpn_wireguard_peer_allowed_ips_row {
-      title: "Allowed IPs";
-    }
+          Adw.EntryRow network_vpn_wireguard_peer_endpoint_row {
+            title: "Endpoint";
+          }
 
-    Adw.SpinRow network_vpn_wireguard_peer_keepalive_row {
-      title: "Persistent Keepalive";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 65535;
-        step-increment: 1;
-        page-increment: 5;
-        value: 25;
-      };
-    }
-  }
+          Adw.EntryRow network_vpn_wireguard_peer_allowed_ips_row {
+            title: "Allowed IPs";
+          }
 
-  Adw.PreferencesGroup network_vpn_wireguard_ipv4_group {
-    title: "IPv4";
-
-    Adw.ComboRow network_vpn_wireguard_ipv4_method_row {
-      title: "Method";
-    }
-
-    Adw.EntryRow network_vpn_wireguard_ipv4_address_row {
-      title: "Address";
-    }
-
-    Adw.SpinRow network_vpn_wireguard_ipv4_prefix_row {
-      title: "Prefix";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 32;
-        step-increment: 1;
-        page-increment: 4;
-        value: 24;
+          Adw.SpinRow network_vpn_wireguard_peer_keepalive_row {
+            title: "Persistent Keepalive";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 65535;
+              step-increment: 1;
+              page-increment: 5;
+              value: 25;
+            };
+          }
+        }
       };
     }
 
-    Adw.EntryRow network_vpn_wireguard_ipv4_gateway_row {
-      title: "Gateway";
-    }
+    Adw.ViewStackPage {
+      name: "ipv4";
+      title: "IPv4";
 
-    Adw.EntryRow network_vpn_wireguard_ipv4_dns_row {
-      title: "DNS";
-    }
-  }
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
 
-  Adw.PreferencesGroup network_vpn_wireguard_ipv6_group {
-    title: "IPv6";
+        Adw.PreferencesGroup network_vpn_wireguard_ipv4_group {
+          title: "IPv4";
 
-    Adw.ComboRow network_vpn_wireguard_ipv6_method_row {
-      title: "Method";
-    }
+          Adw.ComboRow network_vpn_wireguard_ipv4_method_row {
+            title: "Method";
+          }
 
-    Adw.EntryRow network_vpn_wireguard_ipv6_address_row {
-      title: "Address";
-    }
+          Adw.EntryRow network_vpn_wireguard_ipv4_address_row {
+            title: "Address";
+          }
 
-    Adw.SpinRow network_vpn_wireguard_ipv6_prefix_row {
-      title: "Prefix";
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 128;
-        step-increment: 1;
-        page-increment: 8;
-        value: 64;
+          Adw.SpinRow network_vpn_wireguard_ipv4_prefix_row {
+            title: "Prefix";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 32;
+              step-increment: 1;
+              page-increment: 4;
+              value: 24;
+            };
+          }
+
+          Adw.EntryRow network_vpn_wireguard_ipv4_gateway_row {
+            title: "Gateway";
+          }
+
+          Adw.EntryRow network_vpn_wireguard_ipv4_dns_row {
+            title: "DNS";
+          }
+        }
       };
     }
 
-    Adw.EntryRow network_vpn_wireguard_ipv6_gateway_row {
-      title: "Gateway";
-    }
+    Adw.ViewStackPage {
+      name: "ipv6";
+      title: "IPv6";
 
-    Adw.EntryRow network_vpn_wireguard_ipv6_dns_row {
-      title: "DNS";
+      child: Gtk.Box {
+        orientation: vertical;
+        spacing: 12;
+
+        Adw.PreferencesGroup network_vpn_wireguard_ipv6_group {
+          title: "IPv6";
+
+          Adw.ComboRow network_vpn_wireguard_ipv6_method_row {
+            title: "Method";
+          }
+
+          Adw.EntryRow network_vpn_wireguard_ipv6_address_row {
+            title: "Address";
+          }
+
+          Adw.SpinRow network_vpn_wireguard_ipv6_prefix_row {
+            title: "Prefix";
+            adjustment: Gtk.Adjustment {
+              lower: 0;
+              upper: 128;
+              step-increment: 1;
+              page-increment: 8;
+              value: 64;
+            };
+          }
+
+          Adw.EntryRow network_vpn_wireguard_ipv6_gateway_row {
+            title: "Gateway";
+          }
+
+          Adw.EntryRow network_vpn_wireguard_ipv6_dns_row {
+            title: "DNS";
+          }
+        }
+      };
     }
   }
 }
