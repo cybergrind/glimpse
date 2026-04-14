@@ -4,14 +4,16 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::{
+    Component, ComponentController, Controller,
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
 
+use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};
+
 pub struct BluetoothHero {
-    icon_name: String,
-    subtitle: String,
-    powered: bool,
+    row: Controller<HeroRow>,
+    icon: gtk::Image,
     power_switch: gtk::Switch,
     updating_power: Rc<Cell<bool>>,
 }
@@ -39,40 +41,8 @@ impl SimpleComponent for BluetoothHero {
 
     view! {
         gtk::Box {
-            set_spacing: 12,
-            add_css_class: "bt-hero",
-
-            gtk::Image {
-                #[watch]
-                set_icon_name: Some(&model.icon_name),
-                set_pixel_size: 32,
-            },
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 2,
-                set_hexpand: true,
-                set_valign: gtk::Align::Center,
-
-                gtk::Label {
-                    set_label: "Bluetooth",
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "bt-title",
-                },
-
-                gtk::Label {
-                    #[watch]
-                    set_label: &model.subtitle,
-                    set_halign: gtk::Align::Start,
-                    add_css_class: "bt-subtitle",
-                },
-            },
-
-            #[name(power_switch)]
-            gtk::Switch {
-                set_valign: gtk::Align::Center,
-                set_tooltip_text: Some("Toggle all adapters"),
-            },
+            #[local_ref]
+            row_widget -> gtk::Box {}
         }
     }
 
@@ -81,20 +51,45 @@ impl SimpleComponent for BluetoothHero {
         _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let row = HeroRow::builder()
+            .launch(HeroRowInit {
+                title: "Bluetooth".into(),
+                subtitle: "Off".into(),
+            })
+            .detach();
+        let row_widget = row.widget().clone();
+        let media = row_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose media slot");
+        let content = media
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose content slot");
+        let trailing = content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("hero row should expose trailing slot");
+
+        let icon = gtk::Image::from_icon_name("bluetooth-disabled-symbolic");
+        icon.set_pixel_size(32);
+        media.append(&icon);
+
+        let power_switch = gtk::Switch::new();
+        power_switch.set_valign(gtk::Align::Center);
+        power_switch.set_tooltip_text(Some("Toggle all adapters"));
+        trailing.append(&power_switch);
+
         let model = BluetoothHero {
-            icon_name: "bluetooth-disabled-symbolic".into(),
-            subtitle: "Off".into(),
-            powered: false,
-            power_switch: gtk::Switch::new(),
+            row,
+            icon,
+            power_switch,
             updating_power: Rc::new(Cell::new(false)),
         };
         let widgets = view_output!();
-        let mut model = model;
-        model.power_switch = widgets.power_switch.clone();
-
         let guard = model.updating_power.clone();
         let sender = _sender.clone();
-        widgets.power_switch.connect_state_set(move |_, active| {
+        model.power_switch.connect_state_set(move |_, active| {
             if guard.get() {
                 return glib::Propagation::Stop;
             }
@@ -114,21 +109,21 @@ impl SimpleComponent for BluetoothHero {
             activity,
         } = msg;
 
-        self.powered = powered;
         if self.power_switch.is_active() != powered {
             self.updating_power.set(true);
             self.power_switch.set_active(powered);
             self.power_switch.set_state(powered);
             self.updating_power.set(false);
         }
-        self.icon_name = if powered {
+        self.icon.set_icon_name(Some(if powered {
             "bluetooth-active-symbolic"
         } else {
             "bluetooth-disabled-symbolic"
-        }
-        .into();
-        self.subtitle =
-            hero_subtitle_text(powered, discovering, connected_count, activity.as_deref());
+        }));
+        self.row.emit(HeroRowInput::Update {
+            title: "Bluetooth".into(),
+            subtitle: hero_subtitle_text(powered, discovering, connected_count, activity.as_deref()),
+        });
     }
 }
 

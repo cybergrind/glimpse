@@ -353,65 +353,8 @@
     min-width: 360px;
 }
 
-.bluetooth-popover contents>box {
-    margin: var(--popover-padding);
-}
-
-.bluetooth-popover separator {
-    margin-top: var(--popover-section-spacing);
-    margin-bottom: var(--popover-section-spacing);
-}
-
-.bluetooth-popover .bt-hero {
-    margin-bottom: 4px;
-}
-
-.bluetooth-popover .bt-title {
-    font-size: 15px;
-    font-weight: 600;
-}
-
-.bluetooth-popover .bt-subtitle {
-    font-size: 12px;
-    opacity: var(--dim-opacity);
-}
-
-.bluetooth-popover .bt-empty {
-    font-size: 12px;
-    opacity: 0.4;
-    padding: 4px 0;
-}
-
-.bluetooth-popover .bt-device-btn {
-    padding: 4px 6px;
-    font-weight: normal;
-}
-
-.bluetooth-popover .bt-device-btn label {
-    font-weight: normal;
-}
-
-.bluetooth-popover .bt-device-icon {
-    opacity: 0.6;
-}
-
 .bluetooth-popover .bt-device-icon-active {
-    color: var(--accent-bg);
-}
-
-.bluetooth-popover .bt-battery {
-    opacity: 0.5;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-}
-
-.bluetooth-popover .settings-btn {
-    margin-top: 4px;
-    font-weight: normal;
-}
-
-.bluetooth-popover .settings-btn label {
-    font-weight: normal;
+    color: var(--color-accent);
 }
 
 .bt-prompt-content {

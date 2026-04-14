@@ -154,6 +154,28 @@ fn session_popover_reuses_shared_shell_hero_and_action_row_primitives() {
 }
 
 #[test]
+fn bluetooth_popover_reuses_shared_shell_hero_row_footer_and_empty_state_primitives() {
+    for selector in [
+        ".bluetooth-popover contents>box {",
+        ".bluetooth-popover separator {",
+        ".bluetooth-popover .bt-hero {",
+        ".bluetooth-popover .bt-title {",
+        ".bluetooth-popover .bt-subtitle {",
+        ".bluetooth-popover .bt-empty {",
+        ".bluetooth-popover .bt-device-btn {",
+        ".bluetooth-popover .bt-device-btn label {",
+        ".bluetooth-popover .bt-battery {",
+        ".bluetooth-popover .settings-btn {",
+        ".bluetooth-popover .settings-btn label {",
+    ] {
+        assert!(
+            !LEGACY_THEME_CSS.contains(selector),
+            "theme.css should not keep bluetooth-specific override `{selector}`",
+        );
+    }
+}
+
+#[test]
 fn adwaita_css_maps_semantic_tokens_from_gtk_symbolic_colors() {
     for token in [
         "--color-bg:",

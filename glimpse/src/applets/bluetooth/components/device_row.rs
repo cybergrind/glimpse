@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 use relm4::{
+    Component, ComponentController, Controller,
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
 
+use crate::components::action_row::{ActionRow, ActionRowInit, ActionRowInput};
 use super::{BluetoothDeviceAction, BtDevice};
 
 pub struct BluetoothDeviceRow {
@@ -12,7 +14,10 @@ pub struct BluetoothDeviceRow {
     tooltip: String,
     battery_text: String,
     battery_visible: bool,
+    row: Controller<ActionRow>,
+    button: gtk::Button,
     icon: gtk::Image,
+    battery_label: gtk::Label,
     spinner: gtk::Spinner,
     popover_menu: gtk::PopoverMenu,
     connecting: bool,
@@ -44,73 +49,77 @@ impl SimpleComponent for BluetoothDeviceRow {
     type Output = BluetoothDeviceRowOutput;
 
     view! {
-        root = gtk::Button {
-            add_css_class: "flat",
-            add_css_class: "bt-device-btn",
-            #[watch]
-            set_tooltip_text: Some(&model.tooltip),
-            connect_clicked => BluetoothDeviceRowInput::Activate,
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 8,
-                add_css_class: "bt-device-row",
-
-                #[name(icon)]
-                gtk::Image {
-                    #[watch]
-                    set_icon_name: Some(&model.device.icon),
-                    set_pixel_size: 16,
-                    set_valign: gtk::Align::Center,
-                },
-
-                gtk::Label {
-                    #[watch]
-                    set_label: &model.device.name,
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Start,
-                    set_ellipsize: gtk::pango::EllipsizeMode::End,
-                    set_max_width_chars: 25,
-                },
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 4,
-                    set_valign: gtk::Align::Center,
-
-                    gtk::Label {
-                        #[watch]
-                        set_visible: model.battery_visible,
-                        #[watch]
-                        set_label: &model.battery_text,
-                        add_css_class: "bt-battery",
-                    },
-
-                    #[name(spinner)]
-                    gtk::Spinner {
-                        #[watch]
-                        set_visible: model.connecting,
-                        set_valign: gtk::Align::Center,
-                    },
-                },
-            }
+        root = gtk::Box {
+            #[local_ref]
+            row_widget -> gtk::Box {}
         }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.add_css_class("bt-device-btn");
+        let row = ActionRow::builder()
+            .launch(ActionRowInit {
+                title: init.name.clone(),
+                subtitle: String::new(),
+                variant: Default::default(),
+            })
+            .detach();
+        let row_widget = row.widget().clone();
+        let button = row_widget
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("action row should expose button");
+        let shell = button
+            .child()
+            .and_downcast::<gtk::Box>()
+            .expect("action row button should expose shell");
+        let leading = shell
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("action row shell should expose leading slot");
+        let content = leading
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("action row shell should expose content slot");
+        let trailing = button
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("action row should expose trailing slot");
+
+        let icon = gtk::Image::from_icon_name(&init.icon);
+        icon.set_pixel_size(16);
+        icon.set_valign(gtk::Align::Center);
+        leading.append(&icon);
+
+        let title = content
+            .first_child()
+            .and_downcast::<gtk::Label>()
+            .expect("action row content should expose title label");
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_max_width_chars(25);
+
+        let battery_label = gtk::Label::new(None);
+        battery_label.add_css_class("action-row__meta");
+        battery_label.set_valign(gtk::Align::Center);
+        trailing.append(&battery_label);
+
+        let spinner = gtk::Spinner::new();
+        spinner.set_valign(gtk::Align::Center);
+        trailing.append(&spinner);
 
         let model = BluetoothDeviceRow {
             tooltip: device_tooltip(&init),
             battery_text: battery_text(init.battery),
             battery_visible: init.battery.is_some(),
             device: init.clone(),
-            icon: gtk::Image::new(),
-            spinner: gtk::Spinner::new(),
+            row,
+            button: button.clone(),
+            icon: icon.clone(),
+            battery_label: battery_label.clone(),
+            spinner: spinner.clone(),
             popover_menu: gtk::PopoverMenu::from_model(None::<&gtk::gio::MenuModel>),
             connecting: false,
             pending_action: None,
@@ -118,18 +127,18 @@ impl SimpleComponent for BluetoothDeviceRow {
         };
 
         let widgets = view_output!();
-        widgets.icon.set_pixel_size(16);
-        widgets.icon.set_valign(gtk::Align::Center);
-        apply_icon_style(&widgets.icon, model.device.connected);
-        widgets.spinner.set_visible(false);
-        widgets.spinner.set_valign(gtk::Align::Center);
+        button.set_tooltip_text(Some(&model.tooltip));
+        apply_icon_style(&icon, model.device.connected);
+        battery_label.set_label(&model.battery_text);
+        battery_label.set_visible(model.battery_visible);
+        spinner.set_visible(false);
 
-        let button = widgets.root.clone();
-        let menu_model = build_menu(
-            model.device.connected,
-            model.device.paired,
-            model.device.trusted,
-        );
+        let click_sender = sender.clone();
+        button.connect_clicked(move |_| {
+            click_sender.input(BluetoothDeviceRowInput::Activate);
+        });
+
+        let menu_model = build_menu(model.device.connected, model.device.paired, model.device.trusted);
         let popover_menu = gtk::PopoverMenu::from_model(Some(&menu_model));
         popover_menu.set_parent(&button);
         popover_menu.set_has_arrow(false);
@@ -160,8 +169,6 @@ impl SimpleComponent for BluetoothDeviceRow {
         button.add_controller(right_click);
 
         let mut model = model;
-        model.icon = widgets.icon.clone();
-        model.spinner = widgets.spinner.clone();
         model.popover_menu = popover_menu;
 
         ComponentParts { model, widgets }
@@ -174,11 +181,20 @@ impl SimpleComponent for BluetoothDeviceRow {
                 self.tooltip = device_tooltip(&self.device);
                 self.battery_text = battery_text(self.device.battery);
                 self.battery_visible = self.device.battery.is_some();
-                self.popover_menu.set_menu_model(Some(&build_menu(
-                    self.device.connected,
-                    self.device.paired,
-                    self.device.trusted,
-                )));
+                self.row.emit(ActionRowInput::Update {
+                    title: self.device.name.clone(),
+                    subtitle: String::new(),
+                });
+                self.button.set_tooltip_text(Some(&self.tooltip));
+                self.battery_label.set_label(&self.battery_text);
+                self.battery_label.set_visible(self.battery_visible);
+                self.icon.set_icon_name(Some(&self.device.icon));
+                self.popover_menu
+                    .set_menu_model(Some(&build_menu(
+                        self.device.connected,
+                        self.device.paired,
+                        self.device.trusted,
+                    )));
                 apply_icon_style(&self.icon, self.device.connected);
                 if self.connecting
                     && self
@@ -218,7 +234,11 @@ impl SimpleComponent for BluetoothDeviceRow {
 }
 
 impl BluetoothDeviceRow {
-    fn start_action(&mut self, action: BluetoothDeviceAction, sender: ComponentSender<Self>) {
+    fn start_action(
+        &mut self,
+        action: BluetoothDeviceAction,
+        sender: ComponentSender<Self>,
+    ) {
         tracing::info!(
             ?action,
             address = %self.device.address,
@@ -302,9 +322,7 @@ fn setup_actions(
     let action = gtk::gio::SimpleAction::new("forget", None);
     action.connect_activate(move |_, _| {
         tracing::debug!(address = %addr, name = %dev_name, "bluetooth ui: forget action activated");
-        let _ = sender.input(BluetoothDeviceRowInput::StartAction(
-            BluetoothDeviceAction::Forget,
-        ));
+        let _ = sender.input(BluetoothDeviceRowInput::StartAction(BluetoothDeviceAction::Forget));
     });
     group.add_action(&action);
 }
@@ -331,11 +349,9 @@ fn action_observed_complete(action: BluetoothDeviceAction, dev: &BtDevice) -> bo
 
 fn apply_icon_style(icon: &gtk::Image, connected: bool) {
     if connected {
-        icon.remove_css_class("bt-device-icon");
         icon.add_css_class("bt-device-icon-active");
     } else {
         icon.remove_css_class("bt-device-icon-active");
-        icon.add_css_class("bt-device-icon");
     }
 }
 

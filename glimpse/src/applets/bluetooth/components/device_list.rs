@@ -6,6 +6,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::empty_state::{EmptyState, EmptyStateInit};
 use super::{
     BluetoothDeviceAction, BluetoothDeviceRow, BluetoothDeviceRowInput, BluetoothDeviceRowOutput,
     BtDevice,
@@ -13,7 +14,7 @@ use super::{
 
 pub struct BluetoothDeviceList {
     connected_count: u32,
-    empty_label: gtk::Label,
+    empty_state: Controller<EmptyState>,
     rows: FactoryVecDeque<BluetoothDeviceRowItem>,
 }
 
@@ -62,7 +63,7 @@ impl FactoryComponent for BluetoothDeviceRowItem {
     type Output = BluetoothDeviceListOutput;
     type CommandOutput = ();
     type ParentWidget = gtk::Box;
-    type Root = gtk::Button;
+    type Root = gtk::Box;
     type Widgets = ();
     type Index = DynamicIndex;
 
@@ -106,13 +107,8 @@ impl SimpleComponent for BluetoothDeviceList {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 0,
 
-            #[name(empty_label)]
-            gtk::Label {
-                set_visible: true,
-                set_label: "No devices",
-                set_halign: gtk::Align::Start,
-                add_css_class: "bt-empty",
-            },
+            #[local_ref]
+            empty_state_widget -> gtk::Box {},
 
             gtk::ScrolledWindow {
                 set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
@@ -130,8 +126,15 @@ impl SimpleComponent for BluetoothDeviceList {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let empty_state = EmptyState::builder()
+            .launch(EmptyStateInit {
+                title: "No devices".into(),
+                subtitle: String::new(),
+            })
+            .detach();
         let rows_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         rows_box.add_css_class("bt-device-list");
+        let empty_state_widget = empty_state.widget().clone();
 
         let rows = FactoryVecDeque::builder()
             .launch(rows_box.clone())
@@ -141,11 +144,10 @@ impl SimpleComponent for BluetoothDeviceList {
 
         let model = BluetoothDeviceList {
             connected_count: 0,
-            empty_label: widgets.empty_label.clone(),
+            empty_state,
             rows,
         };
-
-        model.empty_label.set_visible(true);
+        model.empty_state.widget().set_visible(true);
 
         ComponentParts { model, widgets }
     }
@@ -171,7 +173,7 @@ impl BluetoothDeviceList {
     fn sync_rows(&mut self, devices: Vec<BtDevice>) {
         let visible = visible_devices(&devices);
         self.connected_count = visible.iter().filter(|device| device.connected).count() as u32;
-        self.empty_label.set_visible(visible.is_empty());
+        self.empty_state.widget().set_visible(visible.is_empty());
 
         let next_keys = visible
             .iter()
