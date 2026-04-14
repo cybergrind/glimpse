@@ -22,6 +22,7 @@ impl SimpleComponent for DegradedWarning {
     view! {
         gtk::Box {
             add_css_class: "profile-degraded-row",
+            add_css_class: "is-warning",
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 6,
             #[watch]

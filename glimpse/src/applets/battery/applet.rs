@@ -69,6 +69,7 @@ impl Component for Battery {
                 #[watch]
                 set_icon_name: Some(&model.icon_name),
                 set_pixel_size: 16,
+                set_valign: gtk::Align::Center,
                 #[watch]
                 set_visible: model.config.show_icon,
             },
@@ -77,6 +78,7 @@ impl Component for Battery {
                 #[watch]
                 set_label: &model.label,
                 add_css_class: "battery-label",
+                set_valign: gtk::Align::Center,
                 #[watch]
                 set_visible: !model.label.is_empty(),
             },

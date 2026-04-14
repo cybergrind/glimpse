@@ -79,7 +79,8 @@ Override: set `GLIMPSED_SOCKET` environment variable.
 | File | Location |
 |------|----------|
 | Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./config.toml` |
-| Theme CSS | `$XDG_CONFIG_HOME/glimpse/theme.css` or `./theme.css` |
+| User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
+| Built-in structure/theme layers | embedded in `glimpse-panel` binary |
 
 ## Arch Linux PKGBUILD notes
 

@@ -27,84 +27,85 @@ impl SimpleComponent for BatteryDetails {
     view! {
         gtk::Box {
             add_css_class: "battery-details",
+            add_css_class: "detail-grid",
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 0,
 
             gtk::Box {
-                add_css_class: "detail-row",
+                add_css_class: "detail-grid__row",
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
 
                 gtk::Label {
-                    add_css_class: "detail-key",
+                    add_css_class: "detail-grid__key",
                     set_label: "Health",
                     set_hexpand: true,
                     set_halign: gtk::Align::Start,
                 },
 
                 gtk::Label {
-                    add_css_class: "detail-val",
+                    add_css_class: "detail-grid__value",
                     #[watch]
                     set_label: &model.health,
                 },
             },
 
             gtk::Box {
-                add_css_class: "detail-row",
+                add_css_class: "detail-grid__row",
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
 
                 gtk::Label {
-                    add_css_class: "detail-key",
+                    add_css_class: "detail-grid__key",
                     set_label: "Model",
                     set_hexpand: true,
                     set_halign: gtk::Align::Start,
                 },
 
                 gtk::Label {
-                    add_css_class: "detail-val",
+                    add_css_class: "detail-grid__value",
                     #[watch]
                     set_label: &model.model_name,
                 },
             },
 
             gtk::Box {
-                add_css_class: "detail-row",
+                add_css_class: "detail-grid__row",
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 #[watch]
                 set_visible: model.show_rate,
 
                 gtk::Label {
-                    add_css_class: "detail-key",
+                    add_css_class: "detail-grid__key",
                     set_label: "Rate",
                     set_hexpand: true,
                     set_halign: gtk::Align::Start,
                 },
 
                 gtk::Label {
-                    add_css_class: "detail-val",
+                    add_css_class: "detail-grid__value",
                     #[watch]
                     set_label: &model.rate,
                 },
             },
 
             gtk::Box {
-                add_css_class: "detail-row",
+                add_css_class: "detail-grid__row",
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 #[watch]
                 set_visible: model.show_charge_limit,
 
                 gtk::Label {
-                    add_css_class: "detail-key",
+                    add_css_class: "detail-grid__key",
                     set_label: "Charge limit",
                     set_hexpand: true,
                     set_halign: gtk::Align::Start,
                 },
 
                 gtk::Label {
-                    add_css_class: "detail-val",
+                    add_css_class: "detail-grid__value",
                     #[watch]
                     set_label: &model.charge_limit,
                 },

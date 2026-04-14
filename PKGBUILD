@@ -38,5 +38,4 @@ package() {
     install -Dm755 "target/release/glimpse-panel" "$pkgdir/usr/bin/glimpse-panel"
     install -Dm644 "data/glimpse-panel.service" \
         "$pkgdir/usr/lib/systemd/user/glimpse-panel.service"
-    install -Dm644 "theme.css" "$pkgdir/usr/share/glimpse/theme.css"
 }

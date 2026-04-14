@@ -1,21 +1,103 @@
-use std::collections::HashMap;
-
 use glimpse::power::provider::PowerProfiles;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 
-struct ProfileRow {
-    button: gtk::Button,
-    check: gtk::Image,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PowerProfileRowView {
+    profile: String,
+    display: &'static str,
+    active: bool,
+}
+
+struct PowerProfileRow {
+    profile: String,
+    display: &'static str,
+    active: bool,
+}
+
+#[derive(Debug)]
+enum PowerProfileRowInput {
+    SetActive(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PowerProfileRowOutput {
+    SetProfile(String),
+}
+
+#[relm4::component]
+impl SimpleComponent for PowerProfileRow {
+    type Init = PowerProfileRowView;
+    type Input = PowerProfileRowInput;
+    type Output = PowerProfileRowOutput;
+
+    view! {
+        root = gtk::Button {
+            add_css_class: "flat",
+            add_css_class: "action-row",
+            add_css_class: "action-row__button",
+            add_css_class: "profile-btn",
+            connect_clicked[sender, profile = model.profile.clone()] => move |_| {
+                let _ = sender.output(PowerProfileRowOutput::SetProfile(profile.clone()));
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 8,
+                add_css_class: "profile-row",
+                add_css_class: "action-row__content-shell",
+
+                gtk::Image {
+                    set_icon_name: Some(profile_icon(&model.profile)),
+                    set_pixel_size: 16,
+                    add_css_class: "profile-icon",
+                    add_css_class: "action-row__leading",
+                },
+
+                gtk::Label {
+                    set_label: model.display,
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "action-row__title",
+                },
+
+                gtk::Image {
+                    set_icon_name: Some("object-select-symbolic"),
+                    set_pixel_size: 14,
+                    add_css_class: "profile-check",
+                    add_css_class: "action-row__trailing",
+                    #[watch]
+                    set_visible: model.active,
+                },
+            }
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = PowerProfileRow {
+            profile: init.profile,
+            display: init.display,
+            active: init.active,
+        };
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        let PowerProfileRowInput::SetActive(active) = msg;
+        self.active = active;
+    }
 }
 
 pub struct PowerProfileList {
+    rows: Vec<Controller<PowerProfileRow>>,
     list: gtk::Box,
-    rows: HashMap<String, ProfileRow>,
-    order: Vec<String>,
-    active: String,
 }
 
 #[derive(Debug)]
@@ -28,135 +110,96 @@ pub enum PowerProfileListOutput {
     SetProfile(String),
 }
 
+#[relm4::component(pub)]
 impl SimpleComponent for PowerProfileList {
     type Init = ();
     type Input = PowerProfileListInput;
     type Output = PowerProfileListOutput;
-    type Root = gtk::Box;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        gtk::Box::new(gtk::Orientation::Vertical, 0)
+    view! {
+        root = gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+            set_spacing: 0,
+            add_css_class: "power-profile-section",
+            add_css_class: "section-block",
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 0,
+                add_css_class: "section-block__header",
+
+                gtk::Label {
+                    set_label: "Power profile",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "section-block__title",
+                },
+            },
+
+            #[name(list)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 0,
+                add_css_class: "profile-list",
+                add_css_class: "section-block__body",
+            },
+        }
     }
 
     fn init(
         _init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        root.add_css_class("power-profile-section");
-
-        let label = gtk::Label::new(Some("Power profile"));
-        label.set_halign(gtk::Align::Start);
-        label.add_css_class("detail-key");
-        root.append(&label);
-
-        let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        list.add_css_class("profile-list");
-        root.append(&list);
-
         let model = PowerProfileList {
-            list,
-            rows: HashMap::new(),
-            order: Vec::new(),
-            active: String::new(),
+            rows: Vec::new(),
+            list: gtk::Box::new(gtk::Orientation::Vertical, 0),
         };
-        ComponentParts { model, widgets: () }
+        let widgets = view_output!();
+        let mut model = model;
+        model.list = widgets.list.clone();
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
-        match msg {
-            PowerProfileListInput::Update(profiles) => {
-                let desired_order: Vec<String> = profiles
-                    .available
-                    .iter()
-                    .filter(|name| !name.is_empty())
-                    .cloned()
-                    .collect();
-
-                if self.order != desired_order {
-                    let removed: Vec<String> = self
-                        .rows
-                        .keys()
-                        .filter(|name| !desired_order.contains(*name))
-                        .cloned()
-                        .collect();
-
-                    for name in removed {
-                        if let Some(row) = self.rows.remove(&name) {
-                            self.list.remove(&row.button);
-                        }
-                    }
-
-                    for name in &desired_order {
-                        if !self.rows.contains_key(name) {
-                            self.rows
-                                .insert(name.clone(), build_profile_row(name, sender.clone()));
-                        }
-                    }
-
-                    while let Some(child) = self.list.first_child() {
-                        self.list.remove(&child);
-                    }
-
-                    for name in &desired_order {
-                        if let Some(row) = self.rows.get(name) {
-                            self.list.append(&row.button);
-                        }
-                    }
-
-                    self.order = desired_order;
-                }
-
-                if self.active != profiles.active {
-                    if let Some(row) = self.rows.get(&self.active) {
-                        row.check.set_visible(false);
-                    }
-                    if let Some(row) = self.rows.get(&profiles.active) {
-                        row.check.set_visible(true);
-                    }
-                    self.active = profiles.active.clone();
-                }
-
-                for (name, row) in &self.rows {
-                    row.check.set_visible(*name == profiles.active);
-                }
-            }
-        }
+        let PowerProfileListInput::Update(profiles) = msg;
+        let rows = build_profile_rows(&profiles);
+        render_profile_rows(&self.list, &rows, &sender, &mut self.rows);
     }
 }
 
-fn build_profile_row(name: &str, sender: ComponentSender<PowerProfileList>) -> ProfileRow {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row.add_css_class("profile-row");
+fn build_profile_rows(profiles: &PowerProfiles) -> Vec<PowerProfileRowView> {
+    profiles
+        .available
+        .iter()
+        .filter(|name| !name.is_empty())
+        .map(|name| PowerProfileRowView {
+            profile: name.clone(),
+            display: profile_display_name(name),
+            active: name == &profiles.active,
+        })
+        .collect()
+}
 
-    let icon = gtk::Image::from_icon_name(profile_icon(name));
-    icon.set_pixel_size(16);
-    icon.add_css_class("profile-icon");
-    row.append(&icon);
+fn render_profile_rows(
+    container: &gtk::Box,
+    rows: &[PowerProfileRowView],
+    sender: &ComponentSender<PowerProfileList>,
+    row_components: &mut Vec<Controller<PowerProfileRow>>,
+) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+    row_components.clear();
 
-    let label = gtk::Label::new(Some(profile_display_name(name)));
-    label.set_hexpand(true);
-    label.set_halign(gtk::Align::Start);
-    row.append(&label);
-
-    let check = gtk::Image::from_icon_name("object-select-symbolic");
-    check.set_pixel_size(14);
-    check.add_css_class("profile-check");
-    check.set_visible(false);
-    row.append(&check);
-
-    let button = gtk::Button::new();
-    button.set_child(Some(&row));
-    button.add_css_class("flat");
-    button.add_css_class("profile-btn");
-
-    let profile = name.to_string();
-    button.connect_clicked(move |_| {
-        let _ = sender.output(PowerProfileListOutput::SetProfile(profile.clone()));
-    });
-
-    ProfileRow { button, check }
+    for row in rows.iter().cloned() {
+        let component = PowerProfileRow::builder()
+            .launch(row)
+            .forward(sender.output_sender(), |output| match output {
+                PowerProfileRowOutput::SetProfile(profile) => PowerProfileListOutput::SetProfile(profile),
+            });
+        container.append(component.widget());
+        row_components.push(component);
+    }
 }
 
 fn profile_icon(profile: &str) -> &'static str {

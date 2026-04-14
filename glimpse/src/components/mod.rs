@@ -6,6 +6,3 @@ pub mod footer_action;
 pub mod hero_row;
 pub mod popover_shell;
 pub mod section_block;
-
-#[cfg(test)]
-mod style_contract_tests;

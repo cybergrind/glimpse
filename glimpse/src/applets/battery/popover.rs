@@ -7,6 +7,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit},
+};
 use super::components::degraded::{DegradedWarning, DegradedWarningInput};
 use super::components::details::{BatteryDetails, BatteryDetailsInput};
 use super::components::hero::{BatteryHero, BatteryHeroInput};
@@ -16,10 +20,12 @@ use super::components::profiles::{
 
 pub struct BatteryPopover {
     popover: gtk::Popover,
+    shell: Controller<PopoverShell>,
     hero: Controller<BatteryHero>,
     details: Controller<BatteryDetails>,
     profiles: Controller<PowerProfileList>,
     degraded: Controller<DegradedWarning>,
+    footer: Controller<FooterAction>,
 }
 
 pub struct BatteryPopoverInit {
@@ -49,52 +55,10 @@ impl SimpleComponent for BatteryPopover {
     view! {
         root = gtk::Popover {
             add_css_class: "battery-popover",
+            set_hexpand: false,
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 0,
-                set_hexpand: false,
-                set_overflow: gtk::Overflow::Hidden,
-
-                #[local_ref]
-                hero_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                details_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                },
-
-                #[local_ref]
-                profiles_widget -> gtk::Box {},
-
-                #[local_ref]
-                degraded_widget -> gtk::Box {},
-
-                gtk::Separator {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_visible: init.has_settings_command,
-                },
-
-                gtk::Button {
-                    add_css_class: "flat",
-                    add_css_class: "settings-btn",
-                    set_visible: init.has_settings_command,
-                    connect_clicked[sender] => move |_| {
-                        let _ = sender.output(BatteryPopoverOutput::OpenSettings);
-                    },
-
-                    gtk::Label {
-                        set_label: "Power Settings",
-                        set_halign: gtk::Align::Start,
-                    },
-                },
-            }
+            #[local_ref]
+            shell_widget -> gtk::Box {}
         }
     }
 
@@ -103,28 +67,70 @@ impl SimpleComponent for BatteryPopover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit {
+                show_footer: init.has_settings_command,
+            })
+            .detach();
         let hero = BatteryHero::builder().launch(()).detach();
         let details = BatteryDetails::builder().launch(()).detach();
         let profiles = PowerProfileList::builder()
             .launch(())
             .forward(sender.output_sender(), map_profile_output);
         let degraded = DegradedWarning::builder().launch(()).detach();
+        let footer = FooterAction::builder()
+            .launch(FooterActionInit {
+                title: "Power Settings".into(),
+                subtitle: String::new(),
+            })
+            .detach();
 
+        let shell_widget = shell.widget().clone();
         let hero_widget = hero.widget().clone();
         let details_widget = details.widget().clone();
         let profiles_widget = profiles.widget().clone();
         let degraded_widget = degraded.widget().clone();
+        let shell_content = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        let shell_footer = shell_content
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose footer box");
+        shell_content.append(&hero_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&details_widget);
+        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell_content.append(&profiles_widget);
+        shell_content.append(&degraded_widget);
+        shell_footer.append(footer.widget());
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
 
+        let footer_button = footer
+            .widget()
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("footer action should expose row root")
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("footer action row should expose button");
+        let footer_sender = sender.clone();
+        footer_button.connect_clicked(move |_| {
+            let _ = footer_sender.output(BatteryPopoverOutput::OpenSettings);
+        });
+
         let model = BatteryPopover {
             popover: widgets.root.clone(),
+            shell,
             hero,
             details,
             profiles,
             degraded,
+            footer,
         };
 
         ComponentParts { model, widgets }

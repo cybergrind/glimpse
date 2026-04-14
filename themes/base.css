@@ -297,9 +297,20 @@
   }
 }
 
+.panel {
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-md);
+  color: var(--panel-fg);
+  padding: 0 var(--space-4);
+  border-radius: 0;
+  box-shadow: var(--shadow-sm);
+  background: var(--panel-bg);
+}
+
 .applet {
   color: var(--indicator-fg);
   border-radius: var(--indicator-radius);
+  font-weight: 600;
   padding: var(--indicator-padding-y) var(--indicator-padding-x);
   transition:
     background-color var(--motion-fast) var(--ease-standard),
@@ -321,6 +332,15 @@
 .applet:focus-visible {
   outline: 2px solid var(--overlay-focus);
   outline-offset: 2px;
+}
+
+popover {
+  padding: var(--space-2);
+}
+
+popover separator {
+  margin-top: var(--popover-section-gap);
+  margin-bottom: var(--popover-section-gap);
 }
 
 .popover-shell {
@@ -364,6 +384,10 @@
 
 .hero-row {
   color: var(--popover-fg);
+}
+
+.popover-shell__content>.hero-row {
+  margin-bottom: var(--space-4);
 }
 
 .hero-row__media {
@@ -540,6 +564,22 @@
   color: var(--color-accent-fg);
 }
 
+.is-accent {
+  color: var(--color-accent);
+}
+
+.is-success {
+  color: var(--color-success);
+}
+
+.is-warning {
+  color: var(--color-warning);
+}
+
+.is-danger {
+  color: var(--color-danger);
+}
+
 .badge.is-success {
   background: var(--color-success);
   color: var(--color-success-fg);
@@ -571,7 +611,55 @@
   color: var(--status-danger);
 }
 
+/* Battery */
+
+.battery-popover {
+  min-width: calc(var(--popover-min-width) + 80px);
+}
+
+.battery-popover .battery-hero-header {
+  margin-bottom: calc(var(--space-4) + var(--space-1));
+}
+
+.battery-popover .battery-pct {
+  font-size: calc(var(--font-size-lg) * 1.6);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.battery-popover .battery-progress {
+  margin-bottom: var(--space-4);
+}
+
+.battery-popover .battery-state-text {
+  color: var(--color-muted-fg);
+  font-size: var(--font-size-md);
+  margin-bottom: var(--space-1);
+}
+
+.battery-popover .profile-icon {
+  opacity: var(--opacity-muted);
+}
+
+.battery-popover .profile-check {
+  opacity: var(--opacity-disabled);
+}
+
+.battery-popover .profile-degraded-row {
+  margin-top: var(--space-3);
+}
+
+.battery-popover .profile-degraded {
+  font-size: var(--font-size-sm);
+}
+
 /* Notifications */
+
+.notification-badge-anchor {
+  min-width: 0;
+  min-height: 0;
+  margin-left: 2px;
+}
 
 .notifications-popover {
   --popover-min-width: var(--notification-popover-min-width);

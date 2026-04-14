@@ -14,10 +14,6 @@ use crate::app::{App, Input};
 use crate::app::theme_runtime;
 
 fn is_theme_css_change(config_dir: &Path, path: &Path) -> bool {
-    if path.file_name().and_then(|name| name.to_str()) == Some("theme.css") {
-        return true;
-    }
-
     path.strip_prefix(config_dir).ok().is_some_and(|relative| {
         relative
             .components()
@@ -66,7 +62,6 @@ pub(super) fn watch_for_config_changes(sender: ComponentSender<App>) {
                                 if let Some(filename) = path.file_name() {
                                     match filename.to_str() {
                                         Some("config.toml") => config_changed = true,
-                                        Some("theme.css") => css_changed = true,
                                         _ => {}
                                     }
                                 }
@@ -120,7 +115,6 @@ pub(super) fn watch_for_config_changes(sender: ComponentSender<App>) {
         }
 
         for (name, recursive_mode) in [
-            ("theme.css", notify::RecursiveMode::NonRecursive),
             ("config.toml", notify::RecursiveMode::NonRecursive),
             ("themes", notify::RecursiveMode::Recursive),
         ] {
@@ -172,13 +166,5 @@ mod tests {
         let theme_file = config_dir.join("themes").join("README.md");
 
         assert!(!is_theme_css_change(config_dir, &theme_file));
-    }
-
-    #[test]
-    fn theme_change_detection_keeps_legacy_theme_css_compatibility() {
-        let config_dir = Path::new("/tmp/glimpse");
-        let legacy_path = config_dir.join("theme.css");
-
-        assert!(is_theme_css_change(config_dir, &legacy_path));
     }
 }

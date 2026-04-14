@@ -349,9 +349,9 @@ fn action_observed_complete(action: BluetoothDeviceAction, dev: &BtDevice) -> bo
 
 fn apply_icon_style(icon: &gtk::Image, connected: bool) {
     if connected {
-        icon.add_css_class("bt-device-icon-active");
+        icon.add_css_class("is-accent");
     } else {
-        icon.remove_css_class("bt-device-icon-active");
+        icon.remove_css_class("is-accent");
     }
 }
 

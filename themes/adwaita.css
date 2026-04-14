@@ -1,77 +1,44 @@
 :root {
-    --color-bg: @view_bg_color;
-    --color-fg: @window_fg_color;
-    --color-surface: @window_bg_color;
-    --color-surface-raised: @card_bg_color;
-    --color-border: alpha(currentColor, 0.14);
-    --color-border-strong: alpha(currentColor, 0.22);
-    --color-muted: alpha(@view_fg_color, 0.78);
-    --color-muted-fg: alpha(@view_fg_color, 0.72);
-    --color-accent: var(--sys-accent, @accent_bg_color);
-    --color-accent-fg: var(--sys-accent-fg, @accent_fg_color);
-    --color-success: @success_color;
-    --color-success-fg: @success_fg_color;
-    --color-warning: @warning_color;
-    --color-warning-fg: @warning_fg_color;
-    --color-danger: @error_color;
-    --color-danger-fg: @error_fg_color;
+  --color-bg: @view_bg_color;
+  --color-fg: @window_fg_color;
+  --color-surface: @window_bg_color;
+  --color-surface-raised: @card_bg_color;
+  --color-border: alpha(currentColor, 0.14);
+  --color-border-strong: alpha(currentColor, 0.22);
+  --color-muted: alpha(@view_fg_color, 0.78);
+  --color-muted-fg: alpha(@view_fg_color, 0.72);
+  --color-accent: var(--sys-accent, @accent_bg_color);
+  --color-accent-fg: var(--sys-accent-fg, @accent_fg_color);
+  --color-success: @success_color;
+  --color-success-fg: @success_fg_color;
+  --color-warning: @warning_color;
+  --color-warning-fg: @warning_fg_color;
+  --color-danger: @error_color;
+  --color-danger-fg: @error_fg_color;
 
-    --overlay-hover: alpha(currentColor, 0.06);
-    --overlay-active: alpha(currentColor, 0.12);
-    --overlay-selected: alpha(var(--color-accent), 0.18);
-    --overlay-focus: alpha(var(--color-accent), 0.22);
-    --overlay-disabled: alpha(@window_bg_color, 0.24);
+  --overlay-hover: alpha(currentColor, 0.06);
+  --overlay-active: alpha(currentColor, 0.12);
+  --overlay-selected: alpha(var(--color-accent), 0.18);
+  --overlay-focus: alpha(var(--color-accent), 0.22);
+  --overlay-disabled: alpha(@window_bg_color, 0.24);
 
-    --popover-bg: @popover_bg_color;
-    --popover-fg: @popover_fg_color;
-    --popover-border: alpha(currentColor, 0.14);
+  --popover-bg: @popover_bg_color;
+  --popover-fg: @popover_fg_color;
+  --popover-border: alpha(currentColor, 0.14);
 
-    --panel-bg: @window_bg_color;
-    --panel-fg: @window_fg_color;
-    --row-fg: @view_fg_color;
-    --row-muted-fg: alpha(@view_fg_color, 0.72);
+  --row-fg: @view_fg_color;
+  --row-muted-fg: alpha(@view_fg_color, 0.72);
 
-    --card-bg: @card_bg_color;
-    --card-fg: @card_fg_color;
-    --card-border: alpha(currentColor, 0.14);
+  --card-bg: @card_bg_color;
+  --card-fg: @card_fg_color;
+  --card-border: alpha(currentColor, 0.14);
 
-    --badge-bg: alpha(var(--color-accent), 0.18);
-    --badge-fg: @view_fg_color;
+  --badge-bg: alpha(var(--color-accent), 0.18);
+  --badge-fg: @view_fg_color;
 }
 
 @media (prefers-color-scheme: dark) {
-    :root {
-        --color-border: alpha(currentColor, 0.18);
-        --color-border-strong: alpha(currentColor, 0.3);
-        --color-muted: alpha(@view_fg_color, 0.8);
-        --color-muted-fg: alpha(@view_fg_color, 0.76);
-        --overlay-hover: alpha(currentColor, 0.08);
-        --overlay-active: alpha(currentColor, 0.14);
-        --overlay-selected: alpha(var(--color-accent), 0.24);
-        --overlay-focus: alpha(var(--color-accent), 0.28);
-        --overlay-disabled: alpha(@window_bg_color, 0.18);
-        --popover-border: alpha(currentColor, 0.18);
-        --card-border: alpha(currentColor, 0.18);
-        --badge-bg: alpha(var(--color-accent), 0.24);
-    }
-}
-
-.theme-light {
-    --color-border: alpha(currentColor, 0.14);
-    --color-border-strong: alpha(currentColor, 0.22);
-    --color-muted: alpha(@view_fg_color, 0.78);
-    --color-muted-fg: alpha(@view_fg_color, 0.72);
-    --overlay-hover: alpha(currentColor, 0.06);
-    --overlay-active: alpha(currentColor, 0.12);
-    --overlay-selected: alpha(var(--color-accent), 0.18);
-    --overlay-focus: alpha(var(--color-accent), 0.22);
-    --overlay-disabled: alpha(@window_bg_color, 0.24);
-    --popover-border: alpha(currentColor, 0.14);
-    --card-border: alpha(currentColor, 0.14);
-    --badge-bg: alpha(var(--color-accent), 0.18);
-}
-
-.theme-dark {
+  :root {
     --color-border: alpha(currentColor, 0.18);
     --color-border-strong: alpha(currentColor, 0.3);
     --color-muted: alpha(@view_fg_color, 0.8);
@@ -84,4 +51,35 @@
     --popover-border: alpha(currentColor, 0.18);
     --card-border: alpha(currentColor, 0.18);
     --badge-bg: alpha(var(--color-accent), 0.24);
+  }
+}
+
+.theme-light {
+  --color-border: alpha(currentColor, 0.14);
+  --color-border-strong: alpha(currentColor, 0.22);
+  --color-muted: alpha(@view_fg_color, 0.78);
+  --color-muted-fg: alpha(@view_fg_color, 0.72);
+  --overlay-hover: alpha(currentColor, 0.06);
+  --overlay-active: alpha(currentColor, 0.12);
+  --overlay-selected: alpha(var(--color-accent), 0.18);
+  --overlay-focus: alpha(var(--color-accent), 0.22);
+  --overlay-disabled: alpha(@window_bg_color, 0.24);
+  --popover-border: alpha(currentColor, 0.14);
+  --card-border: alpha(currentColor, 0.14);
+  --badge-bg: alpha(var(--color-accent), 0.18);
+}
+
+.theme-dark {
+  --color-border: alpha(currentColor, 0.18);
+  --color-border-strong: alpha(currentColor, 0.3);
+  --color-muted: alpha(@view_fg_color, 0.8);
+  --color-muted-fg: alpha(@view_fg_color, 0.76);
+  --overlay-hover: alpha(currentColor, 0.08);
+  --overlay-active: alpha(currentColor, 0.14);
+  --overlay-selected: alpha(var(--color-accent), 0.24);
+  --overlay-focus: alpha(var(--color-accent), 0.28);
+  --overlay-disabled: alpha(@window_bg_color, 0.18);
+  --popover-border: alpha(currentColor, 0.18);
+  --card-border: alpha(currentColor, 0.18);
+  --badge-bg: alpha(var(--color-accent), 0.24);
 }

@@ -1,0 +1,978 @@
+/* Legacy structure layer disabled.
+ * Keep this file as commented reference only during migration.
+ * New shared primitives and active applet styling belong in themes/base.css.
+ */
+
+/* /* Legacy structure layer. */
+/*  * Keep only app-shell and pre-design-system selectors here. */
+/*  * New shared primitives and applet styling belong in themes/base.css. */
+/*  */ */
+/*  */
+/* :root { */
+/*   --view-bg: #1e1e1e; */
+/*   --on-view: #ffffff; */
+/*   --accent-bg: #3584e4; */
+/*   --on-accent: #ffffff; */
+/*   --radius: 16px; */
+/*   --border-opacity: 15%; */
+/*   --card-padding: 12px; */
+/*   --panel-bg: #000000; */
+/*   --border: color-mix(in srgb, currentColor var(--border-opacity), transparent); */
+/*   --popover-padding: 16px; */
+/*   --popover-section-spacing: 12px; */
+/*   --dim-opacity: 0.5; */
+/* } */
+/*  */
+/* /* Legacy typography helpers */ */
+/* .text-muted { */
+/*   color: var(--light-5); */
+/* } */
+/*  */
+/* /* Legacy card helpers */ */
+/* .card { */
+/*   padding: var(--card-padding); */
+/* } */
+/*  */
+/* .card-heading { */
+/*   font-weight: 600; */
+/*   margin-bottom: 12px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .card-body {} */
+/*  */
+/* .section-title { */
+/*   font-size: 12px; */
+/*   opacity: var(--dim-opacity); */
+/*   margin-bottom: 8px; */
+/* } */
+/*  */
+/* /* Legacy panel shell */ */
+/* .panel { */
+/*   font-family: var(--font-family-ui); */
+/*   font-size: var(--font-size-md); */
+/*   color: var(--panel-fg); */
+/*   padding: 0 var(--space-4); */
+/*   border-radius: 0; */
+/*   box-shadow: var(--shadow-sm); */
+/*   background: var(--panel-bg); */
+/* } */
+/*  */
+/* /* Legacy menu popovers */ */
+/* .menu-popover { */
+/*   padding: 4px 0; */
+/* } */
+/*  */
+/* .menu-popover list { */
+/*   background: transparent; */
+/* } */
+/*  */
+/* .menu-popover row { */
+/*   padding: 4px 12px; */
+/*   border-radius: 4px; */
+/* } */
+/*  */
+/* .menu-popover row:disabled { */
+/*   opacity: 0.4; */
+/* } */
+/*  */
+/* /* Legacy exec layout */ */
+/* .exec-trigger>button { */
+/*   padding: 0; */
+/*   background: none; */
+/*   border: none; */
+/*   border-radius: 0; */
+/*   box-shadow: none; */
+/*   font-family: inherit; */
+/*   font-size: inherit; */
+/*   font-weight: inherit; */
+/*   color: inherit; */
+/* } */
+/*  */
+/* .exec-trigger>button:hover { */
+/*   background: none; */
+/* } */
+/*  */
+/* .exec-status-box>*:not(:last-child) { */
+/*   margin-right: 12px; */
+/* } */
+/*  */
+/* .exec-status-item { */
+/*   padding: 0; */
+/* } */
+/*  */
+/* .exec-status-label { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .exec-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/*   min-width: 260px; */
+/* } */
+/*  */
+/* .exec-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .exec-hero-title { */
+/*   font-size: 16px; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .exec-hero-subtitle { */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* /* Legacy clock layout */ */
+/* .clock-popover { */
+/*   min-width: 620px; */
+/* } */
+/*  */
+/* .clock-popover contents>box { */
+/*   padding: var(--popover-padding); */
+/* } */
+/*  */
+/* .clock-popover-left { */
+/*   padding-right: 18px; */
+/*   margin-right: 18px; */
+/*   border-right: 1px solid var(--border); */
+/* } */
+/*  */
+/* .clock-popover-left>*:not(:last-child) { */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .clock-popover-right { */
+/*   min-width: 250px; */
+/* } */
+/*  */
+/* .date { */
+/*   padding-top: 0px; */
+/*   padding-left: 0px; */
+/*   margin-bottom: 16px; */
+/* } */
+/*  */
+/* .date .date-day-of-week { */
+/*   font-weight: 500; */
+/* } */
+/*  */
+/* .date .date-date { */
+/*   font-size: 130%; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .calendar-header { */
+/*   margin-bottom: 8px; */
+/* } */
+/*  */
+/* .calendar-nav { */
+/*   min-width: 20px; */
+/*   min-height: 20px; */
+/*   padding: 0; */
+/*   border-radius: 999px; */
+/* } */
+/*  */
+/* .calendar-month-label { */
+/*   font-weight: 500; */
+/* } */
+/*  */
+/* .calendar-weekdays { */
+/*   margin-bottom: 6px; */
+/* } */
+/*  */
+/* .calendar-weekday { */
+/*   font-size: 12px; */
+/*   font-weight: 400; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .calendar-day { */
+/*   min-width: 40px; */
+/*   min-height: 40px; */
+/*   padding: 4px 0 3px; */
+/*   border-radius: 6px; */
+/*   background: transparent; */
+/* } */
+/*  */
+/* .calendar-day.other-month { */
+/*   opacity: 0.35; */
+/* } */
+/*  */
+/* .calendar-day.today { */
+/*   color: var(--accent-bg); */
+/*   box-shadow: inset 0 0 0 1px var(--accent-bg); */
+/* } */
+/*  */
+/* .calendar-day.selected { */
+/*   background-color: var(--accent-bg); */
+/*   color: var(--on-accent); */
+/*   box-shadow: none; */
+/* } */
+/*  */
+/* .calendar-day.today.selected { */
+/*   background-color: var(--accent-bg); */
+/*   color: var(--on-accent); */
+/*   box-shadow: inset 0 0 0 1px var(--accent-bg); */
+/* } */
+/*  */
+/* .calendar-day-number { */
+/*   font-variant-numeric: tabular-nums; */
+/*   font-weight: 400; */
+/*   font-size: 13px; */
+/* } */
+/*  */
+/* .calendar-day.selected .calendar-day-number { */
+/*   font-weight: 500; */
+/* } */
+/*  */
+/* .calendar-day-dots { */
+/*   font-size: 10px; */
+/*   min-height: 10px; */
+/*   margin-top: 1px; */
+/* } */
+/*  */
+/* .events-list { */
+/*   margin-bottom: 0; */
+/* } */
+/*  */
+/* .event-row:not(:last-child) { */
+/*   margin-bottom: 12px; */
+/* } */
+/*  */
+/* .event-title { */
+/*   font-weight: 600; */
+/*   font-size: 14px; */
+/* } */
+/*  */
+/* .event-time { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .events-empty { */
+/*   font-weight: 500; */
+/* } */
+/*  */
+/* /* world clock */ */
+/* .world-clock {} */
+/*  */
+/* .world-clock-header {} */
+/*  */
+/* .world-clock-list {} */
+/*  */
+/* .world-clock-list .world-clock-timezone:not(:last-child) { */
+/*   padding-bottom: 4px; */
+/* } */
+/*  */
+/* .world-clock-city {} */
+/*  */
+/* .world-clock-time { */
+/*   font-weight: 600; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .world-clock-tz { */
+/*   padding-left: 8px; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* /* Legacy battery applet layout */ */
+/* .battery-popover { */
+/*   min-width: 340px; */
+/* } */
+/*  */
+/* .battery-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .battery-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .battery-popover .battery-status-row { */
+/*   margin-bottom: 10px; */
+/* } */
+/*  */
+/* .battery-popover .battery-pct { */
+/*   font-size: 24px; */
+/*   font-weight: bold; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .battery-popover .battery-progress { */
+/*   margin-bottom: 8px; */
+/* } */
+/*  */
+/* .battery-popover .battery-state-text { */
+/*   font-size: 13px; */
+/*   opacity: 0.7; */
+/*   margin-bottom: 2px; */
+/* } */
+/*  */
+/* .battery-popover .detail-row { */
+/*   padding: 4px 0; */
+/* } */
+/*  */
+/* .battery-popover .detail-key { */
+/*   opacity: 0.5; */
+/* } */
+/*  */
+/* .battery-popover .detail-val { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .battery-popover .profile-list { */
+/*   margin-top: 6px; */
+/* } */
+/*  */
+/* .battery-popover .profile-btn { */
+/*   padding: 4px 6px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .battery-popover .profile-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .battery-popover .profile-icon { */
+/*   opacity: 0.6; */
+/* } */
+/*  */
+/* .battery-popover .profile-check { */
+/*   opacity: 0.5; */
+/* } */
+/*  */
+/* .battery-popover .settings-btn { */
+/*   margin-top: 6px; */
+/*   padding: 4px 6px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .battery-popover .settings-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* /* Legacy bluetooth applet layout */ */
+/* .bluetooth-popover { */
+/*   min-width: 360px; */
+/* } */
+/*  */
+/* .bt-prompt-content { */
+/*   padding: 12px; */
+/*   min-width: 360px; */
+/* } */
+/*  */
+/* .bt-prompt-code { */
+/*   white-space: normal; */
+/* } */
+/*  */
+/* .bt-prompt-code { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* /* Legacy network applet layout */ */
+/*  */
+/* .network-popover { */
+/*   min-width: 360px; */
+/* } */
+/*  */
+/* .network-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .network-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .network-popover .net-hero { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .network-popover .net-title { */
+/*   font-size: 15px; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .network-popover .net-subtitle { */
+/*   font-size: 12px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .network-popover .net-section-header { */
+/*   padding: 4px 0; */
+/* } */
+/*  */
+/* .network-popover .net-section-title { */
+/*   font-weight: 600; */
+/*   font-size: 13px; */
+/* } */
+/*  */
+/* .network-popover .net-empty { */
+/*   font-size: 12px; */
+/*   opacity: 0.4; */
+/*   padding: 4px 0; */
+/* } */
+/*  */
+/* .network-popover .net-ap-btn, */
+/* .network-popover .net-device-btn, */
+/* .network-popover .net-vpn-btn { */
+/*   padding: 4px 6px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .network-popover .net-ap-btn label, */
+/* .network-popover .net-device-btn label, */
+/* .network-popover .net-vpn-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .network-popover .net-ap-icon, */
+/* .network-popover .net-lock-icon { */
+/*   opacity: 0.6; */
+/* } */
+/*  */
+/* .network-popover .net-lock-icon { */
+/*   margin-right: 8px; */
+/* } */
+/*  */
+/* .network-popover .net-ap-icon-active { */
+/*   color: var(--accent-bg); */
+/* } */
+/*  */
+/* @keyframes net-pulse { */
+/*  */
+/*   0%, */
+/*   100% { */
+/*     opacity: 1; */
+/*   } */
+/*  */
+/*   50% { */
+/*     opacity: 0.3; */
+/*   } */
+/* } */
+/*  */
+/* .net-connecting { */
+/*   animation: net-pulse 1.5s ease-in-out infinite; */
+/* } */
+/*  */
+/* .network-popover .net-dim { */
+/*   opacity: 0.5; */
+/*   font-size: 12px; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/*  */
+/* .network-popover .settings-btn { */
+/*   margin-top: 4px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .network-popover .settings-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .power {} */
+/*  */
+/* .power-popover { */
+/*   min-width: 200px; */
+/*   padding: var(--popover-padding) 0; */
+/* } */
+/*  */
+/* .power-popover .section-title { */
+/*   font-size: 90%; */
+/*   opacity: var(--dim-opacity); */
+/*   padding: 4px 12px 2px; */
+/* } */
+/*  */
+/* .power-popover .profile-row, */
+/* .power-popover .action-row { */
+/*   padding: 4px 12px; */
+/*   border-radius: 0; */
+/* } */
+/*  */
+/* .power.low image { */
+/*   color: #e01b24; */
+/* } */
+/*  */
+/* /* Legacy audio/privacy indicator layout */ */
+/* .audio {} */
+/*  */
+/* .audio .mic-muted-indicator { */
+/*   color: @warning_color; */
+/* } */
+/*  */
+/* .audio-label { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .privacy { */
+/*   padding-left: 4px; */
+/*   padding-right: 4px; */
+/* } */
+/*  */
+/* .privacy-indicator, */
+/* .privacy-recording-icon, */
+/* .privacy-recording-label { */
+/*   color: @warning_color; */
+/* } */
+/*  */
+/* .privacy-recording-pill { */
+/*   padding: 0; */
+/* } */
+/*  */
+/* .privacy-recording-label { */
+/*   font-variant-numeric: tabular-nums; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .audio-popover { */
+/*   min-width: 420px; */
+/* } */
+/*  */
+/* .audio-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .audio-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .audio-popover .audio-hero { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .audio-popover .audio-hero-title { */
+/*   font-size: 15px; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .audio-popover .audio-hero-subtitle { */
+/*   font-size: 12px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .audio-popover .volume-row { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .audio-popover .mute-btn { */
+/*   opacity: 0.7; */
+/* } */
+/*  */
+/* .audio-popover .mute-btn:hover { */
+/*   opacity: 1; */
+/* } */
+/*  */
+/* .audio-popover .device-header { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .audio-popover .device-btn { */
+/*   padding: 4px 6px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .audio-popover .device-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .audio-popover .device-prefix { */
+/*   opacity: 0.5; */
+/* } */
+/*  */
+/* .audio-popover .chevron { */
+/*   font-size: 120%; */
+/*   opacity: 0.4; */
+/*   min-width: 16px; */
+/* } */
+/*  */
+/* .audio-popover .device-list { */
+/*   margin-left: 8px; */
+/*   margin-top: 4px; */
+/*   margin-bottom: 6px; */
+/* } */
+/*  */
+/* .audio-popover .device-list button { */
+/*   font-weight: normal; */
+/*   padding: 4px 8px; */
+/* } */
+/*  */
+/* .audio-popover .device-list button label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .audio-popover .device-icon { */
+/*   opacity: 0.6; */
+/* } */
+/*  */
+/* .audio-popover .device-check { */
+/*   opacity: 0.5; */
+/* } */
+/*  */
+/* .audio-popover .apps-box { */
+/*   margin-left: 16px; */
+/*   margin-top: 4px; */
+/*   margin-bottom: 6px; */
+/* } */
+/*  */
+/* .audio-popover .stream-row { */
+/*   margin-top: 6px; */
+/*   margin-bottom: 6px; */
+/*   margin-left: 12px; */
+/* } */
+/*  */
+/* .audio-popover .stream-name { */
+/*   opacity: 0.7; */
+/*   font-size: 13px; */
+/*   margin-bottom: 2px; */
+/* } */
+/*  */
+/* .audio-popover .stream-divider { */
+/*   margin-top: 6px; */
+/*   margin-bottom: 6px; */
+/*   opacity: 0.3; */
+/* } */
+/*  */
+/* .audio-popover .settings-btn { */
+/*   margin-top: 4px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .audio-popover .settings-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* /* Legacy brightness applet layout */ */
+/* .brightness {} */
+/*  */
+/* .brightness-label { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .brightness-popover { */
+/*   min-width: 360px; */
+/* } */
+/*  */
+/* .brightness-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .brightness-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .brightness-popover .brightness-hero { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .brightness-popover .brightness-hero-title { */
+/*   font-size: 15px; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .brightness-popover .brightness-hero-subtitle { */
+/*   font-size: 12px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .brightness-popover .brightness-row { */
+/*   margin-bottom: 10px; */
+/* } */
+/*  */
+/* .brightness-popover .brightness-row-name { */
+/*   font-weight: 500; */
+/* } */
+/*  */
+/* .brightness-popover .brightness-row-percent { */
+/*   font-variant-numeric: tabular-nums; */
+/*   opacity: 0.7; */
+/* } */
+/*  */
+/* .brightness-popover .brightness-row scale, */
+/* .brightness-popover .brightness-row-scale { */
+/*   min-width: 220px; */
+/* } */
+/*  */
+/* .brightness-popover .settings-btn { */
+/*   margin-top: 4px; */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* .brightness-popover .settings-btn label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* /* Legacy MPRIS applet layout */ */
+/* .mpris {} */
+/*  */
+/* .mpris-popover { */
+/*   min-width: 598px; */
+/* } */
+/*  */
+/* .mpris-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .mpris-label { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card { */
+/*   padding: 10px 12px; */
+/*   margin: 2px 0; */
+/*   border-radius: 12px; */
+/*   background: color-mix(in srgb, currentColor 6%, transparent); */
+/*   transition: background 150ms ease, opacity 200ms ease; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card:hover { */
+/*   background: color-mix(in srgb, currentColor 10%, transparent); */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-art-slot { */
+/*   min-width: 92px; */
+/*   min-height: 92px; */
+/*   border-radius: 10px; */
+/*   overflow: hidden; */
+/*   background: color-mix(in srgb, currentColor 4%, transparent); */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-art { */
+/*   min-width: 92px; */
+/*   min-height: 92px; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-content { */
+/*   min-width: 0; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-copy { */
+/*   min-width: 0; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-title { */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-subtitle { */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-progress { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-progress progressbar { */
+/*   min-height: 8px; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-controls button { */
+/*   min-width: 28px; */
+/*   min-height: 28px; */
+/*   padding: 0; */
+/*   border-radius: 999px; */
+/* } */
+/*  */
+/* .mpris-popover .mpris-card-controls button label { */
+/*   font-weight: normal; */
+/* } */
+/*  */
+/* /* Legacy session applet layout */ */
+/*  */
+/* .session {} */
+/*  */
+/* .session-popover { */
+/*   min-width: 240px; */
+/* } */
+/*  */
+/* /* Legacy weather applet layout */ */
+/*  */
+/* .weather {} */
+/*  */
+/* .weather-label { */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .weather-popover { */
+/*   min-width: 400px; */
+/* } */
+/*  */
+/* .weather-popover contents>box { */
+/*   margin: var(--popover-padding); */
+/* } */
+/*  */
+/* .weather-popover separator { */
+/*   margin-top: var(--popover-section-spacing); */
+/*   margin-bottom: var(--popover-section-spacing); */
+/* } */
+/*  */
+/* .weather-popover .weather-hero { */
+/*   margin-bottom: 2px; */
+/* } */
+/*  */
+/* .weather-popover .weather-hero-temp { */
+/*   font-size: 24px; */
+/*   font-weight: bold; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .weather-popover .weather-hero-row2 { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .weather-popover .weather-hero-condition { */
+/*   font-size: 13px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .weather-popover .weather-hero-hilo { */
+/*   font-size: 13px; */
+/*   opacity: var(--dim-opacity); */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .weather-popover .weather-hourly { */
+/*   padding: 6px 0; */
+/* } */
+/*  */
+/* .weather-popover .weather-hourly-col { */
+/*   padding: 6px 2px; */
+/* } */
+/*  */
+/* .weather-popover .weather-hourly-time { */
+/*   font-size: 11px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* .weather-popover .weather-hourly-temp { */
+/*   font-size: 13px; */
+/*   font-weight: 600; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .weather-popover .weather-stats { */
+/*   padding: 2px 0; */
+/* } */
+/*  */
+/* .weather-popover .weather-detail-row { */
+/*   margin-bottom: 4px; */
+/* } */
+/*  */
+/* .weather-popover .weather-detail-row:last-child { */
+/*   margin-bottom: 0; */
+/* } */
+/*  */
+/* .weather-popover .weather-detail-pair { */
+/*   padding: 4px 10px; */
+/* } */
+/*  */
+/* .weather-popover .weather-detail-key { */
+/*   font-size: 11px; */
+/*   opacity: var(--dim-opacity); */
+/*   letter-spacing: 0.02em; */
+/* } */
+/*  */
+/* .weather-popover .weather-detail-val { */
+/*   font-size: 14px; */
+/*   font-weight: 700; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */
+/*  */
+/* .weather-popover .weather-forecast-row { */
+/*   padding: 6px 0; */
+/* } */
+/*  */
+/* .weather-popover .weather-forecast-today .weather-forecast-day { */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .weather-popover .weather-forecast-day { */
+/*   font-size: 13px; */
+/* } */
+/*  */
+/* .weather-popover .weather-forecast-temps { */
+/*   font-size: 13px; */
+/*   font-variant-numeric: tabular-nums; */
+/*   font-weight: 600; */
+/* } */
+/*  */
+/* .weather-popover .weather-forecast-cond { */
+/*   font-size: 12px; */
+/*   opacity: var(--dim-opacity); */
+/* } */
+/*  */
+/* /* Legacy pager layout */ */
+/*  */
+/* .pager { */
+/*   padding: 0 4px; */
+/* } */
+/*  */
+/* .pager-dot { */
+/*   min-width: 8px; */
+/*   min-height: 8px; */
+/*   border-radius: 99px; */
+/*   margin: 0 2px; */
+/*   background: rgba(255, 255, 255, 0.3); */
+/*   transition: opacity 200ms ease, background 200ms ease; */
+/* } */
+/*  */
+/* .pager-dot.active { */
+/*   min-width: 20px; */
+/*   background: rgba(255, 255, 255, 0.9); */
+/* } */
+/*  */
+/* .pager-dot.occupied { */
+/*   background: rgba(255, 255, 255, 0.55); */
+/* } */
+/*  */
+/* .pager-dot.urgent { */
+/*   background: var(--accent-bg); */
+/* } */
+/*  */
+/* .pager-num { */
+/*   min-height: 20px; */
+/*   border-radius: 10px; */
+/*   padding: 0 5px; */
+/*   margin: 0 1px; */
+/*   font-size: 11px; */
+/*   font-weight: 600; */
+/*   font-variant-numeric: tabular-nums; */
+/*   transition: opacity 200ms ease, background 200ms ease; */
+/* } */
+/*  */
+/* .pager-num label { */
+/*   color: rgba(255, 255, 255, 0.35); */
+/* } */
+/*  */
+/* .pager-num.active { */
+/*   background: rgba(255, 255, 255, 0.2); */
+/* } */
+/*  */
+/* .pager-num.active label { */
+/*   color: rgba(255, 255, 255, 1.0); */
+/* } */
+/*  */
+/* .pager-num.occupied label { */
+/*   color: rgba(255, 255, 255, 0.6); */
+/* } */
+/*  */
+/* .pager-num.urgent { */
+/*   background: var(--accent-bg); */
+/* } */
+/*  */
+/* .pager-num.urgent label { */
+/*   color: var(--on-accent); */
+/* } */
+/*  */
+/* /* Legacy keyboard indicator layout */ */
+/*  */
+/* .keyboard {} */
+/*  */
+/* .keyboard-label { */
+/*   font-weight: 600; */
+/*   font-variant-numeric: tabular-nums; */
+/* } */

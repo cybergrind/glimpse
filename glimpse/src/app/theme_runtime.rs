@@ -8,6 +8,7 @@ use relm4::gtk::{self, CssProvider, gdk::RGBA, prelude::*};
 use glimpse::config::{Config, ThemeMode};
 
 const EMBEDDED_BASE_CSS: &str = include_str!("../../../themes/base.css");
+const EMBEDDED_STRUCTURE_CSS: &str = include_str!("../../../themes/structure.css");
 const EMBEDDED_ACCENT_CSS: &str = include_str!("../../../themes/accent.css");
 const EMBEDDED_ADWAITA_CSS: &str = include_str!("../../../themes/adwaita.css");
 
@@ -25,6 +26,22 @@ pub(super) fn sync_base_css(provider: &CssProvider) {
 
     provider.load_from_data(EMBEDDED_BASE_CSS);
     tracing::info!("loaded embedded base css");
+}
+
+pub(super) fn sync_structure_css(provider: &CssProvider) {
+    provider.load_from_data("");
+
+    #[cfg(feature = "dev")]
+    if let Some(path) =
+        dev_theme_path("structure.css").filter(|path| path.exists() && path.is_file())
+    {
+        provider.load_from_path(&path);
+        tracing::info!("loaded structure css from {}", path.display());
+        return;
+    }
+
+    provider.load_from_data(EMBEDDED_STRUCTURE_CSS);
+    tracing::info!("loaded embedded structure css");
 }
 
 pub(super) fn sync_accent_css(provider: &CssProvider) {

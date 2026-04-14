@@ -26,13 +26,16 @@ mod watchers;
 use background_manager::sync_background_windows;
 use notification_popup_manager::{setup_notification_popup, sync_notification_popup};
 use panel_manager::{PanelState, reconfigure_panels, setup_panels};
-use theme_runtime::{apply_theme_mode, sync_accent_css, sync_base_css, sync_theme_css};
+use theme_runtime::{
+    apply_theme_mode, sync_accent_css, sync_base_css, sync_structure_css, sync_theme_css,
+};
 use watchers::watch_for_config_changes;
 
 pub struct App {
     window: adw::ApplicationWindow,
     config: Config,
     base_css: CssProvider,
+    structure_css: CssProvider,
     accent_css: CssProvider,
     theme_css: CssProvider,
     panels: Vec<PanelState>,
@@ -81,6 +84,8 @@ impl SimpleComponent for App {
 
         let base_css = CssProvider::new();
         sync_base_css(&base_css);
+        let structure_css = CssProvider::new();
+        sync_structure_css(&structure_css);
         let accent_css = CssProvider::new();
         sync_accent_css(&accent_css);
         let theme_css = CssProvider::new();
@@ -89,6 +94,11 @@ impl SimpleComponent for App {
             gtk::style_context_add_provider_for_display(
                 &display,
                 &base_css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &structure_css,
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
             );
             gtk::style_context_add_provider_for_display(
@@ -138,6 +148,7 @@ impl SimpleComponent for App {
             wallpaper_windows: HashMap::new(),
             backdrop_windows: HashMap::new(),
             base_css,
+            structure_css,
             accent_css,
             theme_css,
             config,
@@ -171,6 +182,7 @@ impl SimpleComponent for App {
                     });
                 }
                 sync_base_css(&self.base_css);
+                sync_structure_css(&self.structure_css);
                 sync_accent_css(&self.accent_css);
                 sync_theme_css(&self.theme_css, &new_config);
                 reconfigure_panels(
@@ -207,6 +219,7 @@ impl SimpleComponent for App {
             }
             Input::CssChanged => {
                 sync_base_css(&self.base_css);
+                sync_structure_css(&self.structure_css);
                 sync_accent_css(&self.accent_css);
                 sync_theme_css(&self.theme_css, &self.config);
                 apply_theme_mode_to_windows(
