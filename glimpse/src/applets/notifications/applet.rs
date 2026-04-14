@@ -222,7 +222,6 @@ impl Component for Notifications {
             NotificationsMsg::ServiceState(state) => {
                 self.latest_state = Some(state.clone());
                 let dnd = state.dnd;
-                tracing::info!(dnd, "notifications applet: status update");
                 self.dnd = dnd;
                 self.icon_name = if dnd {
                     "notifications-disabled-symbolic"
