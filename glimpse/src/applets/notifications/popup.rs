@@ -36,6 +36,8 @@ pub struct NotificationPopup {
     card_box: gtk::Box,
     cards: Rc<RefCell<HashMap<u32, PopupCard>>>,
     overflow_label: gtk::Label,
+    config: NotificationsConfig,
+    pending_window_config: Option<NotificationsConfig>,
     popup_timeout: u32,
     dnd: bool,
     started_at: u64,
@@ -50,6 +52,7 @@ pub struct NotificationPopupInit {
 #[derive(Debug)]
 pub enum NotificationPopupInput {
     ServiceState(NotificationsServiceState),
+    Reconfigure(NotificationsConfig),
     TimeoutElapsed(u32),
     HideOnly(u32),
     Dismiss(u32),
@@ -100,6 +103,8 @@ impl Component for NotificationPopup {
             card_box: widgets.card_box.clone(),
             cards: Rc::new(RefCell::new(HashMap::new())),
             overflow_label: widgets.overflow_label.clone(),
+            config: init.config.clone(),
+            pending_window_config: None,
             popup_timeout: init.config.popup_timeout,
             dnd: false,
             started_at: std::time::SystemTime::now()
@@ -164,6 +169,20 @@ impl Component for NotificationPopup {
                         .insert(notif.id, notif.timestamp);
                     self.show(notif, &sender);
                 }
+            }
+            NotificationPopupInput::Reconfigure(config) => {
+                self.popup_timeout = config.popup_timeout;
+                if self.cards.borrow().is_empty() {
+                    configure_popup_window(
+                        &self.window,
+                        &config.popup_position,
+                        config.popup_margin_top,
+                    );
+                    self.pending_window_config = None;
+                } else {
+                    self.pending_window_config = Some(config.clone());
+                }
+                self.config = config;
             }
             NotificationPopupInput::TimeoutElapsed(id) => self.remove_card_with_mode(
                 id,
@@ -281,9 +300,9 @@ impl NotificationPopup {
     }
 
     fn remove_card_with_mode(
-        &self,
+        &mut self,
         id: u32,
-        mode: PopupDismissMode,
+        _mode: PopupDismissMode,
         timeout_policy: TimeoutSourcePolicy,
     ) {
         if let Some(card) = self.cards.borrow_mut().remove(&id) {
@@ -294,11 +313,15 @@ impl NotificationPopup {
             }
             self.card_box.remove(&card.card_widget);
         }
-        if matches!(mode, PopupDismissMode::Dismiss) {
-            self.surfaced_ids.borrow_mut().remove(&id);
-        }
         self.update_overflow();
         if self.cards.borrow().is_empty() {
+            if let Some(config) = self.pending_window_config.take() {
+                configure_popup_window(
+                    &self.window,
+                    &config.popup_position,
+                    config.popup_margin_top,
+                );
+            }
             self.window.set_visible(false);
         }
     }
@@ -488,6 +511,10 @@ fn configure_popup_window(window: &gtk::Window, position: &str, margin_top: i32)
     window.set_layer(Layer::Overlay);
     window.set_namespace("glimpse-notification-popup");
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
+    window.set_anchor(Edge::Top, false);
+    window.set_anchor(Edge::Bottom, false);
+    window.set_anchor(Edge::Left, false);
+    window.set_anchor(Edge::Right, false);
 
     match position {
         "top-left" => {
@@ -614,5 +641,17 @@ mod tests {
         );
 
         assert_eq!(ids, vec![2]);
+    }
+
+    #[test]
+    fn pending_popup_ids_skip_notifications_already_surfaced_during_dismiss_race() {
+        let ids = pending_popup_ids(
+            &[notif(7, 250, 1)],
+            100,
+            false,
+            &[7],
+        );
+
+        assert!(ids.is_empty());
     }
 }

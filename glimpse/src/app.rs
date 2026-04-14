@@ -19,7 +19,8 @@ use glimpse::wallpaper;
 
 use crate::{
     applets::notifications::{
-        NotificationActionCommand, NotificationPopup, NotificationPopupInit, NotificationsConfig,
+        NotificationActionCommand, NotificationPopup, NotificationPopupInit, NotificationPopupInput,
+        NotificationsConfig,
     },
     panels,
     providers::dbus::DbusProvider,
@@ -41,6 +42,14 @@ pub struct App {
     dbus: DbusProvider,
     services: Services,
     notification_popup: Option<Controller<NotificationPopup>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PopupSyncPlan {
+    Keep,
+    Create(NotificationsConfig),
+    Update(NotificationsConfig),
+    Remove,
 }
 
 #[derive(Debug)]
@@ -153,16 +162,31 @@ impl SimpleComponent for App {
                         &mut self.backdrop_windows,
                     );
                 }
-                if notifications_popup_config(&self.config) != notifications_popup_config(&new_config)
-                {
-                    if let Some(popup) = self.notification_popup.take() {
-                        popup.widget().close();
+                match popup_sync_plan(
+                    notifications_popup_config(&self.config),
+                    notifications_popup_config(&new_config),
+                ) {
+                    PopupSyncPlan::Keep => {}
+                    PopupSyncPlan::Create(config) => {
+                        self.notification_popup = Some(
+                            NotificationPopup::builder()
+                                .launch(NotificationPopupInit {
+                                    config,
+                                    service: self.services.handle.notifications.clone(),
+                                })
+                                .forward(_sender.input_sender(), Input::NotificationCommand),
+                        );
                     }
-                    self.notification_popup = setup_notification_popup(
-                        &new_config,
-                        self.services.handle.notifications.clone(),
-                        _sender.clone(),
-                    );
+                    PopupSyncPlan::Update(config) => {
+                        if let Some(popup) = &self.notification_popup {
+                            popup.emit(NotificationPopupInput::Reconfigure(config));
+                        }
+                    }
+                    PopupSyncPlan::Remove => {
+                        if let Some(popup) = self.notification_popup.take() {
+                            popup.widget().close();
+                        }
+                    }
                 }
                 self.config = new_config;
             }
@@ -433,6 +457,24 @@ fn setup_notification_popup(
     )
 }
 
+fn popup_sync_plan(
+    old: Option<NotificationsConfig>,
+    new: Option<NotificationsConfig>,
+) -> PopupSyncPlan {
+    match (old, new) {
+        (None, None) => PopupSyncPlan::Keep,
+        (None, Some(config)) => PopupSyncPlan::Create(config),
+        (Some(_), None) => PopupSyncPlan::Remove,
+        (Some(old), Some(new)) => {
+            if old == new {
+                PopupSyncPlan::Keep
+            } else {
+                PopupSyncPlan::Update(new)
+            }
+        }
+    }
+}
+
 fn load_css(provider: &CssProvider, path: &PathBuf) {
     let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
     if resolved.exists() && resolved.is_file() {
@@ -581,5 +623,31 @@ mod tests {
         );
 
         assert!(notifications_popup_config(&config).is_none());
+    }
+
+    #[test]
+    fn popup_sync_plan_updates_existing_popup_in_place() {
+        let old: NotificationsConfig =
+            toml::from_str(r#"popup_position = "top-left""#).expect("old popup config");
+        let new: NotificationsConfig =
+            toml::from_str(r#"popup_position = "bottom-right""#).expect("new popup config");
+
+        assert_eq!(popup_sync_plan(Some(old), Some(new.clone())), PopupSyncPlan::Update(new));
+    }
+
+    #[test]
+    fn popup_sync_plan_creates_popup_when_enabled_later() {
+        let new: NotificationsConfig =
+            toml::from_str(r#"show_popup = true"#).expect("new popup config");
+
+        assert_eq!(popup_sync_plan(None, Some(new.clone())), PopupSyncPlan::Create(new));
+    }
+
+    #[test]
+    fn popup_sync_plan_removes_popup_when_disabled() {
+        let old: NotificationsConfig =
+            toml::from_str(r#"show_popup = true"#).expect("old popup config");
+
+        assert_eq!(popup_sync_plan(Some(old), None), PopupSyncPlan::Remove);
     }
 }
