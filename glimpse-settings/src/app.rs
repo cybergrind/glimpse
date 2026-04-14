@@ -135,6 +135,7 @@ struct AppearanceUi {
     style_light_button: gtk::ToggleButton,
     style_dark_button: gtk::ToggleButton,
     accent_box: gtk::Box,
+    wallpaper_gallery_scroller: gtk::ScrolledWindow,
     wallpaper_gallery_bin: adw::Bin,
     wallpaper_gallery_grid: gtk::Grid,
     wallpaper_gallery_file_row: adw::ActionRow,
@@ -859,6 +860,9 @@ impl AppearanceUi {
             accent_box: accent_builder
                 .object("appearance_accent_box")
                 .expect("appearance accent box should exist"),
+            wallpaper_gallery_scroller: background_builder
+                .object("appearance_wallpaper_gallery_scroller")
+                .expect("appearance wallpaper gallery scroller should exist"),
             wallpaper_gallery_bin: background_builder
                 .object("appearance_wallpaper_gallery_bin")
                 .expect("appearance wallpaper gallery bin should exist"),
@@ -998,6 +1002,7 @@ impl AppearanceUi {
         self.text_scale_row.set_value(draft.text_scale);
         drop(draft);
         let gallery = self.wallpaper_gallery.borrow().clone();
+        sync_background_gallery_viewport(&self.wallpaper_gallery_scroller, gallery.len() + 1);
         sync_inline_background_gallery(&self.wallpaper_gallery_grid, self, &gallery);
         let draft = self.draft.borrow();
         self.wallpaper_color_button
@@ -4982,10 +4987,10 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
     });
 }
 
-const WALLPAPER_GALLERY_COLUMNS: usize = 4;
+const WALLPAPER_GALLERY_COLUMNS: usize = 3;
 const WALLPAPER_GALLERY_ROWS: usize = 3;
-const WALLPAPER_GALLERY_IMAGE_LIMIT: usize =
-    WALLPAPER_GALLERY_COLUMNS * WALLPAPER_GALLERY_ROWS - 1;
+const WALLPAPER_GALLERY_ROW_HEIGHT: i32 = 172;
+const WALLPAPER_GALLERY_ROW_SPACING: i32 = 12;
 
 fn sync_inline_background_gallery(
     grid: &gtk::Grid,
@@ -5007,7 +5012,7 @@ fn sync_inline_background_gallery(
     );
     slot += 1;
 
-    for item in items.iter().take(WALLPAPER_GALLERY_IMAGE_LIMIT) {
+    for item in items {
         let tile = build_background_gallery_tile(appearance_ui, item);
         grid.attach(
             &tile,
@@ -5019,7 +5024,9 @@ fn sync_inline_background_gallery(
         slot += 1;
     }
 
-    while slot < WALLPAPER_GALLERY_COLUMNS * WALLPAPER_GALLERY_ROWS {
+    let visible_rows = wallpaper_gallery_visible_rows(items.len() + 1);
+    let visible_slots = visible_rows * WALLPAPER_GALLERY_COLUMNS;
+    while slot < visible_slots {
         let placeholder = build_background_gallery_placeholder();
         grid.attach(
             &placeholder,
@@ -5030,6 +5037,18 @@ fn sync_inline_background_gallery(
         );
         slot += 1;
     }
+}
+
+fn sync_background_gallery_viewport(scroller: &gtk::ScrolledWindow, total_tiles: usize) {
+    let rows = wallpaper_gallery_visible_rows(total_tiles);
+    let height = (rows as i32 * WALLPAPER_GALLERY_ROW_HEIGHT)
+        + ((rows.saturating_sub(1)) as i32 * WALLPAPER_GALLERY_ROW_SPACING);
+    scroller.set_min_content_height(height);
+    scroller.set_max_content_height(height);
+}
+
+fn wallpaper_gallery_visible_rows(total_tiles: usize) -> usize {
+    total_tiles.div_ceil(WALLPAPER_GALLERY_COLUMNS).clamp(1, WALLPAPER_GALLERY_ROWS)
 }
 
 fn build_no_background_tile(appearance_ui: &AppearanceUi) -> gtk::Button {
@@ -5046,7 +5065,7 @@ fn build_no_background_tile(appearance_ui: &AppearanceUi) -> gtk::Button {
     content.append(&label);
 
     let selected = appearance_ui.draft.borrow().wallpaper.path.is_none();
-    let tile = build_wallpaper_tile_shell(&content, selected);
+    let tile = build_wallpaper_tile_shell(&content);
     let button = gtk::Button::new();
     button.set_child(Some(&tile));
     button.add_css_class("flat");
@@ -5077,7 +5096,7 @@ fn build_background_gallery_tile(
     picture.set_can_shrink(true);
     picture.add_css_class("appearance-wallpaper-thumb");
     let selected = background_tile_is_selected(appearance_ui, &item.path);
-    let tile = build_wallpaper_tile_shell(&picture, selected);
+    let tile = build_wallpaper_tile_shell(&picture);
 
     let button = gtk::Button::new();
     button.set_child(Some(&tile));
@@ -5095,35 +5114,33 @@ fn build_background_gallery_tile(
     button
 }
 
-fn build_wallpaper_tile_shell(content: &impl IsA<gtk::Widget>, selected: bool) -> gtk::Overlay {
+fn build_wallpaper_tile_shell(content: &impl IsA<gtk::Widget>) -> gtk::AspectFrame {
     let frame = gtk::Frame::new(None);
     frame.add_css_class("appearance-wallpaper-frame");
     frame.set_child(Some(content));
 
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&frame));
-
-    let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    badge.add_css_class("appearance-wallpaper-selected-badge");
-    badge.set_halign(gtk::Align::End);
-    badge.set_valign(gtk::Align::Start);
-    badge.set_margin_top(8);
-    badge.set_margin_end(8);
-    badge.set_visible(selected);
-
-    let badge_icon = gtk::Image::from_icon_name("object-select-symbolic");
-    badge_icon.set_pixel_size(14);
-    badge.append(&badge_icon);
-
-    overlay.add_overlay(&badge);
-    overlay
+    let aspect = gtk::AspectFrame::builder()
+        .ratio(1.6)
+        .obey_child(false)
+        .xalign(0.5)
+        .yalign(0.5)
+        .build();
+    aspect.set_child(Some(&frame));
+    aspect
 }
 
-fn build_background_gallery_placeholder() -> gtk::Box {
+fn build_background_gallery_placeholder() -> gtk::AspectFrame {
     let placeholder = gtk::Box::new(gtk::Orientation::Vertical, 0);
     placeholder.add_css_class("appearance-wallpaper-placeholder");
     placeholder.set_sensitive(false);
-    placeholder
+    let aspect = gtk::AspectFrame::builder()
+        .ratio(1.6)
+        .obey_child(false)
+        .xalign(0.5)
+        .yalign(0.5)
+        .build();
+    aspect.set_child(Some(&placeholder));
+    aspect
 }
 
 fn present_background_file_chooser(appearance_ui: &AppearanceUi) {

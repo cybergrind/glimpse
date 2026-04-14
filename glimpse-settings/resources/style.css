@@ -30,7 +30,7 @@
 }
 
 .appearance-wallpaper-placeholder {
-  min-height: 152px;
+  min-height: 100px;
 }
 
 .appearance-wallpaper-frame {
@@ -48,14 +48,14 @@
 
 .appearance-wallpaper-thumb {
   min-width: 0;
-  min-height: 152px;
+  min-height: 100px;
   border-radius: 16px;
   background: alpha(currentColor, 0.08);
 }
 
 .appearance-wallpaper-empty-tile {
   min-width: 0;
-  min-height: 152px;
+  min-height: 100px;
   align-items: center;
   justify-content: center;
   background:
@@ -63,15 +63,6 @@
     alpha(currentColor, 0.025);
   border: 1px dashed alpha(currentColor, 0.15);
   color: alpha(currentColor, 0.75);
-}
-
-.appearance-wallpaper-selected-badge {
-  min-width: 28px;
-  min-height: 28px;
-  border-radius: 999px;
-  background: @accent_color;
-  color: white;
-  box-shadow: 0 2px 8px alpha(black, 0.2);
 }
 
 .appearance-background-card {

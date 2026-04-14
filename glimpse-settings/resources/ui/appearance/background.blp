@@ -6,7 +6,11 @@ Adw.PreferencesGroup appearance_background_group {
   title: "Background";
   description: "Choose a wallpaper directly from the gallery.";
 
-  Adw.Bin appearance_wallpaper_gallery_bin {}
+  Gtk.ScrolledWindow appearance_wallpaper_gallery_scroller {
+    hscrollbar-policy: never;
+
+    child: Adw.Bin appearance_wallpaper_gallery_bin {};
+  }
 
   Adw.ActionRow appearance_wallpaper_color_row {
     title: "Background Color";
