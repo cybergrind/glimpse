@@ -197,6 +197,8 @@ impl Login1BrightnessSession {
 #[derive(Default)]
 struct ProviderState {
     displays: Vec<ControlDisplay>,
+    detected_ddc_displays: Vec<DetectedDdcDisplay>,
+    connector_fingerprint: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -350,8 +352,14 @@ impl InternalBrightnessBackend {
 struct ExternalBrightnessBackend;
 
 impl ExternalBrightnessBackend {
-    fn discover_displays(&self, connectors: &[DrmConnectorState]) -> Vec<ControlDisplay> {
-        self.detect_displays()
+    fn discover_displays(
+        &self,
+        detected_displays: &[DetectedDdcDisplay],
+        connectors: &[DrmConnectorState],
+    ) -> Vec<ControlDisplay> {
+        detected_displays
+            .iter()
+            .cloned()
             .into_iter()
             .filter_map(|detected| {
                 let value = self.read_brightness(detected.index)?;
@@ -433,7 +441,7 @@ impl BrightnessProvider {
 
     pub async fn snapshot(&self) -> anyhow::Result<BrightnessSnapshot> {
         let mut state = self.state.lock().await;
-        state.displays = self.discover_displays();
+        state.displays = self.discover_displays(&mut state);
         Ok(BrightnessSnapshot::new(
             state
                 .displays
@@ -494,15 +502,25 @@ impl BrightnessProvider {
         self.write_display_value(&display.target, value).await
     }
 
-    fn discover_displays(&self) -> Vec<ControlDisplay> {
+    fn discover_displays(&self, state: &mut ProviderState) -> Vec<ControlDisplay> {
         let connectors = drm_connector_states();
+        let connector_fingerprint = connected_connector_fingerprint(&connectors);
+        if state.detected_ddc_displays.is_empty()
+            || state.connector_fingerprint != connector_fingerprint
+        {
+            state.detected_ddc_displays = self.external.detect_displays();
+            state.connector_fingerprint = connector_fingerprint;
+        }
         let mut discovered = Vec::new();
 
         if let Some(display) = self.internal.discover_display(&connectors) {
             discovered.push(display);
         }
 
-        discovered.extend(self.external.discover_displays(&connectors));
+        discovered.extend(
+            self.external
+                .discover_displays(&state.detected_ddc_displays, &connectors),
+        );
         let mut discovered = filter_available_displays(discovered);
 
         let primary_id = choose_primary_display(
@@ -525,14 +543,14 @@ impl BrightnessProvider {
     async fn lookup_display(&self, display_id: &str) -> anyhow::Result<ControlDisplay> {
         let mut state = self.state.lock().await;
         if state.displays.is_empty() {
-            state.displays = self.discover_displays();
+            state.displays = self.discover_displays(&mut state);
         }
 
         if let Some(display) = lookup_cached_display(&state.displays, display_id) {
             return Ok(display);
         }
 
-        state.displays = self.discover_displays();
+        state.displays = self.discover_displays(&mut state);
         lookup_cached_display(&state.displays, display_id)
             .ok_or_else(|| anyhow::anyhow!("unknown display: {display_id}"))
     }
@@ -540,14 +558,14 @@ impl BrightnessProvider {
     async fn lookup_primary_display(&self) -> anyhow::Result<ControlDisplay> {
         let mut state = self.state.lock().await;
         if state.displays.is_empty() {
-            state.displays = self.discover_displays();
+            state.displays = self.discover_displays(&mut state);
         }
 
         if let Some(display) = lookup_cached_primary_display(&state.displays) {
             return Ok(display);
         }
 
-        state.displays = self.discover_displays();
+        state.displays = self.discover_displays(&mut state);
         lookup_cached_primary_display(&state.displays)
             .ok_or_else(|| anyhow::anyhow!("no primary brightness display available"))
     }
@@ -585,6 +603,16 @@ fn filter_available_displays(displays: Vec<ControlDisplay>) -> Vec<ControlDispla
         .into_iter()
         .filter(|display| display.data.available)
         .collect()
+}
+
+fn connected_connector_fingerprint(connectors: &[DrmConnectorState]) -> Vec<String> {
+    let mut fingerprint = connectors
+        .iter()
+        .filter(|connector| connector.connected)
+        .map(|connector| connector.connector.clone())
+        .collect::<Vec<_>>();
+    fingerprint.sort();
+    fingerprint
 }
 
 fn is_retryable_ddcutil_error(stderr: &str) -> bool {

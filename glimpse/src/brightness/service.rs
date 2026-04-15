@@ -1,6 +1,7 @@
 use std::{error::Error, time::Duration};
 
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -65,6 +66,16 @@ impl OpenPopoverCount {
     fn close(&mut self) {
         self.count = self.count.saturating_sub(1);
     }
+
+    fn is_open(self) -> bool {
+        self.count > 0
+    }
+}
+
+struct ProviderListener {
+    cancel: CancellationToken,
+    events: mpsc::Receiver<BrightnessProviderEvent>,
+    task: JoinHandle<anyhow::Result<()>>,
 }
 
 async fn run_brightness_service(
@@ -105,13 +116,7 @@ async fn run_connected(
     state_tx: watch::Sender<BrightnessServiceState>,
     cmd_rx: &mut mpsc::Receiver<BrightnessServiceCommand>,
 ) -> ServiceResult<()> {
-    let cancel = CancellationToken::new();
-    let (event_tx, mut event_rx) = mpsc::channel(32);
-    let mut listener = tokio::spawn({
-        let provider = provider.clone();
-        let cancel = cancel.clone();
-        async move { provider.listen(event_tx, cancel).await }
-    });
+    let mut listener: Option<ProviderListener> = None;
     let mut open_popovers = OpenPopoverCount::default();
 
     refresh_snapshot(&provider, &state_tx).await?;
@@ -119,7 +124,7 @@ async fn run_connected(
 
     let result = loop {
         tokio::select! {
-            maybe_event = event_rx.recv() => {
+            maybe_event = async { listener.as_mut().unwrap().events.recv().await }, if listener.is_some() => {
                 match maybe_event {
                     Some(BrightnessProviderEvent::Changed { reason }) => {
                         tracing::debug!(reason = %reason, "brightness service: provider changed");
@@ -139,21 +144,14 @@ async fn run_connected(
             }
             maybe_command = cmd_rx.recv() => {
                 match maybe_command {
-                    Some(command) => handle_command(&provider, &state_tx, &mut open_popovers, command).await?,
+                    Some(command) => handle_command(&provider, &state_tx, &mut open_popovers, &mut listener, command).await?,
                     None => break Ok(()),
                 }
-            }
-            join = &mut listener => {
-                break match join {
-                    Ok(Ok(())) => Err(service_error("brightness listener exited")),
-                    Ok(Err(error)) => Err(error.into()),
-                    Err(error) => Err(service_error(format!("brightness listener task failed: {error}"))),
-                };
             }
         }
     };
 
-    cancel.cancel();
+    stop_listener(&mut listener).await;
     result
 }
 
@@ -161,16 +159,24 @@ async fn handle_command(
     provider: &BrightnessProvider,
     state_tx: &watch::Sender<BrightnessServiceState>,
     open_popovers: &mut OpenPopoverCount,
+    listener: &mut Option<ProviderListener>,
     command: BrightnessServiceCommand,
 ) -> ServiceResult<()> {
     match command {
         BrightnessServiceCommand::Refresh => refresh_snapshot(provider, state_tx).await,
         BrightnessServiceCommand::PopoverOpened => {
+            let should_start = !open_popovers.is_open();
             open_popovers.open();
+            if should_start {
+                *listener = Some(start_listener(provider.clone()));
+            }
             refresh_snapshot(provider, state_tx).await
         }
         BrightnessServiceCommand::PopoverClosed => {
             open_popovers.close();
+            if !open_popovers.is_open() {
+                stop_listener(listener).await;
+            }
             refresh_snapshot(provider, state_tx).await
         }
         BrightnessServiceCommand::SetDisplayPercent {
@@ -220,6 +226,34 @@ async fn refresh_snapshot(
         .map_err(|error| -> ServiceError { error.into() })?;
     state_tx.send_modify(|state| state.snapshot = snapshot);
     Ok(())
+}
+
+fn start_listener(provider: BrightnessProvider) -> ProviderListener {
+    let cancel = CancellationToken::new();
+    let (event_tx, events) = mpsc::channel(32);
+    let task = tokio::spawn({
+        let cancel = cancel.clone();
+        async move { provider.listen(event_tx, cancel).await }
+    });
+
+    ProviderListener {
+        cancel,
+        events,
+        task,
+    }
+}
+
+async fn stop_listener(listener: &mut Option<ProviderListener>) {
+    let Some(listener) = listener.take() else {
+        return;
+    };
+
+    listener.cancel.cancel();
+    match listener.task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::debug!(error = %error, "brightness service: listener stopped with error"),
+        Err(error) => tracing::debug!(error = %error, "brightness service: listener join failed"),
+    }
 }
 
 #[cfg(test)]
