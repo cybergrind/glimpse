@@ -17,6 +17,8 @@ use crate::night_light::{
 use crate::solar::provider::{SolarTimesProvider, SolarTimesSource};
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+const APPLY_TRANSITION_DURATION: Duration = Duration::from_millis(1500);
+const APPLY_TRANSITION_STEP: Duration = Duration::from_millis(100);
 
 type ServiceError = Box<dyn Error + Send + Sync>;
 type ServiceResult<T> = Result<T, ServiceError>;
@@ -193,16 +195,10 @@ async fn apply_config(
     }
 
     let (phase, effective_temperature) = match config.schedule {
-        NightLightSchedule::Off => {
-            backend
-                .reset()
-                .await
-                .map_err(|error| -> ServiceError { error.into() })?;
-            (
-                crate::night_light::protocol::NightLightPhase::Disabled,
-                DAYLIGHT_TEMPERATURE_KELVIN,
-            )
-        }
+        NightLightSchedule::Off => (
+            crate::night_light::protocol::NightLightPhase::Disabled,
+            DAYLIGHT_TEMPERATURE_KELVIN,
+        ),
         NightLightSchedule::Schedule => {
             let start = config
                 .start_time
@@ -221,7 +217,6 @@ async fn apply_config(
                 config.temperature,
                 evaluation.night_progress,
             );
-            apply_temperature(backend, effective).await?;
             (evaluation.phase, effective)
         }
         NightLightSchedule::Automatic => {
@@ -242,12 +237,18 @@ async fn apply_config(
                 config.temperature,
                 evaluation.night_progress,
             );
-            apply_temperature(backend, effective).await?;
             (evaluation.phase, effective)
         }
     };
 
     let previous_state = state_tx.borrow().clone();
+    apply_temperature_transition(
+        backend,
+        previous_state.effective_temperature_kelvin,
+        effective_temperature,
+    )
+    .await?;
+
     let was_active = night_light_is_active(previous_state.effective_temperature_kelvin);
     let is_active = night_light_is_active(effective_temperature);
 
@@ -268,23 +269,25 @@ async fn apply_config(
         );
     }
 
-    if previous_state.effective_temperature_kelvin != effective_temperature {
-        tracing::info!(
-            schedule = ?config.schedule,
-            previous_phase = ?previous_state.phase,
-            phase = ?phase,
-            previous_temperature_kelvin = previous_state.effective_temperature_kelvin,
-            effective_temperature_kelvin = effective_temperature,
-            target_temperature_kelvin = config.temperature,
-            "night light service: temperature changed"
-        );
-    } else {
+    if previous_state.phase == phase
+        && previous_state.effective_temperature_kelvin == effective_temperature
+    {
         tracing::debug!(
             schedule = ?config.schedule,
             phase = ?phase,
             target_temperature_kelvin = config.temperature,
             effective_temperature_kelvin = effective_temperature,
             "night light service: state unchanged after refresh"
+        );
+    } else if previous_state.phase != phase
+        && previous_state.effective_temperature_kelvin == effective_temperature
+    {
+        tracing::debug!(
+            schedule = ?config.schedule,
+            previous_phase = ?previous_state.phase,
+            phase = ?phase,
+            effective_temperature_kelvin = effective_temperature,
+            "night light service: phase changed without temperature change"
         );
     }
 
@@ -301,7 +304,60 @@ async fn apply_config(
     Ok(())
 }
 
-async fn apply_temperature(
+fn transition_temperatures(from: u32, to: u32) -> Vec<u32> {
+    if from == to {
+        return Vec::new();
+    }
+
+    let step_count = ((APPLY_TRANSITION_DURATION.as_millis() + APPLY_TRANSITION_STEP.as_millis()
+        - 1)
+        / APPLY_TRANSITION_STEP.as_millis())
+    .max(1) as u32;
+    let mut temperatures = Vec::with_capacity(step_count as usize);
+
+    for step in 1..=step_count {
+        let temperature = interpolate_temperature(from, to, step as f32 / step_count as f32);
+        if temperatures.last().copied() != Some(temperature) {
+            temperatures.push(temperature);
+        }
+    }
+
+    temperatures
+}
+
+async fn apply_temperature_transition(
+    backend: &mut dyn NightLightBackend,
+    from: u32,
+    to: u32,
+) -> ServiceResult<()> {
+    let temperatures = transition_temperatures(from, to);
+
+    if temperatures.is_empty() {
+        if to == DAYLIGHT_TEMPERATURE_KELVIN {
+            apply_temperature_now(backend, to).await?;
+        }
+        return Ok(());
+    }
+
+    let mut previous_temperature = from;
+    for (index, temperature) in temperatures.iter().copied().enumerate() {
+        apply_temperature_now(backend, temperature).await?;
+        tracing::info!(
+            previous_temperature_kelvin = previous_temperature,
+            effective_temperature_kelvin = temperature,
+            "night light service: temperature changed"
+        );
+        previous_temperature = temperature;
+
+        if index + 1 < temperatures.len() {
+            tokio::time::sleep(APPLY_TRANSITION_STEP).await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn apply_temperature_now(
     backend: &mut dyn NightLightBackend,
     effective_temperature: u32,
 ) -> ServiceResult<()> {
@@ -334,7 +390,7 @@ mod tests {
         time::Duration,
     };
 
-    use super::{NightLightServiceHandle, apply_config, initial_state};
+    use super::{NightLightServiceHandle, apply_config, initial_state, transition_temperatures};
     use crate::{
         compositor::{CompositorCapabilities, CompositorKind},
         night_light::{
@@ -453,6 +509,22 @@ mod tests {
             DAYLIGHT_TEMPERATURE_KELVIN
         );
         assert_eq!(log.lock().unwrap().resets, 1);
+    }
+
+    #[test]
+    fn transition_temperatures_use_multiple_steps_for_large_changes() {
+        let steps = transition_temperatures(6500, 4200);
+        assert!(steps.len() > 1);
+        assert_eq!(steps.last().copied(), Some(4200));
+        assert!(steps[0] < 6500);
+    }
+
+    #[test]
+    fn transition_temperatures_return_to_daylight_smoothly() {
+        let steps = transition_temperatures(4200, 6500);
+        assert!(steps.len() > 1);
+        assert_eq!(steps.last().copied(), Some(6500));
+        assert!(steps[0] > 4200);
     }
 
     #[tokio::test]

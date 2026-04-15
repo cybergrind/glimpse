@@ -111,7 +111,7 @@ async fn run_connected(
             maybe_event = event_rx.recv() => {
                 match maybe_event {
                     Some(TrayProviderEvent::Changed { reason }) => {
-                        tracing::info!(reason = %reason, "tray service: provider changed");
+                        tracing::debug!(reason = %reason, "tray service: provider changed");
                         if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
                             tracing::warn!(error = %error, "tray service: refresh failed");
                             let _ = state_tx.send_modify(|state| {
