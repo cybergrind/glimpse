@@ -1,7 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
 
@@ -9,9 +9,13 @@ use super::{
     protocol::{CallbackData, TreeNode},
     renderer::RenderCatalog,
 };
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 
 pub struct ExecPopover {
     popover: gtk::Popover,
+    #[allow(dead_code)]
+    shell: Controller<PopoverShell>,
+    content_box: gtk::Box,
     tree: Option<TreeNode>,
     applet_name: String,
     last_interacted_id: Option<String>,
@@ -55,8 +59,20 @@ impl SimpleComponent for ExecPopover {
         root.add_css_class("exec-popover");
         root.set_parent(&init.parent);
 
+        let shell = PopoverShell::builder()
+            .launch(PopoverShellInit::default())
+            .detach();
+        let shell_widget = shell.widget().clone();
+        let content_box = shell_widget
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("popover shell should expose content box");
+        root.set_child(Some(&shell_widget));
+
         let model = ExecPopover {
             popover: root.clone(),
+            shell,
+            content_box,
             tree: None,
             applet_name: init.applet_name,
             last_interacted_id: None,
@@ -71,7 +87,9 @@ impl SimpleComponent for ExecPopover {
                 self.tree = None;
                 self.last_interacted_id = None;
                 self.focus_targets.clear();
-                self.popover.set_child(Option::<&gtk::Widget>::None);
+                while let Some(child) = self.content_box.first_child() {
+                    self.content_box.remove(&child);
+                }
                 self.popover.popdown();
             }
             ExecPopoverInput::RememberInteraction(id) => {
@@ -90,7 +108,9 @@ impl ExecPopover {
         self.remember_current_focus();
         let Some(tree) = &self.tree else {
             self.focus_targets.clear();
-            self.popover.set_child(Option::<&gtk::Widget>::None);
+            while let Some(child) = self.content_box.first_child() {
+                self.content_box.remove(&child);
+            }
             self.popover.popdown();
             return;
         };
@@ -103,7 +123,10 @@ impl ExecPopover {
         match renderer.render(tree) {
             Ok(widget) => {
                 self.focus_targets = renderer.focus_targets();
-                self.popover.set_child(Some(&widget));
+                while let Some(child) = self.content_box.first_child() {
+                    self.content_box.remove(&child);
+                }
+                self.content_box.append(&widget);
             }
             Err(error) => {
                 tracing::warn!(?error, applet = %self.applet_name, "exec applet: failed to render tree");

@@ -76,6 +76,38 @@ class Hero(Widget):
 
 
 @dataclass(slots=True)
+class IconWidget(Widget):
+    icon: Icon | None = None
+    pixel_size: int | None = None
+    widget_type: str = "icon"
+
+    def to_protocol(self) -> dict[str, object]:
+        if self.icon is None:
+            raise ValueError("IconWidget requires an icon")
+        payload = self.apply_common({"icon": self.icon.to_protocol()})
+        if self.pixel_size is not None:
+            payload["pixel_size"] = self.pixel_size
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Progress(Widget):
+    value: float = 0.0
+    max: float = 1.0
+    show_text: bool = False
+    text: str | None = None
+    widget_type: str = "progress"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"value": self.value, "max": self.max})
+        if self.show_text:
+            payload["show_text"] = self.show_text
+        if self.text is not None:
+            payload["text"] = self.text
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
 class Label(Widget):
     text: str = ""
     wrap: bool = False
@@ -307,13 +339,128 @@ class Box(Widget):
         return {"type": self.widget_type, "data": payload}
 
 
+@dataclass(slots=True)
+class Card(Widget):
+    children: list["TreeNode"] = field(default_factory=list)
+    widget_type: str = "card"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"children": [child.to_protocol() for child in self.children]})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Section(Widget):
+    title: str = ""
+    subtitle: str = ""
+    children: list["TreeNode"] = field(default_factory=list)
+    widget_type: str = "section"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common(
+            {
+                "title": self.title,
+                "subtitle": self.subtitle,
+                "children": [child.to_protocol() for child in self.children],
+            }
+        )
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Row(Widget):
+    title: str = ""
+    subtitle: str = ""
+    meta: str = ""
+    icon: Icon | None = None
+    widget_type: str = "row"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common(
+            {"title": self.title, "subtitle": self.subtitle, "meta": self.meta}
+        )
+        if self.icon is not None:
+            payload["icon"] = self.icon.to_protocol()
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class DetailGridItem:
+    key: str
+    value: str
+
+    def to_protocol(self) -> dict[str, str]:
+        return {"key": self.key, "value": self.value}
+
+
+@dataclass(slots=True)
+class DetailGrid(Widget):
+    rows: list[DetailGridItem] = field(default_factory=list)
+    widget_type: str = "detail_grid"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"rows": [row.to_protocol() for row in self.rows]})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class FooterAction(Widget):
+    title: str = ""
+    subtitle: str = ""
+    widget_type: str = "footer_action"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"title": self.title, "subtitle": self.subtitle})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class EmptyState(Widget):
+    title: str = ""
+    subtitle: str = ""
+    widget_type: str = "empty_state"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"title": self.title, "subtitle": self.subtitle})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Badge(Widget):
+    label: str = ""
+    widget_type: str = "badge"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"label": self.label})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class StatusDot(Widget):
+    widget_type: str = "status_dot"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({})
+        return {"type": self.widget_type, "data": payload}
+
+
 TreeNode: TypeAlias = (
     Hero
+    | Card
+    | Section
+    | Row
+    | DetailGrid
+    | FooterAction
+    | EmptyState
+    | Badge
+    | StatusDot
     | Box
     | Grid
     | Scroll
+    | Progress
     | Separator
     | Label
+    | IconWidget
     | Image
     | Button
     | Entry

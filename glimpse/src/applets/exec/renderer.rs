@@ -3,9 +3,11 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 use relm4::gtk::{self, glib, prelude::*};
 
 use super::protocol::{
-    AlignValue, BoxNode, ButtonNode, CallbackData, CheckboxNode, CommonProps, DropdownNode,
-    EntryNode, GridNode, HeroNode, IconSource, ImageNode, LabelNode, OrientationValue, ScaleNode,
-    SeparatorNode, SwitchNode, TreeNode,
+    AlignValue, BadgeNode, BoxNode, ButtonNode, CallbackData, CardNode, CheckboxNode,
+    CommonProps, DetailGridNode, DropdownNode, EmptyStateNode, EntryNode, FooterActionNode,
+    GridNode, HeroNode, IconNode, IconSource, ImageNode, LabelNode, OrientationValue,
+    ProgressNode, RowNode, ScaleNode, SectionNode, SeparatorNode, StatusDotNode, SwitchNode,
+    TreeNode,
 };
 
 pub type CallbackSink = Rc<dyn Fn(CallbackData)>;
@@ -40,6 +42,14 @@ impl RenderCatalog {
     pub fn render(&self, node: &TreeNode) -> Result<gtk::Widget, RenderError> {
         match node {
             TreeNode::Hero(data) => self.render_hero(data),
+            TreeNode::Card(data) => self.render_card(data),
+            TreeNode::Section(data) => self.render_section(data),
+            TreeNode::Row(data) => self.render_row(data),
+            TreeNode::DetailGrid(data) => self.render_detail_grid(data),
+            TreeNode::FooterAction(data) => self.render_footer_action(data),
+            TreeNode::EmptyState(data) => self.render_empty_state(data),
+            TreeNode::Badge(data) => self.render_badge(data),
+            TreeNode::StatusDot(data) => self.render_status_dot(data),
             TreeNode::Box(data) => self.render_box(data),
             TreeNode::Grid(data) => self.render_grid(data),
             TreeNode::Scroll(data) => {
@@ -49,8 +59,10 @@ impl RenderCatalog {
                 scrolled.set_child(Some(&child));
                 Ok(scrolled.upcast())
             }
+            TreeNode::Progress(data) => self.render_progress(data),
             TreeNode::Separator(data) => self.render_separator(data),
             TreeNode::Label(data) => self.render_label(data),
+            TreeNode::Icon(data) => self.render_icon(data),
             TreeNode::Image(data) => self.render_image(data),
             TreeNode::Button(data) => self.render_button(data),
             TreeNode::Entry(data) => self.render_entry(data, true),
@@ -64,26 +76,234 @@ impl RenderCatalog {
 
     fn render_hero(&self, data: &HeroNode) -> Result<gtk::Widget, RenderError> {
         let hero_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        hero_box.add_css_class("exec-hero");
+        hero_box.add_css_class("hero-row");
         apply_common_props(&hero_box, &data.common);
         if let Some(icon) = &data.icon {
             let image = gtk::Image::new();
             image.set_pixel_size(32);
+            image.add_css_class("hero-row__media");
             apply_icon_to_image(&image, icon);
             hero_box.append(&image);
         }
         let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
         text_box.set_valign(gtk::Align::Center);
+        text_box.add_css_class("hero-row__content");
         let title = gtk::Label::new(Some(&data.title));
         title.set_halign(gtk::Align::Start);
-        title.add_css_class("exec-hero-title");
+        title.set_xalign(0.0);
+        title.add_css_class("hero-row__title");
         text_box.append(&title);
         let subtitle = gtk::Label::new(Some(&data.subtitle));
         subtitle.set_halign(gtk::Align::Start);
-        subtitle.add_css_class("exec-hero-subtitle");
+        subtitle.set_xalign(0.0);
+        subtitle.add_css_class("hero-row__subtitle");
+        subtitle.set_visible(!data.subtitle.is_empty());
         text_box.append(&subtitle);
         hero_box.append(&text_box);
         Ok(hero_box.upcast())
+    }
+
+    fn render_card(&self, data: &CardNode) -> Result<gtk::Widget, RenderError> {
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        card.add_css_class("card-surface");
+        apply_common_props(&card, &data.common);
+
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.add_css_class("card-surface__body");
+        for child in &data.children {
+            body.append(&self.render(child)?);
+        }
+        card.append(&body);
+        Ok(card.upcast())
+    }
+
+    fn render_section(&self, data: &SectionNode) -> Result<gtk::Widget, RenderError> {
+        let section = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        section.add_css_class("section-block");
+        apply_common_props(&section, &data.common);
+
+        let header = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        header.add_css_class("section-block__header");
+
+        let title = gtk::Label::new(Some(&data.title));
+        title.set_halign(gtk::Align::Start);
+        title.set_xalign(0.0);
+        title.add_css_class("section-block__title");
+        header.append(&title);
+
+        if !data.subtitle.is_empty() {
+            let subtitle = gtk::Label::new(Some(&data.subtitle));
+            subtitle.set_halign(gtk::Align::Start);
+            subtitle.set_xalign(0.0);
+            subtitle.add_css_class("hero-row__subtitle");
+            header.append(&subtitle);
+        }
+
+        section.append(&header);
+
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.add_css_class("section-block__body");
+        for child in &data.children {
+            body.append(&self.render(child)?);
+        }
+        section.append(&body);
+        Ok(section.upcast())
+    }
+
+    fn render_row(&self, data: &RowNode) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        root.add_css_class("action-row");
+        apply_common_props(&root, &data.common);
+
+        let button = gtk::Button::new();
+        button.add_css_class("flat");
+        button.add_css_class("action-row__button");
+        button.set_hexpand(true);
+
+        let shell = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        shell.set_valign(gtk::Align::Center);
+        shell.add_css_class("action-row__content-shell");
+
+        let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        leading.set_valign(gtk::Align::Center);
+        leading.add_css_class("action-row__leading");
+        if let Some(icon) = &data.icon {
+            let image = gtk::Image::new();
+            apply_icon_to_image(&image, icon);
+            leading.append(&image);
+        }
+        shell.append(&leading);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        content.set_hexpand(true);
+        content.set_valign(gtk::Align::Center);
+        content.add_css_class("action-row__content");
+
+        let title = gtk::Label::new(Some(&data.title));
+        title.set_halign(gtk::Align::Start);
+        title.set_xalign(0.0);
+        title.set_hexpand(true);
+        title.add_css_class("action-row__title");
+        content.append(&title);
+
+        let subtitle = gtk::Label::new(Some(&data.subtitle));
+        subtitle.set_halign(gtk::Align::Start);
+        subtitle.set_xalign(0.0);
+        subtitle.add_css_class("action-row__subtitle");
+        subtitle.set_visible(!data.subtitle.is_empty());
+        content.append(&subtitle);
+        shell.append(&content);
+
+        let meta = gtk::Label::new(Some(&data.meta));
+        meta.set_valign(gtk::Align::Center);
+        meta.add_css_class("action-row__meta");
+        meta.set_visible(!data.meta.is_empty());
+        shell.append(&meta);
+
+        button.set_child(Some(&shell));
+        root.append(&button);
+
+        let trailing = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        trailing.set_valign(gtk::Align::Center);
+        trailing.add_css_class("action-row__trailing");
+        root.append(&trailing);
+
+        if let Some(id) = &data.common.id {
+            let callback = self.callback.clone();
+            let callback_id = id.clone();
+            button.connect_clicked(move |_| {
+                callback(CallbackData {
+                    id: callback_id.clone(),
+                    event: "click".into(),
+                    button: Some("left".into()),
+                    ..CallbackData::default()
+                });
+            });
+            self.register_focus_target(id, &button);
+        } else {
+            button.set_sensitive(false);
+        }
+
+        Ok(root.upcast())
+    }
+
+    fn render_detail_grid(&self, data: &DetailGridNode) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("detail-grid");
+        apply_common_props(&root, &data.common);
+
+        for item in &data.rows {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            row.add_css_class("detail-grid__row");
+
+            let key = gtk::Label::new(Some(&item.key));
+            key.add_css_class("detail-grid__key");
+            key.set_halign(gtk::Align::Start);
+            key.set_xalign(0.0);
+            key.set_hexpand(true);
+
+            let value = gtk::Label::new(Some(&item.value));
+            value.add_css_class("detail-grid__value");
+            value.set_halign(gtk::Align::End);
+            value.set_xalign(1.0);
+
+            row.append(&key);
+            row.append(&value);
+            root.append(&row);
+        }
+
+        Ok(root.upcast())
+    }
+
+    fn render_footer_action(&self, data: &FooterActionNode) -> Result<gtk::Widget, RenderError> {
+        let mut common = data.common.clone();
+        common.css_classes.push("action-row--footer".into());
+        common.css_classes.push("footer-action".into());
+        self.render_row(&RowNode {
+            common,
+            title: data.title.clone(),
+            subtitle: data.subtitle.clone(),
+            meta: String::new(),
+            icon: None,
+        })
+    }
+
+    fn render_empty_state(&self, data: &EmptyStateNode) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        root.set_halign(gtk::Align::Center);
+        root.add_css_class("empty-state");
+        apply_common_props(&root, &data.common);
+
+        let title = gtk::Label::new(Some(&data.title));
+        title.set_halign(gtk::Align::Center);
+        title.set_xalign(0.5);
+        title.set_justify(gtk::Justification::Center);
+        title.add_css_class("empty-state__title");
+        root.append(&title);
+
+        let subtitle = gtk::Label::new(Some(&data.subtitle));
+        subtitle.set_halign(gtk::Align::Center);
+        subtitle.set_xalign(0.5);
+        subtitle.set_justify(gtk::Justification::Center);
+        subtitle.add_css_class("empty-state__subtitle");
+        subtitle.set_visible(!data.subtitle.is_empty());
+        root.append(&subtitle);
+
+        Ok(root.upcast())
+    }
+
+    fn render_badge(&self, data: &BadgeNode) -> Result<gtk::Widget, RenderError> {
+        let label = gtk::Label::new(Some(&data.label));
+        label.add_css_class("badge");
+        apply_common_props(&label, &data.common);
+        Ok(label.upcast())
+    }
+
+    fn render_status_dot(&self, data: &StatusDotNode) -> Result<gtk::Widget, RenderError> {
+        let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        dot.add_css_class("status-dot");
+        apply_common_props(&dot, &data.common);
+        Ok(dot.upcast())
     }
 
     fn render_box(&self, data: &BoxNode) -> Result<gtk::Widget, RenderError> {
@@ -122,6 +342,17 @@ impl RenderCatalog {
             label.set_xalign(xalign);
         }
         Ok(label.upcast())
+    }
+
+    fn render_icon(&self, data: &IconNode) -> Result<gtk::Widget, RenderError> {
+        let image = gtk::Image::new();
+        image.add_css_class("exec-icon");
+        apply_common_props(&image, &data.common);
+        apply_icon_to_image(&image, &data.icon);
+        if let Some(pixel_size) = data.pixel_size {
+            image.set_pixel_size(pixel_size);
+        }
+        Ok(image.upcast())
     }
 
     fn render_image(&self, data: &ImageNode) -> Result<gtk::Widget, RenderError> {
@@ -251,6 +482,26 @@ impl RenderCatalog {
         });
         self.register_focus_target(&id, &scale);
         Ok(scale.upcast())
+    }
+
+    fn render_progress(&self, data: &ProgressNode) -> Result<gtk::Widget, RenderError> {
+        let progress = gtk::ProgressBar::new();
+        progress.add_css_class("exec-progress");
+        apply_common_props(&progress, &data.common);
+        let fraction = if data.max <= 0.0 {
+            0.0
+        } else {
+            (data.value / data.max).clamp(0.0, 1.0)
+        };
+        progress.set_fraction(fraction);
+        if data.show_text {
+            progress.set_show_text(true);
+            progress.set_text(data.text.as_deref());
+        } else if let Some(text) = &data.text {
+            progress.set_show_text(true);
+            progress.set_text(Some(text));
+        }
+        Ok(progress.upcast())
     }
 
     fn render_separator(&self, data: &SeparatorNode) -> Result<gtk::Widget, RenderError> {

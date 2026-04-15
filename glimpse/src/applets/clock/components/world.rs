@@ -70,6 +70,7 @@ impl SimpleComponent for WorldClock {
 
             gtk::Label {
                 add_css_class: "section-title",
+                add_css_class: "section-block__title",
                 add_css_class: "world-clock-header",
                 set_label: "World Clock",
                 set_xalign: 0.0,

@@ -90,6 +90,7 @@ impl Component for Events {
 
             gtk::Label {
                 add_css_class: "section-title",
+                add_css_class: "section-block__title",
                 add_css_class: "events-header",
                 set_xalign: 0.0,
                 set_label: "Events",
@@ -105,6 +106,7 @@ impl Component for Events {
             gtk::Label {
                 add_css_class: "events-empty",
                 add_css_class: "dim-label",
+                add_css_class: "empty-state__subtitle",
                 set_xalign: 0.0,
                 #[watch]
                 set_label: &model.empty_label,

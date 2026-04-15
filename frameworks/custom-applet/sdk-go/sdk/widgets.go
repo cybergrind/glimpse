@@ -41,6 +41,28 @@ func NewHero(title string, subtitle string) TreeNode {
 	return TreeNode{Type: "hero", Data: Hero{Title: title, Subtitle: subtitle}}
 }
 
+type IconWidget struct {
+	CommonProps
+	Icon      *Icon `json:"icon"`
+	PixelSize *int  `json:"pixel_size,omitempty"`
+}
+
+func NewIcon(icon *Icon) TreeNode {
+	return TreeNode{Type: "icon", Data: IconWidget{Icon: icon}}
+}
+
+type Progress struct {
+	CommonProps
+	Value    float64 `json:"value"`
+	Max      float64 `json:"max"`
+	ShowText bool    `json:"show_text,omitempty"`
+	Text     string  `json:"text,omitempty"`
+}
+
+func NewProgress(value float64) TreeNode {
+	return TreeNode{Type: "progress", Data: Progress{Value: value, Max: 1}}
+}
+
 type Label struct {
 	CommonProps
 	Text       string  `json:"text"`
@@ -194,6 +216,89 @@ type Box struct {
 	Orientation Orientation `json:"orientation"`
 	Spacing     int         `json:"spacing"`
 	Children    []TreeNode  `json:"children"`
+}
+
+type Card struct {
+	CommonProps
+	Children []TreeNode `json:"children"`
+}
+
+func NewCard(children []TreeNode) TreeNode {
+	return TreeNode{Type: "card", Data: Card{Children: children}}
+}
+
+type Section struct {
+	CommonProps
+	Title    string     `json:"title"`
+	Subtitle string     `json:"subtitle,omitempty"`
+	Children []TreeNode `json:"children"`
+}
+
+func NewSection(title string, children []TreeNode) TreeNode {
+	return TreeNode{Type: "section", Data: Section{Title: title, Children: children}}
+}
+
+type Row struct {
+	CommonProps
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle,omitempty"`
+	Meta     string `json:"meta,omitempty"`
+	Icon     *Icon  `json:"icon,omitempty"`
+}
+
+func NewRow(id string, title string) TreeNode {
+	return TreeNode{Type: "row", Data: Row{CommonProps: CommonProps{ID: id}, Title: title}}
+}
+
+type DetailGridItem struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type DetailGrid struct {
+	CommonProps
+	Rows []DetailGridItem `json:"rows"`
+}
+
+func NewDetailGrid(rows []DetailGridItem) TreeNode {
+	return TreeNode{Type: "detail_grid", Data: DetailGrid{Rows: rows}}
+}
+
+type FooterAction struct {
+	CommonProps
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle,omitempty"`
+}
+
+func NewFooterAction(id string, title string) TreeNode {
+	return TreeNode{Type: "footer_action", Data: FooterAction{CommonProps: CommonProps{ID: id}, Title: title}}
+}
+
+type EmptyState struct {
+	CommonProps
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle,omitempty"`
+}
+
+func NewEmptyState(title string) TreeNode {
+	return TreeNode{Type: "empty_state", Data: EmptyState{Title: title}}
+}
+
+type Badge struct {
+	CommonProps
+	Label string `json:"label"`
+}
+
+func NewBadge(label string) TreeNode {
+	return TreeNode{Type: "badge", Data: Badge{Label: label}}
+}
+
+type StatusDot struct {
+	CommonProps
+}
+
+func NewStatusDot() TreeNode {
+	return TreeNode{Type: "status_dot", Data: StatusDot{}}
 }
 
 func BoxVertical(children []TreeNode, spacing int) TreeNode {

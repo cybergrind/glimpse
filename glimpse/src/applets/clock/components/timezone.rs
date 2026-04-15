@@ -41,6 +41,7 @@ impl SimpleComponent for TimezoneRow {
 
                 gtk::Label {
                     add_css_class: "world-clock-city",
+                    add_css_class: "action-row__title",
                     set_xalign: 0.0,
                     #[watch]
                     set_label: &model.name,
@@ -64,6 +65,7 @@ impl SimpleComponent for TimezoneRow {
 
                 gtk::Label {
                     add_css_class: "world-clock-time",
+                    add_css_class: "detail-grid__value",
                     #[watch]
                     set_label: &model.time,
                 },
@@ -71,6 +73,7 @@ impl SimpleComponent for TimezoneRow {
                 gtk::Label {
                     add_css_class: "world-clock-tz",
                     add_css_class: "dim-label",
+                    add_css_class: "detail-grid__key",
                     #[watch]
                     set_label: &model.offset,
                 },

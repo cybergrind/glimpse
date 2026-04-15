@@ -811,6 +811,12 @@ popover separator {
   color: var(--color-warning);
 }
 
+.privacy-indicator,
+.privacy-recording-icon,
+.privacy-recording-label {
+  color: var(--color-warning);
+}
+
 /* Network popover */
 
 .network-popover {
@@ -1023,6 +1029,32 @@ popover separator {
 
 .clock-popover .world-clock-tz {
   padding-left: var(--space-4);
+}
+
+/* Exec */
+
+.exec-status-box > *:not(:last-child) {
+  margin-right: var(--space-5);
+}
+
+.exec-status-item {
+  padding: 0;
+}
+
+.exec-status-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-popover {
+  --popover-min-width: 260px;
+}
+
+.exec-progress {
+  min-width: 140px;
+}
+
+.exec-icon {
+  color: currentColor;
 }
 
 /* Weather */

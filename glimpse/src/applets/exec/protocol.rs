@@ -36,6 +36,32 @@ pub struct HeroNode {
     pub icon: Option<IconSource>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IconNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub icon: IconSource,
+    #[serde(default)]
+    pub pixel_size: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProgressNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub value: f64,
+    #[serde(default = "default_progress_max")]
+    pub max: f64,
+    #[serde(default)]
+    pub show_text: bool,
+    #[serde(default)]
+    pub text: Option<String>,
+}
+
+fn default_progress_max() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CommonProps {
     #[serde(default)]
@@ -82,6 +108,83 @@ pub struct BoxNode {
     pub spacing: i32,
     #[serde(default)]
     pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub meta: String,
+    #[serde(default)]
+    pub icon: Option<IconSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetailGridItem {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetailGridNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub rows: Vec<DetailGridItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FooterActionNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmptyStateNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BadgeNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatusDotNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -223,11 +326,21 @@ pub struct GridNode {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum TreeNode {
     Hero(HeroNode),
+    Card(CardNode),
+    Section(SectionNode),
+    Row(RowNode),
+    DetailGrid(DetailGridNode),
+    FooterAction(FooterActionNode),
+    EmptyState(EmptyStateNode),
+    Badge(BadgeNode),
+    StatusDot(StatusDotNode),
     Box(BoxNode),
     Grid(GridNode),
     Scroll(ScrollNode),
+    Progress(ProgressNode),
     Separator(SeparatorNode),
     Label(LabelNode),
+    Icon(IconNode),
     Image(ImageNode),
     Button(ButtonNode),
     Entry(EntryNode),

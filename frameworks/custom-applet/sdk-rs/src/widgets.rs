@@ -449,14 +449,299 @@ impl Hero {
 with_common!(Hero);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct IconWidget {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub icon: Icon,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pixel_size: Option<i32>,
+}
+
+impl IconWidget {
+    pub fn new(icon: Icon) -> Self {
+        Self {
+            common: CommonProps::default(),
+            icon,
+            pixel_size: None,
+        }
+    }
+
+    pub fn pixel_size(mut self, pixel_size: i32) -> Self {
+        self.pixel_size = Some(pixel_size);
+        self
+    }
+}
+
+with_common!(IconWidget);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Progress {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub value: f64,
+    pub max: f64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub show_text: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+impl Progress {
+    pub fn new(value: f64) -> Self {
+        Self {
+            common: CommonProps::default(),
+            value,
+            max: 1.0,
+            show_text: false,
+            text: None,
+        }
+    }
+
+    pub fn max(mut self, max: f64) -> Self {
+        self.max = max;
+        self
+    }
+
+    pub fn show_text(mut self, show_text: bool) -> Self {
+        self.show_text = show_text;
+        self
+    }
+
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+}
+
+with_common!(Progress);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Card {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub children: Vec<TreeNode>,
+}
+
+impl Card {
+    pub fn new(children: Vec<TreeNode>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            children,
+        }
+    }
+}
+
+with_common!(Card);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Section {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    pub subtitle: String,
+    pub children: Vec<TreeNode>,
+}
+
+impl Section {
+    pub fn new(title: impl Into<String>, children: Vec<TreeNode>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            title: title.into(),
+            subtitle: String::new(),
+            children,
+        }
+    }
+
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = subtitle.into();
+        self
+    }
+}
+
+with_common!(Section);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Row {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    pub subtitle: String,
+    pub meta: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
+}
+
+impl Row {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps {
+                id: Some(id.into()),
+                ..CommonProps::default()
+            },
+            title: title.into(),
+            subtitle: String::new(),
+            meta: String::new(),
+            icon: None,
+        }
+    }
+
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = subtitle.into();
+        self
+    }
+
+    pub fn meta(mut self, meta: impl Into<String>) -> Self {
+        self.meta = meta.into();
+        self
+    }
+
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+}
+
+with_common!(Row);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DetailGridItem {
+    pub key: String,
+    pub value: String,
+}
+
+impl DetailGridItem {
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DetailGrid {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub rows: Vec<DetailGridItem>,
+}
+
+impl DetailGrid {
+    pub fn new(rows: Vec<DetailGridItem>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            rows,
+        }
+    }
+}
+
+with_common!(DetailGrid);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FooterAction {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    pub subtitle: String,
+}
+
+impl FooterAction {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps {
+                id: Some(id.into()),
+                ..CommonProps::default()
+            },
+            title: title.into(),
+            subtitle: String::new(),
+        }
+    }
+
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = subtitle.into();
+        self
+    }
+}
+
+with_common!(FooterAction);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EmptyState {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    pub subtitle: String,
+}
+
+impl EmptyState {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            title: title.into(),
+            subtitle: String::new(),
+        }
+    }
+
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = subtitle.into();
+        self
+    }
+}
+
+with_common!(EmptyState);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Badge {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub label: String,
+}
+
+impl Badge {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            label: label.into(),
+        }
+    }
+}
+
+with_common!(Badge);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StatusDot {
+    #[serde(flatten)]
+    pub common: CommonProps,
+}
+
+impl StatusDot {
+    pub fn new() -> Self {
+        Self {
+            common: CommonProps::default(),
+        }
+    }
+}
+
+with_common!(StatusDot);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum TreeNode {
     Hero(Hero),
+    Card(Card),
+    Section(Section),
+    Row(Row),
+    DetailGrid(DetailGrid),
+    FooterAction(FooterAction),
+    EmptyState(EmptyState),
+    Badge(Badge),
+    StatusDot(StatusDot),
     Box(BoxNode),
     Grid(Grid),
     Scroll(Scroll),
+    Progress(Progress),
     Separator(Separator),
     Label(Label),
+    Icon(IconWidget),
     Image(Image),
     Button(Button),
     Entry(Entry),
@@ -470,6 +755,30 @@ pub enum TreeNode {
 impl From<Hero> for TreeNode {
     fn from(value: Hero) -> Self { Self::Hero(value) }
 }
+impl From<Card> for TreeNode {
+    fn from(value: Card) -> Self { Self::Card(value) }
+}
+impl From<Section> for TreeNode {
+    fn from(value: Section) -> Self { Self::Section(value) }
+}
+impl From<Row> for TreeNode {
+    fn from(value: Row) -> Self { Self::Row(value) }
+}
+impl From<DetailGrid> for TreeNode {
+    fn from(value: DetailGrid) -> Self { Self::DetailGrid(value) }
+}
+impl From<FooterAction> for TreeNode {
+    fn from(value: FooterAction) -> Self { Self::FooterAction(value) }
+}
+impl From<EmptyState> for TreeNode {
+    fn from(value: EmptyState) -> Self { Self::EmptyState(value) }
+}
+impl From<Badge> for TreeNode {
+    fn from(value: Badge) -> Self { Self::Badge(value) }
+}
+impl From<StatusDot> for TreeNode {
+    fn from(value: StatusDot) -> Self { Self::StatusDot(value) }
+}
 impl From<BoxNode> for TreeNode {
     fn from(value: BoxNode) -> Self { Self::Box(value) }
 }
@@ -479,11 +788,17 @@ impl From<Grid> for TreeNode {
 impl From<Scroll> for TreeNode {
     fn from(value: Scroll) -> Self { Self::Scroll(value) }
 }
+impl From<Progress> for TreeNode {
+    fn from(value: Progress) -> Self { Self::Progress(value) }
+}
 impl From<Separator> for TreeNode {
     fn from(value: Separator) -> Self { Self::Separator(value) }
 }
 impl From<Label> for TreeNode {
     fn from(value: Label) -> Self { Self::Label(value) }
+}
+impl From<IconWidget> for TreeNode {
+    fn from(value: IconWidget) -> Self { Self::Icon(value) }
 }
 impl From<Image> for TreeNode {
     fn from(value: Image) -> Self { Self::Image(value) }

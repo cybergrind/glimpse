@@ -81,6 +81,44 @@ export class Image extends WidgetBase {
   }
 }
 
+export class IconWidget extends WidgetBase {
+  constructor(
+    public readonly icon: Icon,
+    private readonly options: CommonProps & { pixel_size?: number } = {},
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({ icon: this.icon.toProtocol() });
+    if (this.options.pixel_size !== undefined) payload.pixel_size = this.options.pixel_size;
+    return { type: "icon", data: payload };
+  }
+}
+
+export class Progress extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      value: number;
+      max?: number;
+      show_text?: boolean;
+      text?: string;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      value: this.options.value,
+      max: this.options.max ?? 1,
+    });
+    if (this.options.show_text !== undefined) payload.show_text = this.options.show_text;
+    if (this.options.text !== undefined) payload.text = this.options.text;
+    return { type: "progress", data: payload };
+  }
+}
+
 export class Button extends WidgetBase {
   constructor(
     private readonly options: CommonProps & {
@@ -315,6 +353,172 @@ export class Hero extends WidgetBase {
   }
 }
 
+export class Card extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      children?: TreeNode[];
+    } = {},
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "card",
+      data: this.withCommon({
+        children: (this.options.children ?? []).map((child) => child.toProtocol()),
+      }),
+    };
+  }
+}
+
+export class Section extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title: string;
+      subtitle?: string;
+      children?: TreeNode[];
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "section",
+      data: this.withCommon({
+        title: this.options.title,
+        subtitle: this.options.subtitle ?? "",
+        children: (this.options.children ?? []).map((child) => child.toProtocol()),
+      }),
+    };
+  }
+}
+
+export class Row extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title: string;
+      subtitle?: string;
+      meta?: string;
+      icon?: Icon;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      title: this.options.title,
+      subtitle: this.options.subtitle ?? "",
+      meta: this.options.meta ?? "",
+    });
+    if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
+    return { type: "row", data: payload };
+  }
+}
+
+export class DetailGridItem {
+  constructor(
+    public readonly key: string,
+    public readonly value: string,
+  ) {}
+
+  toProtocol(): Record<string, unknown> {
+    return { key: this.key, value: this.value };
+  }
+}
+
+export class DetailGrid extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      rows?: DetailGridItem[];
+    } = {},
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "detail_grid",
+      data: this.withCommon({
+        rows: (this.options.rows ?? []).map((row) => row.toProtocol()),
+      }),
+    };
+  }
+}
+
+export class FooterAction extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title: string;
+      subtitle?: string;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "footer_action",
+      data: this.withCommon({
+        title: this.options.title,
+        subtitle: this.options.subtitle ?? "",
+      }),
+    };
+  }
+}
+
+export class EmptyState extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title: string;
+      subtitle?: string;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "empty_state",
+      data: this.withCommon({
+        title: this.options.title,
+        subtitle: this.options.subtitle ?? "",
+      }),
+    };
+  }
+}
+
+export class Badge extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      label: string;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "badge",
+      data: this.withCommon({
+        label: this.options.label,
+      }),
+    };
+  }
+}
+
+export class StatusDot extends WidgetBase {
+  constructor(options: CommonProps = {}) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return { type: "status_dot", data: this.withCommon({}) };
+  }
+}
+
 export class Box extends WidgetBase {
   constructor(
     private readonly options: CommonProps & {
@@ -348,11 +552,21 @@ export class Box extends WidgetBase {
 
 export type TreeNode =
   | Hero
+  | Card
+  | Section
+  | Row
+  | DetailGrid
+  | FooterAction
+  | EmptyState
+  | Badge
+  | StatusDot
   | Box
   | Grid
   | Scroll
+  | Progress
   | Separator
   | Label
+  | IconWidget
   | Image
   | Button
   | Entry

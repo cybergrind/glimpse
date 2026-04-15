@@ -37,6 +37,7 @@ impl SimpleComponent for EventRow {
 
             gtk::Label {
                 add_css_class: "event-title",
+                add_css_class: "action-row__title",
                 set_xalign: 0.0,
                 set_wrap: true,
                 #[watch]
@@ -46,6 +47,7 @@ impl SimpleComponent for EventRow {
             gtk::Label {
                 add_css_class: "event-time",
                 add_css_class: "dim-label",
+                add_css_class: "action-row__meta",
                 set_xalign: 0.0,
                 #[watch]
                 set_label: &model.timing_label,
