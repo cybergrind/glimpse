@@ -88,7 +88,7 @@ pub(super) fn apply_theme_mode(widget: &impl IsA<gtk::Widget>, mode: ThemeMode) 
     widget.remove_css_class("theme-dark");
 
     match mode {
-        ThemeMode::System => {}
+        ThemeMode::Auto => {}
         ThemeMode::Light => widget.add_css_class("theme-light"),
         ThemeMode::Dark => widget.add_css_class("theme-dark"),
     }
@@ -97,9 +97,7 @@ pub(super) fn apply_theme_mode(widget: &impl IsA<gtk::Widget>, mode: ThemeMode) 
 pub(super) fn render_accent_css(accent: &RGBA) -> String {
     let accent_hex = rgba_to_hex(accent);
     let foreground = accent_foreground(accent);
-    format!(
-        ":root {{\n    --sys-accent: {accent_hex};\n    --sys-accent-fg: {foreground};\n}}\n"
-    )
+    format!(":root {{\n    --sys-accent: {accent_hex};\n    --sys-accent-fg: {foreground};\n}}\n")
 }
 
 pub(super) fn resolve_theme_path(requested: Option<PathBuf>, default_path: PathBuf) -> PathBuf {
@@ -164,8 +162,9 @@ fn accent_foreground(accent: &RGBA) -> &'static str {
             ((component + 0.055) / 1.055).powf(2.4)
         }
     };
-    let luminance =
-        0.2126 * linear(accent.red()) + 0.7152 * linear(accent.green()) + 0.0722 * linear(accent.blue());
+    let luminance = 0.2126 * linear(accent.red())
+        + 0.7152 * linear(accent.green())
+        + 0.0722 * linear(accent.blue());
 
     if luminance > 0.6 {
         "#000000"
@@ -214,7 +213,10 @@ mod tests {
 
         assert!(!sync_theme_file(&path, b"first").expect("identical theme should not rewrite"));
         assert!(sync_theme_file(&path, b"second").expect("changed theme should rewrite"));
-        assert_eq!(fs::read(&path).expect("theme file should update"), b"second");
+        assert_eq!(
+            fs::read(&path).expect("theme file should update"),
+            b"second"
+        );
     }
 
     #[test]

@@ -73,6 +73,22 @@ fn default_wallpaper_transition_ms() -> u32 {
     800
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    Light,
+    Dark,
+    #[default]
+    Auto,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ThemeConfig {
+    pub name: Option<String>,
+    pub mode: ThemeMode,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PanelConfig {
     pub position: PanelPosition,
@@ -521,6 +537,8 @@ pub struct Config {
     #[serde(default)]
     pub backdrop: BackdropConfig,
     #[serde(default)]
+    pub theme: ThemeConfig,
+    #[serde(default)]
     pub night_light: NightLightConfig,
 }
 
@@ -531,6 +549,7 @@ impl Default for Config {
             applets: HashMap::new(),
             wallpaper: WallpaperConfig::default(),
             backdrop: BackdropConfig::default(),
+            theme: ThemeConfig::default(),
             night_light: NightLightConfig::default(),
             panels: vec![PanelConfig {
                 height: default_panel_height(),
@@ -585,8 +604,34 @@ impl Config {
             .join("glimpse")
     }
 
+    pub fn themes_directory() -> PathBuf {
+        Self::config_directory().join("themes")
+    }
+
+    pub fn theme_path_for_name(name: &str) -> PathBuf {
+        Self::themes_directory().join(format!("{name}.css"))
+    }
+
+    pub fn default_theme_name() -> &'static str {
+        "adwaita"
+    }
+
+    pub fn default_theme_path() -> PathBuf {
+        Self::theme_path_for_name(Self::default_theme_name())
+    }
+
+    pub fn active_theme_path(&self) -> Option<PathBuf> {
+        self.theme
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(Self::theme_path_for_name)
+    }
+
     pub fn theme_path(&self) -> PathBuf {
-        Self::config_directory().join("theme.css")
+        self.active_theme_path()
+            .unwrap_or_else(Self::default_theme_path)
     }
 
     fn config_path() -> Option<PathBuf> {
@@ -686,7 +731,7 @@ fn backdrop_toml_value(config: &BackdropConfig) -> toml::Value {
 mod tests {
     use super::{
         BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig, PanelPosition,
-        WallpaperConfig, WallpaperMode, WeatherConfig,
+        ThemeConfig, ThemeMode, WallpaperConfig, WallpaperMode, WeatherConfig,
     };
     use crate::night_light::NightLightSchedule;
     use std::{
@@ -733,6 +778,19 @@ mod tests {
 
         assert_eq!(config.command, vec!["custom-applet".to_string()]);
         assert_eq!(config.restart_delay_ms, 2_500);
+    }
+
+    #[test]
+    fn theme_config_parses_auto_mode() {
+        let config: ThemeConfig = toml::from_str(
+            r#"
+mode = "auto"
+"#,
+        )
+        .expect("theme config should parse");
+
+        assert_eq!(config.mode, ThemeMode::Auto);
+        assert_eq!(config.name, None);
     }
 
     #[test]

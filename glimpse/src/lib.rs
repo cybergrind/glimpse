@@ -19,5 +19,6 @@ pub mod power_policy;
 pub mod privacy;
 pub mod session_actions;
 pub mod solar;
+pub mod theme;
 pub mod tray;
 pub mod wallpaper;
