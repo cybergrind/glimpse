@@ -18,6 +18,8 @@ pub struct Exec {
     status: Vec<StatusItem>,
     hero: Option<HeroNode>,
     tree: Option<TreeNode>,
+    rendered_status: Vec<StatusItem>,
+    rendered_has_popover: bool,
     outbound_tx: mpsc::UnboundedSender<PanelMessage>,
     restart_tx: mpsc::UnboundedSender<SupervisorControl>,
     popover: Controller<ExecPopover>,
@@ -103,6 +105,8 @@ impl Component for Exec {
             status: Vec::new(),
             hero: None,
             tree: None,
+            rendered_status: Vec::new(),
+            rendered_has_popover: false,
             outbound_tx,
             restart_tx,
             popover,
@@ -125,30 +129,40 @@ impl Component for Exec {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             ExecMsg::ChildMessage(message) => {
+                let previous_tree = self.popover_tree();
                 match message {
                     ChildMessage::Status(data) => self.status = data.items,
                     ChildMessage::Hero(hero) => {
                         self.hero = Some(hero);
-                        self.popover
-                            .emit(ExecPopoverInput::SetTree(self.popover_tree()));
                     }
                     ChildMessage::Tree { content } => {
                         self.tree = content;
-                        self.popover
-                            .emit(ExecPopoverInput::SetTree(self.popover_tree()));
                     }
                 }
-                self.rebuild_status(&sender);
-                root.set_visible(!self.display_status_items().is_empty());
+                let next_tree = self.popover_tree();
+                if should_emit_popover_tree(
+                    self.popover.widget().is_visible(),
+                    &previous_tree,
+                    &next_tree,
+                ) {
+                    self.popover.emit(ExecPopoverInput::SetTree(next_tree));
+                }
+                self.rebuild_status_if_needed(&sender);
+                let next_visible = !self.display_status_items().is_empty();
+                if root.is_visible() != next_visible {
+                    root.set_visible(next_visible);
+                }
             }
             ExecMsg::ChildExited => {
                 self.status.clear();
                 self.hero = None;
                 self.tree = None;
+                self.rendered_status.clear();
+                self.rendered_has_popover = false;
                 self.popover.emit(ExecPopoverInput::Clear);
                 self.popover.widget().popdown();
                 self.context_menu.popdown();
-                self.rebuild_status(&sender);
+                self.rebuild_status_if_needed(&sender);
                 root.set_visible(false);
             }
             ExecMsg::Reconfigure(config) => {
@@ -182,6 +196,8 @@ impl Component for Exec {
                         self.popover.widget().popdown();
                     } else {
                         self.context_menu.popdown();
+                        self.popover
+                            .emit(ExecPopoverInput::SetTree(self.popover_tree()));
                         self.popover.widget().popup();
                     }
                 }
@@ -230,25 +246,54 @@ impl Exec {
         }]
     }
 
-    fn rebuild_status(&self, sender: &ComponentSender<Self>) {
+    fn rebuild_status_if_needed(&mut self, sender: &ComponentSender<Self>) {
+        let next_status = self.display_status_items();
+        let next_has_popover = self.has_popover_content();
+        if !should_rebuild_status(
+            &self.rendered_status,
+            &next_status,
+            self.rendered_has_popover,
+            next_has_popover,
+        ) {
+            return;
+        }
+
         while let Some(child) = self.status_box.first_child() {
             self.status_box.remove(&child);
         }
-        for (index, item) in self.display_status_items().iter().enumerate() {
-            self.status_box.append(&build_status_item(
-                item,
-                index,
-                self.has_popover_content(),
-                sender,
-            ));
+        for (index, item) in next_status.iter().enumerate() {
+            self.status_box
+                .append(&build_status_item(item, index, next_has_popover, sender));
         }
+        self.rendered_status = next_status;
+        self.rendered_has_popover = next_has_popover;
     }
+}
+
+fn should_emit_popover_tree(
+    popover_visible: bool,
+    previous_tree: &Option<TreeNode>,
+    next_tree: &Option<TreeNode>,
+) -> bool {
+    popover_visible && previous_tree != next_tree
+}
+
+fn should_rebuild_status(
+    previous_status: &[StatusItem],
+    next_status: &[StatusItem],
+    previous_has_popover: bool,
+    next_has_popover: bool,
+) -> bool {
+    previous_status != next_status || previous_has_popover != next_has_popover
 }
 
 #[cfg(test)]
 mod tests {
     use super::Exec;
-    use crate::applets::exec::protocol::{CommonProps, HeroNode, IconSource, StatusItem};
+    use crate::applets::exec::{
+        applet::{should_emit_popover_tree, should_rebuild_status},
+        protocol::{CommonProps, HeroNode, IconSource, StatusItem, TreeNode},
+    };
 
     #[test]
     fn hero_falls_back_to_panel_status_when_status_items_are_missing() {
@@ -296,5 +341,41 @@ mod tests {
                 text: Some("CPU 6%".into()),
             }]
         );
+    }
+
+    #[test]
+    fn hidden_popover_tree_updates_do_not_trigger_rerender() {
+        assert!(!should_emit_popover_tree(
+            false,
+            &None,
+            &Some(TreeNode::Hero(HeroNode {
+                common: CommonProps::default(),
+                title: "System Stats".into(),
+                subtitle: "CPU 6% · RAM 84%".into(),
+                icon: None,
+            })),
+        ));
+    }
+
+    #[test]
+    fn unchanged_status_without_popover_change_skips_rebuild() {
+        let status = vec![StatusItem {
+            id: Some("cpu".into()),
+            icon: None,
+            text: Some("CPU 6%".into()),
+        }];
+
+        assert!(!should_rebuild_status(&status, &status, false, false));
+    }
+
+    #[test]
+    fn popover_capability_change_requires_status_rebuild() {
+        let status = vec![StatusItem {
+            id: Some("cpu".into()),
+            icon: None,
+            text: Some("CPU 6%".into()),
+        }];
+
+        assert!(should_rebuild_status(&status, &status, false, true));
     }
 }

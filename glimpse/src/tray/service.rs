@@ -53,23 +53,25 @@ async fn run_tray_service(
 
     loop {
         attempt += 1;
-        let _ = state_tx.send_modify(|state| {
-            state.health = if attempt == 1 {
+        set_health_if_changed(
+            &state_tx,
+            if attempt == 1 {
                 TrayServiceHealth::Starting
             } else {
                 TrayServiceHealth::Reconnecting { attempt }
-            };
-        });
+            },
+        );
 
         let provider = match TrayProvider::new().await {
             Ok(provider) => provider,
             Err(error) => {
                 tracing::warn!(error = %error, attempt, "tray service: failed to start provider");
-                let _ = state_tx.send_modify(|state| {
-                    state.health = TrayServiceHealth::Degraded {
+                set_health_if_changed(
+                    &state_tx,
+                    TrayServiceHealth::Degraded {
                         message: error.to_string(),
-                    };
-                });
+                    },
+                );
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
@@ -79,11 +81,12 @@ async fn run_tray_service(
             Ok(()) => break,
             Err(error) => {
                 tracing::warn!(error = %error, attempt, "tray service: worker failed");
-                let _ = state_tx.send_modify(|state| {
-                    state.health = TrayServiceHealth::Degraded {
+                set_health_if_changed(
+                    &state_tx,
+                    TrayServiceHealth::Degraded {
                         message: error.to_string(),
-                    };
-                });
+                    },
+                );
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         }
@@ -104,7 +107,7 @@ async fn run_connected(
     });
 
     refresh_snapshot(&provider, &state_tx).await?;
-    let _ = state_tx.send_modify(|state| state.health = TrayServiceHealth::Ready);
+    set_health_if_changed(&state_tx, TrayServiceHealth::Ready);
 
     let result = loop {
         tokio::select! {
@@ -114,13 +117,14 @@ async fn run_connected(
                         tracing::debug!(reason = %reason, "tray service: provider changed");
                         if let Err(error) = refresh_snapshot(&provider, &state_tx).await {
                             tracing::warn!(error = %error, "tray service: refresh failed");
-                            let _ = state_tx.send_modify(|state| {
-                                state.health = TrayServiceHealth::Degraded {
+                            set_health_if_changed(
+                                &state_tx,
+                                TrayServiceHealth::Degraded {
                                     message: error.to_string(),
-                                };
-                            });
+                                },
+                            );
                         } else {
-                            let _ = state_tx.send_modify(|state| state.health = TrayServiceHealth::Ready);
+                            set_health_if_changed(&state_tx, TrayServiceHealth::Ready);
                         }
                     }
                     None => break Err(service_error("tray provider event channel closed")),
@@ -131,11 +135,12 @@ async fn run_connected(
                     Some(command) => {
                         if let Err(error) = handle_command(&provider, command).await {
                             tracing::warn!(error = %error, "tray service: command failed");
-                            let _ = state_tx.send_modify(|state| {
-                                state.health = TrayServiceHealth::Degraded {
+                            set_health_if_changed(
+                                &state_tx,
+                                TrayServiceHealth::Degraded {
                                     message: error.to_string(),
-                                };
-                            });
+                                },
+                            );
                         }
                     }
                     None => break Ok(()),
@@ -160,8 +165,34 @@ async fn refresh_snapshot(
     state_tx: &watch::Sender<TrayServiceState>,
 ) -> ServiceResult<()> {
     let snapshot = provider.snapshot().await?;
-    let _ = state_tx.send_modify(|state| state.snapshot = snapshot);
+    apply_snapshot_if_changed(state_tx, snapshot);
     Ok(())
+}
+
+fn apply_snapshot_if_changed(
+    state_tx: &watch::Sender<TrayServiceState>,
+    next_snapshot: crate::tray::protocol::TraySnapshot,
+) {
+    let _ = state_tx.send_if_modified(|state| {
+        if state.snapshot == next_snapshot {
+            return false;
+        }
+        state.snapshot = next_snapshot.clone();
+        true
+    });
+}
+
+fn set_health_if_changed(
+    state_tx: &watch::Sender<TrayServiceState>,
+    next_health: TrayServiceHealth,
+) {
+    let _ = state_tx.send_if_modified(|state| {
+        if state.health == next_health {
+            return false;
+        }
+        state.health = next_health.clone();
+        true
+    });
 }
 
 async fn handle_command(
@@ -191,6 +222,71 @@ async fn handle_command(
             provider
                 .activate_menu_item(address, menu_path, submenu_id)
                 .await
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::{sync::watch, time::timeout};
+
+    use super::{apply_snapshot_if_changed, set_health_if_changed};
+    use crate::tray::protocol::{
+        TrayItem, TrayServiceHealth, TrayServiceState, TraySnapshot, TrayStatus,
+    };
+
+    #[tokio::test]
+    async fn apply_snapshot_if_changed_only_notifies_when_snapshot_changes() {
+        let (state_tx, mut state_rx) = watch::channel(TrayServiceState::default());
+        let snapshot = TraySnapshot {
+            items: vec![test_item("org.example.App")],
+        };
+
+        apply_snapshot_if_changed(&state_tx, snapshot.clone());
+        timeout(Duration::from_millis(20), state_rx.changed())
+            .await
+            .expect("first snapshot change should notify")
+            .unwrap();
+        state_rx.borrow_and_update();
+
+        apply_snapshot_if_changed(&state_tx, snapshot);
+        assert!(
+            timeout(Duration::from_millis(20), state_rx.changed())
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn set_health_if_changed_skips_identical_health_values() {
+        let (state_tx, state_rx) = watch::channel(TrayServiceState {
+            health: TrayServiceHealth::Ready,
+            snapshot: TraySnapshot::default(),
+        });
+
+        let version = state_rx.borrow().clone();
+        set_health_if_changed(&state_tx, TrayServiceHealth::Ready);
+        assert_eq!(*state_rx.borrow(), version);
+    }
+
+    fn test_item(address: &str) -> TrayItem {
+        TrayItem {
+            address: address.into(),
+            id: "demo".into(),
+            title: "Demo".into(),
+            status: TrayStatus::Active,
+            category: crate::tray::protocol::TrayCategory::ApplicationStatus,
+            item_is_menu: false,
+            menu_path: String::new(),
+            icon_theme_path: None,
+            icon: None,
+            overlay_icon: None,
+            attention_icon: None,
+            attention_movie_name: None,
+            tooltip: None,
+            menu: Vec::new(),
         }
     }
 }

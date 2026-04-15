@@ -22,6 +22,9 @@ use crate::applets::tray::{
 
 struct TrayItemState {
     controller: Controller<TrayButton>,
+    view: TrayButtonView,
+    icon_size: i32,
+    item: TrayItem,
     menu_path: String,
     menu: Vec<TrayMenuItem>,
     popover: Option<gtk::PopoverMenu>,
@@ -194,18 +197,27 @@ impl Tray {
 
         for item in &self.snapshot.items {
             if let Some(state) = self.items.get_mut(&item.address) {
-                state
-                    .controller
-                    .emit(TrayButtonInput::SetIconSize(self.config.icon_size));
-                state
-                    .controller
-                    .emit(TrayButtonInput::Update(TrayButtonView::from(item)));
+                if state.icon_size != self.config.icon_size {
+                    state
+                        .controller
+                        .emit(TrayButtonInput::SetIconSize(self.config.icon_size));
+                    state.icon_size = self.config.icon_size;
+                }
+                if item_view_changed(&state.view, item) {
+                    let next_view = TrayButtonView::from(item);
+                    state
+                        .controller
+                        .emit(TrayButtonInput::Update(next_view.clone()));
+                    state.view = next_view;
+                }
+                state.item = item.clone();
                 rebuild_menu(state, item, sender);
             } else {
                 let address = item.address.clone();
+                let view = TrayButtonView::from(item);
                 let controller = TrayButton::builder()
                     .launch(TrayButtonInit {
-                        view: TrayButtonView::from(item),
+                        view: view.clone(),
                         icon_size: self.config.icon_size,
                     })
                     .forward(sender.input_sender(), move |output| match output {
@@ -224,6 +236,9 @@ impl Tray {
 
                 let mut state = TrayItemState {
                     controller,
+                    view,
+                    icon_size: self.config.icon_size,
+                    item: item.clone(),
                     menu_path: String::new(),
                     menu: Vec::new(),
                     popover: None,
@@ -446,6 +461,10 @@ fn menu_state_changed(menu_path: &str, menu: &[TrayMenuItem], item: &TrayItem) -
     menu_path != item.menu_path || menu != item.menu
 }
 
+fn item_view_changed(view: &TrayButtonView, item: &TrayItem) -> bool {
+    *view != TrayButtonView::from(item)
+}
+
 fn command_for_click(item: &TrayItem, click: ClickKind, x: i32, y: i32) -> ClickOutcome {
     match click {
         ClickKind::Primary if !item.item_is_menu => {
@@ -577,6 +596,34 @@ mod tests {
                 }],
             ),
         ));
+    }
+
+    #[test]
+    fn unchanged_item_view_does_not_require_button_update() {
+        let item = test_item(false, vec![]);
+        assert!(!item_view_changed(&TrayButtonView::from(&item), &item));
+    }
+
+    #[test]
+    fn menu_only_change_does_not_require_button_update() {
+        let current = test_item(false, vec![]);
+        let mut next = current.clone();
+        next.menu = vec![TrayMenuItem {
+            id: 1,
+            label: "Open".into(),
+            enabled: true,
+            visible: true,
+            kind: TrayMenuItemKind::Standard,
+            icon: None,
+            shortcut: None,
+            toggle_type: TrayMenuToggleType::CannotBeToggled,
+            toggle_state: TrayMenuToggleState::Indeterminate,
+            children_display: None,
+            disposition: TrayMenuDisposition::Normal,
+            children: Vec::new(),
+        }];
+
+        assert!(!item_view_changed(&TrayButtonView::from(&current), &next));
     }
 
     fn test_item(item_is_menu: bool, menu: Vec<TrayMenuItem>) -> TrayItem {
