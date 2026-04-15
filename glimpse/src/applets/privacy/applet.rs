@@ -6,15 +6,12 @@ use glimpse::privacy::{
     PrivacyServiceHandle,
     protocol::{PrivacyServiceCommand, PrivacyServiceState},
 };
-use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller,
-    gtk,
-};
+use relm4::{Component, ComponentController, ComponentParts, ComponentSender, Controller, gtk};
 
+use super::PrivacyConfig;
 use super::components::indicators::{
     PrivacyIndicators, PrivacyIndicatorsInput, PrivacyIndicatorsOutput, PrivacyIndicatorsState,
 };
-use super::PrivacyConfig;
 
 pub struct Privacy {
     service: PrivacyServiceHandle,
@@ -179,13 +176,14 @@ impl Component for Privacy {
 
 impl Privacy {
     fn sync_indicators(&self) {
-        self.indicators.emit(PrivacyIndicatorsInput::Update(PrivacyIndicatorsState {
-            visible: self.visible,
-            mic_active: self.mic_active,
-            camera_active: self.camera_active,
-            screen_capture_active: self.screen_capture_active,
-            recording_label: self.recording_label.clone(),
-        }));
+        self.indicators
+            .emit(PrivacyIndicatorsInput::Update(PrivacyIndicatorsState {
+                visible: self.visible,
+                mic_active: self.mic_active,
+                camera_active: self.camera_active,
+                screen_capture_active: self.screen_capture_active,
+                recording_label: self.recording_label.clone(),
+            }));
     }
 
     fn send_command(&self, sender: ComponentSender<Self>, command: PrivacyServiceCommand) {

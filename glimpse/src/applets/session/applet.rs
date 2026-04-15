@@ -1,8 +1,8 @@
 use adw::prelude::{AdwDialogExt, AlertDialogExt};
 use glimpse::session_actions::provider::{SessionActions, SessionSnapshot};
 use relm4::{
-    gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk::{self, prelude::*},
 };
 
 use super::SessionConfig;

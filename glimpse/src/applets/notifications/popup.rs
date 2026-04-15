@@ -13,9 +13,9 @@ use glimpse::notifications::{
 };
 
 use super::NotificationActionCommand;
+use super::NotificationsConfig;
 use super::activation::{default_action_command, invoke_action_command};
 use super::components::row::{build_notification_icon, load_notification_image_texture};
-use super::NotificationsConfig;
 
 type NotifData = NotificationEntry;
 
@@ -645,12 +645,7 @@ mod tests {
 
     #[test]
     fn pending_popup_ids_skip_notifications_already_surfaced_during_dismiss_race() {
-        let ids = pending_popup_ids(
-            &[notif(7, 250, 1)],
-            100,
-            false,
-            &[7],
-        );
+        let ids = pending_popup_ids(&[notif(7, 250, 1)], 100, false, &[7]);
 
         assert!(ids.is_empty());
     }

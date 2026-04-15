@@ -1,6 +1,6 @@
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use super::super::applet::{WeatherCurrent, WeatherDaily};

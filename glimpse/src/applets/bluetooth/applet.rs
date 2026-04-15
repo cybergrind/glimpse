@@ -195,9 +195,10 @@ impl Component for Bluetooth {
             }
             BluetoothMsg::Reconfigure(config) => {
                 self.settings_command = config.settings_command;
-                self.popover.emit(BluetoothPopoverInput::SetShowSettingsButton(
-                    !self.settings_command.is_empty(),
-                ));
+                self.popover
+                    .emit(BluetoothPopoverInput::SetShowSettingsButton(
+                        !self.settings_command.is_empty(),
+                    ));
             }
             BluetoothMsg::TogglePopover => {
                 self.popover.emit(BluetoothPopoverInput::Toggle);

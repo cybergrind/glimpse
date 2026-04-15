@@ -259,7 +259,9 @@ fn row_sync_ops(current_keys: &[String], next_keys: &[String]) -> Vec<RowSyncOp>
 
     while working.len() > next_keys.len() {
         working.remove(next_keys.len());
-        ops.push(RowSyncOp::Remove { at: next_keys.len() });
+        ops.push(RowSyncOp::Remove {
+            at: next_keys.len(),
+        });
     }
 
     ops
@@ -327,7 +329,13 @@ mod tests {
 
         let visible = visible_devices(&devices);
 
-        assert_eq!(visible.iter().map(|d| d.address.as_str()).collect::<Vec<_>>(), vec!["2", "3", "1"]);
+        assert_eq!(
+            visible
+                .iter()
+                .map(|d| d.address.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2", "3", "1"]
+        );
     }
 
     #[test]

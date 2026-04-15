@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use relm4::{
-    gtk::{self, prelude::*},
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
+    gtk::{self, prelude::*},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -187,7 +187,8 @@ impl Component for Weather {
                     condition = %snapshot.current.condition,
                     "weather applet: snapshot update"
                 );
-                self.popover.emit(WeatherPopoverInput::UpdateSnapshot(snapshot));
+                self.popover
+                    .emit(WeatherPopoverInput::UpdateSnapshot(snapshot));
             }
             WeatherMsg::Reconfigure(config) => {
                 self.config = config.clone();
@@ -265,11 +266,7 @@ impl WeatherDisplayState {
     fn from_snapshot(config: &WeatherConfig, snapshot: &WeatherSnapshot) -> Self {
         Self {
             icon_name: snapshot.current.icon.clone(),
-            label: format_weather_text(
-                &config.label_format,
-                &snapshot.current,
-                &snapshot.location,
-            ),
+            label: format_weather_text(&config.label_format, &snapshot.current, &snapshot.location),
             tooltip: format_weather_text(
                 &config.tooltip_format,
                 &snapshot.current,
@@ -656,8 +653,8 @@ fn wind_direction_label(degrees: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_weather_text, parse_current, parse_daily, parse_geocoding_location, parse_hourly,
-        resolve_city_name, WeatherDisplayState, WeatherSnapshot,
+        WeatherDisplayState, WeatherSnapshot, format_weather_text, parse_current, parse_daily,
+        parse_geocoding_location, parse_hourly, resolve_city_name,
     };
     use crate::applets::weather::WeatherConfig;
 

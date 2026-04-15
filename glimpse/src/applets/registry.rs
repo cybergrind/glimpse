@@ -4,8 +4,8 @@ use crate::services::ServicesHandle;
 use relm4::{Component, ComponentController};
 
 use super::{
-    audio, battery, bluetooth, brightness, clock, exec, keyboard, mpris, network, notifications,
-    pager, power, privacy, session, tray, weather, AppletController,
+    AppletController, audio, battery, bluetooth, brightness, clock, exec, keyboard, mpris, network,
+    notifications, pager, power, privacy, session, tray, weather,
 };
 
 pub type AppletCreateFn = for<'a> fn(AppletCreateRequest<'a>) -> Option<AppletController>;
@@ -79,7 +79,9 @@ pub fn resolved_applet_type<'a>(applet_config: Option<&'a AppletConfig>, name: &
 }
 
 pub fn spec_for(applet_type: &str) -> Option<&'static AppletSpec> {
-    registry().iter().find(|spec| spec.applet_type == applet_type)
+    registry()
+        .iter()
+        .find(|spec| spec.applet_type == applet_type)
 }
 
 pub fn registry() -> &'static [AppletSpec] {
@@ -374,7 +376,10 @@ fn create_exec(request: AppletCreateRequest<'_>) -> Option<AppletController> {
         .map(|c| c.settings.clone().try_into().unwrap_or_default())
         .unwrap_or_default();
     if config.command.is_empty() {
-        tracing::error!(name = request.name, "exec applet requires a non-empty command");
+        tracing::error!(
+            name = request.name,
+            "exec applet requires a non-empty command"
+        );
         return None;
     }
     let applet = exec::Exec::builder()
@@ -700,7 +705,10 @@ extends = "network"
         )
         .expect("applet config");
 
-        assert_eq!(resolved_applet_type(Some(&applet_config), "clock"), "network");
+        assert_eq!(
+            resolved_applet_type(Some(&applet_config), "clock"),
+            "network"
+        );
     }
 
     #[test]
@@ -717,7 +725,10 @@ extends = ""
 
     #[test]
     fn registry_lists_current_builtin_types() {
-        let types = registry().iter().map(|spec| spec.applet_type).collect::<Vec<_>>();
+        let types = registry()
+            .iter()
+            .map(|spec| spec.applet_type)
+            .collect::<Vec<_>>();
 
         assert_eq!(
             types,

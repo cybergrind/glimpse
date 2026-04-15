@@ -162,17 +162,17 @@ impl PowerProvider {
             active: pp.active_profile().await.unwrap_or_default(),
             performance_degraded: pp.performance_degraded().await.unwrap_or_default(),
             available: raw
-            .iter()
-            .filter_map(|d| {
-                d.get("Profile").and_then(|v| {
-                    use zbus::zvariant::Value;
-                    match &**v {
-                        Value::Str(s) => Some(s.to_string()),
-                        _ => None,
-                    }
+                .iter()
+                .filter_map(|d| {
+                    d.get("Profile").and_then(|v| {
+                        use zbus::zvariant::Value;
+                        match &**v {
+                            Value::Str(s) => Some(s.to_string()),
+                            _ => None,
+                        }
+                    })
                 })
-            })
-            .collect(),
+                .collect(),
         };
 
         let changed = should_emit_profiles(&self.profiles, &next);
@@ -193,7 +193,11 @@ mod tests {
     fn should_emit_profiles_only_for_real_changes() {
         let previous = PowerProfiles {
             active: "balanced".into(),
-            available: vec!["power-saver".into(), "balanced".into(), "performance".into()],
+            available: vec![
+                "power-saver".into(),
+                "balanced".into(),
+                "performance".into(),
+            ],
             performance_degraded: String::new(),
         };
 

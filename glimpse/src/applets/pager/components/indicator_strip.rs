@@ -1,9 +1,9 @@
 #![allow(unused_assignments)]
 
 use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent,
     factory::FactoryVecDeque,
     gtk::{self, prelude::*},
-    ComponentParts, ComponentSender, SimpleComponent,
 };
 
 use super::indicator_item::{PagerIndicatorItem, PagerIndicatorItemInit, PagerIndicatorItemInput};
@@ -196,7 +196,7 @@ fn row_sync_ops(current_keys: &[u32], next_keys: &[u32]) -> Vec<RowSyncOp> {
 
 #[cfg(test)]
 mod tests {
-    use super::{row_sync_ops, RowSyncOp};
+    use super::{RowSyncOp, row_sync_ops};
 
     #[test]
     fn row_sync_ops_inserts_and_removes_by_index() {

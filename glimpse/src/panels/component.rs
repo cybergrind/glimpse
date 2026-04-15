@@ -112,9 +112,7 @@ impl Component for Panel {
         let layout = gtk::CenterBox::new();
         let revealer = gtk::Revealer::new();
         revealer.set_transition_duration(180);
-        revealer.set_transition_type(reveal_transition_for_position(
-            init.config.position.clone(),
-        ));
+        revealer.set_transition_type(reveal_transition_for_position(init.config.position.clone()));
         revealer.set_reveal_child(false);
 
         let left_applets = build_section_applets(

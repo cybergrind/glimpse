@@ -116,8 +116,7 @@ fn existing_niri_fragments(dir: &Path) -> Vec<String> {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if name == NIRI_INDEX_FILE || path.extension().and_then(|ext| ext.to_str()) != Some("kdl")
-        {
+        if name == NIRI_INDEX_FILE || path.extension().and_then(|ext| ext.to_str()) != Some("kdl") {
             continue;
         }
         fragments.push(name.to_string());

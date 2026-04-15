@@ -32,10 +32,7 @@ pub struct NotificationsPopoverInit {
 #[derive(Debug)]
 pub enum NotificationsPopoverInput {
     Toggle,
-    UpdateStatus {
-        dnd: bool,
-        count: u32,
-    },
+    UpdateStatus { dnd: bool, count: u32 },
     UpdateList(Vec<NotifData>),
     ToggleStack(String),
     ClearAll,

@@ -215,7 +215,10 @@ impl BluetoothPromptDialog {
     }
 
     fn shows_entry(&self) -> bool {
-        matches!(self.mode, BluetoothPromptMode::Pin | BluetoothPromptMode::Passkey)
+        matches!(
+            self.mode,
+            BluetoothPromptMode::Pin | BluetoothPromptMode::Passkey
+        )
     }
 
     fn shows_accept(&self) -> bool {
@@ -256,7 +259,8 @@ impl BluetoothPromptDialog {
 
         if self.shows_accept() {
             if !self.dialog.has_response(RESPONSE_ACCEPT) {
-                self.dialog.add_response(RESPONSE_ACCEPT, self.accept_label());
+                self.dialog
+                    .add_response(RESPONSE_ACCEPT, self.accept_label());
             }
             self.dialog
                 .set_response_label(RESPONSE_ACCEPT, self.accept_label());
@@ -342,7 +346,11 @@ fn bluetooth_prompt_device_label(prompt: &BluetoothPrompt, snapshot: &BluetoothS
     }
 
     if let Some(address) = bluetooth_prompt_address(&prompt.device_path) {
-        if let Some(device) = snapshot.devices.iter().find(|device| device.address == address) {
+        if let Some(device) = snapshot
+            .devices
+            .iter()
+            .find(|device| device.address == address)
+        {
             return device.name.clone();
         }
     }
@@ -425,7 +433,10 @@ mod tests {
 
         let snapshot = snapshot_with_device("AA:BB:CC", "Headphones");
 
-        assert_eq!(bluetooth_prompt_device_label(&prompt, &snapshot), "Headphones");
+        assert_eq!(
+            bluetooth_prompt_device_label(&prompt, &snapshot),
+            "Headphones"
+        );
     }
 
     #[test]

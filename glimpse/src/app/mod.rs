@@ -94,7 +94,11 @@ impl SimpleComponent for App {
         }
 
         let dbus = DbusProvider::connect();
-        let services = Services::new(dbus.session.clone(), dbus.system.clone());
+        let services = Services::new(
+            dbus.session.clone(),
+            dbus.system.clone(),
+            config.night_light.clone(),
+        );
 
         let panels = setup_panels(
             &config,
@@ -131,6 +135,18 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             Input::ConfigChanged(new_config) => {
+                if self.config.night_light != new_config.night_light {
+                    let night_light = self.services.handle.night_light.clone();
+                    let config = new_config.night_light.clone();
+                    relm4::spawn(async move {
+                        if let Err(error) = night_light
+                            .send(glimpse::night_light::NightLightCommand::ApplyConfig(config))
+                            .await
+                        {
+                            tracing::warn!(error = %error, "night light service: failed to send config update");
+                        }
+                    });
+                }
                 reconfigure_panels(
                     &mut self.panels,
                     &new_config,

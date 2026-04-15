@@ -1,9 +1,14 @@
 use glimpse::{
-    bluetooth::BluetoothServiceHandle, brightness::BrightnessServiceHandle,
-    calendar::CalendarServiceHandle, mpris::MprisServiceHandle, network::NetworkServiceHandle,
-    notifications::NotificationsServiceHandle, privacy::PrivacyServiceHandle,
-    tray::TrayServiceHandle,
+    bluetooth::BluetoothServiceHandle,
+    brightness::BrightnessServiceHandle,
+    calendar::CalendarServiceHandle,
     compositor::{KeyboardLayoutServiceHandle, WorkspaceServiceHandle},
+    mpris::MprisServiceHandle,
+    network::NetworkServiceHandle,
+    night_light::{NightLightConfig, NightLightServiceHandle},
+    notifications::NotificationsServiceHandle,
+    privacy::PrivacyServiceHandle,
+    tray::TrayServiceHandle,
 };
 
 #[derive(Clone)]
@@ -18,6 +23,7 @@ pub struct ServicesHandle {
     pub privacy: PrivacyServiceHandle,
     pub workspace: WorkspaceServiceHandle,
     pub keyboard_layout: KeyboardLayoutServiceHandle,
+    pub night_light: NightLightServiceHandle,
 }
 
 pub struct Services {
@@ -25,7 +31,11 @@ pub struct Services {
 }
 
 impl Services {
-    pub fn new(session: zbus::Connection, system: zbus::Connection) -> Self {
+    pub fn new(
+        session: zbus::Connection,
+        system: zbus::Connection,
+        night_light: NightLightConfig,
+    ) -> Self {
         let bluetooth = BluetoothServiceHandle::new(system.clone());
         let brightness = BrightnessServiceHandle::new(system.clone());
         let calendar = CalendarServiceHandle::new(session.clone());
@@ -36,6 +46,7 @@ impl Services {
         let notifications = NotificationsServiceHandle::new(session);
         let workspace = WorkspaceServiceHandle::new();
         let keyboard_layout = KeyboardLayoutServiceHandle::new();
+        let night_light = NightLightServiceHandle::new(night_light);
         Self {
             handle: ServicesHandle {
                 bluetooth,
@@ -48,6 +59,7 @@ impl Services {
                 privacy,
                 workspace,
                 keyboard_layout,
+                night_light,
             },
         }
     }
@@ -59,10 +71,11 @@ mod tests {
 
     #[test]
     fn services_handle_exposes_notifications() {
-        fn assert_notifications_field(handle: &ServicesHandle) {
+        fn assert_notifications_and_night_light_fields(handle: &ServicesHandle) {
             let _ = &handle.notifications;
+            let _ = &handle.night_light;
         }
 
-        let _ = assert_notifications_field;
+        let _ = assert_notifications_and_night_light_fields;
     }
 }

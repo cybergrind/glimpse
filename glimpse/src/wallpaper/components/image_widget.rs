@@ -82,7 +82,11 @@ impl Component for ImageWidget {
         }
     }
 
-    fn init(init: Self::Init, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
         let front_picture = gtk::Picture::new();
         let back_picture = gtk::Picture::new();
         let widgets = view_output!();
@@ -167,11 +171,7 @@ fn hidden_slot(active_slot: PictureSlot) -> PictureSlot {
     }
 }
 
-fn spawn_wallpaper_load(
-    request_id: u64,
-    path: PathBuf,
-    sender: relm4::Sender<ImageWidgetMsg>,
-) {
+fn spawn_wallpaper_load(request_id: u64, path: PathBuf, sender: relm4::Sender<ImageWidgetMsg>) {
     relm4::spawn(async move {
         tracing::info!("loading wallpaper image");
         let result = tokio::task::spawn_blocking(move || decode_wallpaper(&path))

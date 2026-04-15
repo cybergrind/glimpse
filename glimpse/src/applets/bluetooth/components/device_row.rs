@@ -125,7 +125,11 @@ impl SimpleComponent for BluetoothDeviceRow {
         widgets.spinner.set_valign(gtk::Align::Center);
 
         let button = widgets.root.clone();
-        let menu_model = build_menu(model.device.connected, model.device.paired, model.device.trusted);
+        let menu_model = build_menu(
+            model.device.connected,
+            model.device.paired,
+            model.device.trusted,
+        );
         let popover_menu = gtk::PopoverMenu::from_model(Some(&menu_model));
         popover_menu.set_parent(&button);
         popover_menu.set_has_arrow(false);
@@ -170,12 +174,11 @@ impl SimpleComponent for BluetoothDeviceRow {
                 self.tooltip = device_tooltip(&self.device);
                 self.battery_text = battery_text(self.device.battery);
                 self.battery_visible = self.device.battery.is_some();
-                self.popover_menu
-                    .set_menu_model(Some(&build_menu(
-                        self.device.connected,
-                        self.device.paired,
-                        self.device.trusted,
-                    )));
+                self.popover_menu.set_menu_model(Some(&build_menu(
+                    self.device.connected,
+                    self.device.paired,
+                    self.device.trusted,
+                )));
                 apply_icon_style(&self.icon, self.device.connected);
                 if self.connecting
                     && self
@@ -215,11 +218,7 @@ impl SimpleComponent for BluetoothDeviceRow {
 }
 
 impl BluetoothDeviceRow {
-    fn start_action(
-        &mut self,
-        action: BluetoothDeviceAction,
-        sender: ComponentSender<Self>,
-    ) {
+    fn start_action(&mut self, action: BluetoothDeviceAction, sender: ComponentSender<Self>) {
         tracing::info!(
             ?action,
             address = %self.device.address,
@@ -303,7 +302,9 @@ fn setup_actions(
     let action = gtk::gio::SimpleAction::new("forget", None);
     action.connect_activate(move |_, _| {
         tracing::debug!(address = %addr, name = %dev_name, "bluetooth ui: forget action activated");
-        let _ = sender.input(BluetoothDeviceRowInput::StartAction(BluetoothDeviceAction::Forget));
+        let _ = sender.input(BluetoothDeviceRowInput::StartAction(
+            BluetoothDeviceAction::Forget,
+        ));
     });
     group.add_action(&action);
 }

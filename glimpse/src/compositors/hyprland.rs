@@ -12,7 +12,9 @@ use tokio::net::UnixStream;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::compositor::protocol::{KeyboardLayoutSnapshot, WorkspacePresentation, WorkspaceSlot, WorkspaceSnapshot};
+use crate::compositor::protocol::{
+    KeyboardLayoutSnapshot, WorkspacePresentation, WorkspaceSlot, WorkspaceSnapshot,
+};
 
 pub(crate) async fn workspace_snapshot() -> Option<WorkspaceSnapshot> {
     let ws_output = Command::new("hyprctl")
@@ -53,7 +55,10 @@ pub(crate) async fn workspace_snapshot() -> Option<WorkspaceSnapshot> {
 
     Some(WorkspaceSnapshot {
         presentation: WorkspacePresentation::Workspaces,
-        current_workspace_index: workspaces.iter().find(|ws| ws.is_focused).map(|ws| ws.index),
+        current_workspace_index: workspaces
+            .iter()
+            .find(|ws| ws.is_focused)
+            .map(|ws| ws.index),
         workspaces,
         windows: Vec::new(),
     })
@@ -234,7 +239,8 @@ fn find_active_index(layout_codes: &[&str], active_keymap: &str) -> usize {
             if code_lower == keymap_lower {
                 return true;
             }
-            crate::compositor::protocol::short_layout_name(active_keymap).to_lowercase() == code_lower
+            crate::compositor::protocol::short_layout_name(active_keymap).to_lowercase()
+                == code_lower
         })
         .unwrap_or(0)
 }

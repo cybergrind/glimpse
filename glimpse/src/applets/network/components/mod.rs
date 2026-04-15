@@ -8,7 +8,10 @@ mod wired_section;
 use std::rc::Rc;
 
 pub use hero::{NetworkHero, NetworkHeroInput};
-pub use prompt_dialog::{NetworkPromptDialog, NetworkPromptDialogInit, NetworkPromptDialogInput, NetworkPromptDialogOutput};
+pub use prompt_dialog::{
+    NetworkPromptDialog, NetworkPromptDialogInit, NetworkPromptDialogInput,
+    NetworkPromptDialogOutput,
+};
 pub use vpn_section::{VpnSection, VpnSectionInput};
 pub use wifi_section::{WifiSection, WifiSectionInput};
 pub use wired_section::{WiredSection, WiredSectionInput};

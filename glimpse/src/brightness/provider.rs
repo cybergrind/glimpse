@@ -356,12 +356,9 @@ impl ExternalBrightnessBackend {
             .filter_map(|detected| {
                 let value = self.read_brightness(detected.index)?;
                 let display = ddc_display_from_detected(detected, value, connectors)?;
-                let is_internal = display
-                    .connector
-                    .as_deref()
-                    .is_some_and(|connector| {
-                        connector_kind(connector) == DisplayConnectorKind::Internal
-                    });
+                let is_internal = display.connector.as_deref().is_some_and(|connector| {
+                    connector_kind(connector) == DisplayConnectorKind::Internal
+                });
                 let available =
                     display_availability(display.connector.as_deref(), is_internal, connectors);
 
@@ -818,7 +815,10 @@ fn discover_internal_backlight(connectors: &[DrmConnectorState]) -> Option<Inter
     select_preferred_internal(&displays).cloned()
 }
 
-fn read_internal_backlight(path: &Path, connectors: &[DrmConnectorState]) -> Option<InternalBacklight> {
+fn read_internal_backlight(
+    path: &Path,
+    connectors: &[DrmConnectorState],
+) -> Option<InternalBacklight> {
     let device_name = path.file_name()?.to_str()?.to_owned();
     let current = read_u32(path.join("actual_brightness"))
         .or_else(|| read_u32(path.join("brightness")))
@@ -833,7 +833,8 @@ fn read_internal_backlight(path: &Path, connectors: &[DrmConnectorState]) -> Opt
     Some(InternalBacklight {
         id: format!("backlight:{device_name}"),
         name: internal_display_name(&device_name),
-        connector: preferred_internal_connector(connectors).map(|connector| connector.connector.clone()),
+        connector: preferred_internal_connector(connectors)
+            .map(|connector| connector.connector.clone()),
         device_name,
         current,
         max,
@@ -912,9 +913,9 @@ fn ddc_display_from_detected(
     value: DdcVcpValue,
     connectors: &[DrmConnectorState],
 ) -> Option<DdcDisplay> {
-    let connector = detected.connector.filter(|connector| {
-        connectors.iter().any(|state| state.connector == *connector)
-    });
+    let connector = detected
+        .connector
+        .filter(|connector| connectors.iter().any(|state| state.connector == *connector));
 
     Some(DdcDisplay {
         id: format!("ddc:{}", detected.index),
@@ -946,16 +947,16 @@ fn read_u32(path: PathBuf) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use crate::display::{DisplayConnectorKind, DrmConnectorState};
     use super::{
         BacklightType, BrightnessBackend, BrightnessChangeReason, BrightnessDisplay,
         BrightnessSnapshot, ControlDisplay, ControlTarget, DdcDisplay, DdcVcpValue,
-        DetectedDdcDisplay, ExternalControlTarget, InternalBacklight,
-        Login1BrightnessSession, choose_brightness_session, choose_primary_display,
-        classify_change, ddc_display_from_detected, display_availability,
-        filter_available_displays, is_retryable_ddcutil_error, lookup_cached_display,
-        parse_ddcutil_getvcp_terse, raw_value_for_percent, select_preferred_internal,
+        DetectedDdcDisplay, ExternalControlTarget, InternalBacklight, Login1BrightnessSession,
+        choose_brightness_session, choose_primary_display, classify_change,
+        ddc_display_from_detected, display_availability, filter_available_displays,
+        is_retryable_ddcutil_error, lookup_cached_display, parse_ddcutil_getvcp_terse,
+        raw_value_for_percent, select_preferred_internal,
     };
+    use crate::display::{DisplayConnectorKind, DrmConnectorState};
     use zbus::zvariant::OwnedObjectPath;
 
     #[test]
@@ -1008,8 +1009,7 @@ mod tests {
 
     #[test]
     fn parse_ddcutil_getvcp_terse_accepts_vcp_prefixed_output() {
-        let parsed =
-            parse_ddcutil_getvcp_terse("VCP 10 C 97 100").expect("parsed terse output");
+        let parsed = parse_ddcutil_getvcp_terse("VCP 10 C 97 100").expect("parsed terse output");
         assert_eq!(
             parsed,
             DdcVcpValue {

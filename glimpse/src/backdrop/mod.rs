@@ -3,13 +3,13 @@ pub mod components;
 use std::collections::HashMap;
 
 use adw::prelude::*;
-use relm4::{Component, Controller};
 use relm4::gtk::gdk;
+use relm4::{Component, Controller};
 
 use crate::compositor::detect as detect_compositor;
-use crate::display::connector_name;
 pub use crate::config::BackdropConfig;
 pub use crate::config::WallpaperConfig;
+use crate::display::connector_name;
 pub use components::{BackdropWindow, BackdropWindowInit, BackdropWindowInput};
 
 pub fn resolved_config(config: &BackdropConfig, wallpaper: &WallpaperConfig) -> BackdropConfig {

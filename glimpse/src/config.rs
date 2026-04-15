@@ -8,6 +8,8 @@ use gtk4::ContentFit;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::night_light::NightLightConfig;
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelPosition {
@@ -15,7 +17,7 @@ pub enum PanelPosition {
     Bottom,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct Margin {
     #[serde(default)]
     pub left: i32,
@@ -25,17 +27,6 @@ pub struct Margin {
     pub top: i32,
     #[serde(default)]
     pub bottom: i32,
-}
-
-impl Default for Margin {
-    fn default() -> Self {
-        Self {
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-        }
-    }
 }
 
 fn default_panel_height() -> i32 {
@@ -510,22 +501,12 @@ impl Default for WallpaperConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BackdropConfig {
     pub enabled: bool,
     pub path: Option<PathBuf>,
     pub blur_radius: u32,
-}
-
-impl Default for BackdropConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            path: None,
-            blur_radius: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -539,6 +520,8 @@ pub struct Config {
     pub wallpaper: WallpaperConfig,
     #[serde(default)]
     pub backdrop: BackdropConfig,
+    #[serde(default)]
+    pub night_light: NightLightConfig,
 }
 
 impl Default for Config {
@@ -548,6 +531,7 @@ impl Default for Config {
             applets: HashMap::new(),
             wallpaper: WallpaperConfig::default(),
             backdrop: BackdropConfig::default(),
+            night_light: NightLightConfig::default(),
             panels: vec![PanelConfig {
                 height: default_panel_height(),
                 margin: Margin::default(),
@@ -701,9 +685,10 @@ fn backdrop_toml_value(config: &BackdropConfig) -> toml::Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig,
-        PanelPosition, WallpaperConfig, WallpaperMode, WeatherConfig,
+        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig, PanelPosition,
+        WallpaperConfig, WallpaperMode, WeatherConfig,
     };
+    use crate::night_light::NightLightSchedule;
     use std::{
         fs,
         path::PathBuf,
@@ -767,6 +752,43 @@ mod tests {
     fn default_weather_config_uses_five_hourly_slots() {
         let cfg = WeatherConfig::default();
         assert_eq!(cfg.hourly_slots, 5);
+    }
+
+    #[test]
+    fn default_night_light_config_is_off() {
+        let cfg = Config::default().night_light;
+        assert_eq!(cfg.temperature, 4200);
+        assert_eq!(cfg.schedule, NightLightSchedule::Off);
+        assert_eq!(cfg.latitude, None);
+        assert_eq!(cfg.longitude, None);
+        assert_eq!(cfg.start_time, None);
+        assert_eq!(cfg.end_time, None);
+        assert_eq!(cfg.transition_minutes, 15);
+    }
+
+    #[test]
+    fn config_parses_night_light_block() {
+        let config: Config = toml::from_str(
+            r#"
+[night_light]
+temperature = 4200
+schedule = "schedule"
+latitude = 52.2298
+longitude = 21.0118
+start_time = "18:00"
+end_time = "06:30"
+transition_minutes = 75
+"#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(config.night_light.temperature, 4200);
+        assert_eq!(config.night_light.schedule, NightLightSchedule::Schedule);
+        assert_eq!(config.night_light.latitude, Some(52.2298));
+        assert_eq!(config.night_light.longitude, Some(21.0118));
+        assert_eq!(config.night_light.start_time.as_deref(), Some("18:00"));
+        assert_eq!(config.night_light.end_time.as_deref(), Some("06:30"));
+        assert_eq!(config.night_light.transition_minutes, 75);
     }
 
     #[test]

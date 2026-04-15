@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};

@@ -1,4 +1,5 @@
 pub mod bluez;
+pub mod geoclue;
 pub mod login1;
 pub mod mpris;
 pub mod network_manager;

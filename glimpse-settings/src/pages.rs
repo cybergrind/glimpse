@@ -24,8 +24,18 @@ pub const PAGES: &[PageSpec] = &[
         title: "Appearance",
         summary: "Wallpaper, backdrop, theme mode, accent color, fonts, and text scaling.",
         keywords: &[
-            "theme", "accent", "dark", "light", "fonts", "icon", "cursor", "scale",
-            "wallpaper", "background", "backdrop", "color",
+            "theme",
+            "accent",
+            "dark",
+            "light",
+            "fonts",
+            "icon",
+            "cursor",
+            "scale",
+            "wallpaper",
+            "background",
+            "backdrop",
+            "color",
         ],
         kind: PageKind::Appearance,
     },
@@ -174,7 +184,10 @@ mod tests {
         assert_ne!(appearance.kind, PageKind::Stub);
         assert_eq!(bluetooth.kind, PageKind::Bluetooth);
         assert_eq!(displays.kind, PageKind::Displays);
-        assert_eq!(find_by_route_head("network").unwrap().kind, PageKind::Network);
+        assert_eq!(
+            find_by_route_head("network").unwrap().kind,
+            PageKind::Network
+        );
         assert_ne!(power.kind, PageKind::Stub);
         assert_eq!(sound.kind, PageKind::Sound);
         assert_eq!(about.kind, PageKind::Stub);

@@ -14,7 +14,7 @@ use super::components::{
     events::{Events, EventsInit, EventsInput, EventsOutput},
     world::WorldClock,
 };
-use crate::applets::clock::{components::world::WorldClockInput, TimezoneEntry};
+use crate::applets::clock::{TimezoneEntry, components::world::WorldClockInput};
 
 pub struct Popover {
     popover: gtk::Popover,

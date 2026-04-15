@@ -9,7 +9,8 @@ use relm4::{
 
 use super::NetworkConfig;
 use super::components::{
-    NetworkPromptDialog, NetworkPromptDialogInit, NetworkPromptDialogInput, NetworkPromptDialogOutput,
+    NetworkPromptDialog, NetworkPromptDialogInit, NetworkPromptDialogInput,
+    NetworkPromptDialogOutput,
 };
 use super::popover::{
     NetworkPopover, NetworkPopoverInit, NetworkPopoverInput, NetworkPopoverOutput,
@@ -174,9 +175,10 @@ impl Component for Network {
                 self.show_vpn_icon = config.show_vpn_icon;
                 self.settings_command = config.settings_command;
                 self.scan_interval = config.scan_interval;
-                self.popover.emit(NetworkPopoverInput::SetShowSettingsButton(
-                    !self.settings_command.is_empty(),
-                ));
+                self.popover
+                    .emit(NetworkPopoverInput::SetShowSettingsButton(
+                        !self.settings_command.is_empty(),
+                    ));
             }
             NetworkMsg::TogglePopover => {
                 self.popover.emit(NetworkPopoverInput::Toggle);
@@ -333,9 +335,7 @@ fn spawn_settings_command(command: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::network::provider::{
-        NetworkConnection, NetworkSnapshot, NetworkStatus, SavedVpn,
-    };
+    use glimpse::network::provider::{NetworkConnection, NetworkSnapshot, NetworkStatus, SavedVpn};
 
     #[test]
     fn tooltip_includes_speed_metered_and_vpn() {

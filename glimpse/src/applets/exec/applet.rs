@@ -5,11 +5,11 @@ use relm4::{
 use tokio::sync::mpsc;
 
 use super::{
+    ExecConfig,
     components::{context_menu::build_context_menu, status_bar::build_status_item},
     popover::{ExecPopover, ExecPopoverInit, ExecPopoverInput, ExecPopoverOutput},
     protocol::{CallbackData, ChildMessage, HeroNode, PanelMessage, StatusItem, TreeNode},
     supervisor::{SupervisorControl, run_supervisor},
-    ExecConfig,
 };
 
 pub struct Exec {
@@ -129,11 +129,13 @@ impl Component for Exec {
                     ChildMessage::Status(data) => self.status = data.items,
                     ChildMessage::Hero(hero) => {
                         self.hero = Some(hero);
-                        self.popover.emit(ExecPopoverInput::SetTree(self.popover_tree()));
+                        self.popover
+                            .emit(ExecPopoverInput::SetTree(self.popover_tree()));
                     }
                     ChildMessage::Tree { content } => {
                         self.tree = content;
-                        self.popover.emit(ExecPopoverInput::SetTree(self.popover_tree()));
+                        self.popover
+                            .emit(ExecPopoverInput::SetTree(self.popover_tree()));
                     }
                 }
                 self.rebuild_status(&sender);
@@ -154,7 +156,8 @@ impl Component for Exec {
                     self.config = config.clone();
                     self.popover.widget().popdown();
                     self.context_menu.popdown();
-                    if let Err(error) = self.restart_tx.send(SupervisorControl::Reconfigure(config)) {
+                    if let Err(error) = self.restart_tx.send(SupervisorControl::Reconfigure(config))
+                    {
                         tracing::warn!(%error, applet = %self.name, "exec applet: failed to reconfigure");
                     }
                 }
@@ -202,7 +205,10 @@ impl Exec {
         Self::display_status_from_parts(&self.status, self.hero.as_ref())
     }
 
-    fn display_status_from_parts(status: &[StatusItem], hero: Option<&HeroNode>) -> Vec<StatusItem> {
+    fn display_status_from_parts(
+        status: &[StatusItem],
+        hero: Option<&HeroNode>,
+    ) -> Vec<StatusItem> {
         if !status.is_empty() {
             return status.to_vec();
         }
@@ -242,9 +248,7 @@ impl Exec {
 #[cfg(test)]
 mod tests {
     use super::Exec;
-    use crate::applets::exec::protocol::{
-        CommonProps, HeroNode, IconSource, StatusItem,
-    };
+    use crate::applets::exec::protocol::{CommonProps, HeroNode, IconSource, StatusItem};
 
     #[test]
     fn hero_falls_back_to_panel_status_when_status_items_are_missing() {
@@ -293,5 +297,4 @@ mod tests {
             }]
         );
     }
-
 }

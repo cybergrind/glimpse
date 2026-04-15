@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    bluetooth::provider::{BluetoothProvider, BluetoothProviderEvent},
     bluetooth::{
         agent::{BluetoothAgent, PromptRegistry},
         protocol::{
@@ -15,7 +16,6 @@ use crate::{
             BluetoothServiceState,
         },
     },
-    bluetooth::provider::{BluetoothProvider, BluetoothProviderEvent},
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;

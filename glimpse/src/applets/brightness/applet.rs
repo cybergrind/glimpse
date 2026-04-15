@@ -1,9 +1,9 @@
 use glimpse::{
+    brightness::provider::{BrightnessDisplay, choose_primary_display},
     brightness::{
         BrightnessServiceHandle,
         protocol::{BrightnessServiceCommand, BrightnessServiceState},
     },
-    brightness::provider::{BrightnessDisplay, choose_primary_display},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,

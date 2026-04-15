@@ -2,9 +2,7 @@ use anyhow::Context;
 use glimpse::network::{
     NetworkServiceHandle,
     protocol::NetworkServiceState,
-    provider::{
-        HotspotConfig, NetworkConnectionConfig, NetworkProvider, VpnProfileConfig,
-    },
+    provider::{HotspotConfig, NetworkConnectionConfig, NetworkProvider, VpnProfileConfig},
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -61,12 +59,18 @@ impl NetworkBackend {
         Ok(())
     }
 
-    pub async fn load_connection_config(&self, uuid: &str) -> anyhow::Result<NetworkConnectionConfig> {
+    pub async fn load_connection_config(
+        &self,
+        uuid: &str,
+    ) -> anyhow::Result<NetworkConnectionConfig> {
         let provider = self.provider().await?;
         provider.load_connection_config(uuid).await
     }
 
-    pub async fn apply_connection_config(&self, config: &NetworkConnectionConfig) -> anyhow::Result<()> {
+    pub async fn apply_connection_config(
+        &self,
+        config: &NetworkConnectionConfig,
+    ) -> anyhow::Result<()> {
         let provider = self.provider().await?;
         provider.apply_connection_config(config).await
     }
@@ -76,7 +80,10 @@ impl NetworkBackend {
         provider.load_hotspot_config(device_path).await
     }
 
-    pub async fn apply_hotspot_config(&self, config: &HotspotConfig) -> anyhow::Result<HotspotConfig> {
+    pub async fn apply_hotspot_config(
+        &self,
+        config: &HotspotConfig,
+    ) -> anyhow::Result<HotspotConfig> {
         let provider = self.provider().await?;
         provider.apply_hotspot_config(config).await
     }
@@ -101,7 +108,11 @@ impl NetworkBackend {
         provider.delete_connection_path(path).await
     }
 
-    pub async fn set_hotspot_enabled(&self, config: &HotspotConfig, enabled: bool) -> anyhow::Result<()> {
+    pub async fn set_hotspot_enabled(
+        &self,
+        config: &HotspotConfig,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
         let provider = self.provider().await?;
         provider.set_hotspot_enabled(config, enabled).await
     }

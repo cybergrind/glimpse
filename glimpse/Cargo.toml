@@ -41,3 +41,6 @@ reqwest.workspace = true
 image = "0.25"
 libheif-rs = "2.7.0"
 dirs.workspace = true
+wayland-client = "0.31.12"
+wayland-protocols-wlr = { version = "0.3.9", features = ["client"] }
+sunrise = "1.2.1"

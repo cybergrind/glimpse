@@ -1,6 +1,10 @@
 #![allow(unused_assignments)]
 
-use std::{cell::Cell, rc::Rc, time::{Duration, Instant}};
+use std::{
+    cell::Cell,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
 use image::{DynamicImage, ImageReader, imageops::FilterType};
@@ -433,12 +437,10 @@ fn load_player_art(image: &gtk::Image, artwork: &MprisArtwork, revision: &Rc<Cel
     revision.set(next_revision);
 
     match artwork_source(artwork) {
-        ArtSource::FilePath(path) => {
-            match texture_from_file_path(&path) {
-                Some(texture) => set_image_from_texture(image, &texture),
-                None => clear_image_art(image),
-            }
-        }
+        ArtSource::FilePath(path) => match texture_from_file_path(&path) {
+            Some(texture) => set_image_from_texture(image, &texture),
+            None => clear_image_art(image),
+        },
         ArtSource::FileUri(uri) => match file_path_from_uri(&uri) {
             Some(path) => match texture_from_file_path(&path) {
                 Some(texture) => set_image_from_texture(image, &texture),
@@ -479,7 +481,11 @@ fn load_player_art(image: &gtk::Image, artwork: &MprisArtwork, revision: &Rc<Cel
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::Cursor, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        io::Cursor,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use glimpse::mpris::protocol::{MprisArtwork, MprisPlaybackStatus, MprisPlayer};
     use image::{DynamicImage, ImageFormat, RgbaImage};
@@ -620,9 +626,15 @@ mod tests {
         player.length = Some(6_000_000);
 
         assert_eq!(effective_position_micros(&player, 500_000), Some(5_500_000));
-        assert_eq!(effective_position_micros(&player, 2_000_000), Some(6_000_000));
+        assert_eq!(
+            effective_position_micros(&player, 2_000_000),
+            Some(6_000_000)
+        );
 
         player.playback_status = MprisPlaybackStatus::Paused;
-        assert_eq!(effective_position_micros(&player, 2_000_000), Some(5_000_000));
+        assert_eq!(
+            effective_position_micros(&player, 2_000_000),
+            Some(5_000_000)
+        );
     }
 }

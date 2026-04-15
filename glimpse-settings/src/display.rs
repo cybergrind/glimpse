@@ -3144,8 +3144,7 @@ mod tests {
 
     #[test]
     fn serializes_niri_index_to_include_all_managed_fragments() {
-        let text =
-            crate::niri_managed::serialize_niri_index(&["backdrop.kdl", "displays.kdl"]);
+        let text = crate::niri_managed::serialize_niri_index(&["backdrop.kdl", "displays.kdl"]);
 
         assert!(text.contains("include \"~/.config/niri/glimpse.d/displays.kdl\""));
         assert!(text.contains("include \"~/.config/niri/glimpse.d/backdrop.kdl\""));

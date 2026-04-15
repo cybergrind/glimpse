@@ -1,7 +1,7 @@
 use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 const FALLBACK_USER_NAME: &str = "user";

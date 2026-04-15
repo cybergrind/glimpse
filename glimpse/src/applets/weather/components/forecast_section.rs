@@ -1,8 +1,8 @@
 #![allow(unused_assignments)]
 
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
 use super::super::applet::WeatherDaily;

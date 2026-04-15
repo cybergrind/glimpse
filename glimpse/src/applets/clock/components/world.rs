@@ -7,8 +7,8 @@ use relm4::{
 };
 
 use crate::applets::clock::{
-    components::timezone::{TimezoneRow, TimezoneRowInput},
     TimezoneEntry,
+    components::timezone::{TimezoneRow, TimezoneRowInput},
 };
 
 pub struct WorldClock {

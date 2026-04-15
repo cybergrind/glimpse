@@ -4,18 +4,13 @@ use crate::compositors;
 
 const NOTIFICATION_FOCUS_DELAY: Duration = Duration::from_millis(75);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompositorKind {
     Niri,
     Hyprland,
+    #[default]
     Unknown,
-}
-
-impl Default for CompositorKind {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl CompositorKind {
@@ -104,6 +99,8 @@ impl CompositorKind {
                 workspace_listener: true,
                 keyboard_listener: true,
                 backdrop: true,
+                night_light: true,
+                night_light_per_output_control: true,
                 switch_workspace: true,
                 switch_workspace_relative: true,
                 focus_window_relative: true,
@@ -115,6 +112,8 @@ impl CompositorKind {
                 workspace_listener: true,
                 keyboard_listener: true,
                 backdrop: false,
+                night_light: true,
+                night_light_per_output_control: true,
                 switch_workspace: true,
                 switch_workspace_relative: true,
                 focus_window_relative: false,
@@ -136,6 +135,8 @@ pub struct CompositorCapabilities {
     pub workspace_listener: bool,
     pub keyboard_listener: bool,
     pub backdrop: bool,
+    pub night_light: bool,
+    pub night_light_per_output_control: bool,
     pub switch_workspace: bool,
     pub switch_workspace_relative: bool,
     pub focus_window_relative: bool,
@@ -202,7 +203,7 @@ pub struct WorkspaceState {
     pub snapshot: WorkspaceSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct KeyboardLayoutSnapshot {
     pub layout_names: Vec<String>,
     pub current_index: usize,
@@ -214,15 +215,6 @@ pub struct KeyboardLayoutState {
     pub capabilities: CompositorCapabilities,
     pub health: CompositorListenerHealth,
     pub snapshot: KeyboardLayoutSnapshot,
-}
-
-impl Default for KeyboardLayoutSnapshot {
-    fn default() -> Self {
-        Self {
-            layout_names: Vec::new(),
-            current_index: 0,
-        }
-    }
 }
 
 pub fn short_layout_name(layout_name: &str) -> String {

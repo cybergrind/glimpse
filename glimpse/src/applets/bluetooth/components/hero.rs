@@ -127,7 +127,8 @@ impl SimpleComponent for BluetoothHero {
             "bluetooth-disabled-symbolic"
         }
         .into();
-        self.subtitle = hero_subtitle_text(powered, discovering, connected_count, activity.as_deref());
+        self.subtitle =
+            hero_subtitle_text(powered, discovering, connected_count, activity.as_deref());
     }
 }
 

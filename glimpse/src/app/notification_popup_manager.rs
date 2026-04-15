@@ -1,7 +1,10 @@
 use adw::prelude::GtkWindowExt;
 use relm4::{Component, ComponentController, ComponentSender, Controller};
 
-use glimpse::{config::{Config, PanelConfig}, notifications::NotificationsServiceHandle};
+use glimpse::{
+    config::{Config, PanelConfig},
+    notifications::NotificationsServiceHandle,
+};
 
 use crate::{
     app::App,
@@ -30,7 +33,10 @@ pub(super) fn setup_notification_popup(
                 config: popup_config,
                 service,
             })
-            .forward(sender.input_sender(), crate::app::Input::NotificationCommand),
+            .forward(
+                sender.input_sender(),
+                crate::app::Input::NotificationCommand,
+            ),
     )
 }
 
@@ -50,7 +56,10 @@ pub(super) fn sync_notification_popup(
             *notification_popup = Some(
                 NotificationPopup::builder()
                     .launch(NotificationPopupInit { config, service })
-                    .forward(sender.input_sender(), crate::app::Input::NotificationCommand),
+                    .forward(
+                        sender.input_sender(),
+                        crate::app::Input::NotificationCommand,
+                    ),
             );
         }
         PopupSyncPlan::Update(config) => {
@@ -178,7 +187,10 @@ mod tests {
         let new: NotificationsConfig =
             toml::from_str(r#"popup_position = "bottom-right""#).expect("new popup config");
 
-        assert_eq!(popup_sync_plan(Some(old), Some(new.clone())), PopupSyncPlan::Update(new));
+        assert_eq!(
+            popup_sync_plan(Some(old), Some(new.clone())),
+            PopupSyncPlan::Update(new)
+        );
     }
 
     #[test]
@@ -186,7 +198,10 @@ mod tests {
         let new: NotificationsConfig =
             toml::from_str(r#"show_popup = true"#).expect("new popup config");
 
-        assert_eq!(popup_sync_plan(None, Some(new.clone())), PopupSyncPlan::Create(new));
+        assert_eq!(
+            popup_sync_plan(None, Some(new.clone())),
+            PopupSyncPlan::Create(new)
+        );
     }
 
     #[test]

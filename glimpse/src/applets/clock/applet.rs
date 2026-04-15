@@ -1,9 +1,7 @@
 use chrono::{Datelike, Local, NaiveDate};
 use glimpse::calendar::{
     CalendarServiceHandle,
-    protocol::{
-        CalendarDate, CalendarDaySnapshot, CalendarServiceCommand, CalendarServiceState,
-    },
+    protocol::{CalendarDate, CalendarDaySnapshot, CalendarServiceCommand, CalendarServiceState},
 };
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller,
@@ -15,8 +13,8 @@ use relm4::{
 use std::time::Duration;
 
 use crate::applets::clock::{
-    popover::{Popover, PopoverInit, PopoverInput, PopoverOutput},
     ClockConfig,
+    popover::{Popover, PopoverInit, PopoverInput, PopoverOutput},
 };
 
 pub struct Clock {
@@ -226,9 +224,12 @@ impl Clock {
                 self.send_command(sender, CalendarServiceCommand::LoadMonth { year, month });
             }
             PopoverOutput::LoadDay { date } => {
-                self.send_command(sender, CalendarServiceCommand::LoadDay {
-                    date: CalendarDate::from_naive_date(date),
-                });
+                self.send_command(
+                    sender,
+                    CalendarServiceCommand::LoadDay {
+                        date: CalendarDate::from_naive_date(date),
+                    },
+                );
             }
         }
     }
@@ -258,7 +259,11 @@ impl Clock {
         self.popover
             .emit(PopoverInput::SetSelectedDate(self.selected_date));
 
-        let month = self.state.month_cache.get(&month_key(self.selected_date)).cloned();
+        let month = self
+            .state
+            .month_cache
+            .get(&month_key(self.selected_date))
+            .cloned();
         self.popover.emit(PopoverInput::SetMonth(month));
 
         let plan = resolve_selected_day_plan(&self.state, self.selected_date, month_changed);
@@ -320,7 +325,11 @@ pub(crate) fn resolve_selected_day_plan(
     if let Some(day) = state
         .month_cache
         .get(&month_key)
-        .and_then(|month| month.day_snapshots.get(&CalendarDate::from_naive_date(selected_date)))
+        .and_then(|month| {
+            month
+                .day_snapshots
+                .get(&CalendarDate::from_naive_date(selected_date))
+        })
         .cloned()
     {
         return SelectedDayPlan {

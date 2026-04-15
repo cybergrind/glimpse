@@ -229,13 +229,19 @@ mod tests {
     #[test]
     fn retains_selected_wifi_adapter_when_it_still_exists() {
         let mut page = NetworkPageState::from_service_state(service_state(
-            vec![wifi_device("/wifi/1", "wlan0"), wifi_device("/wifi/2", "wlan1")],
+            vec![
+                wifi_device("/wifi/1", "wlan0"),
+                wifi_device("/wifi/2", "wlan1"),
+            ],
             Vec::new(),
         ));
         page.select_wifi_adapter("/wifi/2");
 
         page.apply_service_state(service_state(
-            vec![wifi_device("/wifi/1", "wlan0"), wifi_device("/wifi/2", "wlan1")],
+            vec![
+                wifi_device("/wifi/1", "wlan0"),
+                wifi_device("/wifi/2", "wlan1"),
+            ],
             Vec::new(),
         ));
 
@@ -245,7 +251,10 @@ mod tests {
     #[test]
     fn falls_back_to_first_wifi_adapter_when_selection_disappears() {
         let mut page = NetworkPageState::from_service_state(service_state(
-            vec![wifi_device("/wifi/1", "wlan0"), wifi_device("/wifi/2", "wlan1")],
+            vec![
+                wifi_device("/wifi/1", "wlan0"),
+                wifi_device("/wifi/2", "wlan1"),
+            ],
             Vec::new(),
         ));
         page.select_wifi_adapter("/wifi/2");
@@ -261,7 +270,10 @@ mod tests {
     #[test]
     fn filters_access_points_by_selected_wifi_adapter() {
         let page = NetworkPageState::from_service_state(service_state(
-            vec![wifi_device("/wifi/1", "wlan0"), wifi_device("/wifi/2", "wlan1")],
+            vec![
+                wifi_device("/wifi/1", "wlan0"),
+                wifi_device("/wifi/2", "wlan1"),
+            ],
             vec![
                 WifiAccessPoint {
                     path: "/ap/1".into(),
@@ -295,7 +307,10 @@ mod tests {
     #[test]
     fn ethernet_devices_are_listed_separately() {
         let page = NetworkPageState::from_service_state(service_state(
-            vec![wifi_device("/wifi/1", "wlan0"), ethernet_device("/eth/1", "enp1s0")],
+            vec![
+                wifi_device("/wifi/1", "wlan0"),
+                ethernet_device("/eth/1", "enp1s0"),
+            ],
             Vec::new(),
         ));
 

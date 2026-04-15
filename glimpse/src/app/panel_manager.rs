@@ -60,16 +60,18 @@ pub(super) fn reconfigure_panels(
         .zip(config.panels.iter())
     {
         if let Some(existing) = current.remove(&panel_key) {
-            existing.controller.emit(panels::component::Input::Reconfigure(
-                panels::component::PanelRuntimeConfig {
-                    panel_key: panel_key.clone(),
-                    config: panel_config.clone(),
-                    applet_configs: config.applets.clone(),
-                    dbus: dbus.clone(),
-                    system: system.clone(),
-                    services: services.clone(),
-                },
-            ));
+            existing
+                .controller
+                .emit(panels::component::Input::Reconfigure(
+                    panels::component::PanelRuntimeConfig {
+                        panel_key: panel_key.clone(),
+                        config: panel_config.clone(),
+                        applet_configs: config.applets.clone(),
+                        dbus: dbus.clone(),
+                        system: system.clone(),
+                        services: services.clone(),
+                    },
+                ));
             next_panels.push(existing);
             continue;
         }

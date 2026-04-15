@@ -372,9 +372,8 @@ pub fn theme_name_allowed(kind: ThemeKind, path: &Path) -> bool {
 mod tests {
     use super::{
         AccentColor, AppearanceDraft, BackdropConfig, ColorScheme, ExternalAppearanceUpdate,
-        ThemeKind, WallpaperConfig,
-        discover_theme_options, reconcile_external_snapshot, theme_name_allowed,
-        theme_search_roots,
+        ThemeKind, WallpaperConfig, discover_theme_options, reconcile_external_snapshot,
+        theme_name_allowed, theme_search_roots,
     };
     use std::{
         fs,

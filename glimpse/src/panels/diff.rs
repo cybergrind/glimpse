@@ -94,7 +94,8 @@ pub fn build_section_entries(
     names: &[String],
     applet_configs: &HashMap<String, AppletConfig>,
 ) -> Vec<SectionEntry> {
-    names.iter()
+    names
+        .iter()
         .enumerate()
         .map(|(slot, name)| {
             let applet_type = applet_configs

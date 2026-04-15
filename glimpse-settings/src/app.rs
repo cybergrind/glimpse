@@ -24,9 +24,8 @@ use glimpse::network::{
     },
     provider::{
         HotspotConfig, NetworkConnection, NetworkConnectionConfig, NetworkDevice, NetworkIpConfig,
-        NetworkIpMethod, NetworkSnapshot, OpenVpnConfig, SavedVpn, VpnConfigKind,
-        VpnProfileConfig, VpnTransportProtocol, WifiAccessPoint, WireGuardConfig,
-        WireGuardPeerConfig,
+        NetworkIpMethod, NetworkSnapshot, OpenVpnConfig, SavedVpn, VpnConfigKind, VpnProfileConfig,
+        VpnTransportProtocol, WifiAccessPoint, WireGuardConfig, WireGuardPeerConfig,
     },
 };
 use glimpse::{
@@ -473,7 +472,8 @@ impl SettingsWindow {
             ("about", row(&builder, "row_about")),
         ]);
 
-        let appearance_ui = AppearanceUi::from_builder(&builder, &content_preferences_page, &window);
+        let appearance_ui =
+            AppearanceUi::from_builder(&builder, &content_preferences_page, &window);
         appearance_ui.refresh_snapshot();
         appearance_ui.sync();
 
@@ -496,10 +496,8 @@ impl SettingsWindow {
             runtime.clone(),
             network_service,
         );
-        let network_prompt_host = NetworkPromptHost::new(
-            &window,
-            network_ui.backend.service().clone(),
-        );
+        let network_prompt_host =
+            NetworkPromptHost::new(&window, network_ui.backend.service().clone());
         network_ui.sync();
 
         let bluetooth_service = runtime.handle().block_on(async {
@@ -1010,9 +1008,8 @@ impl AppearanceUi {
         self.backdrop_group
             .set_visible(self.compositor.capabilities().backdrop);
         self.backdrop_enabled_row.set_active(draft.backdrop.enabled);
-        let backdrop_available =
-            draft.wallpaper.mode == glimpse::config::WallpaperMode::Image
-                && draft.wallpaper.path.is_some();
+        let backdrop_available = draft.wallpaper.mode == glimpse::config::WallpaperMode::Image
+            && draft.wallpaper.path.is_some();
         self.backdrop_enabled_row.set_sensitive(backdrop_available);
         self.backdrop_blur_row
             .set_sensitive(draft.backdrop.enabled && backdrop_available);
@@ -1169,9 +1166,14 @@ impl NetworkUi {
 
         let selected_index = state
             .selected_wifi_adapter_path()
-            .and_then(|selected| wifi_adapters.iter().position(|adapter| adapter.path == selected))
+            .and_then(|selected| {
+                wifi_adapters
+                    .iter()
+                    .position(|adapter| adapter.path == selected)
+            })
             .unwrap_or(0);
-        self.active_wifi_adapter_row.set_selected(selected_index as u32);
+        self.active_wifi_adapter_row
+            .set_selected(selected_index as u32);
         self.active_wifi_adapter_row
             .set_visible(state.show_wifi_adapter_selector());
         self.active_wifi_adapter_row
@@ -1179,9 +1181,11 @@ impl NetworkUi {
 
         self.wifi_enabled_row
             .set_active(service_state.snapshot.status.wifi_enabled);
-        self.primary_connection_row.set_subtitle(
-            &network_primary_connection_subtitle(service_state, state.primary_connection()),
-        );
+        self.primary_connection_row
+            .set_subtitle(&network_primary_connection_subtitle(
+                service_state,
+                state.primary_connection(),
+            ));
 
         let wifi_description = match state.selected_wifi_adapter() {
             Some(adapter) if service_state.snapshot.status.wifi_enabled => {
@@ -1191,21 +1195,24 @@ impl NetworkUi {
             None => "No wireless adapters detected.".into(),
         };
         self.wifi_group.set_description(Some(&wifi_description));
-        self.ethernet_group.set_description(Some(if state.ethernet_devices().is_empty() {
-            "No ethernet adapters detected."
-        } else {
-            "Wired adapters and active wired connections."
-        }));
-        self.vpn_group.set_description(Some(if state.saved_vpns().is_empty() {
-            "No saved VPNs detected."
-        } else {
-            "Saved VPN connections."
-        }));
-        self.adapters_group.set_description(Some(if state.adapters().is_empty() {
-            "No network adapters detected."
-        } else {
-            "Available network adapters and adapter information."
-        }));
+        self.ethernet_group
+            .set_description(Some(if state.ethernet_devices().is_empty() {
+                "No ethernet adapters detected."
+            } else {
+                "Wired adapters and active wired connections."
+            }));
+        self.vpn_group
+            .set_description(Some(if state.saved_vpns().is_empty() {
+                "No saved VPNs detected."
+            } else {
+                "Saved VPN connections."
+            }));
+        self.adapters_group
+            .set_description(Some(if state.adapters().is_empty() {
+                "No network adapters detected."
+            } else {
+                "Available network adapters and adapter information."
+            }));
 
         let hotspot_enabled = self
             .hotspot_config
@@ -2195,24 +2202,22 @@ impl BluetoothPromptHost {
     }
 }
 
-fn wire_network_controls(
-    runtime: Arc<Runtime>,
-    network_ui: NetworkUi,
-    _cancel: CancellationToken,
-) {
+fn wire_network_controls(runtime: Arc<Runtime>, network_ui: NetworkUi, _cancel: CancellationToken) {
     let wifi_ui = network_ui.clone();
     let wifi_runtime = runtime.clone();
-    network_ui.wifi_enabled_row.connect_active_notify(move |row| {
-        if wifi_ui.syncing.get() {
-            return;
-        }
-        wifi_ui.sync();
-        spawn_network_command(
-            wifi_runtime.clone(),
-            wifi_ui.backend.clone(),
-            NetworkServiceCommand::SetWifiEnabled(row.is_active()),
-        );
-    });
+    network_ui
+        .wifi_enabled_row
+        .connect_active_notify(move |row| {
+            if wifi_ui.syncing.get() {
+                return;
+            }
+            wifi_ui.sync();
+            spawn_network_command(
+                wifi_runtime.clone(),
+                wifi_ui.backend.clone(),
+                NetworkServiceCommand::SetWifiEnabled(row.is_active()),
+            );
+        });
 
     let adapter_ui = network_ui.clone();
     network_ui
@@ -2293,7 +2298,10 @@ fn spawn_network_command(
     let service = backend.service().clone();
     let handle = runtime.handle().clone();
     glib::spawn_future_local(async move {
-        match handle.spawn(async move { service.send(command).await }).await {
+        match handle
+            .spawn(async move { service.send(command).await })
+            .await
+        {
             Ok(Ok(())) => {}
             Ok(Err(error)) => tracing::warn!(error = %error, "network settings command failed"),
             Err(error) => tracing::error!(error = %error, "network settings task failed"),
@@ -3049,8 +3057,7 @@ fn build_network_wifi_row(ui: &NetworkUi, access_point_path: &str) -> NetworkWif
 
 fn update_network_wifi_row(row: &NetworkWifiRowWidgets, access_point: &WifiAccessPoint) {
     row.row.set_title(&access_point.ssid);
-    row.row
-        .set_subtitle(&network_wifi_subtitle(access_point));
+    row.row.set_subtitle(&network_wifi_subtitle(access_point));
     if !row.menu_button.property::<bool>("active") {
         row.menu_button
             .set_menu_model(Some(&network_wifi_menu(access_point)));
@@ -3086,10 +3093,13 @@ fn build_network_ethernet_row(ui: &NetworkUi, device_path: &str) -> NetworkEther
     NetworkEthernetRowWidgets { row, menu_button }
 }
 
-fn update_network_ethernet_row(ui: &NetworkUi, row: &NetworkEthernetRowWidgets, device: &NetworkDevice) {
+fn update_network_ethernet_row(
+    ui: &NetworkUi,
+    row: &NetworkEthernetRowWidgets,
+    device: &NetworkDevice,
+) {
     row.row.set_title(&network_adapter_title(device));
-    row.row
-        .set_subtitle(&network_ethernet_subtitle(ui, device));
+    row.row.set_subtitle(&network_ethernet_subtitle(ui, device));
     if !row.menu_button.property::<bool>("active") {
         row.menu_button
             .set_menu_model(Some(&network_ethernet_menu(ui, device)));
@@ -3234,7 +3244,12 @@ fn network_ethernet_menu(ui: &NetworkUi, device: &NetworkDevice) -> gio::Menu {
     {
         menu.append(Some("Disconnect"), Some("net-eth.disconnect"));
     }
-    if ui.state.borrow().connection_for_device(&device.interface).is_some() {
+    if ui
+        .state
+        .borrow()
+        .connection_for_device(&device.interface)
+        .is_some()
+    {
         menu.append(Some("Configure"), Some("net-eth.configure"));
     }
     menu.append(Some("Info"), Some("net-eth.info"));
@@ -3447,7 +3462,13 @@ fn show_network_adapter_info_dialog(ui: &NetworkUi, device_path: &str) {
                 .clone()
                 .unwrap_or_else(|| "Unavailable".into()),
         ),
-        ("Driver", device.driver.clone().unwrap_or_else(|| "Unavailable".into())),
+        (
+            "Driver",
+            device
+                .driver
+                .clone()
+                .unwrap_or_else(|| "Unavailable".into()),
+        ),
         ("Managed", yes_no(device.managed)),
         (
             "MTU",
@@ -3539,7 +3560,10 @@ fn show_network_vpn_info_dialog(ui: &NetworkUi, uuid: &str) {
         ("Name", vpn.id.clone()),
         ("UUID", vpn.uuid.clone()),
         ("Type", vpn.connection_type.clone()),
-        ("State", vpn.state.clone().unwrap_or_else(|| "Inactive".into())),
+        (
+            "State",
+            vpn.state.clone().unwrap_or_else(|| "Inactive".into()),
+        ),
         (
             "IP Address",
             active
@@ -3693,7 +3717,9 @@ fn show_blueprint_info_dialog(
     rows: &[(&str, String)],
 ) {
     let builder = gtk::Builder::from_resource(resource);
-    let root: gtk::Box = builder.object(root_id).expect("info dialog root should exist");
+    let root: gtk::Box = builder
+        .object(root_id)
+        .expect("info dialog root should exist");
     let group: adw::PreferencesGroup = builder
         .object(group_id)
         .expect("info dialog group should exist");
@@ -3723,9 +3749,8 @@ fn present_network_openvpn_dialog(
     config: VpnProfileConfig,
     is_new: bool,
 ) {
-    let builder = gtk::Builder::from_resource(
-        "/me/aresa/GlimpseSettings/ui/network/vpn-openvpn-config.ui",
-    );
+    let builder =
+        gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/vpn-openvpn-config.ui");
     let root: gtk::Box = builder
         .object("network_vpn_openvpn_config_root")
         .expect("network vpn openvpn config root should exist");
@@ -3833,7 +3858,11 @@ fn present_network_openvpn_dialog(
     );
 
     let dialog = AlertDialog::new(
-        Some(if is_new { "Add OpenVPN" } else { "Edit OpenVPN" }),
+        Some(if is_new {
+            "Add OpenVPN"
+        } else {
+            "Edit OpenVPN"
+        }),
         None,
     );
     dialog.add_response("cancel", "Cancel");
@@ -3851,7 +3880,10 @@ fn present_network_openvpn_dialog(
 
         let updated = VpnProfileConfig {
             id: name_row.text().to_string(),
-            uuid: config.uuid.clone().or_else(|| Some(Uuid::new_v4().to_string())),
+            uuid: config
+                .uuid
+                .clone()
+                .or_else(|| Some(Uuid::new_v4().to_string())),
             settings_path: config.settings_path.clone(),
             autoconnect: autoconnect_row.is_active(),
             interface_name: config.interface_name.clone(),
@@ -3897,9 +3929,8 @@ fn present_network_wireguard_dialog(
     config: VpnProfileConfig,
     is_new: bool,
 ) {
-    let builder = gtk::Builder::from_resource(
-        "/me/aresa/GlimpseSettings/ui/network/vpn-wireguard-config.ui",
-    );
+    let builder =
+        gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/vpn-wireguard-config.ui");
     let root: gtk::Box = builder
         .object("network_vpn_wireguard_config_root")
         .expect("network vpn wireguard config root should exist");
@@ -4007,7 +4038,11 @@ fn present_network_wireguard_dialog(
     );
 
     let dialog = AlertDialog::new(
-        Some(if is_new { "Add WireGuard" } else { "Edit WireGuard" }),
+        Some(if is_new {
+            "Add WireGuard"
+        } else {
+            "Edit WireGuard"
+        }),
         None,
     );
     dialog.add_response("cancel", "Cancel");
@@ -4025,7 +4060,10 @@ fn present_network_wireguard_dialog(
 
         let updated = VpnProfileConfig {
             id: name_row.text().to_string(),
-            uuid: config.uuid.clone().or_else(|| Some(Uuid::new_v4().to_string())),
+            uuid: config
+                .uuid
+                .clone()
+                .or_else(|| Some(Uuid::new_v4().to_string())),
             settings_path: config.settings_path.clone(),
             autoconnect: autoconnect_row.is_active(),
             interface_name: Some(interface_row.text().to_string()),
@@ -4078,7 +4116,10 @@ async fn save_vpn_profile(
 
 fn show_network_connection_config_dialog_for_ap(ui: &NetworkUi, access_point_path: &str) {
     let state = ui.state.borrow();
-    let Some(uuid) = state.access_point(access_point_path).and_then(|ap| ap.uuid.clone()) else {
+    let Some(uuid) = state
+        .access_point(access_point_path)
+        .and_then(|ap| ap.uuid.clone())
+    else {
         return;
     };
     drop(state);
@@ -4123,9 +4164,8 @@ fn present_network_connection_config_dialog(
     backend: Arc<NetworkBackend>,
     config: NetworkConnectionConfig,
 ) {
-    let builder = gtk::Builder::from_resource(
-        "/me/aresa/GlimpseSettings/ui/network/connection-config.ui",
-    );
+    let builder =
+        gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/connection-config.ui");
     let root: gtk::Box = builder
         .object("network_connection_config_root")
         .expect("network connection config root should exist");
@@ -4231,9 +4271,8 @@ fn show_network_hotspot_config_dialog(ui: &NetworkUi) {
         return;
     };
 
-    let builder = gtk::Builder::from_resource(
-        "/me/aresa/GlimpseSettings/ui/network/hotspot-config.ui",
-    );
+    let builder =
+        gtk::Builder::from_resource("/me/aresa/GlimpseSettings/ui/network/hotspot-config.ui");
     let root: gtk::Box = builder
         .object("network_hotspot_config_root")
         .expect("network hotspot config root should exist");
@@ -4276,7 +4315,11 @@ fn show_network_hotspot_config_dialog(ui: &NetworkUi) {
         let updated = HotspotConfig {
             ssid: ssid_row.text().to_string(),
             password: password_row.text().to_string(),
-            band: if band_row.selected() == 1 { "a".into() } else { "bg".into() },
+            band: if band_row.selected() == 1 {
+                "a".into()
+            } else {
+                "bg".into()
+            },
             ..config
         };
 
@@ -4308,7 +4351,10 @@ fn network_adapter_icon(device: &NetworkDevice) -> &'static str {
 }
 
 fn network_wifi_subtitle(access_point: &WifiAccessPoint) -> String {
-    let mut parts = vec![access_point.security.clone(), format!("{}%", access_point.strength)];
+    let mut parts = vec![
+        access_point.security.clone(),
+        format!("{}%", access_point.strength),
+    ];
     if access_point.connected {
         parts.push("Connected".into());
     } else if access_point.saved {
@@ -4384,11 +4430,7 @@ fn network_speed_text(speed: u32) -> String {
 }
 
 fn hotspot_band_label(band: &str) -> &'static str {
-    if band == "a" {
-        "5 GHz"
-    } else {
-        "2.4 GHz"
-    }
+    if band == "a" { "5 GHz" } else { "2.4 GHz" }
 }
 
 fn default_openvpn_vpn_profile_config() -> VpnProfileConfig {
@@ -4766,34 +4808,40 @@ fn bluetooth_prompt_reply(
 
 fn wire_appearance_controls(appearance_ui: AppearanceUi) {
     let auto_ui = appearance_ui.clone();
-    appearance_ui.style_auto_button.connect_toggled(move |button| {
-        if auto_ui.syncing.get() || !button.is_active() {
-            return;
-        }
-        auto_ui.draft.borrow_mut().color_scheme = ColorScheme::Default;
-        auto_ui.clear_error();
-        auto_ui.sync();
-    });
+    appearance_ui
+        .style_auto_button
+        .connect_toggled(move |button| {
+            if auto_ui.syncing.get() || !button.is_active() {
+                return;
+            }
+            auto_ui.draft.borrow_mut().color_scheme = ColorScheme::Default;
+            auto_ui.clear_error();
+            auto_ui.sync();
+        });
 
     let light_ui = appearance_ui.clone();
-    appearance_ui.style_light_button.connect_toggled(move |button| {
-        if light_ui.syncing.get() || !button.is_active() {
-            return;
-        }
-        light_ui.draft.borrow_mut().color_scheme = ColorScheme::Light;
-        light_ui.clear_error();
-        light_ui.sync();
-    });
+    appearance_ui
+        .style_light_button
+        .connect_toggled(move |button| {
+            if light_ui.syncing.get() || !button.is_active() {
+                return;
+            }
+            light_ui.draft.borrow_mut().color_scheme = ColorScheme::Light;
+            light_ui.clear_error();
+            light_ui.sync();
+        });
 
     let dark_ui = appearance_ui.clone();
-    appearance_ui.style_dark_button.connect_toggled(move |button| {
-        if dark_ui.syncing.get() || !button.is_active() {
-            return;
-        }
-        dark_ui.draft.borrow_mut().color_scheme = ColorScheme::Dark;
-        dark_ui.clear_error();
-        dark_ui.sync();
-    });
+    appearance_ui
+        .style_dark_button
+        .connect_toggled(move |button| {
+            if dark_ui.syncing.get() || !button.is_active() {
+                return;
+            }
+            dark_ui.draft.borrow_mut().color_scheme = ColorScheme::Dark;
+            dark_ui.clear_error();
+            dark_ui.sync();
+        });
 
     let wallpaper_color_ui = appearance_ui.clone();
     appearance_ui
@@ -4802,8 +4850,7 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
             if wallpaper_color_ui.syncing.get() {
                 return;
             }
-            wallpaper_color_ui.draft.borrow_mut().wallpaper.color =
-                rgba_to_hex(&button.rgba());
+            wallpaper_color_ui.draft.borrow_mut().wallpaper.color = rgba_to_hex(&button.rgba());
             wallpaper_color_ui.clear_error();
             wallpaper_color_ui.sync();
         });
@@ -4828,16 +4875,14 @@ fn wire_appearance_controls(appearance_ui: AppearanceUi) {
         });
 
     let backdrop_blur_ui = appearance_ui.clone();
-    appearance_ui
-        .backdrop_blur_row
-        .connect_changed(move |row| {
-            if backdrop_blur_ui.syncing.get() {
-                return;
-            }
-            backdrop_blur_ui.draft.borrow_mut().backdrop.blur_radius = row.value() as u32;
-            backdrop_blur_ui.clear_error();
-            backdrop_blur_ui.sync();
-        });
+    appearance_ui.backdrop_blur_row.connect_changed(move |row| {
+        if backdrop_blur_ui.syncing.get() {
+            return;
+        }
+        backdrop_blur_ui.draft.borrow_mut().backdrop.blur_radius = row.value() as u32;
+        backdrop_blur_ui.clear_error();
+        backdrop_blur_ui.sync();
+    });
 
     let gtk_theme_ui = appearance_ui.clone();
     appearance_ui
@@ -5048,7 +5093,9 @@ fn sync_background_gallery_viewport(scroller: &gtk::ScrolledWindow, total_tiles:
 }
 
 fn wallpaper_gallery_visible_rows(total_tiles: usize) -> usize {
-    total_tiles.div_ceil(WALLPAPER_GALLERY_COLUMNS).clamp(1, WALLPAPER_GALLERY_ROWS)
+    total_tiles
+        .div_ceil(WALLPAPER_GALLERY_COLUMNS)
+        .clamp(1, WALLPAPER_GALLERY_ROWS)
 }
 
 fn build_no_background_tile(appearance_ui: &AppearanceUi) -> gtk::Button {
@@ -7259,10 +7306,9 @@ fn update_page(
     let is_power = page.kind == PageKind::Power;
     let is_sound = page.kind == PageKind::Sound;
 
-    stub_group
-        .set_visible(
-            !is_appearance && !is_network && !is_bluetooth && !is_displays && !is_power && !is_sound,
-        );
+    stub_group.set_visible(
+        !is_appearance && !is_network && !is_bluetooth && !is_displays && !is_power && !is_sound,
+    );
     appearance_ui.style_group.set_visible(is_appearance);
     appearance_ui.accent_group.set_visible(is_appearance);
     appearance_ui.background_group.set_visible(is_appearance);

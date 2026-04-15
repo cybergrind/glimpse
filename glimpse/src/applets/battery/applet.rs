@@ -271,7 +271,8 @@ impl Component for Battery {
                         self.popover.emit(BatteryPopoverInput::UpdateStatus(status));
                     }
                     if let Some(profiles) = self.latest_profiles.clone() {
-                        self.popover.emit(BatteryPopoverInput::UpdateProfiles(profiles));
+                        self.popover
+                            .emit(BatteryPopoverInput::UpdateProfiles(profiles));
                     }
                 }
             }

@@ -2,11 +2,11 @@ use glimpse::session_actions::provider::{
     SessionActionAvailability, SessionBackendState, SessionSnapshot,
 };
 use relm4::{
-    gtk::{self, prelude::*},
     ComponentParts, ComponentSender, SimpleComponent,
+    gtk::{self, prelude::*},
 };
 
-use super::super::{popover::SessionAction, SessionConfig};
+use super::super::{SessionConfig, popover::SessionAction};
 
 pub struct SessionActionList {
     config: SessionConfig,
@@ -239,9 +239,10 @@ mod tests {
 
         let rows = build_action_rows(&config, &snapshot);
 
-        assert!(rows
-            .iter()
-            .all(|row| row.action != SessionAction::Hibernate));
+        assert!(
+            rows.iter()
+                .all(|row| row.action != SessionAction::Hibernate)
+        );
         assert!(rows.iter().any(|row| row.action == SessionAction::Logout));
     }
 }

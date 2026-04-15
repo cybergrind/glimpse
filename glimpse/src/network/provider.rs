@@ -588,7 +588,9 @@ impl NetworkProvider {
         &self,
         config: &NetworkConnectionConfig,
     ) -> anyhow::Result<()> {
-        let proxy = self.settings_connection_proxy(&config.settings_path).await?;
+        let proxy = self
+            .settings_connection_proxy(&config.settings_path)
+            .await?;
         let mut settings = proxy.get_settings().await.unwrap_or_default();
 
         let connection_section = settings.entry("connection".into()).or_default();
@@ -600,15 +602,24 @@ impl NetworkProvider {
         );
         if let Some(interface_name) = &config.interface_name {
             if !interface_name.trim().is_empty() {
-                connection_section.insert("interface-name".into(), owned_value(interface_name.clone()));
+                connection_section
+                    .insert("interface-name".into(), owned_value(interface_name.clone()));
             } else {
                 connection_section.remove("interface-name");
             }
         }
         connection_section.insert("autoconnect".into(), owned_value(config.autoconnect));
 
-        write_ip_config(settings.entry("ipv4".into()).or_default(), &config.ipv4, false);
-        write_ip_config(settings.entry("ipv6".into()).or_default(), &config.ipv6, true);
+        write_ip_config(
+            settings.entry("ipv4".into()).or_default(),
+            &config.ipv4,
+            false,
+        );
+        write_ip_config(
+            settings.entry("ipv6".into()).or_default(),
+            &config.ipv6,
+            true,
+        );
 
         proxy
             .update2(settings, NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
@@ -630,7 +641,8 @@ impl NetworkProvider {
                 .get_settings()
                 .await
                 .unwrap_or_default();
-            let mut config = parse_hotspot_config(&settings, &settings_path, device_path, &interface_name);
+            let mut config =
+                parse_hotspot_config(&settings, &settings_path, device_path, &interface_name);
             config.active = active_uuid
                 .as_deref()
                 .is_some_and(|uuid| config.uuid.as_deref() == Some(uuid));
@@ -650,7 +662,10 @@ impl NetworkProvider {
         })
     }
 
-    pub async fn apply_hotspot_config(&self, config: &HotspotConfig) -> anyhow::Result<HotspotConfig> {
+    pub async fn apply_hotspot_config(
+        &self,
+        config: &HotspotConfig,
+    ) -> anyhow::Result<HotspotConfig> {
         let settings = hotspot_settings_map(config);
         let settings_path = if let Some(path) = &config.settings_path {
             self.settings_connection_proxy(path)
@@ -659,14 +674,21 @@ impl NetworkProvider {
                 .await?;
             path.clone()
         } else {
-            self.settings_proxy().await?.add_connection(settings).await?.to_string()
+            self.settings_proxy()
+                .await?
+                .add_connection(settings)
+                .await?
+                .to_string()
         };
 
-        self.load_hotspot_config(config.device_path.as_str()).await
-            .or_else(|_| Ok(HotspotConfig {
-                settings_path: Some(settings_path),
-                ..config.clone()
-            }))
+        self.load_hotspot_config(config.device_path.as_str())
+            .await
+            .or_else(|_| {
+                Ok(HotspotConfig {
+                    settings_path: Some(settings_path),
+                    ..config.clone()
+                })
+            })
     }
 
     pub async fn set_hotspot_enabled(
@@ -685,7 +707,9 @@ impl NetworkProvider {
             let connection = ObjectPath::try_from(settings_path.as_str())?;
             let device = ObjectPath::try_from(saved.device_path.as_str())?;
             let specific = ObjectPath::try_from("/")?;
-            let _ = manager.activate_connection(connection, device, specific).await?;
+            let _ = manager
+                .activate_connection(connection, device, specific)
+                .await?;
             return Ok(());
         }
 
@@ -722,7 +746,11 @@ impl NetworkProvider {
             .ok_or_else(|| anyhow!("vpn settings path missing"))?;
         self.settings_connection_proxy(settings_path)
             .await?
-            .update2(vpn_profile_settings_map(config), NM_UPDATE2_FLAG_TO_DISK, HashMap::new())
+            .update2(
+                vpn_profile_settings_map(config),
+                NM_UPDATE2_FLAG_TO_DISK,
+                HashMap::new(),
+            )
             .await
             .map(|_| ())
             .map_err(Into::into)
@@ -824,7 +852,11 @@ impl NetworkProvider {
                 status.speed = speed;
             }
 
-            let hardware_address = device.hw_address().await.ok().filter(|value| !value.is_empty());
+            let hardware_address = device
+                .hw_address()
+                .await
+                .ok()
+                .filter(|value| !value.is_empty());
             let driver = device.driver().await.ok().filter(|value| !value.is_empty());
             let managed = device.managed().await.unwrap_or(true);
             let mtu = device.mtu().await.ok().filter(|value| *value > 0);
@@ -1171,7 +1203,10 @@ impl NetworkProvider {
         ))
     }
 
-    async fn find_hotspot_profile_path(&self, interface_name: &str) -> anyhow::Result<Option<String>> {
+    async fn find_hotspot_profile_path(
+        &self,
+        interface_name: &str,
+    ) -> anyhow::Result<Option<String>> {
         for path in self.settings_proxy().await?.list_connections().await? {
             let settings = self
                 .settings_connection_proxy(path.as_str())
@@ -1186,7 +1221,10 @@ impl NetworkProvider {
         Ok(None)
     }
 
-    async fn find_active_hotspot_uuid(&self, interface_name: &str) -> anyhow::Result<Option<String>> {
+    async fn find_active_hotspot_uuid(
+        &self,
+        interface_name: &str,
+    ) -> anyhow::Result<Option<String>> {
         for connection in self.scan().await?.connections {
             if connection.connection_type != "wifi" {
                 continue;
@@ -1477,9 +1515,7 @@ fn parse_vpn_profile_config(
     }
 }
 
-fn parse_openvpn_config(
-    settings: &HashMap<String, HashMap<String, OwnedValue>>,
-) -> OpenVpnConfig {
+fn parse_openvpn_config(settings: &HashMap<String, HashMap<String, OwnedValue>>) -> OpenVpnConfig {
     let vpn = settings.get("vpn");
     let data = vpn
         .and_then(|section| section.get("data"))
@@ -1555,10 +1591,7 @@ fn parse_wireguard_config(
     }
 }
 
-fn parse_ip_config(
-    section: Option<&HashMap<String, OwnedValue>>,
-    ipv6: bool,
-) -> NetworkIpConfig {
+fn parse_ip_config(section: Option<&HashMap<String, OwnedValue>>, ipv6: bool) -> NetworkIpConfig {
     let method = section
         .and_then(|section| section.get("method"))
         .and_then(owned_value_to_string)
@@ -1631,7 +1664,10 @@ fn write_ip_config(
     config: &NetworkIpConfig,
     ipv6: bool,
 ) {
-    section.insert("method".into(), owned_value(raw_ip_method(config.method, ipv6)));
+    section.insert(
+        "method".into(),
+        owned_value(raw_ip_method(config.method, ipv6)),
+    );
 
     if matches!(config.method, NetworkIpMethod::Manual) && !config.address.trim().is_empty() {
         let mut address: HashMap<String, OwnedValue> = HashMap::new();
@@ -1740,8 +1776,16 @@ fn vpn_profile_settings_map(
         ("ipv4".into(), HashMap::new()),
         ("ipv6".into(), HashMap::new()),
     ]);
-    write_ip_config(settings.get_mut("ipv4").expect("ipv4 should exist"), &config.ipv4, false);
-    write_ip_config(settings.get_mut("ipv6").expect("ipv6 should exist"), &config.ipv6, true);
+    write_ip_config(
+        settings.get_mut("ipv4").expect("ipv4 should exist"),
+        &config.ipv4,
+        false,
+    );
+    write_ip_config(
+        settings.get_mut("ipv6").expect("ipv6 should exist"),
+        &config.ipv6,
+        true,
+    );
 
     match &config.kind {
         VpnConfigKind::OpenVpn(openvpn) => {
@@ -1794,7 +1838,10 @@ fn vpn_profile_settings_map(
         VpnConfigKind::WireGuard(wireguard) => {
             let mut wg = HashMap::new();
             if !wireguard.private_key.trim().is_empty() {
-                wg.insert("private-key".into(), owned_value(wireguard.private_key.clone()));
+                wg.insert(
+                    "private-key".into(),
+                    owned_value(wireguard.private_key.clone()),
+                );
             }
             if let Some(listen_port) = wireguard.listen_port {
                 wg.insert("listen-port".into(), owned_value(u32::from(listen_port)));
@@ -1810,7 +1857,10 @@ fn vpn_profile_settings_map(
                     let mut map: HashMap<String, OwnedValue> = HashMap::new();
                     map.insert("public-key".into(), owned_value(peer.public_key.clone()));
                     if !peer.preshared_key.trim().is_empty() {
-                        map.insert("preshared-key".into(), owned_value(peer.preshared_key.clone()));
+                        map.insert(
+                            "preshared-key".into(),
+                            owned_value(peer.preshared_key.clone()),
+                        );
                     }
                     if !peer.endpoint.trim().is_empty() {
                         map.insert("endpoint".into(), owned_value(peer.endpoint.clone()));
@@ -1819,7 +1869,10 @@ fn vpn_profile_settings_map(
                         map.insert("allowed-ips".into(), owned_value(peer.allowed_ips.clone()));
                     }
                     if let Some(keepalive) = peer.persistent_keepalive {
-                        map.insert("persistent-keepalive".into(), owned_value(u32::from(keepalive)));
+                        map.insert(
+                            "persistent-keepalive".into(),
+                            owned_value(u32::from(keepalive)),
+                        );
                     }
                     map
                 })
@@ -2068,9 +2121,7 @@ fn owned_value_to_string_map(value: &OwnedValue) -> Option<HashMap<String, Strin
     HashMap::<String, String>::try_from(value.clone()).ok()
 }
 
-fn owned_value_to_address_data(
-    value: &OwnedValue,
-) -> Option<Vec<HashMap<String, OwnedValue>>> {
+fn owned_value_to_address_data(value: &OwnedValue) -> Option<Vec<HashMap<String, OwnedValue>>> {
     Vec::<HashMap<String, OwnedValue>>::try_from(value.clone()).ok()
 }
 
@@ -2458,7 +2509,10 @@ mod tests {
         );
         vpn.insert(
             "secrets".into(),
-            owned_value(HashMap::from([("password".to_string(), "secret".to_string())])),
+            owned_value(HashMap::from([(
+                "password".to_string(),
+                "secret".to_string(),
+            )])),
         );
 
         let settings = HashMap::from([("connection".into(), connection), ("vpn".into(), vpn)]);

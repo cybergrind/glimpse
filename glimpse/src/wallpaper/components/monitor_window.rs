@@ -59,7 +59,9 @@ impl SimpleComponent for MonitorWindow {
             "launching wallpaper"
         );
 
-        let color = ColorWidget::builder().launch(init.config.color.clone()).detach();
+        let color = ColorWidget::builder()
+            .launch(init.config.color.clone())
+            .detach();
         let image = ImageWidget::builder()
             .launch(ImageWidgetInit {
                 path: init.config.path.clone(),
@@ -88,12 +90,14 @@ impl SimpleComponent for MonitorWindow {
 
 impl MonitorWindow {
     fn reconfigure(&mut self, config: WallpaperConfig) {
-        self.color.emit(ColorWidgetInput::SetColor(config.color.clone()));
-        self.image.emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
-            path: config.path,
-            fit: config.fit,
-            transition_ms: config.transition_ms,
-        }));
+        self.color
+            .emit(ColorWidgetInput::SetColor(config.color.clone()));
+        self.image
+            .emit(ImageWidgetMsg::Reconfigure(ImageWidgetInit {
+                path: config.path,
+                fit: config.fit,
+                transition_ms: config.transition_ms,
+            }));
     }
 }
 

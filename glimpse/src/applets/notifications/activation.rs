@@ -1,5 +1,5 @@
-use relm4::gtk::{gdk, gio, prelude::*};
 use glimpse::compositor::focus_notification_target;
+use relm4::gtk::{gdk, gio, prelude::*};
 
 use super::NotificationActionCommand;
 

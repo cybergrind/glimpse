@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use glimpse::compositor::{
     WorkspaceCommand, WorkspacePresentation, WorkspaceServiceHandle, WorkspaceState,
 };
-use relm4::{gtk, Component, ComponentController, ComponentParts, ComponentSender, Controller};
+use relm4::{Component, ComponentController, ComponentParts, ComponentSender, Controller, gtk};
 
 use super::components::indicator_strip::{
     PagerIndicatorStrip, PagerIndicatorStripInit, PagerIndicatorStripInput,
@@ -261,8 +261,15 @@ fn workspace_indicator_count(
         .max(1)
 }
 
-fn remember_focused_window_id(current: Option<u64>, windows: &[glimpse::compositor::WorkspaceWindow]) -> Option<u64> {
-    windows.iter().find(|window| window.is_focused).map(|window| window.id).or(current)
+fn remember_focused_window_id(
+    current: Option<u64>,
+    windows: &[glimpse::compositor::WorkspaceWindow],
+) -> Option<u64> {
+    windows
+        .iter()
+        .find(|window| window.is_focused)
+        .map(|window| window.id)
+        .or(current)
 }
 
 fn render_focused_window_id(
@@ -274,7 +281,8 @@ fn render_focused_window_id(
         .find(|window| window.is_focused)
         .map(|window| window.id)
         .or_else(|| {
-            last_focused_window_id.filter(|window_id| windows.iter().any(|window| window.id == *window_id))
+            last_focused_window_id
+                .filter(|window_id| windows.iter().any(|window| window.id == *window_id))
         })
         .or_else(|| windows.first().map(|window| window.id))
 }

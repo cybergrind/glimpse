@@ -90,7 +90,8 @@ impl SimpleComponent for PowerProfileList {
 
                     for name in &desired_order {
                         if !self.rows.contains_key(name) {
-                            self.rows.insert(name.clone(), build_profile_row(name, sender.clone()));
+                            self.rows
+                                .insert(name.clone(), build_profile_row(name, sender.clone()));
                         }
                     }
 

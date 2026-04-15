@@ -7,18 +7,21 @@ mod exec;
 mod keyboard;
 mod mpris;
 mod network;
-pub mod registry;
 pub(crate) mod notifications;
 mod pager;
 mod power;
 mod privacy;
+pub mod registry;
 mod session;
 mod tray;
 mod weather;
 
-use relm4::{gtk::{self, glib::object::Cast}, ComponentController, Controller};
 use clock::Clock;
 use exec::Exec;
+use relm4::{
+    ComponentController, Controller,
+    gtk::{self, glib::object::Cast},
+};
 
 pub enum AppletController {
     Audio(Controller<audio::Audio>),

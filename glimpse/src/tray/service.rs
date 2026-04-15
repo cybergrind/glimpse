@@ -4,8 +4,8 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    tray::provider::{TrayProvider, TrayProviderEvent},
     tray::protocol::{TrayServiceCommand, TrayServiceHealth, TrayServiceState},
+    tray::provider::{TrayProvider, TrayProviderEvent},
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;

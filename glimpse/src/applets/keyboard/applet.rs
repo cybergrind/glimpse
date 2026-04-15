@@ -3,10 +3,7 @@
 use glimpse::compositor::{
     KeyboardLayoutCommand, KeyboardLayoutServiceHandle, KeyboardLayoutState, short_layout_name,
 };
-use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller,
-    gtk,
-};
+use relm4::{Component, ComponentController, ComponentParts, ComponentSender, Controller, gtk};
 use tokio_util::sync::CancellationToken;
 
 use super::components::layout_label::{

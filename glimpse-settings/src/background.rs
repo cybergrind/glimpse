@@ -37,7 +37,10 @@ pub enum BackgroundPersistStatus {
 }
 
 pub fn wallpaper_search_roots() -> Vec<(WallpaperGallerySource, PathBuf)> {
-    let mut roots = vec![(WallpaperGallerySource::System, PathBuf::from("/usr/share/backgrounds"))];
+    let mut roots = vec![(
+        WallpaperGallerySource::System,
+        PathBuf::from("/usr/share/backgrounds"),
+    )];
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         roots.push((

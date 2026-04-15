@@ -1,7 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use adw::prelude::*;
-use glimpse::network::protocol::{NetworkPrompt, NetworkPromptId, NetworkPromptKind, NetworkPromptReply};
+use glimpse::network::protocol::{
+    NetworkPrompt, NetworkPromptId, NetworkPromptKind, NetworkPromptReply,
+};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self},
@@ -138,8 +140,10 @@ impl SimpleComponent for NetworkPromptDialog {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             NetworkPromptDialogInput::Update { prompt } => {
-                let reset_form =
-                    should_reset_network_prompt_form(self.current_prompt.borrow().as_ref(), prompt.as_ref());
+                let reset_form = should_reset_network_prompt_form(
+                    self.current_prompt.borrow().as_ref(),
+                    prompt.as_ref(),
+                );
 
                 let Some(prompt) = prompt else {
                     self.entry_text.clear();
@@ -265,7 +269,10 @@ mod tests {
             submitting: false,
         };
 
-        assert!(!should_reset_network_prompt_form(Some(&current), Some(&next)));
+        assert!(!should_reset_network_prompt_form(
+            Some(&current),
+            Some(&next)
+        ));
     }
 
     #[test]
@@ -288,7 +295,10 @@ mod tests {
         let current = network_prompt(1, "Skylink");
         let next = network_prompt(2, "Office");
 
-        assert!(!should_update_network_prompt_in_place(Some(&current), &next));
+        assert!(!should_update_network_prompt_in_place(
+            Some(&current),
+            &next
+        ));
     }
 
     #[test]

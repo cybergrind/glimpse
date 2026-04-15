@@ -21,7 +21,9 @@ impl NetworkSecretAgent {
         )
         .await?;
 
-        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(agent_id.as_str(),)).await;
+        let _ = agent_mgr
+            .call::<_, _, ()>("Unregister", &(agent_id.as_str(),))
+            .await;
 
         agent_mgr
             .call::<_, _, ()>("Register", &(agent_id.as_str(),))
@@ -44,7 +46,9 @@ impl NetworkSecretAgent {
         )
         .await?;
 
-        let _ = agent_mgr.call::<_, _, ()>("Unregister", &(agent_id.as_str(),)).await;
+        let _ = agent_mgr
+            .call::<_, _, ()>("Unregister", &(agent_id.as_str(),))
+            .await;
         let _ = conn.object_server().remove::<Self, _>(AGENT_PATH).await;
         tracing::info!("network-secret-agent: unregistered");
         Ok(())

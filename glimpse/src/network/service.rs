@@ -8,11 +8,11 @@ use crate::{
         NetworkActiveAction, NetworkPrompt, NetworkPromptId, NetworkPromptKind, NetworkPromptReply,
         NetworkServiceCommand, NetworkServiceHealth, NetworkServiceState,
     },
-    network::secret_agent::NetworkSecretAgent,
     network::provider::{
         NetworkChangeReason, NetworkFailureClassification, NetworkProvider, NetworkProviderEvent,
         NetworkSnapshot, WifiAccessPoint,
     },
+    network::secret_agent::NetworkSecretAgent,
 };
 
 type ServiceError = Box<dyn Error + Send + Sync>;
@@ -383,7 +383,9 @@ async fn handle_command(
                     );
                     Ok(())
                 }
-                None => Err(service_error(format!("unknown wifi network: {ssid} ({path})"))),
+                None => Err(service_error(format!(
+                    "unknown wifi network: {ssid} ({path})"
+                ))),
             }
         }
         NetworkServiceCommand::ConnectSaved { uuid } => {

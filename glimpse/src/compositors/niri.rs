@@ -142,7 +142,9 @@ pub(crate) async fn keyboard_event_loop(
     let mut lines = reader.lines();
     let mut window_layouts: HashMap<u64, usize> = HashMap::new();
     let mut focused_window: Option<u64> = None;
-    let mut current_index = keyboard_snapshot().await.map_or(0, |snapshot| snapshot.current_index);
+    let mut current_index = keyboard_snapshot()
+        .await
+        .map_or(0, |snapshot| snapshot.current_index);
 
     let _ = tx.send(()).await;
 
@@ -176,12 +178,7 @@ pub(crate) async fn keyboard_event_loop(
                     if let Some(&saved_index) = window_layouts.get(&window_id) {
                         if saved_index != current_index {
                             let _ = Command::new("niri")
-                                .args([
-                                    "msg",
-                                    "action",
-                                    "switch-layout",
-                                    &saved_index.to_string(),
-                                ])
+                                .args(["msg", "action", "switch-layout", &saved_index.to_string()])
                                 .output()
                                 .await;
                             current_index = saved_index;
@@ -267,7 +264,11 @@ pub(crate) async fn notification_focus_target(
     });
 
     let workspace_index = workspace_indexes.get(&workspace_id).copied()?;
-    Some((window_id, workspace_index, focused_workspace_id == Some(workspace_id)))
+    Some((
+        window_id,
+        workspace_index,
+        focused_workspace_id == Some(workspace_id),
+    ))
 }
 
 fn parse_niri_window_state(
@@ -411,7 +412,10 @@ mod tests {
     #[test]
     fn strips_desktop_suffix_when_normalizing() {
         assert_eq!(normalize_app_id("firefox.desktop"), "firefox");
-        assert_eq!(normalize_app_id("org.mozilla.firefox"), "org.mozilla.firefox");
+        assert_eq!(
+            normalize_app_id("org.mozilla.firefox"),
+            "org.mozilla.firefox"
+        );
     }
 
     #[test]
@@ -421,8 +425,7 @@ mod tests {
             serde_json::json!({"id": 2, "workspace_id": 20, "app_id": "firefox"}),
         ];
 
-        let selected =
-            select_window_for_notification(&windows, Some("firefox.desktop"), "Firefox");
+        let selected = select_window_for_notification(&windows, Some("firefox.desktop"), "Firefox");
 
         assert_eq!(selected, Some((2, 20)));
     }

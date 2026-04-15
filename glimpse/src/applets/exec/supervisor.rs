@@ -7,9 +7,9 @@ use tokio::{
 };
 
 use super::{
+    ExecConfig,
     applet::ExecMsg,
     protocol::{ChildMessage, InitData, PanelMessage},
-    ExecConfig,
 };
 
 #[derive(Debug)]
@@ -187,9 +187,9 @@ mod tests {
 
     use super::{SupervisorControl, encode_message_line, run_supervisor};
     use crate::applets::exec::{
+        ExecConfig,
         applet::ExecMsg,
         protocol::{ChildMessage, InitData, PanelMessage, StatusData},
-        ExecConfig,
     };
 
     #[test]
