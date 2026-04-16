@@ -3,11 +3,10 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 use relm4::gtk::{self, glib, prelude::*};
 
 use super::protocol::{
-    AlignValue, BadgeNode, BoxNode, ButtonNode, CallbackData, CardNode, CheckboxNode,
-    CommonProps, DetailGridNode, DropdownNode, EmptyStateNode, EntryNode, FooterActionNode,
-    GridNode, HeroNode, IconNode, IconSource, ImageNode, LabelNode, OrientationValue,
-    ProgressNode, RowNode, ScaleNode, SectionNode, SeparatorNode, StatusDotNode, SwitchNode,
-    TreeNode,
+    AlignValue, BadgeNode, BoxNode, ButtonNode, CallbackData, CardNode, CheckboxNode, CommonProps,
+    DetailGridNode, DropdownNode, EmptyStateNode, EntryNode, FooterActionNode, GridNode, HeroNode,
+    IconNode, IconSource, ImageNode, LabelNode, OrientationValue, ProgressNode, RowNode, ScaleNode,
+    SectionNode, SeparatorNode, StatusDotNode, SwitchNode, TreeNode,
 };
 
 pub type CallbackSink = Rc<dyn Fn(CallbackData)>;

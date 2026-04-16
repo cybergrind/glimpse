@@ -7,15 +7,15 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::{
-    footer_action::{FooterAction, FooterActionInit},
-    popover_shell::{PopoverShell, PopoverShellInit},
-};
 use super::components::degraded::{DegradedWarning, DegradedWarningInput};
 use super::components::details::{BatteryDetails, BatteryDetailsInput};
 use super::components::hero::{BatteryHero, BatteryHeroInput};
 use super::components::profiles::{
     PowerProfileList, PowerProfileListInput, PowerProfileListOutput,
+};
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit},
 };
 
 pub struct BatteryPopover {

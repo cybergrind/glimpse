@@ -42,6 +42,7 @@ pub enum NightLightHealth {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct NightLightConfig {
     pub temperature: u32,
     pub schedule: NightLightSchedule,
@@ -125,5 +126,21 @@ mod tests {
         assert_eq!(config.start_time, None);
         assert_eq!(config.end_time, None);
         assert_eq!(config.transition_minutes, 15);
+    }
+
+    #[test]
+    fn partial_config_uses_default_transition_minutes() {
+        let config: NightLightConfig = toml::from_str(
+            r#"
+schedule = "automatic"
+temperature = 4200
+"#,
+        )
+        .expect("partial config should parse");
+
+        assert_eq!(config.schedule, NightLightSchedule::Automatic);
+        assert_eq!(config.transition_minutes, 15);
+        assert_eq!(config.latitude, None);
+        assert_eq!(config.longitude, None);
     }
 }

@@ -6,11 +6,11 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::empty_state::{EmptyState, EmptyStateInit};
 use super::{
     BluetoothDeviceAction, BluetoothDeviceRow, BluetoothDeviceRowInput, BluetoothDeviceRowOutput,
     BtDevice,
 };
+use crate::components::empty_state::{EmptyState, EmptyStateInit};
 
 pub struct BluetoothDeviceList {
     connected_count: u32,

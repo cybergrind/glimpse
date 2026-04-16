@@ -16,10 +16,7 @@ pub struct HeroRow {
 
 #[derive(Debug)]
 pub enum HeroRowInput {
-    Update {
-        title: String,
-        subtitle: String,
-    },
+    Update { title: String, subtitle: String },
 }
 
 #[relm4::component(pub)]

@@ -4,6 +4,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use super::AudioConfig;
 use super::components::devices::{
     DeviceSection, DeviceSectionInit, DeviceSectionInput, DeviceSectionOutput,
 };
@@ -12,7 +13,6 @@ use super::components::streams::{StreamList, StreamListInit, StreamListInput, St
 use super::components::volume::{
     VolumeSection, VolumeSectionInit, VolumeSectionInput, VolumeSectionOutput,
 };
-use super::AudioConfig;
 use crate::components::{
     footer_action::{FooterAction, FooterActionInit},
     popover_shell::{PopoverShell, PopoverShellInit},

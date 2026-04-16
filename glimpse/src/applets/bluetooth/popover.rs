@@ -5,13 +5,13 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::{
-    footer_action::{FooterAction, FooterActionInit},
-    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
-};
 pub use super::components::{
     BluetoothDeviceAction, BluetoothDeviceList, BluetoothDeviceListInput,
     BluetoothDeviceListOutput, BluetoothHero, BluetoothHeroInput, BluetoothHeroOutput, BtDevice,
+};
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
 };
 
 pub struct BluetoothPopover {

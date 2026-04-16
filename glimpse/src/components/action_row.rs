@@ -25,10 +25,7 @@ pub struct ActionRow {
 
 #[derive(Debug)]
 pub enum ActionRowInput {
-    Update {
-        title: String,
-        subtitle: String,
-    },
+    Update { title: String, subtitle: String },
 }
 
 #[relm4::component(pub)]

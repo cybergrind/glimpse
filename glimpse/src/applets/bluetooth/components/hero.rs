@@ -4,8 +4,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use relm4::{
-    Component, ComponentController, Controller,
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, glib, prelude::*},
 };
 
@@ -122,7 +121,12 @@ impl SimpleComponent for BluetoothHero {
         }));
         self.row.emit(HeroRowInput::Update {
             title: "Bluetooth".into(),
-            subtitle: hero_subtitle_text(powered, discovering, connected_count, activity.as_deref()),
+            subtitle: hero_subtitle_text(
+                powered,
+                discovering,
+                connected_count,
+                activity.as_deref(),
+            ),
         });
     }
 }

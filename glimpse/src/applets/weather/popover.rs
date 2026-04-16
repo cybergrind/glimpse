@@ -5,7 +5,6 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 use super::{
     applet::WeatherSnapshot,
     components::{
@@ -15,6 +14,7 @@ use super::{
         hourly_strip::{WeatherHourlyStrip, WeatherHourlyStripInput},
     },
 };
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 
 pub struct WeatherPopover {
     popover: gtk::Popover,

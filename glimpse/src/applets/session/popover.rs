@@ -6,7 +6,6 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 use super::{
     SessionConfig,
     components::{
@@ -14,6 +13,7 @@ use super::{
         hero::{SessionHero, SessionHeroInput, SessionHeroView},
     },
 };
+use crate::components::popover_shell::{PopoverShell, PopoverShellInit};
 
 pub struct SessionPopover {
     popover: gtk::Popover,

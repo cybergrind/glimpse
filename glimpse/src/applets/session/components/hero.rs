@@ -1,8 +1,7 @@
 use glimpse::session_actions::provider::SessionSnapshot;
 use relm4::{
-    Component, ComponentController, Controller,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
-    ComponentParts, ComponentSender, SimpleComponent,
 };
 
 use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};

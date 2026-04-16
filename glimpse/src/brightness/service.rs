@@ -251,7 +251,9 @@ async fn stop_listener(listener: &mut Option<ProviderListener>) {
     listener.cancel.cancel();
     match listener.task.await {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::debug!(error = %error, "brightness service: listener stopped with error"),
+        Ok(Err(error)) => {
+            tracing::debug!(error = %error, "brightness service: listener stopped with error")
+        }
         Err(error) => tracing::debug!(error = %error, "brightness service: listener join failed"),
     }
 }

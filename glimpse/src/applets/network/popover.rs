@@ -7,13 +7,13 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::{
-    footer_action::{FooterAction, FooterActionInit},
-    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
-};
 use super::components::{
     NetworkAction, NetworkHero, NetworkHeroInput, VpnSection, VpnSectionInput, WifiSection,
     WifiSectionInput, WiredSection, WiredSectionInput,
+};
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
 };
 
 pub struct NetworkPopover {

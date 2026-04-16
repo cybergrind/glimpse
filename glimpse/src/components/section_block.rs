@@ -16,10 +16,7 @@ pub struct SectionBlock {
 
 #[derive(Debug)]
 pub enum SectionBlockInput {
-    Update {
-        title: String,
-        subtitle: String,
-    },
+    Update { title: String, subtitle: String },
 }
 
 #[relm4::component(pub)]

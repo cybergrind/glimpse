@@ -17,10 +17,7 @@ pub struct FooterAction {
 
 #[derive(Debug)]
 pub enum FooterActionInput {
-    Update {
-        title: String,
-        subtitle: String,
-    },
+    Update { title: String, subtitle: String },
 }
 
 #[relm4::component(pub)]

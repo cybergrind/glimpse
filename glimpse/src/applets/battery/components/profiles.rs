@@ -192,11 +192,14 @@ fn render_profile_rows(
     row_components.clear();
 
     for row in rows.iter().cloned() {
-        let component = PowerProfileRow::builder()
-            .launch(row)
-            .forward(sender.output_sender(), |output| match output {
-                PowerProfileRowOutput::SetProfile(profile) => PowerProfileListOutput::SetProfile(profile),
-            });
+        let component =
+            PowerProfileRow::builder()
+                .launch(row)
+                .forward(sender.output_sender(), |output| match output {
+                    PowerProfileRowOutput::SetProfile(profile) => {
+                        PowerProfileListOutput::SetProfile(profile)
+                    }
+                });
         container.append(component.widget());
         row_components.push(component);
     }

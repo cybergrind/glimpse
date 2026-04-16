@@ -16,10 +16,7 @@ pub struct EmptyState {
 
 #[derive(Debug)]
 pub enum EmptyStateInput {
-    Update {
-        title: String,
-        subtitle: String,
-    },
+    Update { title: String, subtitle: String },
 }
 
 #[relm4::component(pub)]

@@ -118,12 +118,13 @@ pub fn build_section_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::config::{Margin, PanelConfig, PanelPosition};
+    use glimpse::config::{Margin, PanelConfig, PanelPosition, PanelThemeMode};
 
     fn panel(position: PanelPosition) -> PanelConfig {
         PanelConfig {
             position,
             height: 36,
+            theme_mode: PanelThemeMode::Dark,
             margin: Margin::default(),
             left: Vec::new(),
             center: Vec::new(),

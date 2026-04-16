@@ -6,15 +6,15 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::components::{
-    footer_action::{FooterAction, FooterActionInit},
-    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
-};
 use super::components::{
     display_list::{
         BrightnessDisplayList, BrightnessDisplayListInput, BrightnessDisplayListOutput,
     },
     hero::{BrightnessHero, BrightnessHeroInput},
+};
+use crate::components::{
+    footer_action::{FooterAction, FooterActionInit},
+    popover_shell::{PopoverShell, PopoverShellInit, PopoverShellInput},
 };
 
 pub struct BrightnessPopover {
@@ -154,8 +154,9 @@ impl SimpleComponent for BrightnessPopover {
                 }
             }
             BrightnessPopoverInput::UpdateDisplays(displays) => {
-                self.shell
-                    .emit(PopoverShellInput::SetFooterVisible(self.show_settings_button));
+                self.shell.emit(PopoverShellInput::SetFooterVisible(
+                    self.show_settings_button,
+                ));
                 self.hero.emit(BrightnessHeroInput::Update(
                     choose_primary_display(&displays).cloned(),
                 ));

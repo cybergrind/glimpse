@@ -7,11 +7,11 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use super::components::player_row_factory::{MprisPlayerRowItem, MprisPlayerRowItemInit};
 use crate::components::{
     empty_state::{EmptyState, EmptyStateInit},
     popover_shell::{PopoverShell, PopoverShellInit},
 };
-use super::components::player_row_factory::{MprisPlayerRowItem, MprisPlayerRowItemInit};
 
 pub struct MprisPopover {
     popover: gtk::Popover,

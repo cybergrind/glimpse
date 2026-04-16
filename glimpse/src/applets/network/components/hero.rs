@@ -6,8 +6,8 @@ use relm4::{
     gtk::{self, glib, prelude::*},
 };
 
-use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};
 use super::NetworkAction;
+use crate::components::hero_row::{HeroRow, HeroRowInit, HeroRowInput};
 
 pub struct NetworkHero {
     row: Controller<HeroRow>,

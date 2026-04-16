@@ -1,7 +1,4 @@
-use std::{
-    path::Path,
-    time::Duration,
-};
+use std::{path::Path, time::Duration};
 
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
@@ -9,9 +6,9 @@ use relm4::ComponentSender;
 
 use glimpse::config::Config;
 
-use crate::app::{App, Input};
 #[cfg(feature = "dev")]
 use crate::app::theme_runtime;
+use crate::app::{App, Input};
 
 fn is_theme_css_change(config_dir: &Path, path: &Path) -> bool {
     path.strip_prefix(config_dir).ok().is_some_and(|relative| {
@@ -109,7 +106,10 @@ pub(super) fn watch_for_config_changes(sender: ComponentSender<App>) {
                         "failed to watch repo themes directory"
                     );
                 } else {
-                    tracing::info!("watching repo themes directory: {}", repo_themes_dir.display());
+                    tracing::info!(
+                        "watching repo themes directory: {}",
+                        repo_themes_dir.display()
+                    );
                 }
             }
         }
