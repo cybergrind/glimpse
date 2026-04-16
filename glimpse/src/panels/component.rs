@@ -11,7 +11,7 @@ use crate::{
     panels::diff::{AppletInstanceKey, PanelKey, PanelSection, build_section_entries},
     services::ServicesHandle,
 };
-use glimpse::config::{AppletConfig, PanelConfig, PanelPosition};
+use glimpse::config::{AppletConfig, PanelConfig, PanelPosition, PanelThemeMode};
 
 pub struct Panel {
     panel_key: PanelKey,
@@ -98,6 +98,7 @@ impl Component for Panel {
 
         Self::init_layer_shell(&root);
         Self::apply_window_config(&root, &init.config);
+        Self::apply_theme_mode(&root, init.config.theme_mode);
         root.add_css_class("panel");
 
         let left_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -121,6 +122,7 @@ impl Component for Panel {
             PanelSection::Left,
             &init.config.left,
             &init.applet_configs,
+            init.config.theme_mode,
             init.dbus.clone(),
             init.system.clone(),
             init.services.clone(),
@@ -131,6 +133,7 @@ impl Component for Panel {
             PanelSection::Center,
             &init.config.center,
             &init.applet_configs,
+            init.config.theme_mode,
             init.dbus.clone(),
             init.system.clone(),
             init.services.clone(),
@@ -141,6 +144,7 @@ impl Component for Panel {
             PanelSection::Right,
             &init.config.right,
             &init.applet_configs,
+            init.config.theme_mode,
             init.dbus.clone(),
             init.system.clone(),
             init.services.clone(),
@@ -180,6 +184,7 @@ impl Component for Panel {
                 let old_applet_configs = self.applet_configs.clone();
                 let next_config = runtime.config;
                 let next_applet_configs = runtime.applet_configs;
+                let next_theme_mode = next_config.theme_mode;
 
                 if section_needs_reconcile(
                     &self.config.left,
@@ -198,6 +203,7 @@ impl Component for Panel {
                         ),
                         &old_applet_configs,
                         &next_applet_configs,
+                        next_theme_mode,
                         self.dbus.clone(),
                         self.system.clone(),
                         self.services.clone(),
@@ -220,6 +226,7 @@ impl Component for Panel {
                         ),
                         &old_applet_configs,
                         &next_applet_configs,
+                        next_theme_mode,
                         self.dbus.clone(),
                         self.system.clone(),
                         self.services.clone(),
@@ -242,6 +249,7 @@ impl Component for Panel {
                         ),
                         &old_applet_configs,
                         &next_applet_configs,
+                        next_theme_mode,
                         self.dbus.clone(),
                         self.system.clone(),
                         self.services.clone(),
@@ -260,6 +268,10 @@ impl Component for Panel {
                     ));
                 self.revealer.set_reveal_child(true);
                 Self::apply_window_config(root, &self.config);
+                Self::apply_theme_mode(root, self.config.theme_mode);
+                apply_theme_mode_to_section(&self.left_applets, self.config.theme_mode);
+                apply_theme_mode_to_section(&self.center_applets, self.config.theme_mode);
+                apply_theme_mode_to_section(&self.right_applets, self.config.theme_mode);
             }
         }
     }
@@ -305,6 +317,17 @@ impl Panel {
             }
         }
     }
+
+    fn apply_theme_mode(window: &gtk::Window, mode: PanelThemeMode) {
+        window.remove_css_class("theme-light");
+        window.remove_css_class("theme-dark");
+
+        match mode {
+            PanelThemeMode::Light => window.add_css_class("theme-light"),
+            PanelThemeMode::Dark => window.add_css_class("theme-dark"),
+            PanelThemeMode::Auto => {}
+        }
+    }
 }
 
 fn build_section_applets(
@@ -313,6 +336,7 @@ fn build_section_applets(
     section: PanelSection,
     names: &[String],
     applet_configs: &HashMap<String, AppletConfig>,
+    theme_mode: PanelThemeMode,
     dbus: zbus::Connection,
     system: zbus::Connection,
     services: ServicesHandle,
@@ -334,7 +358,9 @@ fn build_section_applets(
             system.clone(),
             services.clone(),
         ) {
-            container.append(&applet.widget());
+            let widget = applet.widget();
+            apply_theme_mode_to_widget(&widget, theme_mode);
+            container.append(&widget);
             applets.insert(entry.key, PanelAppletInstance { controller: applet });
         }
     }
@@ -348,6 +374,7 @@ fn reconcile_section(
     next_entries: Vec<crate::panels::diff::SectionEntry>,
     old_applet_configs: &HashMap<String, AppletConfig>,
     new_applet_configs: &HashMap<String, AppletConfig>,
+    theme_mode: PanelThemeMode,
     dbus: zbus::Connection,
     system: zbus::Connection,
     services: ServicesHandle,
@@ -376,7 +403,9 @@ fn reconcile_section(
             };
 
             if should_reuse {
-                container.append(&existing.controller.widget());
+                let widget = existing.controller.widget();
+                apply_theme_mode_to_widget(&widget, theme_mode);
+                container.append(&widget);
                 next_instances.insert(entry.key, existing);
                 continue;
             }
@@ -391,7 +420,9 @@ fn reconcile_section(
             system.clone(),
             services.clone(),
         ) {
-            container.append(&applet.widget());
+            let widget = applet.widget();
+            apply_theme_mode_to_widget(&widget, theme_mode);
+            container.append(&widget);
             next_instances.insert(entry.key, PanelAppletInstance { controller: applet });
         }
     }
@@ -401,6 +432,24 @@ fn reconcile_section(
     }
 
     *current = next_instances;
+}
+
+fn apply_theme_mode_to_section(section: &SectionInstances, mode: PanelThemeMode) {
+    for instance in section.values() {
+        let widget = instance.controller.widget();
+        apply_theme_mode_to_widget(&widget, mode);
+    }
+}
+
+fn apply_theme_mode_to_widget(widget: &gtk::Widget, mode: PanelThemeMode) {
+    widget.remove_css_class("theme-light");
+    widget.remove_css_class("theme-dark");
+
+    match mode {
+        PanelThemeMode::Light => widget.add_css_class("theme-light"),
+        PanelThemeMode::Dark => widget.add_css_class("theme-dark"),
+        PanelThemeMode::Auto => {}
+    }
 }
 
 fn detach_applet(container: &gtk::Box, controller: &AppletController) {

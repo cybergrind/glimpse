@@ -2,7 +2,7 @@ use adw::prelude::GtkWindowExt;
 use relm4::{Component, ComponentController, ComponentSender, Controller};
 
 use glimpse::{
-    config::{Config, PanelConfig},
+    config::{Config, PanelConfig, PanelThemeMode},
     notifications::NotificationsServiceHandle,
 };
 
@@ -16,9 +16,15 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PopupSyncPlan {
     Keep,
-    Create(NotificationsConfig),
-    Update(NotificationsConfig),
+    Create(NotificationPopupConfig),
+    Update(NotificationPopupConfig),
     Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NotificationPopupConfig {
+    config: NotificationsConfig,
+    theme_mode: PanelThemeMode,
 }
 
 pub(super) fn setup_notification_popup(
@@ -30,7 +36,8 @@ pub(super) fn setup_notification_popup(
     Some(
         NotificationPopup::builder()
             .launch(NotificationPopupInit {
-                config: popup_config,
+                config: popup_config.config,
+                theme_mode: popup_config.theme_mode,
                 service,
             })
             .forward(
@@ -55,7 +62,11 @@ pub(super) fn sync_notification_popup(
         PopupSyncPlan::Create(config) => {
             *notification_popup = Some(
                 NotificationPopup::builder()
-                    .launch(NotificationPopupInit { config, service })
+                    .launch(NotificationPopupInit {
+                        config: config.config,
+                        theme_mode: config.theme_mode,
+                        service,
+                    })
                     .forward(
                         sender.input_sender(),
                         crate::app::Input::NotificationCommand,
@@ -64,7 +75,10 @@ pub(super) fn sync_notification_popup(
         }
         PopupSyncPlan::Update(config) => {
             if let Some(popup) = notification_popup {
-                popup.emit(NotificationPopupInput::Reconfigure(config));
+                popup.emit(NotificationPopupInput::Reconfigure {
+                    config: config.config,
+                    theme_mode: config.theme_mode,
+                });
             }
         }
         PopupSyncPlan::Remove => {
@@ -75,7 +89,7 @@ pub(super) fn sync_notification_popup(
     }
 }
 
-fn notifications_popup_config(config: &Config) -> Option<NotificationsConfig> {
+fn notifications_popup_config(config: &Config) -> Option<NotificationPopupConfig> {
     for panel in &config.panels {
         for name in panel_applet_names(panel) {
             let applet_config = config.applets.get(name);
@@ -90,7 +104,10 @@ fn notifications_popup_config(config: &Config) -> Option<NotificationsConfig> {
             let popup_config: NotificationsConfig = applet_config
                 .map(|c| c.settings.clone().try_into().unwrap_or_default())
                 .unwrap_or_default();
-            return popup_config.show_popup.then_some(popup_config);
+            return popup_config.show_popup.then_some(NotificationPopupConfig {
+                config: popup_config,
+                theme_mode: panel.theme_mode,
+            });
         }
     }
 
@@ -106,8 +123,8 @@ fn panel_applet_names(panel: &PanelConfig) -> impl Iterator<Item = &String> {
 }
 
 fn popup_sync_plan(
-    old: Option<NotificationsConfig>,
-    new: Option<NotificationsConfig>,
+    old: Option<NotificationPopupConfig>,
+    new: Option<NotificationPopupConfig>,
 ) -> PopupSyncPlan {
     match (old, new) {
         (None, None) => PopupSyncPlan::Keep,
@@ -126,13 +143,14 @@ fn popup_sync_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse::config::{AppletConfig, Config, PanelPosition};
+    use glimpse::config::{AppletConfig, Config, PanelPosition, PanelThemeMode};
     use toml::Value;
 
     fn panel(left: &[&str], center: &[&str], right: &[&str]) -> PanelConfig {
         PanelConfig {
             position: PanelPosition::Top,
             height: 36,
+            theme_mode: PanelThemeMode::Dark,
             margin: Default::default(),
             left: left.iter().map(|name| name.to_string()).collect(),
             center: center.iter().map(|name| name.to_string()).collect(),
@@ -161,7 +179,8 @@ mod tests {
         );
 
         let popup = notifications_popup_config(&config).expect("popup config");
-        assert_eq!(popup.popup_position, "bottom-right");
+        assert_eq!(popup.config.popup_position, "bottom-right");
+        assert_eq!(popup.theme_mode, PanelThemeMode::Dark);
     }
 
     #[test]
@@ -182,10 +201,15 @@ mod tests {
 
     #[test]
     fn popup_sync_plan_updates_existing_popup_in_place() {
-        let old: NotificationsConfig =
-            toml::from_str(r#"popup_position = "top-left""#).expect("old popup config");
-        let new: NotificationsConfig =
-            toml::from_str(r#"popup_position = "bottom-right""#).expect("new popup config");
+        let old = NotificationPopupConfig {
+            config: toml::from_str(r#"popup_position = "top-left""#).expect("old popup config"),
+            theme_mode: PanelThemeMode::Dark,
+        };
+        let new = NotificationPopupConfig {
+            config: toml::from_str(r#"popup_position = "bottom-right""#)
+                .expect("new popup config"),
+            theme_mode: PanelThemeMode::Dark,
+        };
 
         assert_eq!(
             popup_sync_plan(Some(old), Some(new.clone())),
@@ -195,8 +219,10 @@ mod tests {
 
     #[test]
     fn popup_sync_plan_creates_popup_when_enabled_later() {
-        let new: NotificationsConfig =
-            toml::from_str(r#"show_popup = true"#).expect("new popup config");
+        let new = NotificationPopupConfig {
+            config: toml::from_str(r#"show_popup = true"#).expect("new popup config"),
+            theme_mode: PanelThemeMode::Dark,
+        };
 
         assert_eq!(
             popup_sync_plan(None, Some(new.clone())),
@@ -206,8 +232,10 @@ mod tests {
 
     #[test]
     fn popup_sync_plan_removes_popup_when_disabled() {
-        let old: NotificationsConfig =
-            toml::from_str(r#"show_popup = true"#).expect("old popup config");
+        let old = NotificationPopupConfig {
+            config: toml::from_str(r#"show_popup = true"#).expect("old popup config"),
+            theme_mode: PanelThemeMode::Dark,
+        };
 
         assert_eq!(popup_sync_plan(Some(old), None), PopupSyncPlan::Remove);
     }

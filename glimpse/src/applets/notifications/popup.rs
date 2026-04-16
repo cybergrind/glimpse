@@ -8,6 +8,7 @@ use relm4::{
     gtk::{self, glib, prelude::*},
 };
 
+use glimpse::config::PanelThemeMode;
 use glimpse::notifications::{
     NotificationEntry, NotificationsServiceHandle, NotificationsServiceState,
 };
@@ -46,13 +47,17 @@ pub struct NotificationPopup {
 
 pub struct NotificationPopupInit {
     pub config: NotificationsConfig,
+    pub theme_mode: PanelThemeMode,
     pub service: NotificationsServiceHandle,
 }
 
 #[derive(Debug)]
 pub enum NotificationPopupInput {
     ServiceState(NotificationsServiceState),
-    Reconfigure(NotificationsConfig),
+    Reconfigure {
+        config: NotificationsConfig,
+        theme_mode: PanelThemeMode,
+    },
     TimeoutElapsed(u32),
     HideOnly(u32),
     Dismiss(u32),
@@ -97,6 +102,7 @@ impl Component for NotificationPopup {
             &init.config.popup_position,
             init.config.popup_margin_top,
         );
+        apply_popup_theme_mode(&root, init.theme_mode);
 
         let model = NotificationPopup {
             window: root.clone(),
@@ -170,7 +176,7 @@ impl Component for NotificationPopup {
                     self.show(notif, &sender);
                 }
             }
-            NotificationPopupInput::Reconfigure(config) => {
+            NotificationPopupInput::Reconfigure { config, theme_mode } => {
                 self.popup_timeout = config.popup_timeout;
                 if self.cards.borrow().is_empty() {
                     configure_popup_window(
@@ -178,6 +184,7 @@ impl Component for NotificationPopup {
                         &config.popup_position,
                         config.popup_margin_top,
                     );
+                    apply_popup_theme_mode(&self.window, theme_mode);
                     self.pending_window_config = None;
                 } else {
                     self.pending_window_config = Some(config.clone());
@@ -241,6 +248,17 @@ impl Component for NotificationPopup {
                 tracing::warn!("notifications popup: service unavailable");
             }
         }
+    }
+}
+
+fn apply_popup_theme_mode(window: &gtk::Window, mode: PanelThemeMode) {
+    window.remove_css_class("theme-light");
+    window.remove_css_class("theme-dark");
+
+    match mode {
+        PanelThemeMode::Light => window.add_css_class("theme-light"),
+        PanelThemeMode::Dark => window.add_css_class("theme-dark"),
+        PanelThemeMode::Auto => {}
     }
 }
 

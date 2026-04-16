@@ -82,6 +82,15 @@ pub enum ThemeMode {
     Auto,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PanelThemeMode {
+    Light,
+    #[default]
+    Dark,
+    Auto,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ThemeConfig {
@@ -94,6 +103,8 @@ pub struct PanelConfig {
     pub position: PanelPosition,
     #[serde(default = "default_panel_height")]
     pub height: i32,
+    #[serde(default)]
+    pub theme_mode: PanelThemeMode,
     #[serde(default)]
     pub margin: Margin,
     #[serde(default)]
@@ -553,6 +564,7 @@ impl Default for Config {
             night_light: NightLightConfig::default(),
             panels: vec![PanelConfig {
                 height: default_panel_height(),
+                theme_mode: PanelThemeMode::default(),
                 margin: Margin::default(),
                 position: PanelPosition::Bottom,
                 left: vec![],
@@ -730,8 +742,8 @@ fn backdrop_toml_value(config: &BackdropConfig) -> toml::Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig, PanelPosition,
-        ThemeConfig, ThemeMode, WallpaperConfig, WallpaperMode, WeatherConfig,
+        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig,
+        PanelPosition, PanelThemeMode, ThemeMode, WallpaperConfig, WallpaperMode, WeatherConfig,
     };
     use crate::night_light::NightLightSchedule;
     use std::{
@@ -782,15 +794,16 @@ mod tests {
 
     #[test]
     fn theme_config_parses_auto_mode() {
-        let config: ThemeConfig = toml::from_str(
+        let config: Config = toml::from_str(
             r#"
+[theme]
 mode = "auto"
 "#,
         )
-        .expect("theme config should parse");
+        .expect("config should parse");
 
-        assert_eq!(config.mode, ThemeMode::Auto);
-        assert_eq!(config.name, None);
+        assert_eq!(config.theme.mode, ThemeMode::Auto);
+        assert_eq!(config.theme.name, None);
     }
 
     #[test]
@@ -861,6 +874,7 @@ position = "top"
         assert!(panel.left.is_empty());
         assert!(panel.center.is_empty());
         assert!(panel.right.is_empty());
+        assert_eq!(panel.theme_mode, PanelThemeMode::Dark);
     }
 
     #[test]
@@ -879,6 +893,20 @@ right = ["network", "network", "tray"]
         assert_eq!(panel.left, vec!["pager", "clock"]);
         assert_eq!(panel.center, vec!["mpris"]);
         assert_eq!(panel.right, vec!["network", "network", "tray"]);
+        assert_eq!(panel.theme_mode, PanelThemeMode::Dark);
+    }
+
+    #[test]
+    fn panel_config_parses_explicit_theme_mode() {
+        let panel: PanelConfig = toml::from_str(
+            r#"
+position = "top"
+theme_mode = "light"
+"#,
+        )
+        .expect("panel config");
+
+        assert_eq!(panel.theme_mode, PanelThemeMode::Light);
     }
 
     #[test]

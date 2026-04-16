@@ -140,7 +140,7 @@ impl SimpleComponent for App {
             services.handle.notifications.clone(),
             sender.clone(),
         );
-        apply_theme_mode_to_windows(&root, &panels, &notification_popup, config.theme.mode);
+        apply_theme_mode_to_windows(&root, &notification_popup, config.theme.mode);
 
         let model = App {
             window: root.clone(),
@@ -211,7 +211,6 @@ impl SimpleComponent for App {
                 );
                 apply_theme_mode_to_windows(
                     &self.window,
-                    &self.panels,
                     &self.notification_popup,
                     new_config.theme.mode,
                 );
@@ -224,7 +223,6 @@ impl SimpleComponent for App {
                 sync_theme_css(&self.theme_css, &self.config);
                 apply_theme_mode_to_windows(
                     &self.window,
-                    &self.panels,
                     &self.notification_popup,
                     self.config.theme.mode,
                 );
@@ -251,15 +249,10 @@ impl SimpleComponent for App {
 
 fn apply_theme_mode_to_windows(
     window: &adw::ApplicationWindow,
-    panels: &[PanelState],
     notification_popup: &Option<Controller<NotificationPopup>>,
     mode: glimpse::config::ThemeMode,
 ) {
     apply_theme_mode(window, mode);
-
-    for panel in panels {
-        apply_theme_mode(panel.controller.widget(), mode);
-    }
 
     if let Some(notification_popup) = notification_popup {
         apply_theme_mode(notification_popup.widget(), mode);
