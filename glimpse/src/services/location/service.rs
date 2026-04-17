@@ -98,48 +98,56 @@ impl LocationService {
         cancel: CancellationToken,
         mut events: mpsc::Receiver<ServiceEvent<LocationCommand>>,
     ) -> Result<(), LocationError> {
-        let LocationService {
-            mut config,
-            state_tx,
-        } = self;
+        let LocationService { mut config, state_tx } = self;
         let mut state = state_tx.borrow().clone();
-        let (mut source, mut source_rx) = spawn_source(&config);
-
-        state.status = LocationStatus::Searching;
-        let _ = state_tx.send(state.clone());
+        let (mut source, mut source_rx) = activate_source(&config, &mut state, &state_tx);
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    source.cancel().await;
+                    if let Some(source) = source.take() {
+                        source.cancel().await;
+                    }
                     break;
                 },
                 Some(event) = events.recv() => {
                     match event {
                         ServiceEvent::Control(ControlEvent::Reconfigure(new_config)) => {
                             let new_location_config = LocationConfig::from_app_config(&new_config);
-                            if config == new_location_config {
+                            if source.is_some() && config == new_location_config {
                                 tracing::debug!("location config did not change");
                                 continue;
                             }
 
                             tracing::info!("reconfiguring location service because of configuration change");
-                            (source, source_rx) = restart_source(source, &new_location_config).await;
-
+                            if let Some(current) = source.take() {
+                                current.cancel().await;
+                            }
                             config = new_location_config;
-                            state.status = LocationStatus::Searching;
-                            let _ = state_tx.send(state.clone());
+                            (source, source_rx) = activate_source(&config, &mut state, &state_tx);
                         },
                         ServiceEvent::Control(ControlEvent::Shutdown) => {
-                            source.cancel().await;
+                            if let Some(source) = source.take() {
+                                source.cancel().await;
+                            }
                             break;
                         }
                         ServiceEvent::Command(LocationCommand::Refresh) => {
-                            let _ = source.send(LocationCommand::Refresh).await;
+                            if let Some(source) = source.as_ref() {
+                                let _ = source.send(LocationCommand::Refresh).await;
+                            } else {
+                                tracing::info!("refresh requested with no running source; restarting location source");
+                                (source, source_rx) = activate_source(&config, &mut state, &state_tx);
+                            }
                         }
                     }
                 },
-                maybe_event = source_rx.recv() => {
+                maybe_event = async {
+                    match &mut source_rx {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
                     match maybe_event {
                         Some(event) => {
                             tracing::info!("received source event: {:?}", event);
@@ -155,17 +163,18 @@ impl LocationService {
                                     state.status = LocationStatus::Degraded(LocationError::Unavailable);
                                 }
                             }
+                            let _ = state_tx.send(state.clone());
                         }
                         None => {
                             tracing::warn!("location source stopped");
+                            if let Some(current) = source.take() {
+                                current.cancel().await;
+                            }
+                            source_rx = None;
                             state.status = LocationStatus::Degraded(LocationError::Other("source stopped".into()));
                             let _ = state_tx.send(state.clone());
-                            source.cancel().await;
-                            break;
                         }
                     }
-
-                    let _ = state_tx.send(state.clone());
                 },
             }
         }
@@ -174,72 +183,72 @@ impl LocationService {
     }
 }
 
-async fn restart_source(
-    source: RunningTask<LocationCommand>,
+fn activate_source(
     config: &LocationConfig,
-) -> (RunningTask<LocationCommand>, mpsc::Receiver<LocationEvent>) {
-    source.cancel().await;
-    spawn_source(config)
+    state: &mut State,
+    state_tx: &watch::Sender<State>,
+) -> (
+    Option<RunningTask<LocationCommand>>,
+    Option<mpsc::Receiver<LocationEvent>>,
+) {
+    match spawn_source(config) {
+        Ok((source, receiver)) => {
+            state.status = LocationStatus::Searching;
+            let _ = state_tx.send(state.clone());
+            (Some(source), Some(receiver))
+        }
+        Err(error) => {
+            tracing::warn!(error = ?error, "failed to start location source");
+            state.status = LocationStatus::Degraded(error);
+            let _ = state_tx.send(state.clone());
+            (None, None)
+        }
+    }
 }
 
-fn make_source(config: &LocationConfig) -> Box<dyn LocationSource> {
+fn make_source(config: &LocationConfig) -> Result<Box<dyn LocationSource>, LocationError> {
     match config.source {
-        LocationSourceType::GeoClue => Box::new(GeoClueSource::new()),
-        LocationSourceType::Aresa => Box::new(AresaSource::new()),
+        LocationSourceType::GeoClue => Ok(Box::new(GeoClueSource::new())),
+        LocationSourceType::Aresa => Ok(Box::new(AresaSource::new())),
         LocationSourceType::Static => {
-            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                return Box::new(StaticSource::new(Coordinates {
-                    latitude: lat,
-                    longitude: lon,
-                }));
-            }
+            let (Some(latitude), Some(longitude)) = (config.latitude, config.longitude) else {
+                return Err(LocationError::Other(
+                    "static location requires both latitude and longitude".into(),
+                ));
+            };
 
-            tracing::warn!("static location: either latitude or longitude is not set");
-            Box::new(StaticSource::new(Coordinates::zero()))
+            Ok(Box::new(StaticSource::new(Coordinates {
+                latitude,
+                longitude,
+            })))
         }
     }
 }
 
 fn spawn_source(
     config: &LocationConfig,
-) -> (RunningTask<LocationCommand>, mpsc::Receiver<LocationEvent>) {
-    let source = make_source(config);
+) -> Result<(RunningTask<LocationCommand>, mpsc::Receiver<LocationEvent>), LocationError> {
+    let source = make_source(config)?;
 
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
 
-    let (command_tx, mut command_rx) = mpsc::channel(8);
+    let (command_tx, command_rx) = mpsc::channel(8);
     let (event_tx, event_rx) = mpsc::channel(16);
 
     let task = tokio::spawn(async move {
-        if let Err(error) = source.open(event_tx.clone(), task_cancel.clone()).await {
-            tracing::error!(error = ?error, "failed to start location source");
+        if let Err(error) = source.open(event_tx.clone(), command_rx, task_cancel).await {
+            tracing::error!(error = ?error, "location source exited with error");
             let _ = event_tx.send(LocationEvent::Unavailable).await;
-            return;
-        }
-
-        loop {
-            tokio::select! {
-                _ = task_cancel.cancelled() => {
-                    break;
-                }
-                Some(command) = command_rx.recv() => {
-                    match command {
-                        LocationCommand::Refresh => {
-                            tracing::debug!("location source refresh requested");
-                        }
-                    }
-                }
-            }
         }
     });
 
-    (
+    Ok((
         RunningTask {
             task,
             control_tx: command_tx,
             cancel,
         },
         event_rx,
-    )
+    ))
 }

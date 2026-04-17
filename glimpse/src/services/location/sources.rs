@@ -3,6 +3,8 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::services::location::service::LocationCommand;
+
 #[derive(Debug, Clone, Deserialize, Copy, PartialEq)]
 pub struct Coordinates {
     pub latitude: f64,
@@ -36,6 +38,7 @@ pub trait LocationSource: Send + 'static {
     async fn open(
         self: Box<Self>,
         updates: mpsc::Sender<LocationEvent>,
+        commands: mpsc::Receiver<LocationCommand>,
         cancel: CancellationToken,
     ) -> Result<(), LocationError>;
 }
@@ -53,9 +56,20 @@ impl LocationSource for AresaSource {
     async fn open(
         self: Box<Self>,
         updates: mpsc::Sender<LocationEvent>,
-        _cancel: CancellationToken,
+        mut commands: mpsc::Receiver<LocationCommand>,
+        cancel: CancellationToken,
     ) -> Result<(), LocationError> {
         let _ = updates;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                Some(LocationCommand::Refresh) = commands.recv() => {
+                    tracing::debug!("aresa location source refresh requested");
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -75,13 +89,29 @@ impl LocationSource for StaticSource {
     async fn open(
         self: Box<Self>,
         updates: mpsc::Sender<LocationEvent>,
-        _cancel: CancellationToken,
+        mut commands: mpsc::Receiver<LocationCommand>,
+        cancel: CancellationToken,
     ) -> Result<(), LocationError> {
         tracing::info!("static location source emits, {:?}", self.coordinates);
         updates
             .send(LocationEvent::Update(self.coordinates))
             .await
-            .map_err(|_| LocationError::Unavailable)
+            .map_err(|_| LocationError::Unavailable)?;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                Some(LocationCommand::Refresh) = commands.recv() => {
+                    tracing::debug!("static location source refresh requested");
+                    updates
+                        .send(LocationEvent::Update(self.coordinates))
+                        .await
+                        .map_err(|_| LocationError::Unavailable)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -98,9 +128,20 @@ impl LocationSource for GeoClueSource {
     async fn open(
         self: Box<Self>,
         updates: mpsc::Sender<LocationEvent>,
-        _cancel: CancellationToken,
+        mut commands: mpsc::Receiver<LocationCommand>,
+        cancel: CancellationToken,
     ) -> Result<(), LocationError> {
         let _ = updates;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                Some(LocationCommand::Refresh) = commands.recv() => {
+                    tracing::debug!("geoclue location source refresh requested");
+                }
+            }
+        }
+
         Ok(())
     }
 }
