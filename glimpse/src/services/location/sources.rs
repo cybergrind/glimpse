@@ -1,10 +1,44 @@
 use async_trait::async_trait;
+use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::services::location::provider::{
-    Coordinates, LocationError, LocationEvent, LocationSource,
-};
+#[derive(Debug, Clone, Deserialize, Copy, PartialEq)]
+pub struct Coordinates {
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+impl Coordinates {
+    pub fn zero() -> Self {
+        Self {
+            latitude: 0.0,
+            longitude: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum LocationError {
+    Unavailable,
+    Other(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LocationEvent {
+    Searching,
+    Update(Coordinates),
+    Unavailable,
+}
+
+#[async_trait]
+pub trait LocationSource: Send + 'static {
+    async fn open(
+        self: Box<Self>,
+        updates: mpsc::Sender<LocationEvent>,
+        cancel: CancellationToken,
+    ) -> Result<(), LocationError>;
+}
 
 pub struct AresaSource {}
 
@@ -43,7 +77,7 @@ impl LocationSource for StaticSource {
         updates: mpsc::Sender<LocationEvent>,
         _cancel: CancellationToken,
     ) -> Result<(), LocationError> {
-        tracing::info!("static location provider emits, {:?}", self.coordinates);
+        tracing::info!("static location source emits, {:?}", self.coordinates);
         updates
             .send(LocationEvent::Update(self.coordinates))
             .await
