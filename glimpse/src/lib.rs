@@ -17,6 +17,7 @@ pub mod notifications;
 pub mod power;
 pub mod power_policy;
 pub mod privacy;
+pub mod services;
 pub mod session_actions;
 pub mod solar;
 pub mod theme;

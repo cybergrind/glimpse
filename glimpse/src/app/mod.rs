@@ -7,15 +7,15 @@ use relm4::{
     gtk::{self, CssProvider, gdk::Display},
 };
 
-use glimpse::backdrop;
 use glimpse::config::Config;
 use glimpse::wallpaper;
+use glimpse::{backdrop, services::runtime::ServiceRuntime};
 
 use crate::{
     applets::notifications::{NotificationActionCommand, NotificationPopup},
     providers::dbus::DbusProvider,
-    services::Services,
 };
+use glimpse::services::Services;
 
 mod background_manager;
 mod notification_popup_manager;
@@ -43,6 +43,7 @@ pub struct App {
     backdrop_windows: HashMap<String, Controller<backdrop::BackdropWindow>>,
     dbus: DbusProvider,
     services: Services,
+    service_runtime: Option<ServiceRuntime>,
     notification_popup: Option<Controller<NotificationPopup>>,
 }
 
@@ -84,12 +85,16 @@ impl SimpleComponent for App {
 
         let base_css = CssProvider::new();
         sync_base_css(&base_css);
+
         let structure_css = CssProvider::new();
         sync_structure_css(&structure_css);
+
         let accent_css = CssProvider::new();
         sync_accent_css(&accent_css);
+
         let theme_css = CssProvider::new();
         sync_theme_css(&theme_css, &config);
+
         if let Some(display) = Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -123,6 +128,9 @@ impl SimpleComponent for App {
         }
 
         let dbus = DbusProvider::connect();
+        let service_runtime =
+            ServiceRuntime::new(&config, dbus.session.clone(), dbus.system.clone());
+
         let services = Services::new(
             dbus.session.clone(),
             dbus.system.clone(),
@@ -155,6 +163,7 @@ impl SimpleComponent for App {
             dbus,
             services,
             notification_popup,
+            service_runtime: Some(service_runtime),
         };
 
         let startup_sender = sender.input_sender().clone();
@@ -169,6 +178,10 @@ impl SimpleComponent for App {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             Input::ConfigChanged(new_config) => {
+                if let Some(ref service_runtime) = self.service_runtime {
+                    service_runtime.reconfigure(&new_config);
+                };
+
                 if self.config.night_light != new_config.night_light {
                     let night_light = self.services.handle.night_light.clone();
                     let config = new_config.night_light.clone();
@@ -243,6 +256,16 @@ impl SimpleComponent for App {
                     }
                 });
             }
+        }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.service_runtime.take() {
+            relm4::spawn(async move {
+                runtime.shutdown().await;
+            });
         }
     }
 }

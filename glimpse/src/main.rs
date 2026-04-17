@@ -3,7 +3,6 @@ mod applets;
 mod components;
 mod panels;
 mod providers;
-mod services;
 use glimpse::config::Config;
 use relm4::{RELM_THREADS, RelmApp};
 use tracing_subscriber::EnvFilter;

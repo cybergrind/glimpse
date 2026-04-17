@@ -8,7 +8,7 @@ use gtk4::ContentFit;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::night_light::NightLightConfig;
+use crate::{night_light::NightLightConfig, services::location::service::LocationSourceType};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -536,6 +536,15 @@ pub struct BackdropConfig {
     pub blur_radius: u32,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct LocationConfig {
+    pub enabled: bool,
+    pub source: LocationSourceType,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     path: Option<PathBuf>,
@@ -550,6 +559,8 @@ pub struct Config {
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
+    pub location: LocationConfig,
+    #[serde(default)]
     pub night_light: NightLightConfig,
 }
 
@@ -562,6 +573,12 @@ impl Default for Config {
             backdrop: BackdropConfig::default(),
             theme: ThemeConfig::default(),
             night_light: NightLightConfig::default(),
+            location: LocationConfig {
+                enabled: false,
+                source: LocationSourceType::GeoClue,
+                latitude: None,
+                longitude: None,
+            },
             panels: vec![PanelConfig {
                 height: default_panel_height(),
                 theme_mode: PanelThemeMode::default(),
@@ -598,7 +615,11 @@ impl Config {
                     return config;
                 }
                 Err(error) => {
-                    tracing::error!("failed to parse {}: {}", config_path.display(), error)
+                    tracing::error!("failed to parse {}: {}", config_path.display(), error);
+                    return Self {
+                        path: Some(config_path),
+                        ..Default::default()
+                    };
                 }
             }
         }
@@ -742,8 +763,8 @@ fn backdrop_toml_value(config: &BackdropConfig) -> toml::Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig,
-        PanelPosition, PanelThemeMode, ThemeMode, WallpaperConfig, WallpaperMode, WeatherConfig,
+        BackdropConfig, BrightnessConfig, Config, ExecConfig, ImageFit, PanelConfig, PanelPosition,
+        PanelThemeMode, ThemeMode, WallpaperConfig, WallpaperMode, WeatherConfig,
     };
     use crate::night_light::NightLightSchedule;
     use std::{

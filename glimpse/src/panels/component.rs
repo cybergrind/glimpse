@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use crate::{
     applets::{AppletController, create_applet, reconfigure_applet},
     panels::diff::{AppletInstanceKey, PanelKey, PanelSection, build_section_entries},
-    services::ServicesHandle,
 };
 use glimpse::config::{AppletConfig, PanelConfig, PanelPosition, PanelThemeMode};
+use glimpse::services::ServicesHandle;
 
 pub struct Panel {
     panel_key: PanelKey,

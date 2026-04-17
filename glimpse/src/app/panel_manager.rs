@@ -6,8 +6,8 @@ use glimpse::config::Config;
 use crate::{
     panels,
     panels::diff::{PanelKey, build_panel_keys},
-    services::ServicesHandle,
 };
+use glimpse::services::ServicesHandle;
 
 pub(super) struct PanelState {
     pub(super) key: PanelKey,

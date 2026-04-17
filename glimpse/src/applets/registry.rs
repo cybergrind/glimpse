@@ -1,6 +1,6 @@
 use glimpse::config::AppletConfig;
 
-use crate::services::ServicesHandle;
+use glimpse::services::ServicesHandle;
 use relm4::{Component, ComponentController};
 
 use super::{
