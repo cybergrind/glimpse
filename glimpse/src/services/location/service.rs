@@ -315,6 +315,8 @@ async fn spawn_static_source(
         })) {
             tracing::debug!("static source: failed to emit initial update: {:?}", e);
         }
+    } else {
+        let _ = output_tx.send(LocationEvent::Unavailable).await;
     }
 
     loop {
