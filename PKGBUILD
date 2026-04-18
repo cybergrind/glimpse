@@ -1,6 +1,7 @@
 pkgname=glimpse-panel-git
 _pkgname=glimpse
-pkgver=0.1.0.r188.ge23f6e0
+_srcname=glimpse-panel-git-src
+pkgver=0.1.0.r252.g739def5
 pkgrel=1
 pkgdesc="Wayland status panel for the Glimpse ecosystem"
 arch=('x86_64' 'aarch64')
@@ -9,11 +10,11 @@ makedepends=('cargo' 'git' 'pkgconf')
 depends=('gtk4' 'libadwaita' 'gtk4-layer-shell' 'libheif')
 provides=('glimpse-panel')
 conflicts=('glimpse-panel')
-source=("$_pkgname::git+file://$PWD")
+source=("$_srcname::git+file://$PWD")
 b2sums=('SKIP')
 
 pkgver() {
-    cd "$srcdir/$_pkgname"
+    cd "$srcdir/$_srcname"
 
     local base_version=0.1.0
     local revision
@@ -26,14 +27,14 @@ pkgver() {
 }
 
 build() {
-    cd "$srcdir/$_pkgname"
+    cd "$srcdir/$_srcname"
     export CARGO_TARGET_DIR=target
 
-    cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
+    cargo build --release -p glimpse --bin glimpse-panel --no-default-features
 }
 
 package() {
-    cd "$srcdir/$_pkgname"
+    cd "$srcdir/$_srcname"
 
     install -Dm755 "target/release/glimpse-panel" "$pkgdir/usr/bin/glimpse-panel"
     install -Dm644 "data/glimpse-panel.service" \

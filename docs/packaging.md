@@ -4,8 +4,6 @@
 
 | Binary | Description | Install to |
 |--------|-------------|------------|
-| `glimpsed` | System service daemon | `/usr/bin/glimpsed` |
-| `glimpsectl` | CLI/TUI client tool | `/usr/bin/glimpsectl` |
 | `glimpse-panel` | Wayland status panel | `/usr/bin/glimpse-panel` |
 
 ## Polkit
@@ -48,31 +46,26 @@ Future providers that need root (e.g. airplane mode via rfkill) should follow th
 
 ## Systemd
 
-### User service for glimpsed
+### User service for glimpse-panel
 
 ```ini
-# ~/.config/systemd/user/glimpsed.service
+# ~/.config/systemd/user/glimpse-panel.service
 [Unit]
-Description=Glimpse system service daemon
-After=dbus.service
+Description=Glimpse panel
+PartOf=graphical-session.target
+After=graphical-session-pre.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/glimpsed
+ExecStart=/usr/bin/glimpse-panel
 Restart=on-failure
-RestartSec=5
+RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 ```
 
-**Note:** `glimpsed` runs as a user service (not system), communicating over a Unix socket at `$XDG_RUNTIME_DIR/glimpsed.sock`.
-
-## Socket path
-
-Default: `$XDG_RUNTIME_DIR/glimpsed.sock`
-
-Override: set `GLIMPSED_SOCKET` environment variable.
+**Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-panel.service`.
 
 ## Configuration
 
@@ -86,11 +79,9 @@ Override: set `GLIMPSED_SOCKET` environment variable.
 
 ```bash
 # Build
-cargo build --release --workspace
+cargo build --release -p glimpse --bin glimpse-panel --no-default-features
 
-# Install binaries
-install -Dm755 target/release/glimpsed "$pkgdir/usr/bin/glimpsed"
-install -Dm755 target/release/glimpsectl "$pkgdir/usr/bin/glimpsectl"
+# Install binary
 install -Dm755 target/release/glimpse-panel "$pkgdir/usr/bin/glimpse-panel"
 
 # Polkit
@@ -98,5 +89,5 @@ install -Dm755 data/glimpse-battery-helper "$pkgdir/usr/lib/glimpse/glimpse-batt
 install -Dm644 data/io.glimpse.battery.policy "$pkgdir/usr/share/polkit-1/actions/io.glimpse.battery.policy"
 
 # Systemd user service
-install -Dm644 data/glimpsed.service "$pkgdir/usr/lib/systemd/user/glimpsed.service"
+install -Dm644 data/glimpse-panel.service "$pkgdir/usr/lib/systemd/user/glimpse-panel.service"
 ```

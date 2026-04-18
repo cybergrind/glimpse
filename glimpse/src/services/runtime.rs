@@ -3,9 +3,7 @@ use crate::{
     services::{
         control::ControlEvent,
         framework::{RunningService, ServiceEvent, spawn_service},
-        location::service::{
-            LocationCommand, LocationConfig, LocationService, LocationServiceHandle,
-        },
+        location::service::{LocationCommand, LocationService, LocationServiceHandle},
     },
 };
 
@@ -23,29 +21,26 @@ pub struct ServiceRuntime {
 impl ServiceRuntime {
     pub fn new(
         config: &Config,
-         _session_dbus: zbus::Connection,
-         _system_dbus: zbus::Connection,
+        _session_dbus: zbus::Connection,
+        _system_dbus: zbus::Connection,
     ) -> Self {
-        let (location, location_handle) = LocationService::new(LocationConfig {
-            source: config.location.source.clone(),
-            latitude: config.location.latitude,
-            longitude: config.location.longitude,
+        let (location, location_handle) = LocationService::new();
+        let location_service = spawn_service("location", move |control, cancel| {
+            location.run(control, cancel)
         });
 
-        let location_service = spawn_service("location", move |cancel, control| {
-            location.run(cancel, control)
-        });
-
-        Self {
+        let instance = Self {
             location: location_service,
             handle: Service {
                 location: location_handle,
             },
-        }
+        };
+        instance.reconfigure(config);
+        instance
     }
 
     pub fn reconfigure(&self, config: &Config) {
-        send_control_event(&self.location, ControlEvent::Reconfigure(config.clone()));
+        send_control_event(&self.location, ControlEvent::Configure(config.clone()));
     }
 
     pub async fn shutdown(self) {

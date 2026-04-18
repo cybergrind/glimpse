@@ -95,25 +95,17 @@ impl<Command: Send + 'static> RunningService<Command> {
     }
 }
 
-pub fn spawn_service<Command, F, Fut, Err>(
-    service_name: &'static str,
-    run: F,
-) -> RunningService<Command>
+pub fn spawn_service<Command, F, Fut>(service_name: &'static str, run: F) -> RunningService<Command>
 where
     Command: Send + 'static,
-    F: FnOnce(CancellationToken, mpsc::Receiver<ServiceEvent<Command>>) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<(), Err>> + Send + 'static,
-    Err: std::fmt::Debug + Send + 'static,
+    F: FnOnce(mpsc::Receiver<ServiceEvent<Command>>, CancellationToken) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
 {
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
     let (event_tx, event_rx) = mpsc::channel(16);
 
-    let task = tokio::spawn(async move {
-        if let Err(error) = run(task_cancel, event_rx).await {
-            tracing::warn!(error = ?error, "{service_name} service stopped with error");
-        }
-    });
+    let task = tokio::spawn(async move { run(event_rx, task_cancel).await });
 
     RunningService {
         task,
@@ -125,7 +117,7 @@ where
 
 pub struct RunningTask<Command> {
     pub task: JoinHandle<()>,
-    pub control_tx: mpsc::Sender<Command>,
+    pub command_tx: mpsc::Sender<Command>,
     pub cancel: CancellationToken,
 }
 
@@ -136,10 +128,10 @@ impl<Command: Send + 'static> RunningTask<Command> {
     }
 
     pub async fn send(&self, command: Command) -> Result<(), mpsc::error::SendError<Command>> {
-        self.control_tx.send(command).await
+        self.command_tx.send(command).await
     }
 
     pub fn try_send(&self, command: Command) -> Result<(), mpsc::error::TrySendError<Command>> {
-        self.control_tx.try_send(command)
+        self.command_tx.try_send(command)
     }
 }
