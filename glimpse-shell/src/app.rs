@@ -1,8 +1,11 @@
+use crate::{
+    config::{Config, ConfigEvent, watch_for_config_changes},
+    services::framework::{Control, Services},
+};
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent};
-
-use crate::{config::Config, services::framework::Services};
+use tokio::sync::mpsc;
 
 pub struct AppInit {
     pub config: Config,
@@ -10,7 +13,9 @@ pub struct AppInit {
 }
 
 #[derive(Debug)]
-pub enum Input {}
+pub enum Input {
+    ConfigChanged(Config),
+}
 
 pub struct App {
     config: Config,
@@ -35,7 +40,7 @@ impl SimpleComponent for App {
     fn init(
         config: Self::Init,
         root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         root.init_layer_shell();
         root.set_layer(gtk4_layer_shell::Layer::Background);
@@ -43,6 +48,25 @@ impl SimpleComponent for App {
         root.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         root.set_default_size(-1, -1);
         root.set_opacity(0.0);
+
+        let (config_tx, mut config_rx) = mpsc::channel(1);
+        relm4::spawn(async move {
+            watch_for_config_changes(config_tx).await;
+        });
+
+        let config_sender = sender.clone();
+        relm4::spawn(async move {
+            loop {
+                match config_rx.recv().await {
+                    Some(message) => match message {
+                        ConfigEvent::Changed(config) => {
+                            let _ = config_sender.input(Input::ConfigChanged(config));
+                        }
+                    },
+                    None => break,
+                }
+            }
+        });
 
         let widgets = view_output!();
         let model = App {
@@ -53,5 +77,18 @@ impl SimpleComponent for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, _msg: Self::Input, _sender: ComponentSender<Self>) {}
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            Input::ConfigChanged(config) => {
+                if self.config == config {
+                    return;
+                }
+
+                tracing::info!("app config changed");
+                self.services
+                    .broadcast(Control::Reconfigure(config.clone()));
+                self.config = config;
+            }
+        }
+    }
 }

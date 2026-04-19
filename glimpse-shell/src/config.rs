@@ -1,10 +1,16 @@
-use std::{env, fs, path::PathBuf};
-
+use notify::EventKind;
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use serde::Deserialize;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use tokio::sync::mpsc;
 
 use crate::services::location::LocationConfig;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
 pub struct Config {
     #[serde(default)]
     pub location: LocationConfig,
@@ -12,20 +18,28 @@ pub struct Config {
 
 impl Config {
     pub fn autodetect() -> Self {
-        if let Some(path) = Self::detect_from_env() {
-            return Self::load_from_file(path);
-        }
-
-        if let Some(path) = Self::detect_from_dirs() {
-            return Self::load_from_file(path);
+        let path = Self::detect_config_file();
+        if path.exists() && path.is_file() {
+            return Self::load_from_file(&path);
         }
         Self::default()
     }
 
-    fn load_from_file(path: PathBuf) -> Self {
+    pub fn detect_config_file() -> PathBuf {
+        if let Some(path) = Self::detect_from_env() {
+            return path;
+        }
+
+        if let Some(path) = Self::detect_from_dirs() {
+            return path;
+        }
+        Self::config_file()
+    }
+
+    fn load_from_file(path: &Path) -> Self {
         tracing::info!("loading configuration from {}", path.display());
 
-        match fs::read_to_string(&path) {
+        match fs::read_to_string(path) {
             Ok(content) => match toml::from_str::<Self>(&content) {
                 Ok(config) => config,
                 Err(err) => {
@@ -50,22 +64,90 @@ impl Config {
         None
     }
 
-    fn detect_from_dirs() -> Option<PathBuf> {
-        let dirs = vec![
-            PathBuf::from("config.toml"),
-            env::var("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| {
-                    PathBuf::from(env::var("HOME").unwrap_or_default()).join(".config")
-                })
-                .join("glimpse")
-                .join("config.toml"),
-        ];
+    pub fn config_file() -> PathBuf {
+        env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env::var("HOME").unwrap_or_default()).join(".config"))
+            .join("glimpse")
+            .join("config.toml")
+    }
 
-        let value = dirs
-            .iter()
-            .filter_map(|dir| dir.exists().then_some(dir.into()))
-            .collect();
-        value
+    fn detect_from_dirs() -> Option<PathBuf> {
+        let dirs = vec![PathBuf::from("config.toml"), Config::config_file()];
+        dirs.into_iter().find(|p| p.exists())
+    }
+}
+
+pub enum ConfigEvent {
+    Changed(Config),
+}
+
+pub async fn watch_for_config_changes(sender: mpsc::Sender<ConfigEvent>) {
+    let config_file = match Config::detect_config_file().canonicalize() {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::error!("cannot get canonical config file name: {}", err);
+            return;
+        }
+    };
+    let Some(config_dir) = config_file.parent().map(PathBuf::from) else {
+        tracing::error!(
+            "config file has no parent directory: {}",
+            config_file.display()
+        );
+        return;
+    };
+
+    tracing::info!(
+        "watching config file for changes: {}",
+        config_file.display()
+    );
+
+    let handler_file = config_file.clone();
+    let handler_sender = sender.clone();
+    let mut debouncer = match new_debouncer(
+        Duration::from_millis(200),
+        None,
+        move |res: DebounceEventResult| {
+            file_change_handler(res, handler_file.clone(), handler_sender.clone());
+        },
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("failed to create watcher: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = debouncer.watch(&config_dir, notify::RecursiveMode::Recursive) {
+        tracing::error!("failed to watch config directory: {}", e);
+        return;
+    }
+
+    sender.closed().await;
+}
+
+fn file_change_handler(
+    res: DebounceEventResult,
+    config_file: PathBuf,
+    sender: mpsc::Sender<ConfigEvent>,
+) {
+    let events = match res {
+        Ok(events) => events,
+        Err(_) => return,
+    };
+
+    for event in events {
+        match event.kind {
+            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
+                if event.paths.contains(&config_file) {
+                    let config = Config::load_from_file(&config_file);
+                    if let Err(e) = sender.try_send(ConfigEvent::Changed(config)) {
+                        tracing::error!("failed to broadcast config change to the app: {}", e);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }

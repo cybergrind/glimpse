@@ -95,20 +95,13 @@ impl ActiveProvider {
                 latitude,
                 longitude,
             } => tokio::spawn(async move {
-                static_provider(
-                    latitude,
-                    longitude,
-                    command_rx,
-                    message_tx,
-                    task_cancel.clone(),
-                )
-                .await;
+                static_provider(latitude, longitude, command_rx, message_tx, task_cancel).await;
             }),
             LocationConfig::GeoClue => tokio::spawn(async move {
-                let () = future::pending().await;
+                task_cancel.cancelled().await;
             }),
             LocationConfig::IPAPI => tokio::spawn(async move {
-                let () = future::pending().await;
+                task_cancel.cancelled().await;
             }),
         };
         Self {

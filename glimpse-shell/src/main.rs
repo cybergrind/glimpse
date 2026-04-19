@@ -25,7 +25,7 @@ async fn main() {
     let system_dbus = dbus.system.clone();
     let session_dbus = dbus.session.clone();
     let services = Services::new(session_dbus, system_dbus);
-    services.broadcast(Control::Start(config.clone())).await;
+    services.broadcast(Control::Start(config.clone()));
 
     let app_id = "me.aresa.GlimpseShell";
     let app = RelmApp::new(app_id);

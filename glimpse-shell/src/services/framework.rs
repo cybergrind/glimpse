@@ -5,22 +5,17 @@ use crate::{config::Config, services::location};
 
 macro_rules! for_each_service_handle {
     ($self:expr, $control:expr, [$($name:ident),* $(,)?]) => {
-        tokio::join!(
-            $(
-                async {
-                    if $self
-                        .$name
-                        .try_send(ServiceCommand::Control($control.clone()))
-                        .is_err()
-                    {
-                        tracing::warn!(
-                            service = stringify!($name),
-                            "failed to broadcast control"
-                        );
-                    }
-                }
-            ),*
-        );
+        $(
+            if let Err(err) = $self
+                .$name
+                .try_send(ServiceCommand::Control($control.clone()))
+            {
+                tracing::warn!(
+                    service = stringify!($name),
+                    "failed to broadcast control: {}", stringify!(err)
+                );
+            }
+        )*
     };
 }
 
@@ -123,13 +118,12 @@ impl Services {
         }
     }
 
-    pub async fn broadcast(&self, control: Control) {
-        println!("BROADCAST!");
+    pub fn broadcast(&self, control: Control) {
         for_each_service_handle!(self, control, [location]);
     }
 
     pub async fn shutdown(mut self) {
-        self.broadcast(Control::Shutdown).await;
+        self.broadcast(Control::Shutdown);
         for service in self.running_services.drain(..) {
             service.cancel().await;
         }
