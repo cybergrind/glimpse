@@ -8,12 +8,12 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use crate::services::location::LocationConfig;
+use crate::{panels, services::location::LocationConfig};
 
-#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
-    #[serde(default)]
     pub location: LocationConfig,
+    pub panels: Vec<panels::Config>,
 }
 
 impl Config {
@@ -75,6 +75,15 @@ impl Config {
     fn detect_from_dirs() -> Option<PathBuf> {
         let dirs = vec![PathBuf::from("config.toml"), Config::config_file()];
         dirs.into_iter().find(|p| p.exists())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            location: LocationConfig::default(),
+            panels: vec![panels::Config::default()],
+        }
     }
 }
 

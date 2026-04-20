@@ -1,7 +1,7 @@
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::{config::Config, services::location};
+use crate::{config::Config, dbus::Dbus, services::location};
 
 macro_rules! for_each_service_handle {
     ($self:expr, $control:expr, [$($name:ident),* $(,)?]) => {
@@ -31,7 +31,7 @@ pub enum ServiceCommand<Command> {
     Control(Control),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ServiceHandle<State, Command> {
     state_rx: watch::Receiver<State>,
     command_tx: mpsc::Sender<ServiceCommand<Command>>,
@@ -101,25 +101,49 @@ impl RunningService {
     }
 }
 
+#[derive(Clone)]
 pub struct Services {
     pub location: ServiceHandle<location::State, location::Command>,
-    running_services: Vec<RunningService>,
+    pub system_dbus: zbus::Connection,
+    pub session_dbus: zbus::Connection,
 }
 
 impl Services {
-    pub fn new(_session_dbus: zbus::Connection, _system_dbus: zbus::Connection) -> Self {
+    pub fn broadcast(&self, control: Control) {
+        for_each_service_handle!(self, control, [location]);
+    }
+}
+
+pub struct ServiceRuntime {
+    handles: Services,
+    running_services: Vec<RunningService>,
+}
+
+impl ServiceRuntime {
+    pub fn new(dbus: Dbus) -> Self {
+        let session_dbus = dbus.session;
+        let system_dbus = dbus.system;
         let (location_service, location) = location::LocationService::new();
         let location_service = spawn_service(|cancel| location_service.run(cancel));
 
         let running_services = vec![location_service];
-        Self {
+        let handles = Services {
             location,
+            system_dbus,
+            session_dbus,
+        };
+        Self {
+            handles,
             running_services,
         }
     }
 
+    pub fn handles(&self) -> Services {
+        self.handles.clone()
+    }
+
     pub fn broadcast(&self, control: Control) {
-        for_each_service_handle!(self, control, [location]);
+        self.handles.broadcast(control);
     }
 
     pub async fn shutdown(mut self) {

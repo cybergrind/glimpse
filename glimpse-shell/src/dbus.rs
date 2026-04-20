@@ -1,22 +1,20 @@
+use anyhow::Context;
+
+#[derive(Clone)]
 pub struct Dbus {
     pub session: zbus::Connection,
     pub system: zbus::Connection,
 }
 
 impl Dbus {
-    pub fn connect() -> Self {
-        let (session, system) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = zbus::Connection::session()
-                    .await
-                    .expect("failed to connect to d-bus session bus");
-                let system = zbus::Connection::system()
-                    .await
-                    .expect("failed to connect to d-bus system bus");
-                (session, system)
-            })
-        });
-        tracing::info!("connected to d-bus session and system buses");
-        Self { session, system }
+    pub async fn connect() -> anyhow::Result<Self> {
+        let session = zbus::Connection::session()
+            .await
+            .context("failed to connect to D-Bus session bus")?;
+        let system = zbus::Connection::system()
+            .await
+            .context("failed to connect to D-Bus system bus")?;
+        tracing::info!("connected to D-Bus session and system buses");
+        Ok(Self { session, system })
     }
 }

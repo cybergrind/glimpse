@@ -1,15 +1,16 @@
 use crate::{
     config::{Config, ConfigEvent, watch_for_config_changes},
-    services::framework::{Control, Services},
+    panels,
+    services::framework::{Control, ServiceRuntime, Services},
 };
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
-use relm4::{ComponentParts, ComponentSender, SimpleComponent};
+use relm4::{Component, ComponentParts, ComponentSender, Controller, SimpleComponent};
 use tokio::sync::mpsc;
 
 pub struct AppInit {
     pub config: Config,
-    pub services: Services,
+    pub services: ServiceRuntime,
 }
 
 #[derive(Debug)]
@@ -19,7 +20,8 @@ pub enum Input {
 
 pub struct App {
     config: Config,
-    services: Services,
+    services: ServiceRuntime,
+    panels: Vec<PanelState>,
 }
 
 #[relm4::component(pub)]
@@ -38,7 +40,7 @@ impl SimpleComponent for App {
     }
 
     fn init(
-        config: Self::Init,
+        init: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -68,10 +70,12 @@ impl SimpleComponent for App {
             }
         });
 
+        let panels = build_panels(&init.config, init.services.handles());
         let widgets = view_output!();
         let model = App {
-            config: config.config,
-            services: config.services,
+            config: init.config,
+            services: init.services,
+            panels,
         };
 
         ComponentParts { model, widgets }
@@ -87,8 +91,46 @@ impl SimpleComponent for App {
                 tracing::info!("app config changed");
                 self.services
                     .broadcast(Control::Reconfigure(config.clone()));
+
                 self.config = config;
             }
         }
     }
+}
+
+struct PanelKey {
+    index: usize,
+    position: panels::Position,
+}
+
+struct PanelState {
+    pub key: PanelKey,
+    pub controller: Controller<panels::Panel>,
+}
+
+fn build_panels(config: &Config, services: Services) -> Vec<PanelState> {
+    let panels = config
+        .panels
+        .iter()
+        .enumerate()
+        .map(|(index, configured_panel)| {
+            build_panel(index, configured_panel.clone(), services.clone())
+        })
+        .collect();
+
+    panels
+}
+
+fn build_panel(index: usize, config: panels::Config, services: Services) -> PanelState {
+    let key = PanelKey {
+        index,
+        position: config.position.clone(),
+    };
+    let controller = panels::Panel::builder()
+        .launch(panels::Init {
+            config,
+            services: services.clone(),
+        })
+        .detach();
+    PanelState { key, controller }
 }
