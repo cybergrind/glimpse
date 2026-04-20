@@ -1,14 +1,11 @@
-use gtk4::prelude::{GtkWindowExt, WidgetExt};
+use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
-use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, glib},
-};
+use relm4::{Component, ComponentParts, ComponentSender, gtk};
 use serde::Deserialize;
 
 use crate::{services::framework::Services, theme::ThemeMode};
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Position {
     Left,
@@ -31,15 +28,19 @@ pub struct Margin {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Config {
-    #[serde(default = "default_panel_height")]
-    pub height: i32,
+    #[serde(default = "default_panel_size")]
+    pub size: i32,
     pub monitor: Option<String>,
     pub position: Position,
+    #[serde(default)]
     pub margin: Margin,
     #[serde(default = "default_panel_theme_mode")]
     pub theme_mode: ThemeMode,
+    #[serde(default)]
     pub left: Vec<String>,
+    #[serde(default)]
     pub center: Vec<String>,
+    #[serde(default)]
     pub right: Vec<String>,
 }
 
@@ -47,7 +48,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             position: Position::Top,
-            height: default_panel_height(),
+            size: default_panel_size(),
             theme_mode: default_panel_theme_mode(),
             left: vec![],
             center: vec![],
@@ -63,8 +64,8 @@ impl Default for Config {
     }
 }
 
-pub fn default_panel_height() -> i32 {
-    42
+pub fn default_panel_size() -> i32 {
+    36
 }
 
 pub fn default_panel_theme_mode() -> ThemeMode {
@@ -77,37 +78,32 @@ pub struct Init {
 }
 
 #[derive(Debug)]
-pub enum Input {}
+pub enum Input {
+    Reconfigure(Config),
+}
 
 pub struct Panel {
     config: Config,
 }
 
-#[allow(unused_assignments)]
 #[relm4::component(pub)]
-impl SimpleComponent for Panel {
+impl Component for Panel {
     type Init = Init;
     type Input = Input;
     type Output = ();
+    type CommandOutput = ();
 
     view! {
         gtk::Window {
             set_decorated: false,
-            set_width_request: 1,
 
             #[local_ref]
-            revealer -> gtk::Revealer {
-                set_transition_duration: 180,
-                set_reveal_child: false,
-                set_transition_type: reveal_transition_for_position(&init.config.position),
-
-                #[wrap(Some)]
-                set_child = &gtk::CenterBox {
-                    set_hexpand: true,
-                    set_start_widget: Some(&left_box),
-                    set_center_widget: Some(&center_box),
-                    set_end_widget: Some(&right_box),
-                }
+            layout -> gtk::CenterBox {
+                set_hexpand: true,
+                set_orientation: orientation_for_position(&init.config.position),
+                set_start_widget: Some(&left_box),
+                set_center_widget: Some(&center_box),
+                set_end_widget: Some(&right_box),
             }
         }
     }
@@ -126,24 +122,20 @@ impl SimpleComponent for Panel {
         apply_panel_config(&root, &init.config);
         apply_theme_mode(&root, &init.config.theme_mode);
 
-        println!("{:?}", stringify!(init.config));
-
+        let layout_orientation = orientation_for_position(&init.config.position);
         let left_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
+            .orientation(layout_orientation)
             .spacing(4)
             .build();
-
         let center_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
+            .orientation(layout_orientation)
             .spacing(4)
             .build();
-
         let right_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
+            .orientation(layout_orientation)
             .spacing(4)
             .build();
-
-        let revealer = gtk::Revealer::new();
+        let layout = gtk::CenterBox::new();
 
         let widgets = view_output!();
         let model = Panel {
@@ -151,15 +143,19 @@ impl SimpleComponent for Panel {
         };
 
         root.present();
-        let revealer_clone = revealer.clone();
-        glib::idle_add_local_once(move || {
-            revealer_clone.set_reveal_child(true);
-        });
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {}
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, root: &Self::Root) {
+        match message {
+            Input::Reconfigure(new_config) => {
+                tracing::debug!("panel config change, updating");
+                apply_panel_config(root, &new_config);
+                apply_theme_mode(root, &new_config.theme_mode);
+            }
+        }
+    }
 }
 
 fn init_layer_shell(window: &gtk::Window) {
@@ -171,16 +167,25 @@ fn init_layer_shell(window: &gtk::Window) {
 }
 
 fn apply_panel_config(window: &gtk::Window, config: &Config) {
-    window.set_height_request(config.height);
     window.set_margin(gtk4_layer_shell::Edge::Top, config.margin.top);
-    window.set_margin(gtk4_layer_shell::Edge::Left, config.margin.left);
     window.set_margin(gtk4_layer_shell::Edge::Right, config.margin.right);
     window.set_margin(gtk4_layer_shell::Edge::Bottom, config.margin.bottom);
+    window.set_margin(gtk4_layer_shell::Edge::Left, config.margin.left);
     window.set_anchor(gtk4_layer_shell::Edge::Top, false);
+    window.set_anchor(gtk4_layer_shell::Edge::Right, false);
     window.set_anchor(gtk4_layer_shell::Edge::Bottom, false);
     window.set_anchor(gtk4_layer_shell::Edge::Left, false);
-    window.set_anchor(gtk4_layer_shell::Edge::Right, false);
 
+    match config.position {
+        Position::Top | Position::Bottom => {
+            window.set_height_request(config.size);
+            window.set_width_request(1);
+        }
+        Position::Left | Position::Right => {
+            window.set_height_request(1);
+            window.set_width_request(config.size);
+        }
+    }
     // if let Some(monitor) = config.monitor {
     //     window.set_mo
     // }
@@ -191,11 +196,6 @@ fn apply_panel_config(window: &gtk::Window, config: &Config) {
             window.set_anchor(gtk4_layer_shell::Edge::Left, true);
             window.set_anchor(gtk4_layer_shell::Edge::Right, true);
         }
-        Position::Left => {
-            window.set_anchor(gtk4_layer_shell::Edge::Top, true);
-            window.set_anchor(gtk4_layer_shell::Edge::Left, true);
-            window.set_anchor(gtk4_layer_shell::Edge::Bottom, true);
-        }
         Position::Right => {
             window.set_anchor(gtk4_layer_shell::Edge::Top, true);
             window.set_anchor(gtk4_layer_shell::Edge::Right, true);
@@ -205,6 +205,11 @@ fn apply_panel_config(window: &gtk::Window, config: &Config) {
             window.set_anchor(gtk4_layer_shell::Edge::Bottom, true);
             window.set_anchor(gtk4_layer_shell::Edge::Left, true);
             window.set_anchor(gtk4_layer_shell::Edge::Right, true);
+        }
+        Position::Left => {
+            window.set_anchor(gtk4_layer_shell::Edge::Top, true);
+            window.set_anchor(gtk4_layer_shell::Edge::Left, true);
+            window.set_anchor(gtk4_layer_shell::Edge::Bottom, true);
         }
     }
 }
@@ -220,11 +225,9 @@ fn apply_theme_mode(window: &gtk::Window, mode: &ThemeMode) {
     }
 }
 
-fn reveal_transition_for_position(position: &Position) -> gtk::RevealerTransitionType {
+fn orientation_for_position(position: &Position) -> gtk::Orientation {
     match position {
-        Position::Top => gtk::RevealerTransitionType::SlideDown,
-        Position::Bottom => gtk::RevealerTransitionType::SlideUp,
-        Position::Left => gtk::RevealerTransitionType::SlideRight,
-        Position::Right => gtk::RevealerTransitionType::SlideLeft,
+        Position::Top | Position::Bottom => gtk::Orientation::Horizontal,
+        Position::Left | Position::Right => gtk::Orientation::Vertical,
     }
 }

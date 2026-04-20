@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     config::{Config, ConfigEvent, watch_for_config_changes},
     panels,
@@ -5,7 +7,9 @@ use crate::{
 };
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
-use relm4::{Component, ComponentParts, ComponentSender, Controller, SimpleComponent};
+use relm4::{
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+};
 use tokio::sync::mpsc;
 
 pub struct AppInit {
@@ -92,12 +96,50 @@ impl SimpleComponent for App {
                 self.services
                     .broadcast(Control::Reconfigure(config.clone()));
 
+                self.reconcile_panels(&config.panels);
                 self.config = config;
             }
         }
     }
 }
 
+impl App {
+    fn reconcile_panels(&mut self, new_configs: &[panels::Config]) {
+        let services = self.services.handles();
+        let mut existing: HashMap<PanelKey, PanelState> = self
+            .panels
+            .drain(..)
+            .map(|state| (state.key.clone(), state))
+            .collect();
+
+        self.panels = new_configs
+            .iter()
+            .enumerate()
+            .map(|(index, cfg)| {
+                let key = PanelKey {
+                    index,
+                    position: cfg.position.clone(),
+                };
+                match existing.remove(&key) {
+                    Some(state) => {
+                        state
+                            .controller
+                            .emit(panels::Input::Reconfigure(cfg.clone()));
+                        state
+                    }
+                    None => build_panel(index, cfg.clone(), services.clone()),
+                }
+            })
+            .collect();
+
+        for (key, state) in existing.drain() {
+            state.controller.widget().destroy();
+            tracing::debug!(?key.position, index = key.index, "panel removed");
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Eq, Hash)]
 struct PanelKey {
     index: usize,
     position: panels::Position,
