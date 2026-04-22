@@ -96,6 +96,7 @@ impl Component for Panel {
     view! {
         gtk::Window {
             set_decorated: false,
+            add_css_class: "panel",
 
             #[local_ref]
             layout -> gtk::CenterBox {

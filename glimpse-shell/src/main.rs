@@ -12,7 +12,6 @@ use crate::{
     app::{App, AppInit},
     config::Config,
     dbus::Dbus,
-    services::framework::{Control, ServiceRuntime},
 };
 fn register_resources() {
     gio::resources_register_include!("glimpse-shell.gresource")
@@ -35,15 +34,11 @@ fn main() -> anyhow::Result<()> {
     let config = Config::autodetect();
     let dbus = Dbus::connect()?;
 
-    let services = ServiceRuntime::new(dbus);
-    services.broadcast(Control::Start(config.clone()));
-
     let app_id = "me.aresa.GlimpseShell";
     let app = RelmApp::new(app_id);
+
     register_resources();
-    theme::apply_theme(&config);
-    app.with_args(vec![])
-        .run::<App>(AppInit { config, services });
+    app.with_args(vec![]).run::<App>(AppInit { config, dbus });
 
     Ok(())
 }

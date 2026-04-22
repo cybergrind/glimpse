@@ -3,8 +3,14 @@ use std::collections::HashMap;
 use crate::{
     config::{Config, ConfigEvent, watch_for_config_changes},
     panels,
-    services::framework::{Control, ServiceRuntime, Services},
+    services::{
+        display,
+        framework::{Control, ServiceRuntime, Services},
+    },
+    theme::{self, ThemeState},
 };
+use adw::gdk::{self, prelude::DisplayExt};
+use gio::prelude::ListModelExt;
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -14,17 +20,20 @@ use tokio::sync::mpsc;
 
 pub struct AppInit {
     pub config: Config,
-    pub services: ServiceRuntime,
+    pub dbus: crate::dbus::Dbus,
 }
 
 #[derive(Debug)]
 pub enum Input {
     ConfigChanged(Config),
+    ThemeReload,
+    MonitorsChanged,
 }
 
 pub struct App {
     config: Config,
     services: ServiceRuntime,
+    theme: ThemeState,
     panels: Vec<PanelState>,
 }
 
@@ -74,11 +83,36 @@ impl SimpleComponent for App {
             }
         });
 
-        let panels = build_panels(&init.config, init.services.handles());
+        if let Some(display) = gdk::Display::default() {
+            let monitor_sender = sender.clone();
+            display.monitors().connect_items_changed(move |_, _, _, _| {
+                let _ = monitor_sender.input(Input::MonitorsChanged);
+            });
+        }
+
+        let theme = ThemeState::install(&init.config);
+
+        let (theme_tx, mut theme_rx) = mpsc::channel::<()>(1);
+        relm4::spawn(async move {
+            theme::watch_user_themes(theme_tx).await;
+        });
+
+        let theme_sender = sender.clone();
+        relm4::spawn(async move {
+            while theme_rx.recv().await.is_some() {
+                let _ = theme_sender.input(Input::ThemeReload);
+            }
+        });
+
+        let services = ServiceRuntime::new(init.dbus);
+        services.broadcast(Control::Start(init.config.clone()));
+
+        let panels = build_panels(&init.config, services.handles());
         let widgets = view_output!();
         let model = App {
             config: init.config,
-            services: init.services,
+            services,
+            theme,
             panels,
         };
 
@@ -95,9 +129,17 @@ impl SimpleComponent for App {
                 tracing::info!("app config changed");
                 self.services
                     .broadcast(Control::Reconfigure(config.clone()));
-
+                self.theme.reload(&config);
                 self.reconcile_panels(&config.panels);
                 self.config = config;
+            }
+            Input::ThemeReload => {
+                tracing::info!("theme file changed, reloading");
+                self.theme.reload(&self.config);
+            }
+            Input::MonitorsChanged => {
+                let monitors = display::list_monitors();
+                tracing::info!(count = monitors.len(), "monitors changed");
             }
         }
     }

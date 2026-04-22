@@ -1,11 +1,7 @@
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    config::Config,
-    dbus::Dbus,
-    services::{display, location},
-};
+use crate::{config::Config, dbus::Dbus, services::location};
 
 macro_rules! for_each_service_handle {
     ($self:expr, $control:expr, [$($name:ident),* $(,)?]) => {
@@ -108,14 +104,13 @@ impl RunningService {
 #[derive(Clone)]
 pub struct Services {
     pub location: ServiceHandle<location::State, location::Command>,
-    pub monitors: ServiceHandle<display::State, display::Command>,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
 }
 
 impl Services {
     pub fn broadcast(&self, control: Control) {
-        for_each_service_handle!(self, control, [location, monitors]);
+        for_each_service_handle!(self, control, [location]);
     }
 }
 
@@ -131,13 +126,9 @@ impl ServiceRuntime {
         let (location_service, location) = location::LocationService::new();
         let location_service = spawn_service(|cancel| location_service.run(cancel));
 
-        let (monitor_service, monitors) = display::DisplayService::new();
-        let monitor_service = spawn_service(|cancel| monitor_service.run(cancel));
-
-        let running_services = vec![location_service, monitor_service];
+        let running_services = vec![location_service];
         let handles = Services {
             location,
-            monitors,
             system_dbus,
             session_dbus,
         };
@@ -170,6 +161,6 @@ where
 {
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
-    let task = relm4::spawn(async move { run(task_cancel).await });
+    let task = tokio::spawn(async move { run(task_cancel).await });
     RunningService { cancel, task }
 }

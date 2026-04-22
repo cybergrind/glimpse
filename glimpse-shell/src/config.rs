@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use crate::{panels, services::location::LocationConfig, theme::ThemeConfig};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Config {
     pub location: LocationConfig,
     pub theme: ThemeConfig,
@@ -76,6 +77,10 @@ impl Config {
         Self::config_dir().join("config.toml")
     }
 
+    pub fn themes_dir() -> PathBuf {
+        Self::config_dir().join("themes")
+    }
+
     fn detect_from_dirs() -> Option<PathBuf> {
         let dirs = vec![PathBuf::from("config.toml"), Config::config_file()];
         dirs.into_iter().find(|p| p.exists())
@@ -84,11 +89,7 @@ impl Config {
     pub fn theme_file(&self) -> PathBuf {
         env::var("GLIMPSE_THEME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                Self::config_dir()
-                    .join("theme")
-                    .join(self.theme.name.clone())
-            })
+            .unwrap_or_else(|_| Self::themes_dir().join(format!("{}.css", self.theme.name)))
     }
 }
 

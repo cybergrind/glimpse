@@ -94,13 +94,13 @@ impl ActiveProvider {
             LocationConfig::Static {
                 latitude,
                 longitude,
-            } => relm4::spawn(async move {
+            } => tokio::spawn(async move {
                 static_provider(latitude, longitude, command_rx, message_tx, task_cancel).await;
             }),
-            LocationConfig::GeoClue => relm4::spawn(async move {
+            LocationConfig::GeoClue => tokio::spawn(async move {
                 task_cancel.cancelled().await;
             }),
-            LocationConfig::IPAPI => relm4::spawn(async move {
+            LocationConfig::IPAPI => tokio::spawn(async move {
                 task_cancel.cancelled().await;
             }),
         };
