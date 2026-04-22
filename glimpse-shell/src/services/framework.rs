@@ -170,6 +170,6 @@ where
 {
     let cancel = CancellationToken::new();
     let task_cancel = cancel.clone();
-    let task = tokio::spawn(async move { run(task_cancel).await });
+    let task = relm4::spawn(async move { run(task_cancel).await });
     RunningService { cancel, task }
 }

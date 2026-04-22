@@ -5,7 +5,7 @@ mod panels;
 mod services;
 mod theme;
 
-use relm4::RelmApp;
+use relm4::{RELM_THREADS, RelmApp};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
@@ -25,13 +25,15 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| EnvFilter::new("info,relm4=warn"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let _rt_guard = rt.enter();
+    // must be set before relm4's runtime is first touched.
+    let threads = std::env::var("GLIMPSE_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(4);
+    RELM_THREADS.set(threads).ok();
 
     let config = Config::autodetect();
-    let dbus = rt.block_on(Dbus::connect())?;
+    let dbus = Dbus::connect()?;
 
     let services = ServiceRuntime::new(dbus);
     services.broadcast(Control::Start(config.clone()));
