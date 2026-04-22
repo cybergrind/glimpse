@@ -8,11 +8,12 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use crate::{panels, services::location::LocationConfig};
+use crate::{panels, services::location::LocationConfig, theme::ThemeConfig};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
     pub location: LocationConfig,
+    pub theme: ThemeConfig,
     pub panels: Vec<panels::Config>,
 }
 
@@ -64,23 +65,37 @@ impl Config {
         None
     }
 
-    pub fn config_file() -> PathBuf {
+    pub fn config_dir() -> PathBuf {
         env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(env::var("HOME").unwrap_or_default()).join(".config"))
             .join("glimpse")
-            .join("config.toml")
+    }
+
+    pub fn config_file() -> PathBuf {
+        Self::config_dir().join("config.toml")
     }
 
     fn detect_from_dirs() -> Option<PathBuf> {
         let dirs = vec![PathBuf::from("config.toml"), Config::config_file()];
         dirs.into_iter().find(|p| p.exists())
     }
+
+    pub fn theme_file(&self) -> PathBuf {
+        env::var("GLIMPSE_THEME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                Self::config_dir()
+                    .join("theme")
+                    .join(self.theme.name.clone())
+            })
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            theme: ThemeConfig::default(),
             location: LocationConfig::default(),
             panels: vec![panels::Config::default()],
         }

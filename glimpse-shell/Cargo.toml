@@ -24,3 +24,6 @@ toml.workspace = true
 tokio-util.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
+
+[build-dependencies]
+glib-build-tools = "0.22"

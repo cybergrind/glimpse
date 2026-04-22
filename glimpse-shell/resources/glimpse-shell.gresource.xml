@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/me/aresa/GlimpseShell">
+    <file alias="themes/base.css" compressed="true">../../themes/base.css</file>
+    <file alias="themes/adwaita.css" compressed="true">../../themes/adwaita.css</file>
+  </gresource>
+</gresources>
