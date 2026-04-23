@@ -1,3 +1,4 @@
+use gtk4::gdk;
 use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{Component, ComponentParts, ComponentSender, gtk};
@@ -75,6 +76,7 @@ pub fn default_panel_theme_mode() -> ThemeMode {
 pub struct Init {
     pub config: Config,
     pub services: Services,
+    pub monitor: Option<gdk::Monitor>,
 }
 
 #[derive(Debug)]
@@ -120,6 +122,9 @@ impl Component for Panel {
             init.config.left.len() + init.config.center.len() + init.config.right.len()
         );
         init_layer_shell(&root);
+        if let Some(monitor) = init.monitor.as_ref() {
+            root.set_monitor(monitor);
+        }
         apply_panel_config(&root, &init.config);
         apply_theme_mode(&root, &init.config.theme_mode);
 

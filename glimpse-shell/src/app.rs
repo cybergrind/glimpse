@@ -3,14 +3,12 @@ use std::collections::HashMap;
 use crate::{
     config::{Config, ConfigEvent, watch_for_config_changes},
     panels,
-    services::{
-        display,
-        framework::{Control, ServiceRuntime, Services},
-    },
+    services::framework::{Control, ServiceRuntime, Services},
     theme::{self, ThemeState},
 };
-use adw::gdk::{self, prelude::DisplayExt};
+use adw::gdk::{self, prelude::DisplayExt, prelude::MonitorExt};
 use gio::prelude::ListModelExt;
+use glib::object::CastNone;
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -85,6 +83,7 @@ impl SimpleComponent for App {
 
         if let Some(display) = gdk::Display::default() {
             let monitor_sender = sender.clone();
+            let _ = monitor_sender.input(Input::MonitorsChanged);
             display.monitors().connect_items_changed(move |_, _, _, _| {
                 let _ = monitor_sender.input(Input::MonitorsChanged);
             });
@@ -107,13 +106,12 @@ impl SimpleComponent for App {
         let services = ServiceRuntime::new(init.dbus);
         services.broadcast(Control::Start(init.config.clone()));
 
-        let panels = build_panels(&init.config, services.handles());
         let widgets = view_output!();
         let model = App {
             config: init.config,
             services,
             theme,
-            panels,
+            panels: vec![],
         };
 
         ComponentParts { model, widgets }
@@ -138,8 +136,9 @@ impl SimpleComponent for App {
                 self.theme.reload(&self.config);
             }
             Input::MonitorsChanged => {
-                let monitors = display::list_monitors();
-                tracing::info!(count = monitors.len(), "monitors changed");
+                tracing::info!("monitors changed, reconciling panels");
+                let configs = self.config.panels.clone();
+                self.reconcile_panels(&configs);
             }
         }
     }
@@ -148,35 +147,50 @@ impl SimpleComponent for App {
 impl App {
     fn reconcile_panels(&mut self, new_configs: &[panels::Config]) {
         let services = self.services.handles();
+        let monitors = list_gdk_monitors();
+
         let mut existing: HashMap<PanelKey, PanelState> = self
             .panels
             .drain(..)
             .map(|state| (state.key.clone(), state))
             .collect();
 
-        self.panels = new_configs
-            .iter()
-            .enumerate()
-            .map(|(index, cfg)| {
+        let mut new_panels: Vec<PanelState> = Vec::new();
+        for (index, cfg) in new_configs.iter().enumerate() {
+            for monitor in &monitors {
+                let connector = monitor_connector(monitor);
+                if let Some(target) = cfg.monitor.as_deref() {
+                    if connector.as_deref() != Some(target) {
+                        continue;
+                    }
+                }
                 let key = PanelKey {
                     index,
+                    monitor: connector.clone().unwrap_or_default(),
                     position: cfg.position.clone(),
                 };
-                match existing.remove(&key) {
+                let state = match existing.remove(&key) {
                     Some(state) => {
                         state
                             .controller
                             .emit(panels::Input::Reconfigure(cfg.clone()));
                         state
                     }
-                    None => build_panel(index, cfg.clone(), services.clone()),
-                }
-            })
-            .collect();
+                    None => build_panel(index, cfg.clone(), services.clone(), monitor.clone()),
+                };
+                new_panels.push(state);
+            }
+        }
+        self.panels = new_panels;
 
         for (key, state) in existing.drain() {
             state.controller.widget().destroy();
-            tracing::debug!(?key.position, index = key.index, "panel removed");
+            tracing::debug!(
+                ?key.position,
+                index = key.index,
+                monitor = %key.monitor,
+                "panel removed"
+            );
         }
     }
 }
@@ -184,6 +198,7 @@ impl App {
 #[derive(PartialEq, Clone, Eq, Hash)]
 struct PanelKey {
     index: usize,
+    monitor: String,
     position: panels::Position,
 }
 
@@ -192,28 +207,36 @@ struct PanelState {
     pub controller: Controller<panels::Panel>,
 }
 
-fn build_panels(config: &Config, services: Services) -> Vec<PanelState> {
-    let panels = config
-        .panels
-        .iter()
-        .enumerate()
-        .map(|(index, configured_panel)| {
-            build_panel(index, configured_panel.clone(), services.clone())
-        })
-        .collect();
-
-    panels
+fn list_gdk_monitors() -> Vec<gdk::Monitor> {
+    let Some(display) = gdk::Display::default() else {
+        return Vec::new();
+    };
+    let model = display.monitors();
+    (0..model.n_items())
+        .filter_map(|i| model.item(i).and_downcast::<gdk::Monitor>())
+        .collect()
 }
 
-fn build_panel(index: usize, config: panels::Config, services: Services) -> PanelState {
+fn monitor_connector(monitor: &gdk::Monitor) -> Option<String> {
+    monitor.connector().map(|s| s.to_string())
+}
+
+fn build_panel(
+    index: usize,
+    config: panels::Config,
+    services: Services,
+    monitor: gdk::Monitor,
+) -> PanelState {
     let key = PanelKey {
         index,
+        monitor: monitor_connector(&monitor).unwrap_or_default(),
         position: config.position.clone(),
     };
     let controller = panels::Panel::builder()
         .launch(panels::Init {
             config,
             services: services.clone(),
+            monitor: Some(monitor),
         })
         .detach();
     PanelState { key, controller }
