@@ -149,7 +149,7 @@ impl App {
         let services = self.services.handles();
         let monitors = list_gdk_monitors();
 
-        let mut existing: HashMap<PanelKey, PanelState> = self
+        let mut existing: HashMap<panels::PanelKey, PanelState> = self
             .panels
             .drain(..)
             .map(|state| (state.key.clone(), state))
@@ -164,7 +164,7 @@ impl App {
                         continue;
                     }
                 }
-                let key = PanelKey {
+                let key = panels::PanelKey {
                     index,
                     monitor: connector.clone().unwrap_or_default(),
                     position: cfg.position.clone(),
@@ -195,15 +195,8 @@ impl App {
     }
 }
 
-#[derive(PartialEq, Clone, Eq, Hash)]
-struct PanelKey {
-    index: usize,
-    monitor: String,
-    position: panels::Position,
-}
-
 struct PanelState {
-    pub key: PanelKey,
+    pub key: panels::PanelKey,
     pub controller: Controller<panels::Panel>,
 }
 
@@ -226,17 +219,20 @@ fn build_panel(
     config: panels::Config,
     services: Services,
     monitor: gdk::Monitor,
+    app_config: Config,
 ) -> PanelState {
-    let key = PanelKey {
+    let key = panels::PanelKey {
         index,
         monitor: monitor_connector(&monitor).unwrap_or_default(),
         position: config.position.clone(),
     };
     let controller = panels::Panel::builder()
         .launch(panels::Init {
+            key: key.clone(),
             config,
             services: services.clone(),
             monitor: Some(monitor),
+            applet_configs: app_config.applets.clone(),
         })
         .detach();
     PanelState { key, controller }

@@ -2,13 +2,21 @@ use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
     time::Duration,
 };
 use tokio::sync::mpsc;
 
-use crate::{panels, services::location::LocationConfig, theme::ThemeConfig};
+use crate::{
+    panels::{
+        self,
+        applets::{AppletConfig, AppletType},
+    },
+    services::location::LocationConfig,
+    theme::ThemeConfig,
+};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default)]
@@ -16,6 +24,7 @@ pub struct Config {
     pub location: LocationConfig,
     pub theme: ThemeConfig,
     pub panels: Vec<panels::Config>,
+    pub applets: HashMap<AppletType, AppletConfig>,
 }
 
 impl Config {
@@ -99,6 +108,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             location: LocationConfig::default(),
             panels: vec![panels::Config::default()],
+            applets: HashMap::new(),
         }
     }
 }

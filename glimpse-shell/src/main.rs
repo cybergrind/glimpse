@@ -1,4 +1,5 @@
 mod app;
+mod applets;
 mod config;
 mod dbus;
 mod panels;
