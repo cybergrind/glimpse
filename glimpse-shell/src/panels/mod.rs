@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 
 use gtk4::gdk;
 use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
@@ -114,7 +113,6 @@ pub enum PanelSection {
 }
 
 pub struct Panel {
-    config: Config,
     services: Services,
     applet_configs: HashMap<String, AppletConfig>,
     left: SectionState,
@@ -205,7 +203,6 @@ impl Component for Panel {
         );
         let widgets = view_output!();
         let model = Panel {
-            config: init.config,
             services: init.services,
             applet_configs: init.applet_configs,
             left: SectionState {
@@ -262,7 +259,6 @@ impl Component for Panel {
                     self.services.clone(),
                 );
 
-                self.config = runtime.config;
                 self.applet_configs = runtime.applet_configs;
             }
         }
