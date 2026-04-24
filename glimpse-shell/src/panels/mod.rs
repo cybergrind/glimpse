@@ -2,14 +2,16 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 use gtk4::gdk;
-use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
+use gtk4::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{Component, ComponentParts, ComponentSender, gtk};
 use serde::Deserialize;
 
 pub mod applets;
 
-use crate::panels::applets::{AppletBlueprint, AppletConfig, AppletController, AppletKey, AppletType, create_applet};
+use crate::panels::applets::{
+    AppletBlueprint, AppletConfig, AppletController, AppletKey, AppletType, create_applet,
+};
 use crate::{services::framework::Services, theme::ThemeMode};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
@@ -91,7 +93,7 @@ pub struct Init {
     pub config: Config,
     pub services: Services,
     pub monitor: Option<gdk::Monitor>,
-    pub applet_configs: HashMap<AppletType, AppletConfig>,
+    pub applet_configs: HashMap<String, AppletConfig>,
 }
 
 #[derive(Debug)]
@@ -99,8 +101,8 @@ pub enum Input {
     Reconfigure(Config),
 }
 
-#[derive(Debug, Clone)]
-enum PanelSection {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PanelSection {
     Left,
     Center,
     Right,
@@ -168,14 +170,36 @@ impl Component for Panel {
             .build();
         let layout = gtk::CenterBox::new();
 
-        let applets = HashMap::<AppletType, AppletConfig>::new();
-        let left_applets = build_applets(PanelSection::Left, init.config.left.clone(),  &init.key, &left_box, applets, init.applet_configs, init.services.clone());
+        let left_applets = build_applets(
+            PanelSection::Left,
+            &init.config.left,
+            &init.key,
+            &left_box,
+            &init.applet_configs,
+            init.services.clone(),
+        );
+        let center_applets = build_applets(
+            PanelSection::Center,
+            &init.config.center,
+            &init.key,
+            &left_box,
+            &init.applet_configs,
+            init.services.clone(),
+        );
+        let right_applets = build_applets(
+            PanelSection::Right,
+            &init.config.right,
+            &init.key,
+            &left_box,
+            &init.applet_configs,
+            init.services.clone(),
+        );
         let widgets = view_output!();
         let model = Panel {
             config: init.config,
-            left_applets: HashMap::new(),
-            center_applets: HashMap::new(),
-            right_applets: HashMap::new(),
+            left_applets,
+            center_applets,
+            right_applets,
         };
 
         root.present();
@@ -268,37 +292,132 @@ fn orientation_for_position(position: &Position) -> gtk::Orientation {
     }
 }
 
-fn build_applets(section: PanelSection, configured_applets: &[String], panel_key: &PanelKey, box: gtk::Box, applet_configs: HashMap<AppletType, AppletConfig>, services: Services) -> HashMap<AppletKey, AppletController>{
-    let applets = HashMap::new();
+fn build_applets(
+    section: PanelSection,
+    configured_applets: &[String],
+    _panel_key: &PanelKey,
+    container: &gtk::Box,
+    applet_configs: &HashMap<String, AppletConfig>,
+    services: Services,
+) -> HashMap<AppletKey, AppletController> {
+    let mut applets = HashMap::new();
     let entries = collect_applets(section, configured_applets, applet_configs);
     for entry in entries {
-        let config = applet_configs.get(&entry.name);
-        tracing::debug!(name=&entry.name, apply_type = &entry.applet_type, "create applet");
+        tracing::debug!(name = %entry.name, applet_type = ?entry.applet_type, "create applet");
 
-        if let Some(applet) = create_applet(entry, services) {
+        if let Some(applet) = create_applet(entry.clone(), services.clone()) {
             let widget = applet.widget();
-            box.append(&widget);
-            applets.insert(entry.key, AppletController);
+            container.append(&widget);
+            applets.insert(entry.key, applet);
         }
     }
 
     applets
 }
 
-fn collect_applets(section: PanelSection, configured: &[String], applet_configs: HashMap<AppletType, AppletConfig>) -> Vec<AppletBlueprint> {
+fn collect_applets(
+    section: PanelSection,
+    configured: &[String],
+    applet_configs: &HashMap<String, AppletConfig>,
+) -> Vec<AppletBlueprint> {
     configured
         .iter()
         .enumerate()
-        .map(|(slot, name)| {
-            let applet_config = applet_configs.get(name);
-            let applet_type = applet_config
-                .map(|config| config.extends.as_str())
-                .filter(|value| !value.is_empty())
-                .unwrap_or(name.as_str())
-                .to_string();
-
-            let key = AppletKey{slot, section: section.clone(), name: name.to_string(), applet_type: applet_type.clone()};
-            AppletBlueprint { slot, key, name: name.to_string(), applet_type, config: applet_config }
-        })
+        .filter_map(|(slot, name)| resolve_applet(section.clone(), slot, name, applet_configs))
         .collect()
+}
+
+fn resolve_applet(
+    section: PanelSection,
+    slot: usize,
+    name: &str,
+    applet_configs: &HashMap<String, AppletConfig>,
+) -> Option<AppletBlueprint> {
+    let applet_config = applet_configs.get(name).cloned();
+    let applet_type = applet_config
+        .as_ref()
+        .and_then(|config| config.extends.clone())
+        .or_else(|| AppletType::from_name(name));
+
+    let Some(applet_type) = applet_type else {
+        tracing::warn!(name, "unknown applet config, ignoring");
+        return None;
+    };
+
+    let key = AppletKey {
+        slot,
+        section,
+        name: name.to_string(),
+        applet_type: applet_type.clone(),
+    };
+
+    Some(AppletBlueprint {
+        slot,
+        key,
+        name: name.to_string(),
+        applet_type,
+        config: applet_config,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_applets_uses_named_config_entry() {
+        let mut applet_configs = HashMap::new();
+        applet_configs.insert(
+            "laptop".to_string(),
+            AppletConfig {
+                extends: Some(AppletType::Battery),
+                settings: toml::Value::Table(toml::map::Map::new()),
+            },
+        );
+
+        let entries = collect_applets(PanelSection::Right, &["laptop".into()], &applet_configs);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "laptop");
+        assert_eq!(entries[0].applet_type, AppletType::Battery);
+        assert!(entries[0].config.is_some());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["battery".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "battery");
+        assert_eq!(entries[0].applet_type, AppletType::Battery);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_uses_builtin_type_for_named_builtin_config_without_extends() {
+        let mut applet_configs = HashMap::new();
+        applet_configs.insert("battery".to_string(), AppletConfig::default());
+
+        let entries = collect_applets(PanelSection::Left, &["battery".into()], &applet_configs);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "battery");
+        assert_eq!(entries[0].applet_type, AppletType::Battery);
+        assert!(entries[0].config.is_some());
+        assert_eq!(entries[0].config.as_ref().unwrap().extends, None);
+    }
+
+    #[test]
+    fn collect_applets_ignores_unknown_named_config_without_extends() {
+        let mut applet_configs = HashMap::new();
+        applet_configs.insert("custom_battery".to_string(), AppletConfig::default());
+
+        let entries = collect_applets(
+            PanelSection::Right,
+            &["custom_battery".into()],
+            &applet_configs,
+        );
+
+        assert!(entries.is_empty());
+    }
 }

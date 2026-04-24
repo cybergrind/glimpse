@@ -10,10 +10,7 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::{
-    panels::{
-        self,
-        applets::{AppletConfig, AppletType},
-    },
+    panels::{self, applets::AppletConfig},
     services::location::LocationConfig,
     theme::ThemeConfig,
 };
@@ -24,7 +21,7 @@ pub struct Config {
     pub location: LocationConfig,
     pub theme: ThemeConfig,
     pub panels: Vec<panels::Config>,
-    pub applets: HashMap<AppletType, AppletConfig>,
+    pub applets: HashMap<String, AppletConfig>,
 }
 
 impl Config {

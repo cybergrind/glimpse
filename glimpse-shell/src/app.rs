@@ -176,7 +176,13 @@ impl App {
                             .emit(panels::Input::Reconfigure(cfg.clone()));
                         state
                     }
-                    None => build_panel(index, cfg.clone(), services.clone(), monitor.clone()),
+                    None => build_panel(
+                        index,
+                        cfg.clone(),
+                        services.clone(),
+                        monitor.clone(),
+                        self.config.clone(),
+                    ),
                 };
                 new_panels.push(state);
             }

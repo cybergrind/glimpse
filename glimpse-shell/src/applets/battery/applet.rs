@@ -102,7 +102,7 @@ impl SimpleComponent for Applet {
     fn init(
         init: Self::Init,
         _root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = Applet {
             label: String::new(),
