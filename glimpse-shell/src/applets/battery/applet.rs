@@ -53,6 +53,7 @@ pub struct Init {
 
 #[derive(Debug)]
 pub enum Input {
+    Reconfigure(Config),
     TogglePopover,
 }
 
@@ -117,6 +118,9 @@ impl SimpleComponent for Applet {
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         match message {
+            Input::Reconfigure(config) => {
+                self.config = config;
+            }
             Input::TogglePopover => {}
         }
     }

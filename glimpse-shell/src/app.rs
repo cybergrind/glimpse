@@ -128,7 +128,7 @@ impl SimpleComponent for App {
                 self.services
                     .broadcast(Control::Reconfigure(config.clone()));
                 self.theme.reload(&config);
-                self.reconcile_panels(&config.panels);
+                self.reconcile_panels(&config);
                 self.config = config;
             }
             Input::ThemeReload => {
@@ -137,15 +137,15 @@ impl SimpleComponent for App {
             }
             Input::MonitorsChanged => {
                 tracing::info!("monitors changed, reconciling panels");
-                let configs = self.config.panels.clone();
-                self.reconcile_panels(&configs);
+                let config = self.config.clone();
+                self.reconcile_panels(&config);
             }
         }
     }
 }
 
 impl App {
-    fn reconcile_panels(&mut self, new_configs: &[panels::Config]) {
+    fn reconcile_panels(&mut self, new_config: &Config) {
         let services = self.services.handles();
         let monitors = list_gdk_monitors();
 
@@ -156,7 +156,7 @@ impl App {
             .collect();
 
         let mut new_panels: Vec<PanelState> = Vec::new();
-        for (index, cfg) in new_configs.iter().enumerate() {
+        for (index, cfg) in new_config.panels.iter().enumerate() {
             for monitor in &monitors {
                 let connector = monitor_connector(monitor);
                 if let Some(target) = cfg.monitor.as_deref() {
@@ -171,9 +171,12 @@ impl App {
                 };
                 let state = match existing.remove(&key) {
                     Some(state) => {
-                        state
-                            .controller
-                            .emit(panels::Input::Reconfigure(cfg.clone()));
+                        state.controller.emit(panels::Input::Reconfigure(
+                            panels::PanelRuntimeConfig {
+                                config: cfg.clone(),
+                                applet_configs: new_config.applets.clone(),
+                            },
+                        ));
                         state
                     }
                     None => build_panel(
@@ -181,7 +184,7 @@ impl App {
                         cfg.clone(),
                         services.clone(),
                         monitor.clone(),
-                        self.config.clone(),
+                        new_config.clone(),
                     ),
                 };
                 new_panels.push(state);
@@ -234,7 +237,6 @@ fn build_panel(
     };
     let controller = panels::Panel::builder()
         .launch(panels::Init {
-            key: key.clone(),
             config,
             services: services.clone(),
             monitor: Some(monitor),
