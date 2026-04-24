@@ -19,9 +19,17 @@ pub struct Config {
 
 impl Config {
     pub fn from_raw(raw: &Option<AppletConfig>) -> Self {
-        raw.clone()
-            .map(|c| c.settings.clone().try_into().unwrap_or_default())
-            .unwrap_or_default()
+        let Some(raw) = raw else {
+            return Self::default();
+        };
+
+        match raw.settings.clone().try_into() {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(?error, "invalid battery applet config, using defaults");
+                Self::default()
+            }
+        }
     }
 }
 
@@ -123,5 +131,48 @@ impl SimpleComponent for Applet {
             }
             Input::TogglePopover => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_from_raw_uses_defaults_when_missing() {
+        assert_eq!(Config::from_raw(&None), Config::default());
+    }
+
+    #[test]
+    fn config_from_raw_parses_valid_settings() {
+        let raw = Some(AppletConfig {
+            extends: None,
+            settings: toml::Value::Table(toml::map::Map::from_iter([
+                ("show_icon".into(), toml::Value::Boolean(false)),
+                (
+                    "settings_command".into(),
+                    toml::Value::String("power-settings".into()),
+                ),
+            ])),
+        });
+
+        let config = Config::from_raw(&raw);
+
+        assert!(!config.show_icon);
+        assert_eq!(config.settings_command, "power-settings");
+        assert_eq!(config.tooltip_format, Config::default().tooltip_format);
+    }
+
+    #[test]
+    fn config_from_raw_falls_back_to_defaults_on_invalid_settings() {
+        let raw = Some(AppletConfig {
+            extends: None,
+            settings: toml::Value::Table(toml::map::Map::from_iter([(
+                "show_icon".into(),
+                toml::Value::String("nope".into()),
+            )])),
+        });
+
+        assert_eq!(Config::from_raw(&raw), Config::default());
     }
 }
