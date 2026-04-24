@@ -131,27 +131,39 @@ pub fn reconcile_applets(
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
 ) {
-    let entries = collect_applets(section, configured_applets, applet_configs);
+    let current_types = current
+        .iter()
+        .map(|(key, controller)| (key.clone(), controller.applet_type()))
+        .collect();
+    let plan = plan_reconcile_applets(
+        section,
+        configured_applets,
+        &current_types,
+        previous_applet_configs,
+        applet_configs,
+    );
     let mut remaining = std::mem::take(current);
-    let mut next = HashMap::with_capacity(entries.len());
+    let mut next = HashMap::with_capacity(plan.ordered.len());
     let mut previous_widget: Option<gtk::Widget> = None;
 
-    for entry in entries {
-        let controller = match remaining.remove(&entry.key) {
-            Some(existing) if existing.applet_type() == entry.applet_type => {
-                if previous_applet_configs.get(&entry.name) != applet_configs.get(&entry.name) {
-                    existing.reconfigure(entry.config.as_ref());
-                }
+    for planned in plan.ordered {
+        let entry = planned.blueprint;
+        let controller = match planned.action {
+            PlannedAction::Reuse => remaining.remove(&entry.key).expect("existing applet missing"),
+            PlannedAction::Reconfigure => {
+                let existing = remaining.remove(&entry.key).expect("existing applet missing");
+                existing.reconfigure(entry.config.as_ref());
                 existing
             }
-            Some(existing) => {
+            PlannedAction::Replace => {
+                let existing = remaining.remove(&entry.key).expect("existing applet missing");
                 detach_widget(&existing.widget());
                 let Some(created) = create_applet(entry.clone(), services.clone()) else {
                     continue;
                 };
                 created
             }
-            None => {
+            PlannedAction::Create => {
                 let Some(created) = create_applet(entry.clone(), services.clone()) else {
                     continue;
                 };
@@ -165,11 +177,69 @@ pub fn reconcile_applets(
         next.insert(entry.key, controller);
     }
 
-    for leftover in remaining.into_values() {
-        detach_widget(&leftover.widget());
+    for key in plan.removals {
+        if let Some(leftover) = remaining.remove(&key) {
+            detach_widget(&leftover.widget());
+        }
     }
 
     *current = next;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlannedAction {
+    Reuse,
+    Reconfigure,
+    Replace,
+    Create,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedApplet {
+    blueprint: AppletBlueprint,
+    action: PlannedAction,
+}
+
+#[derive(Debug, Clone)]
+struct ReconcilePlan {
+    ordered: Vec<PlannedApplet>,
+    removals: Vec<AppletKey>,
+}
+
+fn plan_reconcile_applets(
+    section: PanelSection,
+    configured_applets: &[String],
+    current_types: &HashMap<AppletKey, AppletType>,
+    previous_applet_configs: &HashMap<String, AppletConfig>,
+    applet_configs: &HashMap<String, AppletConfig>,
+) -> ReconcilePlan {
+    let entries = collect_applets(section, configured_applets, applet_configs);
+    let mut remaining = current_types.clone();
+    let mut ordered = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+        let action = match remaining.remove(&entry.key) {
+            Some(existing_type) if existing_type == entry.applet_type => {
+                if previous_applet_configs.get(&entry.name) != applet_configs.get(&entry.name) {
+                    PlannedAction::Reconfigure
+                } else {
+                    PlannedAction::Reuse
+                }
+            }
+            Some(_) => PlannedAction::Replace,
+            None => PlannedAction::Create,
+        };
+
+        ordered.push(PlannedApplet {
+            blueprint: entry,
+            action,
+        });
+    }
+
+    ReconcilePlan {
+        ordered,
+        removals: remaining.into_keys().collect(),
+    }
 }
 
 pub fn collect_applets(
@@ -350,5 +420,112 @@ mod tests {
 
         assert_eq!(old[0].key, new[1].key);
         assert_eq!(old[1].key, new[2].key);
+    }
+
+    #[test]
+    fn plan_reconcile_reuses_duplicates_when_inserting_before_them() {
+        let current_entries = collect_applets(
+            PanelSection::Left,
+            &["battery".into(), "battery".into()],
+            &HashMap::new(),
+        );
+        let current_types = current_entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.applet_type))
+            .collect();
+
+        let new_configs = HashMap::from([(
+            "custom".into(),
+            AppletConfig {
+                extends: Some(AppletType::Battery),
+                settings: toml::Value::Table(toml::map::Map::new()),
+            },
+        )]);
+        let plan = plan_reconcile_applets(
+            PanelSection::Left,
+            &["custom".into(), "battery".into(), "battery".into()],
+            &current_types,
+            &HashMap::new(),
+            &new_configs,
+        );
+
+        assert_eq!(plan.ordered.len(), 3);
+        assert_eq!(plan.ordered[0].blueprint.name, "custom");
+        assert_eq!(plan.ordered[0].action, PlannedAction::Create);
+        assert_eq!(plan.ordered[1].blueprint.key, current_entries[0].key);
+        assert_eq!(plan.ordered[1].action, PlannedAction::Reuse);
+        assert_eq!(plan.ordered[2].blueprint.key, current_entries[1].key);
+        assert_eq!(plan.ordered[2].action, PlannedAction::Reuse);
+        assert!(plan.removals.is_empty());
+    }
+
+    #[test]
+    fn plan_reconcile_marks_named_applet_for_reconfigure_on_config_change() {
+        let current_entries = collect_applets(
+            PanelSection::Left,
+            &["battery".into()],
+            &HashMap::from([("battery".into(), AppletConfig::default())]),
+        );
+        let current_types = current_entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.applet_type))
+            .collect();
+        let previous_configs = HashMap::from([("battery".into(), AppletConfig::default())]);
+        let next_configs = HashMap::from([(
+            "battery".into(),
+            AppletConfig {
+                extends: None,
+                settings: toml::Value::Table(toml::map::Map::from_iter([(
+                    "show_icon".into(),
+                    toml::Value::Boolean(false),
+                )])),
+            },
+        )]);
+
+        let plan = plan_reconcile_applets(
+            PanelSection::Left,
+            &["battery".into()],
+            &current_types,
+            &previous_configs,
+            &next_configs,
+        );
+
+        assert_eq!(plan.ordered.len(), 1);
+        assert_eq!(plan.ordered[0].blueprint.key, current_entries[0].key);
+        assert_eq!(plan.ordered[0].action, PlannedAction::Reconfigure);
+        assert!(plan.removals.is_empty());
+    }
+
+    #[test]
+    fn plan_reconcile_removes_obsolete_applets() {
+        let applet_configs = HashMap::from([(
+            "custom".into(),
+            AppletConfig {
+                extends: Some(AppletType::Battery),
+                settings: toml::Value::Table(toml::map::Map::new()),
+            },
+        )]);
+        let current_entries = collect_applets(
+            PanelSection::Left,
+            &["battery".into(), "custom".into()],
+            &applet_configs,
+        );
+        let current_types = current_entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.applet_type))
+            .collect();
+
+        let plan = plan_reconcile_applets(
+            PanelSection::Left,
+            &["battery".into()],
+            &current_types,
+            &applet_configs,
+            &HashMap::new(),
+        );
+
+        assert_eq!(plan.ordered.len(), 1);
+        assert_eq!(plan.ordered[0].blueprint.key, current_entries[0].key);
+        assert_eq!(plan.ordered[0].action, PlannedAction::Reuse);
+        assert_eq!(plan.removals, vec![current_entries[1].key.clone()]);
     }
 }
