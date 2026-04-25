@@ -93,6 +93,7 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
         AppletType::Battery => Some(AppletController::Battery(
             battery::Applet::builder()
                 .launch(battery::Init {
+                    service: services.battery.clone(),
                     config: battery::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
@@ -149,14 +150,20 @@ pub fn reconcile_applets(
     for planned in plan.ordered {
         let entry = planned.blueprint;
         let controller = match planned.action {
-            PlannedAction::Reuse => remaining.remove(&entry.key).expect("existing applet missing"),
+            PlannedAction::Reuse => remaining
+                .remove(&entry.key)
+                .expect("existing applet missing"),
             PlannedAction::Reconfigure => {
-                let existing = remaining.remove(&entry.key).expect("existing applet missing");
+                let existing = remaining
+                    .remove(&entry.key)
+                    .expect("existing applet missing");
                 existing.reconfigure(entry.config.as_ref());
                 existing
             }
             PlannedAction::Replace => {
-                let existing = remaining.remove(&entry.key).expect("existing applet missing");
+                let existing = remaining
+                    .remove(&entry.key)
+                    .expect("existing applet missing");
                 detach_widget(&existing.widget());
                 let Some(created) = create_applet(entry.clone(), services.clone()) else {
                     continue;

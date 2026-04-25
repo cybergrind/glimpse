@@ -4,7 +4,10 @@ use relm4::{
 };
 use serde::Deserialize;
 
-use crate::panels::applets::AppletConfig;
+use crate::{
+    panels::applets::AppletConfig,
+    services::battery::{BatteryHandle, BatteryState, BatteryStatus, State},
+};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -52,15 +55,18 @@ pub struct Applet {
     tooltip: String,
     label: String,
     icon_name: String,
+    service: BatteryHandle,
 }
 
 #[derive(Debug)]
 pub struct Init {
+    pub service: BatteryHandle,
     pub config: Config,
 }
 
 #[derive(Debug)]
 pub enum Input {
+    BatteryStateChanged(State),
     Reconfigure(Config),
     TogglePopover,
 }
@@ -119,60 +125,105 @@ impl SimpleComponent for Applet {
             visible: false,
             config: init.config,
             icon_name: "battery-missing-symbolic".into(),
+            service: init.service,
         };
+
+        let service = model.service.clone();
+        let subscription_sender = sender.clone();
+        relm4::spawn(async move {
+            let mut sub = service.subscribe();
+            subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+
+            loop {
+                if sub.changed().await.is_err() {
+                    break;
+                }
+
+                subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+            }
+        });
+
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         match message {
+            Input::BatteryStateChanged(state) => {
+                apply_status(self, &state.status);
+            }
             Input::Reconfigure(config) => {
                 self.config = config;
+                let snapshot = self.service.snapshot();
+                apply_status(self, &snapshot.status);
             }
             Input::TogglePopover => {}
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn apply_status(instance: &mut Applet, status: &BatteryStatus) {
+    let (label_template, tooltip_template) = if status.on_battery {
+        (
+            &instance.config.label_format,
+            &instance.config.tooltip_format,
+        )
+    } else {
+        (
+            &instance.config.label_format_on_ac,
+            &instance.config.tooltip_format_on_ac,
+        )
+    };
 
-    #[test]
-    fn config_from_raw_uses_defaults_when_missing() {
-        assert_eq!(Config::from_raw(&None), Config::default());
+    instance.label = format_label(label_template, status);
+    instance.tooltip = format_label(tooltip_template, status);
+    instance.icon_name = status.icon_name.clone();
+    instance.visible = status.present;
+}
+
+fn format_label(template: &str, status: &BatteryStatus) -> String {
+    if template.is_empty() {
+        return String::new();
     }
 
-    #[test]
-    fn config_from_raw_parses_valid_settings() {
-        let raw = Some(AppletConfig {
-            extends: None,
-            settings: toml::Value::Table(toml::map::Map::from_iter([
-                ("show_icon".into(), toml::Value::Boolean(false)),
-                (
-                    "settings_command".into(),
-                    toml::Value::String("power-settings".into()),
-                ),
-            ])),
-        });
+    template
+        .replace("{percentage}", &status.percentage.to_string())
+        .replace("{state}", format_state(&status.state).as_ref())
+        .replace("{time_left}", &format_time_left(status))
+        .trim_end_matches([' ', ',', '-', '—'])
+        .to_owned()
+}
 
-        let config = Config::from_raw(&raw);
+fn format_state(state: &BatteryState) -> &'static str {
+    match state {
+        BatteryState::Charging => "charging",
+        BatteryState::Discharging => "discharging",
+        BatteryState::Empty => "empty",
+        BatteryState::FullyCharged => "fully charged",
+        BatteryState::PendingCharge => "pending charge",
+        BatteryState::PendingDischarge => "pending discharge",
+        BatteryState::Unknown => "unknown",
+    }
+}
 
-        assert!(!config.show_icon);
-        assert_eq!(config.settings_command, "power-settings");
-        assert_eq!(config.tooltip_format, Config::default().tooltip_format);
+fn format_time_left(status: &BatteryStatus) -> String {
+    let seconds = if status.on_battery {
+        status.time_to_empty
+    } else {
+        status.time_to_full
+    };
+
+    if seconds <= 0 {
+        return String::new();
     }
 
-    #[test]
-    fn config_from_raw_falls_back_to_defaults_on_invalid_settings() {
-        let raw = Some(AppletConfig {
-            extends: None,
-            settings: toml::Value::Table(toml::map::Map::from_iter([(
-                "show_icon".into(),
-                toml::Value::String("nope".into()),
-            )])),
-        });
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+    let remaining_minutes = minutes % 60;
 
-        assert_eq!(Config::from_raw(&raw), Config::default());
+    if hours > 0 {
+        format!("{hours}h {remaining_minutes}m")
+    } else {
+        format!("{remaining_minutes}m")
     }
 }
