@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use futures_util::StreamExt;
 use serde::Serialize;
 use tokio::sync::{mpsc, watch};
+use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 use zbus::zvariant::OwnedObjectPath;
 
 use crate::{
     dbus::upower::{UPowerDeviceProxy, UPowerProxy},
-    services::framework::{ServiceCommand, ServiceHandle},
+    services::framework::{Control, ServiceCommand, ServiceHandle},
 };
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -126,6 +127,12 @@ pub struct BatteryService {
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
 }
 
+enum RunOutcome {
+    Cancelled,
+    Restart,
+    RetryAfterDelay,
+}
+
 impl BatteryService {
     pub fn new(conn: zbus::Connection) -> (Self, ServiceHandle<State, Command>) {
         let (state_tx, state_rx) = watch::channel(State::default());
@@ -148,51 +155,38 @@ impl BatteryService {
     }
 
     pub async fn run(mut self, cancel: CancellationToken) {
-        if let Err(error) = self.run_inner(cancel).await {
-            tracing::warn!(error = %error, "battery service failed");
+        loop {
+            let outcome = match self.run_inner(cancel.clone()).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    tracing::warn!(error = %error, "battery service failed");
+                    RunOutcome::RetryAfterDelay
+                }
+            };
+
+            match outcome {
+                RunOutcome::Cancelled => break,
+                RunOutcome::Restart => continue,
+                RunOutcome::RetryAfterDelay => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = sleep(Duration::from_secs(5)) => {}
+                    }
+                }
+            }
         }
     }
 
-    async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<()> {
+    async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         tracing::debug!("battery service started");
         let upower = UPowerProxy::new(&self.conn).await?;
         let on_battery = upower.on_battery().await.unwrap_or(false);
-        let device_paths = upower.enumerate_devices().await?;
-
-        tracing::info!(
-            devices = device_paths.len(),
-            on_battery,
-            "battery: enumerating UPower devices"
-        );
-        let mut battery_path: Option<OwnedObjectPath> = None;
         let mut state = self.state_tx.borrow().clone();
-        state.devices.clear();
-
-        for path in &device_paths {
-            let dev = UPowerDeviceProxy::builder(&self.conn)
-                .path(path.as_str())?
-                .build()
-                .await?;
-            let type_id = dev.device_type().await.unwrap_or(0);
-            if type_id == DeviceType::Battery as u32 && battery_path.is_none() {
-                battery_path = Some(path.clone());
-            }
-            state.devices.push(BatteryDevice {
-                path: path.to_string(),
-                device_type: DeviceType::from(type_id),
-                model: dev.model().await.unwrap_or_default(),
-                percentage: dev.percentage().await.unwrap_or(0.0),
-                state: BatteryState::from(dev.state().await.unwrap_or(0)),
-                icon_name: dev.icon_name().await.unwrap_or_default(),
-            });
-        }
-
-        let Some(bat_path) = battery_path else {
+        let Some(bat_path) = self.refresh_devices(&mut state, on_battery).await? else {
             tracing::warn!("battery: no battery found");
             state.status = BatteryStatus::default();
             self.change_state(state);
-            cancel.cancelled().await;
-            return Ok(());
+            return Ok(RunOutcome::RetryAfterDelay);
         };
 
         let bat = UPowerDeviceProxy::builder(&self.conn)
@@ -223,34 +217,110 @@ impl BatteryService {
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    break;
+                    return Ok(RunOutcome::Cancelled);
                 },
-                Some(_) = bat_changes.next() => {
-                    let on_battery = upower.on_battery().await.unwrap_or(state.status.on_battery);
-                    if self.read_state(&bat, on_battery, &mut state).await {
-                        self.change_state(state.clone());
-                    }
-                }
-                Some(_) = upower_changes.next() => {
-                    let on_battery = upower.on_battery().await.unwrap_or(state.status.on_battery);
-                    if self.read_state(&bat, on_battery, &mut state).await {
-                        self.change_state(state.clone());
-                    }
-                }
-                command = self.command_rx.recv() => match command {
-                    Some(ServiceCommand::Command(Command::Refresh)) => {
+                bat_event = bat_changes.next() => match bat_event {
+                    Some(_) => {
                         let on_battery = upower.on_battery().await.unwrap_or(state.status.on_battery);
+                        if self.refresh_devices(&mut state, on_battery).await?.as_ref() != Some(&bat_path) {
+                            if !state.devices.iter().any(|device| device.device_type == DeviceType::Battery) {
+                                state.status = BatteryStatus::default();
+                                self.change_state(state.clone());
+                                return Ok(RunOutcome::RetryAfterDelay);
+                            }
+
+                            return Ok(RunOutcome::Restart);
+                        }
                         if self.read_state(&bat, on_battery, &mut state).await {
                             self.change_state(state.clone());
                         }
                     }
-                    Some(ServiceCommand::Control(_)) => {}
-                    None => break,
+                    None => return Ok(RunOutcome::Restart),
+                },
+                upower_event = upower_changes.next() => match upower_event {
+                    Some(_) => {
+                        let on_battery = upower.on_battery().await.unwrap_or(state.status.on_battery);
+                        if self.refresh_devices(&mut state, on_battery).await?.as_ref() != Some(&bat_path) {
+                            if !state.devices.iter().any(|device| device.device_type == DeviceType::Battery) {
+                                state.status = BatteryStatus::default();
+                                self.change_state(state.clone());
+                                return Ok(RunOutcome::RetryAfterDelay);
+                            }
+
+                            return Ok(RunOutcome::Restart);
+                        }
+                        if self.read_state(&bat, on_battery, &mut state).await {
+                            self.change_state(state.clone());
+                        }
+                    }
+                    None => return Ok(RunOutcome::Restart),
+                },
+                command = self.command_rx.recv() => match command {
+                    Some(ServiceCommand::Command(Command::Refresh)) => {
+                        let on_battery = upower.on_battery().await.unwrap_or(state.status.on_battery);
+                        if self.refresh_devices(&mut state, on_battery).await?.as_ref() != Some(&bat_path) {
+                            if !state.devices.iter().any(|device| device.device_type == DeviceType::Battery) {
+                                state.status = BatteryStatus::default();
+                                self.change_state(state.clone());
+                                return Ok(RunOutcome::RetryAfterDelay);
+                            }
+
+                            return Ok(RunOutcome::Restart);
+                        }
+                        if self.read_state(&bat, on_battery, &mut state).await {
+                            self.change_state(state.clone());
+                        }
+                    }
+                    Some(ServiceCommand::Control(control)) => match control {
+                        Control::Start(_) | Control::Reconfigure(_) => {}
+                        Control::Shutdown => {
+                            return Ok(RunOutcome::Cancelled);
+                        }
+                    }
+                    None => return Ok(RunOutcome::Cancelled),
                 },
             }
         }
-        tracing::debug!("battery service stopped");
-        Ok(())
+    }
+
+    async fn refresh_devices(
+        &self,
+        state: &mut State,
+        on_battery: bool,
+    ) -> anyhow::Result<Option<OwnedObjectPath>> {
+        let upower = UPowerProxy::new(&self.conn).await?;
+        let device_paths = upower.enumerate_devices().await?;
+
+        tracing::info!(
+            devices = device_paths.len(),
+            on_battery,
+            "battery: enumerating UPower devices"
+        );
+
+        let mut battery_path = None;
+        let mut devices = Vec::with_capacity(device_paths.len());
+
+        for path in &device_paths {
+            let dev = UPowerDeviceProxy::builder(&self.conn)
+                .path(path.as_str())?
+                .build()
+                .await?;
+            let type_id = dev.device_type().await.unwrap_or(0);
+            if type_id == DeviceType::Battery as u32 && battery_path.is_none() {
+                battery_path = Some(path.clone());
+            }
+            devices.push(BatteryDevice {
+                path: path.to_string(),
+                device_type: DeviceType::from(type_id),
+                model: dev.model().await.unwrap_or_default(),
+                percentage: dev.percentage().await.unwrap_or(0.0),
+                state: BatteryState::from(dev.state().await.unwrap_or(0)),
+                icon_name: dev.icon_name().await.unwrap_or_default(),
+            });
+        }
+
+        state.devices = devices;
+        Ok(battery_path)
     }
 
     async fn read_state(

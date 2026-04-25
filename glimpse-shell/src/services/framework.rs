@@ -115,7 +115,7 @@ pub struct Services {
 
 impl Services {
     pub fn broadcast(&self, control: Control) {
-        for_each_service_handle!(self, control, [location]);
+        for_each_service_handle!(self, control, [location, battery]);
     }
 }
 

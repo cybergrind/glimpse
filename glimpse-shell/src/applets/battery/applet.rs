@@ -3,6 +3,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 use serde::Deserialize;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     panels::applets::AppletConfig,
@@ -13,10 +14,14 @@ use crate::{
 #[serde(default)]
 pub struct Config {
     show_icon: bool,
-    label_format: String,
-    label_format_on_ac: String,
-    tooltip_format: String,
-    tooltip_format_on_ac: String,
+    #[serde(alias = "label_format")]
+    label_on_battery: String,
+    #[serde(alias = "label_format_on_ac")]
+    label_on_ac: String,
+    #[serde(alias = "tooltip_format")]
+    tooltip_on_battery: String,
+    #[serde(alias = "tooltip_format_on_ac")]
+    tooltip_on_ac: String,
     settings_command: String,
 }
 
@@ -40,10 +45,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             show_icon: true,
-            label_format: "".into(),
-            label_format_on_ac: "".into(),
-            tooltip_format: "{percentage}% {state}, {time_left}".into(),
-            tooltip_format_on_ac: "{percentage}% {state}".into(),
+            label_on_battery: "{percentage}%".into(),
+            label_on_ac: String::new(),
+            tooltip_on_battery: "{percentage}% {state}, {time_left}".into(),
+            tooltip_on_ac: "{percentage}% {state}".into(),
             settings_command: String::new(),
         }
     }
@@ -56,6 +61,7 @@ pub struct Applet {
     label: String,
     icon_name: String,
     service: BatteryHandle,
+    subscription_cancel: CancellationToken,
 }
 
 #[derive(Debug)]
@@ -126,20 +132,27 @@ impl SimpleComponent for Applet {
             config: init.config,
             icon_name: "battery-missing-symbolic".into(),
             service: init.service,
+            subscription_cancel: CancellationToken::new(),
         };
 
         let service = model.service.clone();
+        let cancel = model.subscription_cancel.clone();
         let subscription_sender = sender.clone();
         relm4::spawn(async move {
             let mut sub = service.subscribe();
             subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
 
             loop {
-                if sub.changed().await.is_err() {
-                    break;
-                }
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    changed = sub.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
 
-                subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+                        subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+                    }
+                }
             }
         });
 
@@ -162,23 +175,38 @@ impl SimpleComponent for Applet {
     }
 }
 
+impl Drop for Applet {
+    fn drop(&mut self) {
+        self.subscription_cancel.cancel();
+    }
+}
+
 fn apply_status(instance: &mut Applet, status: &BatteryStatus) {
-    let (label_template, tooltip_template) = if status.on_battery {
-        (
-            &instance.config.label_format,
-            &instance.config.tooltip_format,
-        )
-    } else {
-        (
-            &instance.config.label_format_on_ac,
-            &instance.config.tooltip_format_on_ac,
-        )
-    };
+    let (label_template, tooltip_template) = select_templates(&instance.config, status);
 
     instance.label = format_label(label_template, status);
     instance.tooltip = format_label(tooltip_template, status);
     instance.icon_name = status.icon_name.clone();
     instance.visible = status.present;
+}
+
+fn select_templates<'a>(config: &'a Config, status: &BatteryStatus) -> (&'a str, &'a str) {
+    if status.on_battery {
+        (&config.label_on_battery, &config.tooltip_on_battery)
+    } else {
+        (
+            if config.label_on_ac.is_empty() {
+                &config.label_on_battery
+            } else {
+                &config.label_on_ac
+            },
+            if config.tooltip_on_ac.is_empty() {
+                &config.tooltip_on_battery
+            } else {
+                &config.tooltip_on_ac
+            },
+        )
+    }
 }
 
 fn format_label(template: &str, status: &BatteryStatus) -> String {
@@ -225,5 +253,53 @@ fn format_time_left(status: &BatteryStatus) -> String {
         format!("{hours}h {remaining_minutes}m")
     } else {
         format!("{remaining_minutes}m")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table(entries: impl IntoIterator<Item = (&'static str, toml::Value)>) -> Option<AppletConfig> {
+        Some(AppletConfig {
+            extends: None,
+            settings: toml::Value::Table(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value))
+                    .collect(),
+            ),
+        })
+    }
+
+    fn templates_for(config: &Config, on_battery: bool) -> (&str, &str) {
+        let status = BatteryStatus {
+            on_battery,
+            ..BatteryStatus::default()
+        };
+        select_templates(config, &status)
+    }
+
+    #[test]
+    fn config_from_raw_supports_legacy_label_aliases() {
+        let config = Config::from_raw(&table([
+            ("label_format", toml::Value::String("legacy".into())),
+            (
+                "tooltip_format",
+                toml::Value::String("legacy tooltip".into()),
+            ),
+        ]));
+
+        assert_eq!(templates_for(&config, true), ("legacy", "legacy tooltip"));
+    }
+
+    #[test]
+    fn ac_templates_fall_back_to_battery_templates_when_empty() {
+        let config = Config::from_raw(&table([(
+            "label_format",
+            toml::Value::String("generic".into()),
+        )]));
+
+        assert_eq!(templates_for(&config, false).0, "generic");
     }
 }
