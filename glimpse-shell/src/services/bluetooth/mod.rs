@@ -1,6 +1,7 @@
 mod bluez_client;
 mod model;
 mod protocol;
+mod service;
 
 #[allow(unused_imports)]
 pub use bluez_client::BluezClient;
@@ -14,3 +15,5 @@ pub use protocol::{
     BluetoothActiveAction, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
     BluetoothPromptReply, BluetoothServiceHealth, Command, State,
 };
+#[allow(unused_imports)]
+pub use service::{BluetoothHandle, BluetoothService};
