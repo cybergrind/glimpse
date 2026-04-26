@@ -94,6 +94,7 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
             battery::Applet::builder()
                 .launch(battery::Init {
                     service: services.battery.clone(),
+                    power_service: services.power.clone(),
                     config: battery::Config::from_raw(&blueprint.config),
                 })
                 .detach(),

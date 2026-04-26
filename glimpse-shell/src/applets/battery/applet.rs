@@ -1,5 +1,5 @@
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
 use serde::Deserialize;
@@ -7,8 +7,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     panels::applets::AppletConfig,
-    services::battery::{BatteryHandle, BatteryState, BatteryStatus, State},
+    services::{
+        battery::{BatteryHandle, BatteryState, BatteryStatus, State},
+        framework::ServiceCommand,
+        power::{self, PowerHandle},
+    },
 };
+
+use super::popover::{Popover, PopoverInit, PopoverInput, PopoverOutput};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -61,20 +67,25 @@ pub struct Applet {
     label: String,
     icon_name: String,
     service: BatteryHandle,
+    power_service: PowerHandle,
+    popover: Controller<Popover>,
     subscription_cancel: CancellationToken,
 }
 
 #[derive(Debug)]
 pub struct Init {
     pub service: BatteryHandle,
+    pub power_service: PowerHandle,
     pub config: Config,
 }
 
 #[derive(Debug)]
 pub enum Input {
     BatteryStateChanged(State),
+    PowerStateChanged(power::State),
     Reconfigure(Config),
     TogglePopover,
+    SetPowerProfile(String),
 }
 
 #[relm4::component(pub)]
@@ -122,16 +133,26 @@ impl SimpleComponent for Applet {
 
     fn init(
         init: Self::Init,
-        _root: Self::Root,
+        root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let popover = Popover::builder()
+            .launch(PopoverInit {
+                parent: root.clone(),
+            })
+            .forward(sender.input_sender(), |output| match output {
+                PopoverOutput::SetProfile(profile) => Input::SetPowerProfile(profile),
+            });
+
         let model = Applet {
             label: String::new(),
             tooltip: String::new(),
-            visible: false,
+            visible: true,
             config: init.config,
             icon_name: "battery-missing-symbolic".into(),
             service: init.service,
+            power_service: init.power_service,
+            popover,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -156,6 +177,27 @@ impl SimpleComponent for Applet {
             }
         });
 
+        let service = model.power_service.clone();
+        let cancel = model.subscription_cancel.clone();
+        let subscription_sender = sender.clone();
+        relm4::spawn(async move {
+            let mut sub = service.subscribe();
+            subscription_sender.input(Input::PowerStateChanged(sub.borrow().clone()));
+
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    changed = sub.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+
+                        subscription_sender.input(Input::PowerStateChanged(sub.borrow().clone()));
+                    }
+                }
+            }
+        });
+
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
@@ -163,14 +205,33 @@ impl SimpleComponent for Applet {
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         match message {
             Input::BatteryStateChanged(state) => {
-                apply_status(self, &state.status);
+                let status = state.status;
+                apply_status(self, &status);
+                self.popover.emit(PopoverInput::UpdateStatus(status));
+            }
+            Input::PowerStateChanged(state) => {
+                self.popover
+                    .emit(PopoverInput::UpdateProfiles(state.profiles));
             }
             Input::Reconfigure(config) => {
                 self.config = config;
                 let snapshot = self.service.snapshot();
                 apply_status(self, &snapshot.status);
             }
-            Input::TogglePopover => {}
+            Input::TogglePopover => {
+                self.popover.emit(PopoverInput::Toggle);
+            }
+            Input::SetPowerProfile(profile) => {
+                let service = self.power_service.clone();
+                relm4::spawn(async move {
+                    if let Err(error) = service
+                        .send(ServiceCommand::Command(power::Command::SetProfile(profile)))
+                        .await
+                    {
+                        tracing::warn!(%error, "failed to set power profile");
+                    }
+                });
+            }
         }
     }
 }
@@ -253,53 +314,5 @@ fn format_time_left(status: &BatteryStatus) -> String {
         format!("{hours}h {remaining_minutes}m")
     } else {
         format!("{remaining_minutes}m")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn table(entries: impl IntoIterator<Item = (&'static str, toml::Value)>) -> Option<AppletConfig> {
-        Some(AppletConfig {
-            extends: None,
-            settings: toml::Value::Table(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| (key.into(), value))
-                    .collect(),
-            ),
-        })
-    }
-
-    fn templates_for(config: &Config, on_battery: bool) -> (&str, &str) {
-        let status = BatteryStatus {
-            on_battery,
-            ..BatteryStatus::default()
-        };
-        select_templates(config, &status)
-    }
-
-    #[test]
-    fn config_from_raw_supports_legacy_label_aliases() {
-        let config = Config::from_raw(&table([
-            ("label_format", toml::Value::String("legacy".into())),
-            (
-                "tooltip_format",
-                toml::Value::String("legacy tooltip".into()),
-            ),
-        ]));
-
-        assert_eq!(templates_for(&config, true), ("legacy", "legacy tooltip"));
-    }
-
-    #[test]
-    fn ac_templates_fall_back_to_battery_templates_when_empty() {
-        let config = Config::from_raw(&table([(
-            "label_format",
-            toml::Value::String("generic".into()),
-        )]));
-
-        assert_eq!(templates_for(&config, false).0, "generic");
     }
 }

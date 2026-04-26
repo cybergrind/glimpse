@@ -5,47 +5,49 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::{components::popover_shell::PopoverShell, services::battery::BatteryStatus};
+use crate::{
+    components::{
+        key_value_grid::{KeyValueGrid, KeyValueGridInit, KeyValueGridInput, KeyValueItem},
+        popover_shell::{PopoverShell, PopoverShellInit},
+    },
+    services::{battery::BatteryStatus, power::PowerProfiles},
+};
 
 use super::components::degraded::{DegradedWarning, DegradedWarningInput};
-use super::components::details::{BatteryDetails, BatteryDetailsInput};
 use super::components::hero::{BatteryHero, BatteryHeroInput};
 use super::components::profiles::{
     PowerProfileList, PowerProfileListInput, PowerProfileListOutput,
 };
-pub struct BatteryPopover {
+pub struct Popover {
     popover: gtk::Popover,
     shell: Controller<PopoverShell>,
     hero: Controller<BatteryHero>,
-    details: Controller<BatteryDetails>,
+    details: Controller<KeyValueGrid>,
     profiles: Controller<PowerProfileList>,
     degraded: Controller<DegradedWarning>,
-    footer: Controller<FooterAction>,
 }
 
-pub struct BatteryPopoverInit {
+pub struct PopoverInit {
     pub parent: gtk::Box,
-    pub has_settings_command: bool,
 }
 
 #[derive(Debug)]
-pub enum BatteryPopoverInput {
+pub enum PopoverInput {
     Toggle,
     UpdateStatus(BatteryStatus),
     UpdateProfiles(PowerProfiles),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BatteryPopoverOutput {
+pub enum PopoverOutput {
     SetProfile(String),
-    OpenSettings,
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for BatteryPopover {
-    type Init = BatteryPopoverInit;
-    type Input = BatteryPopoverInput;
-    type Output = BatteryPopoverOutput;
+impl SimpleComponent for Popover {
+    type Init = PopoverInit;
+    type Input = PopoverInput;
+    type Output = PopoverOutput;
 
     view! {
         root = gtk::Popover {
@@ -62,23 +64,43 @@ impl SimpleComponent for BatteryPopover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let shell = PopoverShell::builder()
-            .launch(PopoverShellInit {
-                show_footer: init.has_settings_command,
-            })
-            .detach();
+        let shell = PopoverShell::builder().launch(PopoverShellInit {}).detach();
         let hero = BatteryHero::builder().launch(()).detach();
-        let details = BatteryDetails::builder().launch(()).detach();
-        let profiles = PowerProfileList::builder()
-            .launch(())
-            .forward(sender.output_sender(), map_profile_output);
-        let degraded = DegradedWarning::builder().launch(()).detach();
-        let footer = FooterAction::builder()
-            .launch(FooterActionInit {
-                title: "Power Settings".into(),
-                subtitle: String::new(),
+        let details = KeyValueGrid::builder()
+            .launch(KeyValueGridInit {
+                values: vec![
+                    KeyValueItem {
+                        label: "Health".into(),
+                        value: "".into(),
+                        visible: true,
+                    },
+                    KeyValueItem {
+                        label: "Model".into(),
+                        value: "".into(),
+                        visible: true,
+                    },
+                    KeyValueItem {
+                        label: "Charge limit".into(),
+                        value: "".into(),
+                        visible: false,
+                    },
+                    KeyValueItem {
+                        label: "Rate".into(),
+                        value: "".into(),
+                        visible: false,
+                    },
+                ],
             })
             .detach();
+        let profiles =
+            PowerProfileList::builder()
+                .launch(())
+                .forward(sender.output_sender(), |output| match output {
+                    PowerProfileListOutput::SetProfile(profile) => {
+                        PopoverOutput::SetProfile(profile)
+                    }
+                });
+        let degraded = DegradedWarning::builder().launch(()).detach();
 
         let shell_widget = shell.widget().clone();
         let hero_widget = hero.widget().clone();
@@ -89,43 +111,25 @@ impl SimpleComponent for BatteryPopover {
             .first_child()
             .and_downcast::<gtk::Box>()
             .expect("popover shell should expose content box");
-        let shell_footer = shell_content
-            .next_sibling()
-            .and_downcast::<gtk::Box>()
-            .expect("popover shell should expose footer box");
+
         shell_content.append(&hero_widget);
         shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         shell_content.append(&details_widget);
         shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         shell_content.append(&profiles_widget);
         shell_content.append(&degraded_widget);
-        shell_footer.append(footer.widget());
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
 
-        let footer_button = footer
-            .widget()
-            .first_child()
-            .and_downcast::<gtk::Box>()
-            .expect("footer action should expose row root")
-            .first_child()
-            .and_downcast::<gtk::Button>()
-            .expect("footer action row should expose button");
-        let footer_sender = sender.clone();
-        footer_button.connect_clicked(move |_| {
-            let _ = footer_sender.output(BatteryPopoverOutput::OpenSettings);
-        });
-
-        let model = BatteryPopover {
+        let model = Popover {
             popover: widgets.root.clone(),
             shell,
             hero,
             details,
             profiles,
             degraded,
-            footer,
         };
 
         ComponentParts { model, widgets }
@@ -133,29 +137,48 @@ impl SimpleComponent for BatteryPopover {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            BatteryPopoverInput::Toggle => {
+            PopoverInput::Toggle => {
                 if self.popover.is_visible() {
                     self.popover.popdown();
                 } else {
                     self.popover.popup();
                 }
             }
-            BatteryPopoverInput::UpdateStatus(status) => {
+            PopoverInput::UpdateStatus(status) => {
                 self.hero.emit(BatteryHeroInput::Update(status.clone()));
-                self.details.emit(BatteryDetailsInput::Update(status));
+                self.details.emit(KeyValueGridInput::Update(vec![
+                    KeyValueItem {
+                        label: "Health".into(),
+                        value: format!("{:.0}%", status.capacity),
+                        visible: true,
+                    },
+                    KeyValueItem {
+                        label: "Model".into(),
+                        value: if status.model.is_empty() {
+                            "\u{2014}".into()
+                        } else {
+                            status.model
+                        },
+                        visible: true,
+                    },
+                    KeyValueItem {
+                        label: "Charge limit".into(),
+                        value: format!("{}%", status.charge_threshold),
+                        visible: status.charge_threshold > 0,
+                    },
+                    KeyValueItem {
+                        label: "Rate".into(),
+                        value: format!("{:.1}W", status.energy_rate),
+                        visible: status.energy_rate > 0.0,
+                    },
+                ]));
             }
-            BatteryPopoverInput::UpdateProfiles(profiles) => {
+            PopoverInput::UpdateProfiles(profiles) => {
                 self.degraded.emit(DegradedWarningInput::Update(
                     profiles.performance_degraded.clone(),
                 ));
                 self.profiles.emit(PowerProfileListInput::Update(profiles));
             }
         }
-    }
-}
-
-fn map_profile_output(output: PowerProfileListOutput) -> BatteryPopoverOutput {
-    match output {
-        PowerProfileListOutput::SetProfile(profile) => BatteryPopoverOutput::SetProfile(profile),
     }
 }

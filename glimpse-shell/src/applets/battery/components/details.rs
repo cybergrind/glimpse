@@ -1,8 +1,9 @@
-use glimpse::battery::provider::BatteryStatus;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
 };
+
+use crate::services::battery::BatteryStatus;
 
 pub struct BatteryDetails {
     health: String,

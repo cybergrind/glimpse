@@ -567,15 +567,18 @@ popover separator {
   padding-bottom: 0;
 }
 
-.detail-grid__row:not(:last-child) {
+.detail-grid__row:not(:last-child),
+.key-value-grid__row:not(:last-child) {
   margin-bottom: var(--space-2);
 }
 
-.detail-grid__key {
+.detail-grid__key,
+.key-value-grid__key {
   color: var(--color-muted-fg);
 }
 
-.detail-grid__value {
+.detail-grid__value,
+.key-value-grid__value {
   color: var(--row-fg);
   font-variant-numeric: tabular-nums;
 }

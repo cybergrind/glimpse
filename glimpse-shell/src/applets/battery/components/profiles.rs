@@ -1,8 +1,9 @@
-use glimpse::power::provider::PowerProfiles;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self, prelude::*},
 };
+
+use crate::services::power::PowerProfiles;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PowerProfileRowView {

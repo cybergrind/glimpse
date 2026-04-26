@@ -1,8 +1,9 @@
-use glimpse::battery::provider::{BatteryState, BatteryStatus};
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
 };
+
+use crate::services::battery::{BatteryState, BatteryStatus};
 
 pub struct BatteryHero {
     icon_name: String,
