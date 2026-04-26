@@ -734,14 +734,6 @@ popover separator {
   margin-bottom: var(--space-1);
 }
 
-.battery-popover .profile-icon {
-  opacity: var(--opacity-muted);
-}
-
-.battery-popover .profile-check {
-  opacity: var(--opacity-disabled);
-}
-
 .battery-popover .profile-degraded-row {
   margin-top: var(--space-3);
 }

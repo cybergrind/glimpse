@@ -98,6 +98,24 @@ pub fn degraded_warning(reason: &str) -> String {
     }
 }
 
+pub fn profile_icon(profile: &str) -> &'static str {
+    match profile {
+        "power-saver" => "power-profile-power-saver-symbolic",
+        "balanced" => "power-profile-balanced-symbolic",
+        "performance" => "power-profile-performance-symbolic",
+        _ => "power-profile-balanced-symbolic",
+    }
+}
+
+pub fn profile_label(profile: &str) -> &'static str {
+    match profile {
+        "power-saver" => "Power Saver",
+        "balanced" => "Balanced",
+        "performance" => "Performance",
+        _ => "Unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +139,20 @@ mod tests {
         assert_eq!(
             degraded_warning("lap detected"),
             "Performance degraded: lap detected"
+        );
+    }
+
+    #[test]
+    fn profile_values_match_known_profiles() {
+        assert_eq!(profile_label("power-saver"), "Power Saver");
+        assert_eq!(
+            profile_icon("performance"),
+            "power-profile-performance-symbolic"
+        );
+        assert_eq!(profile_label("unexpected"), "Unknown");
+        assert_eq!(
+            profile_icon("unexpected"),
+            "power-profile-balanced-symbolic"
         );
     }
 }

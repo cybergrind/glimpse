@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(unused_assignments)]
 
 use std::fmt::Debug;
 
@@ -32,18 +32,12 @@ pub struct Init<Command> {
 #[derive(Debug)]
 pub enum Input<Command> {
     Update(Vec<ActionMenuItem<Command>>),
-    SetHeader(Option<String>),
-    UpdateAll {
-        header: Option<String>,
-        items: Vec<ActionMenuItem<Command>>,
-    },
 }
 
 struct ActionItemRowInit {
     label: String,
     icon: Option<String>,
     visible: bool,
-    checked: bool,
     selectable: bool,
 }
 
@@ -156,14 +150,6 @@ where
                 self.items = items;
                 render_items(&self.list, &self.items, &sender);
             }
-            Input::SetHeader(header) => {
-                self.header = header;
-            }
-            Input::UpdateAll { header, items } => {
-                self.header = header;
-                self.items = items;
-                render_items(&self.list, &self.items, &sender);
-            }
         }
     }
 }
@@ -186,7 +172,6 @@ fn render_items<Command>(
             label: item.label.clone(),
             icon: item.icon.clone(),
             visible: item.visible,
-            checked,
             selectable,
         });
 

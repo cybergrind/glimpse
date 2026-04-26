@@ -7,6 +7,9 @@ use relm4::{
 
 use crate::{
     components::{
+        action_menu::{
+            ActionMenu, ActionMenuItem, Init as ActionMenuInit, Input as ActionMenuInput,
+        },
         key_value_grid::{KeyValueGrid, KeyValueGridInit, KeyValueGridInput, KeyValueItem},
         popover_shell::PopoverShell,
     },
@@ -15,9 +18,6 @@ use crate::{
 
 use super::components::degraded::DegradedWarningView;
 use super::components::hero::BatteryHeroView;
-use super::components::profiles::{
-    PowerProfileList, PowerProfileListInput, PowerProfileListOutput,
-};
 use super::format;
 pub struct Popover {
     popover: gtk::Popover,
@@ -26,7 +26,7 @@ pub struct Popover {
     hero_progress: f64,
     hero_state: String,
     details: Controller<KeyValueGrid>,
-    profiles: Controller<PowerProfileList>,
+    profiles: Controller<ActionMenu<String>>,
     degraded_visible: bool,
     degraded_text: String,
 }
@@ -124,14 +124,12 @@ impl SimpleComponent for Popover {
                 ],
             })
             .detach();
-        let profiles =
-            PowerProfileList::builder()
-                .launch(())
-                .forward(sender.output_sender(), |output| match output {
-                    PowerProfileListOutput::SetProfile(profile) => {
-                        PopoverOutput::SetProfile(profile)
-                    }
-                });
+        let profiles = ActionMenu::builder()
+            .launch(ActionMenuInit {
+                header: Some("Power profile".into()),
+                items: Vec::new(),
+            })
+            .forward(sender.output_sender(), PopoverOutput::SetProfile);
         let details_widget = details.widget().clone();
         let profiles_widget = profiles.widget().clone();
 
@@ -194,7 +192,8 @@ impl SimpleComponent for Popover {
             PopoverInput::UpdateProfiles(profiles) => {
                 self.degraded_visible = !profiles.performance_degraded.is_empty();
                 self.degraded_text = format::degraded_warning(&profiles.performance_degraded);
-                self.profiles.emit(PowerProfileListInput::Update(profiles));
+                self.profiles
+                    .emit(ActionMenuInput::Update(build_profile_items(&profiles)));
             }
         }
     }
@@ -208,4 +207,20 @@ impl SimpleComponent for Popover {
         degraded.as_ref().set_visible(model.degraded_visible);
         degraded.label.set_label(&model.degraded_text);
     }
+}
+
+fn build_profile_items(profiles: &PowerProfiles) -> Vec<ActionMenuItem<String>> {
+    profiles
+        .available
+        .iter()
+        .filter(|profile| !profile.is_empty())
+        .map(|profile| ActionMenuItem {
+            label: format::profile_label(profile).into(),
+            icon: Some(format::profile_icon(profile).into()),
+            visible: true,
+            checked: Some(profile == &profiles.active),
+            selectable: Some(true),
+            command: profile.clone(),
+        })
+        .collect()
 }
