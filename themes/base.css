@@ -429,25 +429,30 @@ popover separator {
   padding: var(--space-2) var(--popover-padding) 0;
 }
 
-.section-block {
+.section-block,
+.action-menu {
   color: var(--popover-fg);
 }
 
-.section-block:not(:last-child) {
+.section-block:not(:last-child),
+.action-menu:not(:last-child) {
   margin-bottom: var(--popover-section-gap);
 }
 
-.section-block__header {
+.section-block__header,
+.action-menu__header {
   margin-bottom: var(--space-3);
 }
 
-.section-block__title {
+.section-block__title,
+.action-menu__title {
   color: var(--row-fg);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
 }
 
-.section-block__subtitle {
+.section-block__subtitle,
+.action-menu__subtitle {
   color: var(--color-muted-fg);
   font-size: var(--font-size-sm);
 }
@@ -516,6 +521,14 @@ popover separator {
 
 .action-row__content-shell {
   padding: var(--row-padding-y) var(--row-padding-x);
+}
+
+.action-row__trailing {
+  opacity: 0;
+}
+
+.action-row.is-checked .action-row__trailing {
+  opacity: 1;
 }
 
 .action-row__title {
