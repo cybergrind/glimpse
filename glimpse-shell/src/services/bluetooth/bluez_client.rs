@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use anyhow::Context;
+use anyhow::{Context, bail};
+use zbus::zvariant::ObjectPath;
 
 use crate::dbus::bluez::{Adapter1Proxy, Battery1Proxy, Device1Proxy};
 
@@ -72,6 +73,166 @@ impl BluezClient {
         }
 
         Ok(snapshot)
+    }
+
+    pub async fn set_powered(&self, powered: bool) -> anyhow::Result<()> {
+        let adapter_paths = self.adapter_paths().await?;
+        if adapter_paths.is_empty() {
+            bail!("no bluetooth adapters found");
+        }
+
+        tracing::info!(
+            powered,
+            adapters = adapter_paths.len(),
+            "bluetooth: set power requested"
+        );
+
+        for path in adapter_paths {
+            let proxy = self.adapter_proxy(&path).await?;
+            proxy
+                .set_powered(powered)
+                .await
+                .with_context(|| format!("failed to set adapter power on {path}"))?;
+            tracing::debug!(path = %path, powered, "bluetooth: adapter power updated");
+        }
+
+        tracing::info!(powered, "bluetooth: set power succeeded");
+        Ok(())
+    }
+
+    pub async fn set_adapter_powered(
+        &self,
+        adapter_path: &str,
+        powered: bool,
+    ) -> anyhow::Result<()> {
+        tracing::info!(path = %adapter_path, powered, "bluetooth: set adapter power requested");
+        let proxy = self.adapter_proxy(adapter_path).await?;
+        proxy
+            .set_powered(powered)
+            .await
+            .with_context(|| format!("failed to set adapter power on {adapter_path}"))?;
+        tracing::info!(path = %adapter_path, powered, "bluetooth: set adapter power succeeded");
+        Ok(())
+    }
+
+    pub async fn set_adapter_discoverable(
+        &self,
+        adapter_path: &str,
+        discoverable: bool,
+    ) -> anyhow::Result<()> {
+        tracing::info!(
+            path = %adapter_path,
+            discoverable,
+            "bluetooth: set adapter discoverable requested"
+        );
+        let proxy = self.adapter_proxy(adapter_path).await?;
+        proxy
+            .set_discoverable(discoverable)
+            .await
+            .with_context(|| format!("failed to set adapter discoverable on {adapter_path}"))?;
+        tracing::info!(
+            path = %adapter_path,
+            discoverable,
+            "bluetooth: set adapter discoverable succeeded"
+        );
+        Ok(())
+    }
+
+    pub async fn connect(&self, address: &str) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: connect requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .connect()
+            .await
+            .with_context(|| format!("failed to connect {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: connect succeeded");
+        Ok(())
+    }
+
+    pub async fn disconnect(&self, address: &str) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: disconnect requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .disconnect()
+            .await
+            .with_context(|| format!("failed to disconnect {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: disconnect succeeded");
+        Ok(())
+    }
+
+    pub async fn pair(&self, address: &str) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            "bluetooth: pair requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .pair()
+            .await
+            .with_context(|| format!("failed to pair {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: pair succeeded");
+        Ok(())
+    }
+
+    pub async fn trust(&self, address: &str, trusted: bool) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            trusted,
+            action = trust_action(trusted),
+            "bluetooth: trust requested"
+        );
+        let proxy = self.device_proxy(&device.path).await?;
+        proxy
+            .set_trusted(trusted)
+            .await
+            .with_context(|| format!("failed to set trust for {}", device.address))?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            trusted,
+            action = trust_action(trusted),
+            status = trust_status(trusted),
+            "bluetooth: trust succeeded"
+        );
+        Ok(())
+    }
+
+    pub async fn forget(&self, address: &str) -> anyhow::Result<()> {
+        let device = self.resolve_device(address).await?;
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            path = %device.path,
+            adapter = %device.adapter_path,
+            "bluetooth: forget requested"
+        );
+        let proxy = self.adapter_proxy(&device.adapter_path).await?;
+        let device_path = ObjectPath::try_from(device.path.as_str())
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        proxy
+            .remove_device(device_path)
+            .await
+            .with_context(|| format!("failed to forget {}", device.address))?;
+        tracing::info!(address = %device.address, name = %device.name, "bluetooth: forget succeeded");
+        Ok(())
     }
 
     async fn adapter_paths(&self) -> anyhow::Result<Vec<String>> {
@@ -189,6 +350,57 @@ impl BluezClient {
             .ok()?;
         proxy.percentage().await.ok()
     }
+
+    async fn resolve_device(&self, address: &str) -> anyhow::Result<ResolvedDevice> {
+        let om = self.object_manager().await?;
+        let objects = om
+            .get_managed_objects()
+            .await
+            .context("failed to read BlueZ managed objects for device lookup")?;
+
+        for (path, interfaces) in &objects {
+            let Some(props) = interfaces.get("org.bluez.Device1") else {
+                continue;
+            };
+
+            let current_address = props
+                .get("Address")
+                .and_then(|value| String::try_from(value.clone()).ok())
+                .unwrap_or_default();
+            if current_address != address {
+                continue;
+            }
+
+            let name = props
+                .get("Alias")
+                .and_then(|value| String::try_from(value.clone()).ok())
+                .unwrap_or_default();
+            let adapter_path = props
+                .get("Adapter")
+                .and_then(|value| {
+                    zbus::zvariant::ObjectPath::try_from(value.clone())
+                        .map(|path| path.to_string())
+                        .ok()
+                })
+                .unwrap_or_default();
+
+            return Ok(ResolvedDevice {
+                path: path.to_string(),
+                adapter_path,
+                address: current_address,
+                name: device_display_name(&name, address),
+            });
+        }
+
+        bail!("unknown bluetooth device: {address}")
+    }
+}
+
+struct ResolvedDevice {
+    path: String,
+    adapter_path: String,
+    address: String,
+    name: String,
 }
 
 fn device_display_name(alias: &str, address: &str) -> String {
@@ -201,6 +413,14 @@ fn device_display_name(alias: &str, address: &str) -> String {
     }
 }
 
+fn trust_action(trusted: bool) -> &'static str {
+    if trusted { "trust" } else { "untrust" }
+}
+
+fn trust_status(trusted: bool) -> &'static str {
+    if trusted { "trusted" } else { "untrusted" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +430,13 @@ mod tests {
         assert_eq!(device_display_name("Headphones", "AA:BB"), "Headphones");
         assert_eq!(device_display_name("", "AA:BB"), "AA:BB");
         assert_eq!(device_display_name("", ""), "Unknown");
+    }
+
+    #[test]
+    fn trust_helpers_distinguish_enable_and_disable_semantics() {
+        assert_eq!(trust_action(true), "trust");
+        assert_eq!(trust_action(false), "untrust");
+        assert_eq!(trust_status(true), "trusted");
+        assert_eq!(trust_status(false), "untrusted");
     }
 }
