@@ -7,7 +7,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionMenuItem<Command> {
     pub label: String,
     pub icon: Option<String>,

@@ -714,6 +714,10 @@ popover separator {
 
 /* Battery */
 
+.bluetooth-popover {
+  min-width: calc(var(--popover-min-width) + 80px);
+}
+
 .battery-popover {
   min-width: calc(var(--popover-min-width) + 80px);
 }
