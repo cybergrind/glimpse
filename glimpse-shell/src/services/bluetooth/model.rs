@@ -422,6 +422,16 @@ pub struct BluetoothDevice {
     pub adapter: String,
 }
 
+pub fn device_display_name(alias: &str, address: &str) -> String {
+    if !alias.is_empty() {
+        alias.to_owned()
+    } else if !address.is_empty() {
+        address.to_owned()
+    } else {
+        "Unknown".into()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct BluetoothSnapshot {
     pub status: BluetoothStatus,
@@ -551,5 +561,12 @@ mod tests {
             "interfaces-added"
         );
         assert_eq!(BluetoothChangeReason::Mixed.to_string(), "mixed");
+    }
+
+    #[test]
+    fn device_display_name_prefers_alias_then_address() {
+        assert_eq!(device_display_name("Headphones", "AA:BB"), "Headphones");
+        assert_eq!(device_display_name("", "AA:BB"), "AA:BB");
+        assert_eq!(device_display_name("", ""), "Unknown");
     }
 }
