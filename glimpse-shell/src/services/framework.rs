@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Config,
     dbus::Dbus,
-    services::{battery, location},
+    services::{battery, location, power},
 };
 
 macro_rules! for_each_service_handle {
@@ -109,13 +109,14 @@ impl RunningService {
 pub struct Services {
     pub location: ServiceHandle<location::State, location::Command>,
     pub battery: ServiceHandle<battery::State, battery::Command>,
+    pub power: ServiceHandle<power::State, power::Command>,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
 }
 
 impl Services {
     pub fn broadcast(&self, control: Control) {
-        for_each_service_handle!(self, control, [location, battery]);
+        for_each_service_handle!(self, control, [location, battery, power]);
     }
 }
 
@@ -135,10 +136,14 @@ impl ServiceRuntime {
         let (battery_service, battery) = battery::BatteryService::new(system_dbus.clone());
         let battery_service = spawn_service(|cancel| battery_service.run(cancel));
 
-        let running_services = vec![location_service, battery_service];
+        let (power_service, power) = power::PowerService::new(system_dbus.clone());
+        let power_service = spawn_service(|cancel| power_service.run(cancel));
+
+        let running_services = vec![location_service, battery_service, power_service];
         let handles = Services {
             location,
             battery,
+            power,
             system_dbus,
             session_dbus,
         };
