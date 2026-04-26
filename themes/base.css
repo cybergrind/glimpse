@@ -483,6 +483,10 @@ popover separator {
   font-size: var(--font-size-sm);
 }
 
+.hero-row__toggle {
+  margin-left: var(--space-2);
+}
+
 .action-row {
   border-radius: var(--row-radius);
   color: var(--row-fg);
