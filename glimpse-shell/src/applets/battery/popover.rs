@@ -8,7 +8,7 @@ use relm4::{
 use crate::{
     components::{
         key_value_grid::{KeyValueGrid, KeyValueGridInit, KeyValueGridInput, KeyValueItem},
-        popover_shell::{PopoverShell, PopoverShellInit},
+        popover_shell::PopoverShell,
     },
     services::{battery::BatteryStatus, power::PowerProfiles},
 };
@@ -20,7 +20,6 @@ use super::components::profiles::{
 };
 pub struct Popover {
     popover: gtk::Popover,
-    shell: Controller<PopoverShell>,
     hero: Controller<BatteryHero>,
     details: Controller<KeyValueGrid>,
     profiles: Controller<PowerProfileList>,
@@ -54,8 +53,36 @@ impl SimpleComponent for Popover {
             add_css_class: "battery-popover",
             set_hexpand: false,
 
-            #[local_ref]
-            shell_widget -> gtk::Box {}
+            #[template]
+            PopoverShell {
+                #[template_child]
+                footer {
+                    set_visible: false,
+                },
+
+                #[template_child]
+                content {
+                    #[local_ref]
+                    hero_widget -> gtk::Box {},
+
+                    gtk::Separator {
+                        set_orientation: gtk::Orientation::Horizontal,
+                    },
+
+                    #[local_ref]
+                    details_widget -> gtk::Box {},
+
+                    gtk::Separator {
+                        set_orientation: gtk::Orientation::Horizontal,
+                    },
+
+                    #[local_ref]
+                    profiles_widget -> gtk::Box {},
+
+                    #[local_ref]
+                    degraded_widget -> gtk::Box {},
+                },
+            },
         }
     }
 
@@ -64,7 +91,6 @@ impl SimpleComponent for Popover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let shell = PopoverShell::builder().launch(PopoverShellInit {}).detach();
         let hero = BatteryHero::builder().launch(()).detach();
         let details = KeyValueGrid::builder()
             .launch(KeyValueGridInit {
@@ -102,22 +128,10 @@ impl SimpleComponent for Popover {
                 });
         let degraded = DegradedWarning::builder().launch(()).detach();
 
-        let shell_widget = shell.widget().clone();
         let hero_widget = hero.widget().clone();
         let details_widget = details.widget().clone();
         let profiles_widget = profiles.widget().clone();
         let degraded_widget = degraded.widget().clone();
-        let shell_content = shell_widget
-            .first_child()
-            .and_downcast::<gtk::Box>()
-            .expect("popover shell should expose content box");
-
-        shell_content.append(&hero_widget);
-        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        shell_content.append(&details_widget);
-        shell_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        shell_content.append(&profiles_widget);
-        shell_content.append(&degraded_widget);
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
@@ -125,7 +139,6 @@ impl SimpleComponent for Popover {
 
         let model = Popover {
             popover: widgets.root.clone(),
-            shell,
             hero,
             details,
             profiles,

@@ -1,35 +1,23 @@
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    WidgetTemplate,
     gtk::{self, prelude::*},
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct PopoverShellInit {}
-
-pub struct PopoverShell {}
-
-#[derive(Debug)]
-pub enum PopoverShellInput {}
-
-#[relm4::component(pub)]
-impl SimpleComponent for PopoverShell {
-    type Init = PopoverShellInit;
-    type Input = PopoverShellInput;
-    type Output = ();
-
+#[relm4::widget_template(pub)]
+impl WidgetTemplate for PopoverShell {
     view! {
-        root = gtk::Box {
+        gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
             add_css_class: "popover-shell",
 
-            #[name(content)]
+            #[name = "content"]
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 0,
                 add_css_class: "popover-shell__content",
             },
 
-            #[name(footer)]
+            #[name = "footer"]
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 0,
@@ -37,16 +25,22 @@ impl SimpleComponent for PopoverShell {
             },
         }
     }
+}
 
-    fn init(
-        _init: Self::Init,
-        _root: Self::Root,
-        _sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        let model = PopoverShell {};
-        let widgets = view_output!();
-        ComponentParts { model, widgets }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popover_shell_template_exposes_stable_class_contract() {
+        if gtk::init().is_err() {
+            return;
+        }
+
+        let shell = PopoverShell::init(());
+
+        assert!(shell.has_css_class("popover-shell"));
+        assert!(shell.content.has_css_class("popover-shell__content"));
+        assert!(shell.footer.has_css_class("popover-shell__footer"));
     }
-
-    fn update(&mut self, _message: Self::Input, _sender: ComponentSender<Self>) {}
 }
