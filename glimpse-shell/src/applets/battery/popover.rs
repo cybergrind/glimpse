@@ -13,7 +13,7 @@ use crate::{
     services::{battery::BatteryStatus, power::PowerProfiles},
 };
 
-use super::components::degraded::{DegradedWarning, DegradedWarningInput};
+use super::components::degraded::DegradedWarningView;
 use super::components::hero::BatteryHeroView;
 use super::components::profiles::{
     PowerProfileList, PowerProfileListInput, PowerProfileListOutput,
@@ -24,7 +24,7 @@ pub struct Popover {
     hero: BatteryHeroView,
     details: Controller<KeyValueGrid>,
     profiles: Controller<PowerProfileList>,
-    degraded: Controller<DegradedWarning>,
+    degraded: DegradedWarningView,
 }
 
 pub struct PopoverInit {
@@ -81,8 +81,9 @@ impl SimpleComponent for Popover {
                     #[local_ref]
                     profiles_widget -> gtk::Box {},
 
-                    #[local_ref]
-                    degraded_widget -> gtk::Box {},
+                    #[name = "degraded"]
+                    #[template]
+                    DegradedWarningView,
                 },
             },
         }
@@ -127,11 +128,8 @@ impl SimpleComponent for Popover {
                         PopoverOutput::SetProfile(profile)
                     }
                 });
-        let degraded = DegradedWarning::builder().launch(()).detach();
-
         let details_widget = details.widget().clone();
         let profiles_widget = profiles.widget().clone();
-        let degraded_widget = degraded.widget().clone();
 
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
@@ -142,7 +140,7 @@ impl SimpleComponent for Popover {
             hero: widgets.hero.clone(),
             details,
             profiles,
-            degraded,
+            degraded: widgets.degraded.clone(),
         };
 
         ComponentParts { model, widgets }
@@ -183,9 +181,7 @@ impl SimpleComponent for Popover {
                 ]));
             }
             PopoverInput::UpdateProfiles(profiles) => {
-                self.degraded.emit(DegradedWarningInput::Update(
-                    profiles.performance_degraded.clone(),
-                ));
+                self.degraded.update_reason(&profiles.performance_degraded);
                 self.profiles.emit(PowerProfileListInput::Update(profiles));
             }
         }
