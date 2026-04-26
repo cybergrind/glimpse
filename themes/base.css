@@ -430,22 +430,26 @@ popover separator {
 }
 
 .section-block,
-.action-menu {
+.action-menu,
+.device-list {
   color: var(--popover-fg);
 }
 
 .section-block:not(:last-child),
-.action-menu:not(:last-child) {
+.action-menu:not(:last-child),
+.device-list:not(:last-child) {
   margin-bottom: var(--popover-section-gap);
 }
 
 .section-block__header,
-.action-menu__header {
+.action-menu__header,
+.device-list__header {
   margin-bottom: var(--space-3);
 }
 
 .section-block__title,
-.action-menu__title {
+.action-menu__title,
+.device-list__title {
   color: var(--row-fg);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
@@ -544,6 +548,21 @@ popover separator {
 .action-row__meta {
   color: var(--row-muted-fg);
   font-size: var(--font-size-sm);
+}
+
+.device-list .action-row.is-active .action-row__button,
+.device-list .action-row.is-selected .action-row__button {
+  background: transparent;
+}
+
+.device-list .action-row.is-active .action-row__button:hover,
+.device-list .action-row.is-selected .action-row__button:hover {
+  background: var(--row-hover-bg);
+}
+
+.device-list .action-row.is-active .device-list-row__icon,
+.device-list .action-row.is-selected .device-list-row__icon {
+  color: var(--color-accent);
 }
 
 .card-surface {

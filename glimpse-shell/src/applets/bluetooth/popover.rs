@@ -10,9 +10,7 @@ use relm4::{
 
 use crate::{
     components::{
-        action_menu::{
-            ActionMenu, ActionMenuItem, Init as ActionMenuInit, Input as ActionMenuInput,
-        },
+        device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
         hero::HeroView,
         popover_shell::PopoverShell,
     },
@@ -28,8 +26,8 @@ pub struct Popover {
     hero_subtitle: String,
     powered: bool,
     updating_power: Rc<Cell<bool>>,
-    devices: Controller<ActionMenu<Command>>,
-    device_items: Vec<ActionMenuItem<Command>>,
+    devices: Controller<DeviceList<Command>>,
+    device_items: Vec<DeviceListItem<Command>>,
 }
 
 pub struct PopoverInit {
@@ -96,8 +94,8 @@ impl SimpleComponent for Popover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let devices = ActionMenu::builder()
-            .launch(ActionMenuInit {
+        let devices = DeviceList::builder()
+            .launch(DeviceListInit {
                 header: Some("Devices".into()),
                 items: Vec::new(),
             })
@@ -158,10 +156,10 @@ impl SimpleComponent for Popover {
                 self.hero_icon_name = hero_icon_name_for_state(&state).into();
                 self.hero_subtitle = hero_subtitle_text(&state);
 
-                let items = build_device_items(&state.snapshot);
+                let items = build_device_items(&state);
                 if self.device_items != items {
                     self.devices.widget().set_visible(!items.is_empty());
-                    self.devices.emit(ActionMenuInput::Update(items.clone()));
+                    self.devices.emit(DeviceListInput::Update(items.clone()));
                     self.device_items = items;
                 }
             }
@@ -270,18 +268,30 @@ fn active_action_text(state: &State) -> Option<String> {
     }
 }
 
-fn build_device_items(snapshot: &BluetoothSnapshot) -> Vec<ActionMenuItem<Command>> {
-    visible_devices(snapshot)
+fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
+    let connecting_address = connecting_device_address(state);
+
+    visible_devices(&state.snapshot)
         .into_iter()
-        .map(|device| ActionMenuItem {
+        .map(|device| DeviceListItem {
+            id: device.address.clone(),
             label: device.name.clone(),
-            icon: Some(device.device_type.icon(device.connected).into()),
+            icon: device.device_type.icon(device.connected).into(),
+            status: device_status(device),
+            busy: connecting_address == Some(device.address.as_str()),
+            tooltip: Some(device_tooltip(device)),
+            active: device.connected,
             visible: true,
-            checked: if device.connected { Some(true) } else { None },
-            selectable: if device.connected { Some(true) } else { None },
             command: primary_device_command(device),
         })
         .collect()
+}
+
+fn connecting_device_address(state: &State) -> Option<&str> {
+    match state.active_action.as_ref()? {
+        BluetoothActiveAction::Connect { address } => Some(address.as_str()),
+        _ => None,
+    }
 }
 
 fn visible_devices(snapshot: &BluetoothSnapshot) -> Vec<&BluetoothDevice> {
@@ -331,6 +341,31 @@ fn primary_device_command(device: &BluetoothDevice) -> Command {
         Command::Pair {
             address: device.address.clone(),
         }
+    }
+}
+
+fn device_status(device: &BluetoothDevice) -> String {
+    device
+        .battery
+        .map(|percentage| format!("{percentage}%"))
+        .unwrap_or_default()
+}
+
+fn device_tooltip(device: &BluetoothDevice) -> String {
+    let mut parts = Vec::new();
+    let device_type = device.device_type.label();
+    if !device_type.is_empty() {
+        parts.push(device_type.to_owned());
+    }
+    if device.connected {
+        parts.push("Connected".into());
+    } else if device.paired {
+        parts.push("Paired".into());
+    }
+    if parts.is_empty() {
+        device.name.clone()
+    } else {
+        parts.join(" \u{b7} ")
     }
 }
 
@@ -437,18 +472,66 @@ mod tests {
 
     #[test]
     fn device_items_hide_raw_uninteresting_addresses() {
-        let snapshot = BluetoothSnapshot {
-            status: BluetoothStatus::default(),
-            adapters: vec![],
-            devices: vec![
-                device("AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:01", false, false),
-                device("AA:BB:CC:DD:EE:02", "Mouse", false, false),
-            ],
+        let state = State {
+            health: BluetoothServiceHealth::Ready,
+            snapshot: BluetoothSnapshot {
+                status: BluetoothStatus::default(),
+                adapters: vec![],
+                devices: vec![
+                    device("AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:01", false, false),
+                    device("AA:BB:CC:DD:EE:02", "Mouse", false, false),
+                ],
+            },
+            prompt: None,
+            active_action: None,
         };
 
-        let items = build_device_items(&snapshot);
+        let items = build_device_items(&state);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "Mouse");
+    }
+
+    #[test]
+    fn device_item_status_is_battery_percentage_when_available() {
+        let mut device = device("AA:BB:CC:DD:EE:02", "Mouse", true, true);
+        device.battery = Some(75);
+        let state = State {
+            health: BluetoothServiceHealth::Ready,
+            snapshot: BluetoothSnapshot {
+                status: BluetoothStatus::default(),
+                adapters: vec![],
+                devices: vec![device],
+            },
+            prompt: None,
+            active_action: None,
+        };
+
+        let items = build_device_items(&state);
+
+        assert_eq!(items[0].status, "75%");
+        assert!(!items[0].busy);
+        assert!(items[0].active);
+    }
+
+    #[test]
+    fn connecting_device_item_sets_busy_status_slot() {
+        let device = device("AA:BB:CC:DD:EE:02", "Mouse", false, true);
+        let state = State {
+            health: BluetoothServiceHealth::Ready,
+            snapshot: BluetoothSnapshot {
+                status: BluetoothStatus::default(),
+                adapters: vec![],
+                devices: vec![device],
+            },
+            prompt: None,
+            active_action: Some(BluetoothActiveAction::Connect {
+                address: "AA:BB:CC:DD:EE:02".into(),
+            }),
+        };
+
+        let items = build_device_items(&state);
+
+        assert!(items[0].busy);
     }
 }
