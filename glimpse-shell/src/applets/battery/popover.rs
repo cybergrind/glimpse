@@ -14,13 +14,14 @@ use crate::{
 };
 
 use super::components::degraded::{DegradedWarning, DegradedWarningInput};
-use super::components::hero::{BatteryHero, BatteryHeroInput};
+use super::components::hero::BatteryHeroView;
 use super::components::profiles::{
     PowerProfileList, PowerProfileListInput, PowerProfileListOutput,
 };
+use super::format;
 pub struct Popover {
     popover: gtk::Popover,
-    hero: Controller<BatteryHero>,
+    hero: BatteryHeroView,
     details: Controller<KeyValueGrid>,
     profiles: Controller<PowerProfileList>,
     degraded: Controller<DegradedWarning>,
@@ -62,8 +63,9 @@ impl SimpleComponent for Popover {
 
                 #[template_child]
                 content {
-                    #[local_ref]
-                    hero_widget -> gtk::Box {},
+                    #[name = "hero"]
+                    #[template]
+                    BatteryHeroView,
 
                     gtk::Separator {
                         set_orientation: gtk::Orientation::Horizontal,
@@ -91,7 +93,6 @@ impl SimpleComponent for Popover {
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let hero = BatteryHero::builder().launch(()).detach();
         let details = KeyValueGrid::builder()
             .launch(KeyValueGridInit {
                 values: vec![
@@ -128,7 +129,6 @@ impl SimpleComponent for Popover {
                 });
         let degraded = DegradedWarning::builder().launch(()).detach();
 
-        let hero_widget = hero.widget().clone();
         let details_widget = details.widget().clone();
         let profiles_widget = profiles.widget().clone();
         let degraded_widget = degraded.widget().clone();
@@ -139,7 +139,7 @@ impl SimpleComponent for Popover {
 
         let model = Popover {
             popover: widgets.root.clone(),
-            hero,
+            hero: widgets.hero.clone(),
             details,
             profiles,
             degraded,
@@ -158,30 +158,26 @@ impl SimpleComponent for Popover {
                 }
             }
             PopoverInput::UpdateStatus(status) => {
-                self.hero.emit(BatteryHeroInput::Update(status.clone()));
+                self.hero.update_status(&status);
                 self.details.emit(KeyValueGridInput::Update(vec![
                     KeyValueItem {
                         label: "Health".into(),
-                        value: format!("{:.0}%", status.capacity),
+                        value: format::percent(status.capacity),
                         visible: true,
                     },
                     KeyValueItem {
                         label: "Model".into(),
-                        value: if status.model.is_empty() {
-                            "\u{2014}".into()
-                        } else {
-                            status.model
-                        },
+                        value: format::optional_model(status.model),
                         visible: true,
                     },
                     KeyValueItem {
                         label: "Charge limit".into(),
-                        value: format!("{}%", status.charge_threshold),
+                        value: format::percent(status.charge_threshold),
                         visible: status.charge_threshold > 0,
                     },
                     KeyValueItem {
                         label: "Rate".into(),
-                        value: format!("{:.1}W", status.energy_rate),
+                        value: format::power_rate(status.energy_rate),
                         visible: status.energy_rate > 0.0,
                     },
                 ]));

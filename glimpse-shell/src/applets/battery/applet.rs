@@ -8,13 +8,16 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     panels::applets::AppletConfig,
     services::{
-        battery::{BatteryHandle, BatteryState, BatteryStatus, State},
+        battery::{BatteryHandle, BatteryStatus, State},
         framework::ServiceCommand,
         power::{self, PowerHandle},
     },
 };
 
-use super::popover::{Popover, PopoverInit, PopoverInput, PopoverOutput};
+use super::{
+    format,
+    popover::{Popover, PopoverInit, PopoverInput, PopoverOutput},
+};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -245,8 +248,8 @@ impl Drop for Applet {
 fn apply_status(instance: &mut Applet, status: &BatteryStatus) {
     let (label_template, tooltip_template) = select_templates(&instance.config, status);
 
-    instance.label = format_label(label_template, status);
-    instance.tooltip = format_label(tooltip_template, status);
+    instance.label = format::label(label_template, status);
+    instance.tooltip = format::label(tooltip_template, status);
     instance.icon_name = status.icon_name.clone();
     instance.visible = status.present;
 }
@@ -267,52 +270,5 @@ fn select_templates<'a>(config: &'a Config, status: &BatteryStatus) -> (&'a str,
                 &config.tooltip_on_ac
             },
         )
-    }
-}
-
-fn format_label(template: &str, status: &BatteryStatus) -> String {
-    if template.is_empty() {
-        return String::new();
-    }
-
-    template
-        .replace("{percentage}", &status.percentage.to_string())
-        .replace("{state}", format_state(&status.state).as_ref())
-        .replace("{time_left}", &format_time_left(status))
-        .trim_end_matches([' ', ',', '-', '—'])
-        .to_owned()
-}
-
-fn format_state(state: &BatteryState) -> &'static str {
-    match state {
-        BatteryState::Charging => "charging",
-        BatteryState::Discharging => "discharging",
-        BatteryState::Empty => "empty",
-        BatteryState::FullyCharged => "fully charged",
-        BatteryState::PendingCharge => "pending charge",
-        BatteryState::PendingDischarge => "pending discharge",
-        BatteryState::Unknown => "unknown",
-    }
-}
-
-fn format_time_left(status: &BatteryStatus) -> String {
-    let seconds = if status.on_battery {
-        status.time_to_empty
-    } else {
-        status.time_to_full
-    };
-
-    if seconds <= 0 {
-        return String::new();
-    }
-
-    let minutes = seconds / 60;
-    let hours = minutes / 60;
-    let remaining_minutes = minutes % 60;
-
-    if hours > 0 {
-        format!("{hours}h {remaining_minutes}m")
-    } else {
-        format!("{remaining_minutes}m")
     }
 }

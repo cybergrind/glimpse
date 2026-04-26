@@ -3,7 +3,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::services::battery::BatteryStatus;
+use crate::{applets::battery::format, services::battery::BatteryStatus};
 
 pub struct BatteryDetails {
     health: String,
@@ -134,23 +134,19 @@ impl SimpleComponent for BatteryDetails {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             BatteryDetailsInput::Update(status) => {
-                self.health = format!("{:.0}%", status.capacity);
-                self.model_name = if status.model.is_empty() {
-                    "\u{2014}".into()
-                } else {
-                    status.model
-                };
+                self.health = format::percent(status.capacity);
+                self.model_name = format::optional_model(status.model);
 
                 self.show_rate = status.energy_rate > 0.0;
                 self.rate = if self.show_rate {
-                    format!("{:.1}W", status.energy_rate)
+                    format::power_rate(status.energy_rate)
                 } else {
                     String::new()
                 };
 
                 self.show_charge_limit = status.charge_threshold > 0;
                 self.charge_limit = if self.show_charge_limit {
-                    format!("{}%", status.charge_threshold)
+                    format::percent(status.charge_threshold)
                 } else {
                     String::new()
                 };
