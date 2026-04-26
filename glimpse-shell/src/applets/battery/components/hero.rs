@@ -3,8 +3,6 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::{applets::battery::format, services::battery::BatteryStatus};
-
 #[relm4::widget_template(pub)]
 impl WidgetTemplate for BatteryHeroView {
     view! {
@@ -43,15 +41,5 @@ impl WidgetTemplate for BatteryHeroView {
                 set_halign: gtk::Align::Start,
             },
         }
-    }
-}
-
-impl BatteryHeroView {
-    pub fn update_status(&self, status: &BatteryStatus) {
-        self.icon.set_icon_name(Some(&status.icon_name));
-        self.percentage
-            .set_label(&format::percent(status.percentage));
-        self.progress.set_fraction(status.percentage as f64 / 100.0);
-        self.state.set_label(&format::state_text(status));
     }
 }

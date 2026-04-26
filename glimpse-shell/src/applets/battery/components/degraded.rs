@@ -27,16 +27,3 @@ impl WidgetTemplate for DegradedWarningView {
         }
     }
 }
-
-impl DegradedWarningView {
-    pub fn update_reason(&self, reason: &str) {
-        let visible = !reason.is_empty();
-        self.set_visible(visible);
-        if visible {
-            self.label
-                .set_label(&format!("Performance degraded: {reason}"));
-        } else {
-            self.label.set_label("");
-        }
-    }
-}

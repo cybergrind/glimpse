@@ -21,10 +21,14 @@ use super::components::profiles::{
 use super::format;
 pub struct Popover {
     popover: gtk::Popover,
-    hero: BatteryHeroView,
+    hero_icon_name: String,
+    hero_percentage: String,
+    hero_progress: f64,
+    hero_state: String,
     details: Controller<KeyValueGrid>,
     profiles: Controller<PowerProfileList>,
-    degraded: DegradedWarningView,
+    degraded_visible: bool,
+    degraded_text: String,
 }
 
 pub struct PopoverInit {
@@ -137,10 +141,14 @@ impl SimpleComponent for Popover {
 
         let model = Popover {
             popover: widgets.root.clone(),
-            hero: widgets.hero.clone(),
+            hero_icon_name: "battery-missing-symbolic".into(),
+            hero_percentage: "\u{2014}".into(),
+            hero_progress: 0.0,
+            hero_state: String::new(),
             details,
             profiles,
-            degraded: widgets.degraded.clone(),
+            degraded_visible: false,
+            degraded_text: String::new(),
         };
 
         ComponentParts { model, widgets }
@@ -156,7 +164,10 @@ impl SimpleComponent for Popover {
                 }
             }
             PopoverInput::UpdateStatus(status) => {
-                self.hero.update_status(&status);
+                self.hero_icon_name = status.icon_name.clone();
+                self.hero_percentage = format::percent(status.percentage);
+                self.hero_progress = status.percentage as f64 / 100.0;
+                self.hero_state = format::state_text(&status);
                 self.details.emit(KeyValueGridInput::Update(vec![
                     KeyValueItem {
                         label: "Health".into(),
@@ -181,9 +192,20 @@ impl SimpleComponent for Popover {
                 ]));
             }
             PopoverInput::UpdateProfiles(profiles) => {
-                self.degraded.update_reason(&profiles.performance_degraded);
+                self.degraded_visible = !profiles.performance_degraded.is_empty();
+                self.degraded_text = format::degraded_warning(&profiles.performance_degraded);
                 self.profiles.emit(PowerProfileListInput::Update(profiles));
             }
         }
+    }
+
+    fn post_view() {
+        hero.icon.set_icon_name(Some(&model.hero_icon_name));
+        hero.percentage.set_label(&model.hero_percentage);
+        hero.progress.set_fraction(model.hero_progress);
+        hero.state.set_label(&model.hero_state);
+
+        degraded.as_ref().set_visible(model.degraded_visible);
+        degraded.label.set_label(&model.degraded_text);
     }
 }

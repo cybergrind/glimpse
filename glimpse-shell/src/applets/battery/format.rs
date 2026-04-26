@@ -90,6 +90,14 @@ pub fn state_text(status: &BatteryStatus) -> String {
     }
 }
 
+pub fn degraded_warning(reason: &str) -> String {
+    if reason.is_empty() {
+        String::new()
+    } else {
+        format!("Performance degraded: {reason}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +113,14 @@ mod tests {
         assert_eq!(duration(0), "");
         assert_eq!(duration(9 * 60), "9m");
         assert_eq!(duration(65 * 60), "1h 05m");
+    }
+
+    #[test]
+    fn degraded_warning_is_empty_without_reason() {
+        assert_eq!(degraded_warning(""), "");
+        assert_eq!(
+            degraded_warning("lap detected"),
+            "Performance degraded: lap detected"
+        );
     }
 }
