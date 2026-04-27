@@ -1,8 +1,11 @@
+mod agent;
 mod bluez_client;
 mod model;
 mod protocol;
 mod service;
 
+#[allow(unused_imports)]
+pub use agent::{AgentDefaultStatus, BluetoothAgent};
 #[allow(unused_imports)]
 pub use bluez_client::BluezClient;
 #[allow(unused_imports)]

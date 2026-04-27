@@ -20,6 +20,8 @@ use crate::{
     },
 };
 
+use super::format;
+
 pub struct Popover {
     popover: gtk::Popover,
     hero_icon_name: String,
@@ -96,7 +98,7 @@ impl SimpleComponent for Popover {
     ) -> ComponentParts<Self> {
         let devices = DeviceList::builder()
             .launch(DeviceListInit {
-                header: Some("Devices".into()),
+                header: None,
                 items: Vec::new(),
             })
             .forward(sender.input_sender(), PopoverInput::DeviceCommand);
@@ -167,6 +169,12 @@ impl SimpleComponent for Popover {
                 let _ = sender.output(PopoverOutput::Command(Command::SetPowered(powered)));
             }
             PopoverInput::DeviceCommand(command) => {
+                if let Some(address) = optimistic_busy_address(&command).map(str::to_owned) {
+                    if mark_device_busy(&mut self.device_items, &address) {
+                        self.devices
+                            .emit(DeviceListInput::Update(self.device_items.clone()));
+                    }
+                }
                 let _ = sender.output(PopoverOutput::Command(command));
             }
         }
@@ -202,6 +210,10 @@ fn hero_subtitle_text(state: &State) -> String {
         BluetoothServiceHealth::Reconnecting { .. } => return "Reconnecting".into(),
         BluetoothServiceHealth::Degraded { message } => return message.clone(),
         BluetoothServiceHealth::Ready => {}
+    }
+
+    if let Some(prompt) = &state.prompt {
+        return format::prompt_activity_text(prompt, &state.snapshot);
     }
 
     if let Some(activity) = active_action_text(state) {
@@ -269,7 +281,7 @@ fn active_action_text(state: &State) -> Option<String> {
 }
 
 fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
-    let connecting_address = connecting_device_address(state);
+    let busy_address = busy_device_address(state);
 
     visible_devices(&state.snapshot)
         .into_iter()
@@ -278,7 +290,7 @@ fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
             label: device.name.clone(),
             icon: device.device_type.icon(device.connected).into(),
             status: device_status(device),
-            busy: connecting_address == Some(device.address.as_str()),
+            busy: busy_address == Some(device.address.as_str()),
             tooltip: Some(device_tooltip(device)),
             active: device.connected,
             visible: true,
@@ -287,11 +299,31 @@ fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
         .collect()
 }
 
-fn connecting_device_address(state: &State) -> Option<&str> {
+fn busy_device_address(state: &State) -> Option<&str> {
     match state.active_action.as_ref()? {
         BluetoothActiveAction::Connect { address } => Some(address.as_str()),
+        BluetoothActiveAction::Pair { address } => Some(address.as_str()),
         _ => None,
     }
+}
+
+fn optimistic_busy_address(command: &Command) -> Option<&str> {
+    match command {
+        Command::Connect { address } | Command::Pair { address } => Some(address.as_str()),
+        _ => None,
+    }
+}
+
+fn mark_device_busy(items: &mut [DeviceListItem<Command>], address: &str) -> bool {
+    let mut changed = false;
+    for item in items {
+        let busy = item.id == address;
+        if item.busy != busy {
+            item.busy = busy;
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn visible_devices(snapshot: &BluetoothSnapshot) -> Vec<&BluetoothDevice> {
@@ -533,5 +565,76 @@ mod tests {
         let items = build_device_items(&state);
 
         assert!(items[0].busy);
+    }
+
+    #[test]
+    fn pairing_device_item_sets_busy_status_slot() {
+        let device = device("AA:BB:CC:DD:EE:02", "Mouse", false, false);
+        let state = State {
+            health: BluetoothServiceHealth::Ready,
+            snapshot: BluetoothSnapshot {
+                status: BluetoothStatus::default(),
+                adapters: vec![],
+                devices: vec![device],
+            },
+            prompt: None,
+            active_action: Some(BluetoothActiveAction::Pair {
+                address: "AA:BB:CC:DD:EE:02".into(),
+            }),
+        };
+
+        let items = build_device_items(&state);
+
+        assert!(items[0].busy);
+    }
+
+    #[test]
+    fn optimistic_busy_marks_clicked_pair_or_connect_device() {
+        assert_eq!(
+            optimistic_busy_address(&Command::Pair {
+                address: "AA:BB".into()
+            }),
+            Some("AA:BB")
+        );
+        assert_eq!(
+            optimistic_busy_address(&Command::Connect {
+                address: "AA:BB".into()
+            }),
+            Some("AA:BB")
+        );
+        assert_eq!(optimistic_busy_address(&Command::SetPowered(true)), None);
+
+        let mut items = vec![
+            DeviceListItem {
+                id: "AA:BB".into(),
+                icon: String::new(),
+                label: "Headphones".into(),
+                status: String::new(),
+                busy: false,
+                tooltip: None,
+                active: false,
+                visible: true,
+                command: Command::Pair {
+                    address: "AA:BB".into(),
+                },
+            },
+            DeviceListItem {
+                id: "CC:DD".into(),
+                icon: String::new(),
+                label: "Mouse".into(),
+                status: String::new(),
+                busy: true,
+                tooltip: None,
+                active: false,
+                visible: true,
+                command: Command::Pair {
+                    address: "CC:DD".into(),
+                },
+            },
+        ];
+
+        assert!(mark_device_busy(&mut items, "AA:BB"));
+        assert!(items[0].busy);
+        assert!(!items[1].busy);
     }
 }

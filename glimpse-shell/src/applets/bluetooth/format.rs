@@ -1,4 +1,7 @@
-use crate::services::bluetooth::{BluetoothActiveAction, BluetoothServiceHealth, State};
+use crate::services::bluetooth::{
+    BluetoothActiveAction, BluetoothPrompt, BluetoothPromptKind, BluetoothServiceHealth,
+    BluetoothSnapshot, State,
+};
 
 pub const DEFAULT_LABEL_FORMAT: &str = "";
 pub const DEFAULT_TOOLTIP_FORMAT: &str = "{devices} connected devices";
@@ -52,6 +55,43 @@ pub fn state_text(state: &State) -> String {
     } else {
         "ready".into()
     }
+}
+
+pub fn prompt_activity_text(prompt: &BluetoothPrompt, snapshot: &BluetoothSnapshot) -> String {
+    let label = prompt_device_label(prompt, snapshot);
+    match &prompt.kind {
+        BluetoothPromptKind::Confirm { .. } => format!("Confirm pairing with {label}"),
+        BluetoothPromptKind::AuthorizePairing => format!("Authorize pairing with {label}"),
+        BluetoothPromptKind::AuthorizeService { .. } => format!("Authorize {label}"),
+        BluetoothPromptKind::RequestPin => format!("Enter PIN for {label}"),
+        BluetoothPromptKind::RequestPasskey => format!("Enter passkey for {label}"),
+        BluetoothPromptKind::DisplayPin { .. } => format!("Type PIN on {label}"),
+        BluetoothPromptKind::DisplayPasskey { .. } => format!("Type passkey on {label}"),
+    }
+}
+
+pub fn prompt_device_label(prompt: &BluetoothPrompt, snapshot: &BluetoothSnapshot) -> String {
+    if !prompt.device_label.is_empty() && prompt.device_label != prompt.device_path {
+        return prompt.device_label.clone();
+    }
+
+    if let Some(address) = prompt_address(&prompt.device_path) {
+        if let Some(device) = snapshot
+            .devices
+            .iter()
+            .find(|device| device.address == address)
+        {
+            return device.name.clone();
+        }
+    }
+
+    prompt.device_path.clone()
+}
+
+fn prompt_address(path: &str) -> Option<String> {
+    let tail = path.rsplit('/').next()?;
+    let suffix = tail.strip_prefix("dev_")?;
+    Some(suffix.replace('_', ":"))
 }
 
 fn active_action_text(action: Option<&BluetoothActiveAction>) -> Option<&'static str> {

@@ -8,6 +8,8 @@ pub struct BluetoothPromptId(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BluetoothPromptKind {
     Confirm { passkey: u32 },
+    AuthorizePairing,
+    AuthorizeService { uuid: String },
     RequestPin,
     RequestPasskey,
     DisplayPin { pincode: String },
