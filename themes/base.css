@@ -405,7 +405,22 @@
 }
 
 popover {
-    padding: var(--space-2);
+    padding: 0;
+}
+
+popover contents {
+    background: var(--popover-bg);
+    color: var(--popover-fg);
+    border: var(--border-width) solid var(--popover-border);
+    border-radius: var(--popover-radius);
+    box-shadow: var(--popover-shadow);
+}
+
+popover arrow {
+    background: var(--popover-bg);
+    border-color: var(--popover-border);
+    border-style: solid;
+    border-width: var(--border-width);
 }
 
 popover separator {
