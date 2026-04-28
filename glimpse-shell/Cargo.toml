@@ -15,6 +15,7 @@ relm4.workspace = true
 glimpse = { path = "../glimpse" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 tokio = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true

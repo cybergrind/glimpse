@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
 
 use super::{
-    Command, NetworkEvent, NetworkManagerClient, NetworkServiceHealth, State,
-    protocol::active_action_for,
+    Command, NetworkEvent, NetworkManagerClient, NetworkPrompt, NetworkServiceHealth, State,
+    protocol::active_action_for, secret_agent::NetworkSecretAgent,
 };
 
 const COMMAND_QUEUE_SIZE: usize = 16;
@@ -23,7 +23,9 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 pub type NetworkHandle = ServiceHandle<State, Command>;
 
 pub struct NetworkService {
+    agent: NetworkSecretAgent,
     client: NetworkManagerClient,
+    prompt_rx: watch::Receiver<Option<NetworkPrompt>>,
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
     scan_interval: Option<Duration>,
@@ -38,10 +40,13 @@ impl NetworkService {
     pub fn new(conn: zbus::Connection) -> (Self, NetworkHandle) {
         let (state_tx, state_rx) = watch::channel(State::default());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
+        let (agent, prompt_rx) = NetworkSecretAgent::new(conn.clone());
 
         (
             Self {
+                agent,
                 client: NetworkManagerClient::new(conn),
+                prompt_rx,
                 state_tx,
                 command_rx,
                 scan_interval: None,
@@ -85,11 +90,26 @@ impl NetworkService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         tracing::debug!("network service started");
+        self.agent
+            .register()
+            .await
+            .context("failed to register network secret agent")?;
+
+        let outcome = self.run_registered(cancel).await;
+        if let Err(error) = self.agent.unregister().await {
+            tracing::warn!(error = %error, "network-secret-agent: unregister failed");
+        }
+
+        outcome
+    }
+
+    async fn run_registered(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         self.refresh_snapshot()
             .await
             .context("failed to load initial network snapshot")?;
 
         let (event_tx, mut event_rx) = mpsc::channel(EVENT_QUEUE_SIZE);
+        let (action_tx, mut action_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
         let listener_cancel = CancellationToken::new();
         let listener =
             spawn_network_listener(self.client.clone(), event_tx, listener_cancel.clone());
@@ -107,9 +127,45 @@ impl NetworkService {
                     }
                     None => break Err(anyhow!("network event listener stopped")),
                 },
+                changed = self.prompt_rx.changed() => {
+                    if changed.is_err() {
+                        break Err(anyhow!("network prompt channel closed"));
+                    }
+
+                    let prompt = self.prompt_rx.borrow().clone();
+                    self.update_state(|state| {
+                        state.prompt = prompt;
+                    });
+                }
+                result = action_rx.recv() => match result {
+                    Some(result) => {
+                        self.update_state(|state| {
+                            state.active_action = None;
+                        });
+
+                        match result {
+                            Ok(refresh) => {
+                                if refresh {
+                                    if let Err(error) = self.refresh_snapshot().await {
+                                        tracing::warn!(error = %error, "network: refresh failed after command");
+                                        self.set_degraded("Network data is stale");
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(error = %error, "network command failed");
+                                if let Err(error) = self.refresh_snapshot().await {
+                                    tracing::warn!(error = %error, "network: refresh failed after failed command");
+                                    self.set_degraded("Network data is stale");
+                                }
+                            }
+                        }
+                    }
+                    None => break Err(anyhow!("network command result channel closed")),
+                },
                 command = self.command_rx.recv() => match command {
                     Some(ServiceCommand::Command(command)) => {
-                        if self.execute_command(command).await {
+                        if self.execute_command(command, action_tx.clone()).await {
                             if let Err(error) = self.refresh_snapshot().await {
                                 tracing::warn!(error = %error, "network: refresh failed after command");
                                 self.set_degraded("Network data is stale");
@@ -154,51 +210,23 @@ impl NetworkService {
         Ok(())
     }
 
-    async fn execute_command(&mut self, command: Command) -> bool {
-        let action = active_action_for(&command);
-        if action.is_some() && self.state_tx.borrow().active_action.is_some() {
-            tracing::warn!("network: command ignored while another action is active");
-            return false;
-        }
-
-        if let Some(action) = action.clone() {
-            self.update_state(|state| {
-                state.active_action = Some(action);
-            });
-        }
-
-        let result = self.execute_client_command(command).await;
-
-        if action.is_some() {
-            self.update_state(|state| {
-                state.active_action = None;
-            });
-        }
-
-        match result {
-            Ok(refresh) => refresh,
-            Err(error) => {
-                tracing::warn!(error = %error, "network command failed");
-                true
-            }
-        }
-    }
-
-    async fn execute_client_command(&mut self, command: Command) -> anyhow::Result<bool> {
-        match command {
-            Command::SetWifiEnabled(enabled) => {
-                self.client.set_wifi_enabled(enabled).await?;
-                Ok(true)
-            }
-            Command::StartScanning { interval_secs } => {
-                self.client.request_scan().await?;
-                let interval = scan_interval_duration(interval_secs);
-                self.scan_interval = Some(interval);
-                self.update_state(|state| {
-                    state.scanning = true;
-                });
-                Ok(true)
-            }
+    async fn execute_command(
+        &mut self,
+        command: Command,
+        action_tx: mpsc::Sender<anyhow::Result<bool>>,
+    ) -> bool {
+        let result = match command {
+            Command::StartScanning { interval_secs } => match self.client.request_scan().await {
+                Ok(()) => {
+                    let interval = scan_interval_duration(interval_secs);
+                    self.scan_interval = Some(interval);
+                    self.update_state(|state| {
+                        state.scanning = true;
+                    });
+                    Ok(true)
+                }
+                Err(error) => Err(error),
+            },
             Command::StopScanning => {
                 self.scan_interval = None;
                 self.update_state(|state| {
@@ -206,25 +234,39 @@ impl NetworkService {
                 });
                 Ok(false)
             }
-            Command::RequestScan => {
-                self.client.request_scan().await?;
-                Ok(true)
+            Command::RequestScan => self.client.request_scan().await.map(|()| true),
+            Command::PromptReply { id, reply } => {
+                tracing::debug!(prompt_id = id.0, "network: prompt reply command received");
+                if !self.agent.complete_prompt(id, reply) {
+                    tracing::warn!(prompt_id = id.0, "network: stale prompt reply ignored");
+                }
+                Ok(false)
             }
-            Command::ConnectWifi { ssid, path } => {
-                self.client.connect_access_point(&ssid, &path).await?;
-                Ok(true)
+            Command::SetWifiEnabled(_)
+            | Command::ConnectWifi { .. }
+            | Command::ConnectSaved { .. }
+            | Command::Disconnect { .. }
+            | Command::Forget { .. } => {
+                if self.state_tx.borrow().active_action.is_some() {
+                    tracing::warn!("network: command ignored while another action is active");
+                    return false;
+                }
+
+                let action =
+                    active_action_for(&command).expect("spawned network command has active action");
+                self.update_state(|state| {
+                    state.active_action = Some(action);
+                });
+                spawn_network_action(self.client.clone(), command, action_tx);
+                Ok(false)
             }
-            Command::ConnectSaved { uuid } => {
-                self.client.connect_uuid(&uuid).await?;
-                Ok(true)
-            }
-            Command::Disconnect { uuid } => {
-                self.client.disconnect(&uuid).await?;
-                Ok(true)
-            }
-            Command::Forget { uuid } => {
-                self.client.forget(&uuid).await?;
-                Ok(true)
+        };
+
+        match result {
+            Ok(refresh) => refresh,
+            Err(error) => {
+                tracing::warn!(error = %error, "network command failed");
+                true
             }
         }
     }
@@ -258,6 +300,51 @@ fn spawn_network_listener(
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move { client.listen(events, cancel).await })
+}
+
+fn spawn_network_action(
+    client: NetworkManagerClient,
+    command: Command,
+    done: mpsc::Sender<anyhow::Result<bool>>,
+) {
+    tokio::spawn(async move {
+        let result = execute_client_action(client, command).await;
+        let _ = done.send(result).await;
+    });
+}
+
+async fn execute_client_action(
+    client: NetworkManagerClient,
+    command: Command,
+) -> anyhow::Result<bool> {
+    match command {
+        Command::SetWifiEnabled(enabled) => {
+            client.set_wifi_enabled(enabled).await?;
+            Ok(true)
+        }
+        Command::ConnectWifi { ssid, path } => {
+            client.connect_access_point(&ssid, &path).await?;
+            Ok(true)
+        }
+        Command::ConnectSaved { uuid } => {
+            client.connect_uuid(&uuid).await?;
+            Ok(true)
+        }
+        Command::Disconnect { uuid } => {
+            client.disconnect(&uuid).await?;
+            Ok(true)
+        }
+        Command::Forget { uuid } => {
+            client.forget(&uuid).await?;
+            Ok(true)
+        }
+        Command::StartScanning { .. }
+        | Command::StopScanning
+        | Command::RequestScan
+        | Command::PromptReply { .. } => Err(anyhow!(
+            "inline network command cannot run as spawned action"
+        )),
+    }
 }
 
 fn should_emit_state(current: &State, next: &State) -> bool {
