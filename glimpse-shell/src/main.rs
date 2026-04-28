@@ -4,6 +4,7 @@ mod components;
 mod config;
 mod dbus;
 mod panels;
+mod prompts;
 mod services;
 mod theme;
 

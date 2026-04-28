@@ -16,7 +16,6 @@ use crate::{
 use super::{
     format,
     popover::{Popover, PopoverInit, PopoverInput, PopoverOutput},
-    prompt_dialog::{PromptDialog, PromptDialogInit, PromptDialogInput, PromptDialogOutput},
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -60,7 +59,6 @@ pub struct Applet {
     tooltip: String,
     service: BluetoothHandle,
     popover: Controller<Popover>,
-    prompt_dialog: Controller<PromptDialog>,
     subscription_cancel: CancellationToken,
 }
 
@@ -76,7 +74,6 @@ pub enum Input {
     Reconfigure(Config),
     TogglePopover,
     PopoverOutput(PopoverOutput),
-    PromptDialogOutput(PromptDialogOutput),
 }
 
 #[relm4::component(pub)]
@@ -127,11 +124,6 @@ impl SimpleComponent for Applet {
                 parent: root.clone(),
             })
             .forward(sender.input_sender(), Input::PopoverOutput);
-        let prompt_dialog = PromptDialog::builder()
-            .launch(PromptDialogInit {
-                parent: root.clone().upcast(),
-            })
-            .forward(sender.input_sender(), Input::PromptDialogOutput);
 
         let model = Applet {
             config: init.config,
@@ -140,7 +132,6 @@ impl SimpleComponent for Applet {
             tooltip: "Bluetooth".into(),
             service: init.service,
             popover,
-            prompt_dialog,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -175,10 +166,6 @@ impl SimpleComponent for Applet {
                 self.icon_name = icon_name_for_state(&state).into();
                 self.label = format::label(&self.config.label_format, &state);
                 self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
-                self.prompt_dialog.emit(PromptDialogInput::Update {
-                    prompt: state.prompt.clone(),
-                    snapshot: state.snapshot.clone(),
-                });
                 self.popover.emit(PopoverInput::UpdateState(state));
             }
             Input::Reconfigure(config) => {
@@ -198,9 +185,6 @@ impl SimpleComponent for Applet {
             }
             Input::PopoverOutput(PopoverOutput::Command(command)) => {
                 self.send_command(command);
-            }
-            Input::PromptDialogOutput(PromptDialogOutput::Reply { id, reply }) => {
-                self.send_command(Command::PromptReply { id, reply });
             }
         }
     }

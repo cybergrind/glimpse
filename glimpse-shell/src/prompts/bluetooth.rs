@@ -5,20 +5,138 @@ use std::{
 
 use adw::prelude::*;
 use relm4::{
-    ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
     gtk::{self},
 };
+use tokio_util::sync::CancellationToken;
 
-use crate::services::bluetooth::{
-    BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind, BluetoothPromptReply,
-    BluetoothSnapshot,
+use crate::services::{
+    bluetooth::{
+        BluetoothHandle, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
+        BluetoothPromptReply, BluetoothSnapshot, Command, State,
+    },
+    framework::ServiceCommand,
 };
-
-use super::format;
 
 const RESPONSE_CANCEL: &str = "cancel";
 const RESPONSE_ACCEPT: &str = "accept";
 const MAX_PASSKEY: u32 = 999_999;
+
+pub struct PromptHost {
+    service: BluetoothHandle,
+    dialog: Controller<PromptDialog>,
+    subscription_cancel: CancellationToken,
+}
+
+pub struct PromptHostInit {
+    pub service: BluetoothHandle,
+    pub parent: gtk::Widget,
+}
+
+#[derive(Debug)]
+pub enum PromptHostInput {
+    SetParent(gtk::Widget),
+    DialogOutput(PromptDialogOutput),
+}
+
+#[relm4::component(pub)]
+impl Component for PromptHost {
+    type Init = PromptHostInit;
+    type Input = PromptHostInput;
+    type Output = ();
+    type CommandOutput = State;
+
+    view! {
+        gtk::Box {
+            set_visible: false,
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        _root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let dialog = PromptDialog::builder()
+            .launch(PromptDialogInit {
+                parent: init.parent,
+            })
+            .forward(sender.input_sender(), PromptHostInput::DialogOutput);
+
+        let model = PromptHost {
+            service: init.service,
+            dialog,
+            subscription_cancel: CancellationToken::new(),
+        };
+
+        let service = model.service.clone();
+        let cancel = model.subscription_cancel.clone();
+        let command_sender = sender.command_sender().clone();
+        relm4::spawn(async move {
+            let mut sub = service.subscribe();
+            let _ = command_sender.send(sub.borrow().clone());
+
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    changed = sub.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+
+                        let _ = command_sender.send(sub.borrow().clone());
+                    }
+                }
+            }
+        });
+
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+        match message {
+            PromptHostInput::SetParent(parent) => {
+                self.dialog.emit(PromptDialogInput::SetParent(parent));
+            }
+            PromptHostInput::DialogOutput(PromptDialogOutput::Reply { id, reply }) => {
+                self.send_reply(id, reply);
+            }
+        }
+    }
+
+    fn update_cmd(
+        &mut self,
+        state: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        self.dialog.emit(PromptDialogInput::Update {
+            prompt: state.prompt,
+            snapshot: state.snapshot,
+        });
+    }
+}
+
+impl PromptHost {
+    fn send_reply(&self, id: BluetoothPromptId, reply: BluetoothPromptReply) {
+        let service = self.service.clone();
+        relm4::spawn(async move {
+            if let Err(error) = service
+                .send(ServiceCommand::Command(Command::PromptReply { id, reply }))
+                .await
+            {
+                tracing::warn!(%error, "failed to send bluetooth prompt reply");
+            }
+        });
+    }
+}
+
+impl Drop for PromptHost {
+    fn drop(&mut self) {
+        self.subscription_cancel.cancel();
+    }
+}
 
 pub struct PromptDialogInit {
     pub parent: gtk::Widget,
@@ -42,6 +160,7 @@ pub enum PromptDialogInput {
         prompt: Option<BluetoothPrompt>,
         snapshot: BluetoothSnapshot,
     },
+    SetParent(gtk::Widget),
     EntryChanged(String),
 }
 
@@ -223,6 +342,9 @@ impl SimpleComponent for PromptDialog {
                     self.entry.grab_focus();
                 }
             }
+            PromptDialogInput::SetParent(parent) => {
+                self.parent = parent;
+            }
             PromptDialogInput::EntryChanged(text) => {
                 self.entry_text = text;
                 if self.dialog.has_response(RESPONSE_ACCEPT) {
@@ -315,7 +437,7 @@ struct PromptViewState {
 
 impl PromptViewState {
     fn from_prompt(prompt: &BluetoothPrompt, snapshot: &BluetoothSnapshot) -> Self {
-        let label = format::prompt_device_label(prompt, snapshot);
+        let label = prompt_device_label(prompt, snapshot);
         match &prompt.kind {
             BluetoothPromptKind::Confirm { passkey } => Self {
                 heading: "Confirm Pairing".into(),
@@ -376,6 +498,30 @@ impl PromptViewState {
             PromptMode::Confirm | PromptMode::Pin | PromptMode::Passkey => "Cancel",
         }
     }
+}
+
+fn prompt_device_label(prompt: &BluetoothPrompt, snapshot: &BluetoothSnapshot) -> String {
+    if !prompt.device_label.is_empty() && prompt.device_label != prompt.device_path {
+        return prompt.device_label.clone();
+    }
+
+    if let Some(address) = prompt_address(&prompt.device_path) {
+        if let Some(device) = snapshot
+            .devices
+            .iter()
+            .find(|device| device.address == address)
+        {
+            return device.name.clone();
+        }
+    }
+
+    prompt.device_path.clone()
+}
+
+fn prompt_address(path: &str) -> Option<String> {
+    let tail = path.rsplit('/').next()?;
+    let suffix = tail.strip_prefix("dev_")?;
+    Some(suffix.replace('_', ":"))
 }
 
 fn is_display_prompt(kind: &BluetoothPromptKind) -> bool {
@@ -467,10 +613,7 @@ mod tests {
 
         let snapshot = snapshot_with_device("AA:BB:CC", "Headphones");
 
-        assert_eq!(
-            format::prompt_device_label(&prompt, &snapshot),
-            "Headphones"
-        );
+        assert_eq!(prompt_device_label(&prompt, &snapshot), "Headphones");
     }
 
     #[test]

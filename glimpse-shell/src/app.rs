@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use crate::{
     config::{Config, ConfigEvent, watch_for_config_changes},
     panels,
+    prompts::{bluetooth as bluetooth_prompts, network as network_prompts},
     services::framework::{Control, ServiceRuntime, Services},
     theme::{self, ThemeState},
 };
 use adw::gdk::{self, prelude::DisplayExt, prelude::MonitorExt};
 use gio::prelude::ListModelExt;
-use glib::object::CastNone;
+use glib::object::{Cast, CastNone};
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -33,6 +34,9 @@ pub struct App {
     services: ServiceRuntime,
     theme: ThemeState,
     panels: Vec<PanelState>,
+    network_prompt_host: Controller<network_prompts::PromptHost>,
+    bluetooth_prompt_host: Controller<bluetooth_prompts::PromptHost>,
+    prompt_fallback_parent: gtk4::Widget,
 }
 
 #[relm4::component(pub)]
@@ -106,12 +110,32 @@ impl SimpleComponent for App {
         let services = ServiceRuntime::new(init.dbus);
         services.broadcast(Control::Start(init.config.clone()));
 
+        let handles = services.handles();
+        let prompt_fallback_parent: gtk4::Widget = root.clone().upcast();
+
+        let network_prompt_host = network_prompts::PromptHost::builder()
+            .launch(network_prompts::PromptHostInit {
+                service: handles.network,
+                parent: prompt_fallback_parent.clone(),
+            })
+            .detach();
+
+        let bluetooth_prompt_host = bluetooth_prompts::PromptHost::builder()
+            .launch(bluetooth_prompts::PromptHostInit {
+                service: handles.bluetooth,
+                parent: prompt_fallback_parent.clone(),
+            })
+            .detach();
+
         let widgets = view_output!();
         let model = App {
             config: init.config,
             services,
             theme,
             panels: vec![],
+            network_prompt_host,
+            bluetooth_prompt_host,
+            prompt_fallback_parent,
         };
 
         ComponentParts { model, widgets }
@@ -191,6 +215,7 @@ impl App {
             }
         }
         self.panels = new_panels;
+        self.update_prompt_parent();
 
         for (key, state) in existing.drain() {
             state.controller.widget().destroy();
@@ -201,6 +226,19 @@ impl App {
                 "panel removed"
             );
         }
+    }
+
+    fn update_prompt_parent(&self) {
+        let parent = self
+            .panels
+            .first()
+            .map(|panel| panel.controller.widget().clone().upcast())
+            .unwrap_or_else(|| self.prompt_fallback_parent.clone());
+
+        self.network_prompt_host
+            .emit(network_prompts::PromptHostInput::SetParent(parent.clone()));
+        self.bluetooth_prompt_host
+            .emit(bluetooth_prompts::PromptHostInput::SetParent(parent));
     }
 }
 
