@@ -20,7 +20,7 @@ pub struct DeviceListItem<Command> {
     pub tooltip: Option<String>,
     pub active: bool,
     pub visible: bool,
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 pub struct DeviceList<Command>
@@ -74,6 +74,8 @@ where
                 add_css_class: "flat",
                 add_css_class: "device-list-row__button",
                 add_css_class: "action-row__button",
+                #[watch]
+                set_sensitive: model.item.command.is_some(),
                 #[watch]
                 set_tooltip_text: model.item.tooltip.as_deref(),
                 connect_clicked[sender] => move |_| {
@@ -129,7 +131,9 @@ where
                 self.item = item;
             }
             DeviceRowInput::Activate => {
-                let _ = sender.output(self.item.command.clone());
+                if let Some(command) = self.item.command.clone() {
+                    let _ = sender.output(command);
+                }
             }
         }
     }
@@ -399,7 +403,7 @@ mod tests {
             tooltip: Some("Connected".into()),
             active: true,
             visible: true,
-            command: "connect",
+            command: Some("connect"),
         };
 
         assert_eq!(item.label, "Headphones");

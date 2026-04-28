@@ -294,7 +294,7 @@ fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
             tooltip: Some(device_tooltip(device)),
             active: device.connected,
             visible: true,
-            command: primary_device_command(device),
+            command: Some(primary_device_command(device)),
         })
         .collect()
 }
@@ -614,9 +614,9 @@ mod tests {
                 tooltip: None,
                 active: false,
                 visible: true,
-                command: Command::Pair {
+                command: Some(Command::Pair {
                     address: "AA:BB".into(),
-                },
+                }),
             },
             DeviceListItem {
                 id: "CC:DD".into(),
@@ -627,9 +627,9 @@ mod tests {
                 tooltip: None,
                 active: false,
                 visible: true,
-                command: Command::Pair {
+                command: Some(Command::Pair {
                     address: "CC:DD".into(),
-                },
+                }),
             },
         ];
 

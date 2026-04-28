@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{battery, bluetooth},
+    applets::{battery, bluetooth, network},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -20,6 +20,7 @@ use crate::{
 pub enum AppletType {
     Battery,
     Bluetooth,
+    Network,
 }
 
 impl AppletType {
@@ -27,6 +28,7 @@ impl AppletType {
         match name {
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
+            "network" => Some(Self::Network),
             _ => None,
         }
     }
@@ -67,6 +69,7 @@ pub struct AppletBlueprint {
 pub enum AppletController {
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
+    Network(Controller<network::Applet>),
 }
 
 impl AppletController {
@@ -74,6 +77,7 @@ impl AppletController {
         match self {
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
+            Self::Network(_) => AppletType::Network,
         }
     }
 
@@ -81,6 +85,7 @@ impl AppletController {
         match self {
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
+            Self::Network(controller) => controller.widget().clone().upcast(),
         }
     }
 
@@ -93,6 +98,11 @@ impl AppletController {
             }
             Self::Bluetooth(controller) => {
                 controller.emit(bluetooth::Input::Reconfigure(bluetooth::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Network(controller) => {
+                controller.emit(network::Input::Reconfigure(network::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -118,6 +128,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(bluetooth::Init {
                     service: services.bluetooth.clone(),
                     config: bluetooth::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Network => Some(AppletController::Network(
+            network::Applet::builder()
+                .launch(network::Init {
+                    service: services.network.clone(),
+                    config: network::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -382,6 +400,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "bluetooth");
         assert_eq!(entries[0].applet_type, AppletType::Bluetooth);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_network_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["network".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "network");
+        assert_eq!(entries[0].applet_type, AppletType::Network);
         assert!(entries[0].config.is_none());
     }
 
