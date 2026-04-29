@@ -1,6 +1,7 @@
 mod app;
 mod applets;
 mod components;
+mod compositors;
 mod config;
 mod dbus;
 mod panels;
@@ -13,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     app::{App, AppInit},
+    compositors::detect_compositor,
     config::Config,
     dbus::Dbus,
 };
@@ -35,6 +37,12 @@ fn main() -> anyhow::Result<()> {
     RELM_THREADS.set(threads).ok();
 
     let config = Config::autodetect();
+    if let Some(compositor) = detect_compositor() {
+        tracing::info!(compositor = compositor.name(), "detected compositor");
+    } else {
+        tracing::warn!("unsupported compositor");
+    }
+
     let dbus = Dbus::connect()?;
 
     let app_id = "me.aresa.GlimpseShell";
