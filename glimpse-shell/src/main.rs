@@ -18,6 +18,7 @@ use crate::{
     config::Config,
     dbus::Dbus,
 };
+
 fn register_resources() {
     gio::resources_register_include!("glimpse-shell.gresource")
         .expect("failed to register embedded resources");

@@ -8,7 +8,10 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::compositors::compositors::CompositorEvent;
+use crate::compositors::compositors::{
+    CompositorCapabilities, CompositorEvent, CompositorSnapshot, KeyboardLayout, Monitor, Window,
+    Workspace,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Niri;
@@ -36,6 +39,92 @@ impl Niri {
         }
 
         Ok(())
+    }
+
+    pub async fn snapshot(&self) -> anyhow::Result<CompositorSnapshot> {
+        let mut monitors = request_ok(json!("Outputs"))
+            .await?
+            .get("Outputs")
+            .map(parse_outputs)
+            .unwrap_or_default();
+        let workspaces: Vec<Workspace> = request_ok(json!("Workspaces"))
+            .await?
+            .get("Workspaces")
+            .and_then(Value::as_array)
+            .map(|workspaces| workspaces.iter().filter_map(parse_workspace).collect())
+            .unwrap_or_default();
+        let windows = request_ok(json!("Windows"))
+            .await?
+            .get("Windows")
+            .and_then(Value::as_array)
+            .map(|windows| windows.iter().filter_map(parse_window).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let (keyboard_layouts, current_keyboard_layout) =
+            parse_keyboard_layouts_response(&request_ok(json!("KeyboardLayouts")).await?);
+        let focused_window = request_ok(json!("FocusedWindow"))
+            .await?
+            .get("FocusedWindow")
+            .and_then(|window| {
+                if window.is_null() {
+                    None
+                } else {
+                    field_usize(window, "id")
+                }
+            });
+        let focused_output = request_ok(json!("FocusedOutput"))
+            .await
+            .ok()
+            .and_then(|reply| {
+                reply
+                    .get("FocusedOutput")
+                    .and_then(|output| {
+                        if output.is_null() {
+                            None
+                        } else {
+                            output.get("name").and_then(Value::as_str)
+                        }
+                    })
+                    .map(ToOwned::to_owned)
+            });
+        let current_workspace = workspaces
+            .iter()
+            .find(|workspace| workspace.focused)
+            .map(|workspace| workspace.id);
+        for monitor in &mut monitors {
+            monitor.focused = focused_output.as_deref() == Some(monitor.name.as_str());
+            monitor.active_workspace = workspaces
+                .iter()
+                .find(|workspace| {
+                    workspace.active && workspace.monitor.as_deref() == Some(monitor.name.as_str())
+                })
+                .map(|workspace| workspace.id);
+        }
+
+        Ok(CompositorSnapshot {
+            capabilities: self.capabilities(),
+            windows,
+            workspaces,
+            monitors,
+            keyboard_layouts,
+            current_keyboard_layout,
+            focused_window,
+            current_workspace,
+        })
+    }
+
+    pub fn capabilities(&self) -> CompositorCapabilities {
+        CompositorCapabilities {
+            windows: true,
+            workspaces: true,
+            monitors: true,
+            keyboard_layouts: true,
+            focused_window: true,
+            current_workspace: true,
+            fullscreen: true,
+            floating: false,
+            window_titles: true,
+            night_light: false,
+        }
     }
 
     pub async fn set_keyboard_layout(&self, layout: usize) -> anyhow::Result<()> {
@@ -100,6 +189,27 @@ async fn send_action(action: Value) -> anyhow::Result<()> {
     ensure_ok_reply(&reply)
 }
 
+async fn request_ok(request: Value) -> anyhow::Result<Value> {
+    let mut stream = connect().await?;
+    write_request(&mut stream, &request).await?;
+
+    let mut lines = BufReader::new(stream).lines();
+    let reply = lines
+        .next_line()
+        .await
+        .context("failed to read niri reply")?
+        .context("niri request closed before reply")?;
+    let reply: Value = serde_json::from_str(&reply).context("invalid niri reply")?;
+    if let Some(error) = reply.get("Err").and_then(Value::as_str) {
+        bail!("niri IPC error: {error}");
+    }
+
+    reply
+        .get("Ok")
+        .cloned()
+        .context("unexpected niri IPC reply without Ok")
+}
+
 async fn connect() -> anyhow::Result<UnixStream> {
     let socket = env::var("NIRI_SOCKET").context("NIRI_SOCKET is not set")?;
     UnixStream::connect(socket)
@@ -131,6 +241,7 @@ fn ensure_ok_reply(line: &str) -> anyhow::Result<()> {
 #[derive(Default)]
 struct NiriEventState {
     current_workspace: Option<usize>,
+    focused_window: Option<usize>,
     layout_names: Vec<String>,
     window_workspaces: HashMap<usize, usize>,
 }
@@ -175,6 +286,16 @@ fn parse_niri_event(line: &str, state: &mut NiriEventState) -> Vec<CompositorEve
         return parse_window_focus_changed(event, state);
     }
 
+    if let Some(event) = event.get("WindowClosed") {
+        if let Some(window) = field_usize(event, "id") {
+            state.window_workspaces.remove(&window);
+            if state.focused_window == Some(window) {
+                state.focused_window = None;
+            }
+            return vec![CompositorEvent::WindowClosed(window)];
+        }
+    }
+
     if let Some(event) = event.get("KeyboardLayoutsChanged") {
         return parse_keyboard_layouts_changed(event, state);
     }
@@ -190,30 +311,16 @@ fn parse_workspaces_changed(
     workspaces: &[Value],
     state: &mut NiriEventState,
 ) -> Vec<CompositorEvent> {
-    let mut events = Vec::new();
-    for workspace in workspaces {
-        let Some(id) = field_usize(workspace, "id") else {
-            continue;
-        };
+    let next = workspaces
+        .iter()
+        .filter_map(parse_workspace)
+        .collect::<Vec<_>>();
 
-        if workspace
-            .get("is_focused")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            state.current_workspace = Some(id);
-            events.push(CompositorEvent::WorkspaceChanged(id));
-
-            if let Some(window) = field_usize(workspace, "active_window_id") {
-                events.push(CompositorEvent::FocusedWindowChanged {
-                    workspace: id,
-                    window,
-                });
-            }
-        }
+    if let Some(workspace) = next.iter().find(|workspace| workspace.focused) {
+        state.current_workspace = Some(workspace.id);
     }
 
-    events
+    vec![CompositorEvent::WorkspacesChanged(next)]
 }
 
 fn parse_workspace_activated(event: &Value, state: &mut NiriEventState) -> Vec<CompositorEvent> {
@@ -227,7 +334,10 @@ fn parse_workspace_activated(event: &Value, state: &mut NiriEventState) -> Vec<C
 
     if focused {
         state.current_workspace = Some(workspace);
-        vec![CompositorEvent::WorkspaceChanged(workspace)]
+        vec![CompositorEvent::WorkspaceChanged {
+            id: workspace,
+            focused,
+        }]
     } else {
         Vec::new()
     }
@@ -241,10 +351,11 @@ fn parse_workspace_active_window_changed(
         return Vec::new();
     };
 
-    if state.current_workspace == Some(workspace)
-        && let Some(window) = field_usize(event, "active_window_id")
-    {
-        return vec![CompositorEvent::FocusedWindowChanged { workspace, window }];
+    if state.current_workspace == Some(workspace) {
+        return vec![CompositorEvent::WorkspaceActiveWindowChanged {
+            workspace,
+            window: field_usize(event, "active_window_id"),
+        }];
     }
 
     Vec::new()
@@ -252,67 +363,55 @@ fn parse_workspace_active_window_changed(
 
 fn parse_windows_changed(windows: &[Value], state: &mut NiriEventState) -> Vec<CompositorEvent> {
     state.window_workspaces.clear();
-    let mut events = Vec::new();
-
-    for window in windows {
-        if let (Some(window_id), Some(workspace)) = (
-            field_usize(window, "id"),
-            field_usize(window, "workspace_id"),
-        ) {
-            state.window_workspaces.insert(window_id, workspace);
-
-            if window
-                .get("is_focused")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                events.push(CompositorEvent::FocusedWindowChanged {
-                    workspace,
-                    window: window_id,
-                });
+    let next = windows
+        .iter()
+        .filter_map(parse_window)
+        .inspect(|window| {
+            if let Some(workspace) = window.workspace {
+                state.window_workspaces.insert(window.id, workspace);
             }
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(window) = next.iter().find(|window| window.focused) {
+        state.focused_window = Some(window.id);
+        if let Some(workspace) = window.workspace {
+            state.current_workspace = Some(workspace);
         }
     }
 
-    events
+    vec![CompositorEvent::WindowsChanged(next)]
 }
 
 fn parse_window_changed(window: &Value, state: &mut NiriEventState) -> Vec<CompositorEvent> {
-    if let (Some(window_id), Some(workspace)) = (
-        field_usize(window, "id"),
-        field_usize(window, "workspace_id"),
-    ) {
-        state.window_workspaces.insert(window_id, workspace);
+    let Some(window) = parse_window(window) else {
+        return Vec::new();
+    };
 
-        if window
-            .get("is_focused")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return vec![CompositorEvent::FocusedWindowChanged {
-                workspace,
-                window: window_id,
-            }];
+    if let Some(workspace) = window.workspace {
+        state.window_workspaces.insert(window.id, workspace);
+    }
+
+    if window.focused {
+        state.focused_window = Some(window.id);
+        if let Some(workspace) = window.workspace {
+            state.current_workspace = Some(workspace);
         }
     }
 
-    Vec::new()
+    vec![CompositorEvent::WindowChanged(window)]
 }
 
 fn parse_window_focus_changed(event: &Value, state: &mut NiriEventState) -> Vec<CompositorEvent> {
-    let Some(window) = field_usize(event, "id") else {
-        return Vec::new();
-    };
-    let Some(workspace) = state
-        .window_workspaces
-        .get(&window)
-        .copied()
-        .or(state.current_workspace)
-    else {
-        return Vec::new();
-    };
+    let window = field_usize(event, "id");
+    state.focused_window = window;
 
-    vec![CompositorEvent::FocusedWindowChanged { workspace, window }]
+    if let Some(workspace) = window.and_then(|window| state.window_workspaces.get(&window).copied())
+    {
+        state.current_workspace = Some(workspace);
+    }
+
+    vec![CompositorEvent::FocusedWindowChanged(window)]
 }
 
 fn parse_keyboard_layouts_changed(
@@ -339,9 +438,10 @@ fn parse_keyboard_layouts_changed(
         return Vec::new();
     };
 
-    vec![CompositorEvent::KeyboardLayoutChanged(layout_label(
-        state, index,
-    ))]
+    vec![CompositorEvent::KeyboardLayoutsChanged {
+        layouts: keyboard_layouts(&state.layout_names),
+        current: Some(index),
+    }]
 }
 
 fn parse_keyboard_layout_switched(
@@ -352,17 +452,126 @@ fn parse_keyboard_layout_switched(
         return Vec::new();
     };
 
-    vec![CompositorEvent::KeyboardLayoutChanged(layout_label(
-        state, index,
-    ))]
+    vec![CompositorEvent::KeyboardLayoutChanged {
+        index: Some(index),
+        name: state.layout_names.get(index).cloned(),
+    }]
 }
 
-fn layout_label(state: &NiriEventState, index: usize) -> String {
-    state
-        .layout_names
-        .get(index)
-        .cloned()
-        .unwrap_or_else(|| index.to_string())
+fn parse_outputs(value: &Value) -> Vec<Monitor> {
+    let Some(outputs) = value.as_object() else {
+        return Vec::new();
+    };
+
+    outputs
+        .iter()
+        .map(|(name, output)| Monitor {
+            id: None,
+            name: output
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(name)
+                .to_owned(),
+            description: output
+                .get("model")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            active_workspace: None,
+            focused: false,
+        })
+        .collect()
+}
+
+fn parse_workspace(value: &Value) -> Option<Workspace> {
+    Some(Workspace {
+        id: field_usize(value, "id")?,
+        name: value
+            .get("name")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        monitor: value
+            .get("output")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        active: value
+            .get("is_active")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        focused: value
+            .get("is_focused")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        urgent: value
+            .get("is_urgent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        active_window: field_usize(value, "active_window_id"),
+    })
+}
+
+fn parse_window(value: &Value) -> Option<Window> {
+    Some(Window {
+        id: field_usize(value, "id")?,
+        title: value
+            .get("title")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        app_id: value
+            .get("app_id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        pid: value
+            .get("pid")
+            .and_then(Value::as_i64)
+            .and_then(|pid| i32::try_from(pid).ok()),
+        workspace: field_usize(value, "workspace_id"),
+        focused: value
+            .get("is_focused")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        urgent: value
+            .get("is_urgent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        fullscreen: value
+            .get("is_fullscreen")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        floating: value.get("is_floating").and_then(Value::as_bool),
+    })
+}
+
+fn parse_keyboard_layouts_response(value: &Value) -> (Vec<KeyboardLayout>, Option<usize>) {
+    let Some(layouts) = value.get("KeyboardLayouts") else {
+        return (Vec::new(), None);
+    };
+    let names = layouts
+        .get("names")
+        .and_then(Value::as_array)
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    (
+        keyboard_layouts(&names),
+        field_usize(layouts, "current_idx"),
+    )
+}
+
+fn keyboard_layouts(names: &[String]) -> Vec<KeyboardLayout> {
+    names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| KeyboardLayout {
+            index,
+            name: name.clone(),
+        })
+        .collect()
 }
 
 fn field_usize(value: &Value, field: &str) -> Option<usize> {
@@ -387,13 +596,15 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![
-                CompositorEvent::WorkspaceChanged(4),
-                CompositorEvent::FocusedWindowChanged {
-                    workspace: 4,
-                    window: 9,
-                }
-            ]
+            vec![CompositorEvent::WorkspacesChanged(vec![Workspace {
+                id: 4,
+                name: None,
+                monitor: None,
+                active: false,
+                focused: true,
+                urgent: false,
+                active_window: Some(9),
+            }])]
         );
     }
 
@@ -409,10 +620,7 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![CompositorEvent::FocusedWindowChanged {
-                workspace: 6,
-                window: 12,
-            }]
+            vec![CompositorEvent::FocusedWindowChanged(Some(12))]
         );
     }
 
@@ -427,7 +635,19 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![CompositorEvent::KeyboardLayoutChanged("de".into())]
+            vec![CompositorEvent::KeyboardLayoutsChanged {
+                layouts: vec![
+                    KeyboardLayout {
+                        index: 0,
+                        name: "us".into(),
+                    },
+                    KeyboardLayout {
+                        index: 1,
+                        name: "de".into(),
+                    },
+                ],
+                current: Some(1),
+            }]
         );
     }
 }

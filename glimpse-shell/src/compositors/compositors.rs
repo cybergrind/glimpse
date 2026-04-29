@@ -7,25 +7,304 @@ pub enum Compositor {
     Hyprland(Hyprland),
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CompositorType {
+    #[default]
+    Unsupported,
+    Niri,
+    Hyprland,
+}
+
+impl CompositorType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Unsupported => "unsupported",
+            Self::Niri => "niri",
+            Self::Hyprland => "hyprland",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompositorEvent {
-    FocusedWindowChanged { workspace: usize, window: usize },
-    WorkspaceChanged(usize),
-    KeyboardLayoutChanged(String),
+    Snapshot(CompositorSnapshot),
+    RefreshRequested(CompositorRefresh),
+    WindowsChanged(Vec<Window>),
+    WindowChanged(Window),
+    WindowTitleChanged {
+        window: usize,
+        title: String,
+    },
+    WindowFullscreenChanged {
+        window: Option<usize>,
+        fullscreen: bool,
+    },
+    WindowFloatingChanged {
+        window: usize,
+        floating: bool,
+    },
+    WindowClosed(usize),
+    WorkspacesChanged(Vec<Workspace>),
+    WorkspaceChanged {
+        id: usize,
+        focused: bool,
+    },
+    WorkspaceActiveWindowChanged {
+        workspace: usize,
+        window: Option<usize>,
+    },
+    MonitorsChanged(Vec<Monitor>),
+    MonitorChanged {
+        name: String,
+        active_workspace: Option<usize>,
+        focused: bool,
+    },
+    KeyboardLayoutsChanged {
+        layouts: Vec<KeyboardLayout>,
+        current: Option<usize>,
+    },
+    KeyboardLayoutChanged {
+        index: Option<usize>,
+        name: Option<String>,
+    },
+    FocusedWindowChanged(Option<usize>),
+}
+
+impl CompositorEvent {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Snapshot(_) => "snapshot",
+            Self::RefreshRequested(_) => "refresh-requested",
+            Self::WindowsChanged(_) => "windows-changed",
+            Self::WindowChanged(_) => "window-changed",
+            Self::WindowTitleChanged { .. } => "window-title-changed",
+            Self::WindowFullscreenChanged { .. } => "window-fullscreen-changed",
+            Self::WindowFloatingChanged { .. } => "window-floating-changed",
+            Self::WindowClosed(_) => "window-closed",
+            Self::WorkspacesChanged(_) => "workspaces-changed",
+            Self::WorkspaceChanged { .. } => "workspace-changed",
+            Self::WorkspaceActiveWindowChanged { .. } => "workspace-active-window-changed",
+            Self::MonitorsChanged(_) => "monitors-changed",
+            Self::MonitorChanged { .. } => "monitor-changed",
+            Self::KeyboardLayoutsChanged { .. } => "keyboard-layouts-changed",
+            Self::KeyboardLayoutChanged { .. } => "keyboard-layout-changed",
+            Self::FocusedWindowChanged(_) => "focused-window-changed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompositorRefresh {
+    full: bool,
+    structure: bool,
+    keyboard_layouts: bool,
+}
+
+impl CompositorRefresh {
+    pub const FULL: Self = Self {
+        full: true,
+        structure: false,
+        keyboard_layouts: false,
+    };
+    pub const STRUCTURE: Self = Self {
+        full: false,
+        structure: true,
+        keyboard_layouts: false,
+    };
+    pub const KEYBOARD_LAYOUTS: Self = Self {
+        full: false,
+        structure: false,
+        keyboard_layouts: true,
+    };
+
+    pub fn merge(self, other: Self) -> Self {
+        if self.full || other.full {
+            return Self::FULL;
+        }
+
+        Self {
+            full: false,
+            structure: self.structure || other.structure,
+            keyboard_layouts: self.keyboard_layouts || other.keyboard_layouts,
+        }
+    }
+
+    pub fn is_full(self) -> bool {
+        self.full
+    }
+
+    pub fn includes_structure(self) -> bool {
+        self.structure
+    }
+
+    pub fn includes_keyboard_layouts(self) -> bool {
+        self.keyboard_layouts
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::CompositorRefresh;
+
+    #[test]
+    fn partial_refreshes_merge_without_escalating_to_full() {
+        let refresh = CompositorRefresh::STRUCTURE.merge(CompositorRefresh::KEYBOARD_LAYOUTS);
+
+        assert!(!refresh.is_full());
+        assert!(refresh.includes_structure());
+        assert!(refresh.includes_keyboard_layouts());
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompositorSnapshot {
+    pub capabilities: CompositorCapabilities,
+    pub windows: Vec<Window>,
+    pub workspaces: Vec<Workspace>,
+    pub monitors: Vec<Monitor>,
+    pub keyboard_layouts: Vec<KeyboardLayout>,
+    pub current_keyboard_layout: Option<usize>,
+    pub focused_window: Option<usize>,
+    pub current_workspace: Option<usize>,
+}
+
+impl CompositorSnapshot {
+    pub fn into_structure(self) -> CompositorStructureSnapshot {
+        CompositorStructureSnapshot {
+            windows: self.windows,
+            workspaces: self.workspaces,
+            monitors: self.monitors,
+            focused_window: self.focused_window,
+            current_workspace: self.current_workspace,
+        }
+    }
+
+    pub fn into_keyboard_layouts(self) -> KeyboardLayoutSnapshot {
+        KeyboardLayoutSnapshot {
+            keyboard_layouts: self.keyboard_layouts,
+            current_keyboard_layout: self.current_keyboard_layout,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompositorStructureSnapshot {
+    pub windows: Vec<Window>,
+    pub workspaces: Vec<Workspace>,
+    pub monitors: Vec<Monitor>,
+    pub focused_window: Option<usize>,
+    pub current_workspace: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyboardLayoutSnapshot {
+    pub keyboard_layouts: Vec<KeyboardLayout>,
+    pub current_keyboard_layout: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompositorCapabilities {
+    pub windows: bool,
+    pub workspaces: bool,
+    pub monitors: bool,
+    pub keyboard_layouts: bool,
+    pub focused_window: bool,
+    pub current_workspace: bool,
+    pub fullscreen: bool,
+    pub floating: bool,
+    pub window_titles: bool,
+    pub night_light: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    pub id: usize,
+    pub title: Option<String>,
+    pub app_id: Option<String>,
+    pub pid: Option<i32>,
+    pub workspace: Option<usize>,
+    pub focused: bool,
+    pub urgent: bool,
+    pub fullscreen: bool,
+    pub floating: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Workspace {
+    pub id: usize,
+    pub name: Option<String>,
+    pub monitor: Option<String>,
+    pub active: bool,
+    pub focused: bool,
+    pub urgent: bool,
+    pub active_window: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Monitor {
+    pub id: Option<usize>,
+    pub name: String,
+    pub description: Option<String>,
+    pub active_workspace: Option<usize>,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyboardLayout {
+    pub index: usize,
+    pub name: String,
 }
 
 impl Compositor {
-    pub fn name(&self) -> &'static str {
+    pub fn compositor_type(&self) -> CompositorType {
         match self {
-            Self::Niri(_) => "niri",
-            Self::Hyprland(_) => "hyprland",
+            Self::Niri(_) => CompositorType::Niri,
+            Self::Hyprland(_) => CompositorType::Hyprland,
         }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.compositor_type().name()
     }
 
     pub async fn listen(self, sender: mpsc::Sender<CompositorEvent>) -> anyhow::Result<()> {
         match self {
             Self::Niri(compositor) => compositor.listen(sender).await,
             Self::Hyprland(compositor) => compositor.listen(sender).await,
+        }
+    }
+
+    pub async fn snapshot(&self) -> anyhow::Result<CompositorSnapshot> {
+        match self {
+            Self::Niri(compositor) => compositor.snapshot().await,
+            Self::Hyprland(compositor) => compositor.snapshot().await,
+        }
+    }
+
+    pub async fn structure_snapshot(&self) -> anyhow::Result<CompositorStructureSnapshot> {
+        match self {
+            Self::Niri(compositor) => compositor
+                .snapshot()
+                .await
+                .map(CompositorSnapshot::into_structure),
+            Self::Hyprland(compositor) => compositor.structure_snapshot().await,
+        }
+    }
+
+    pub async fn keyboard_layout_snapshot(&self) -> anyhow::Result<KeyboardLayoutSnapshot> {
+        match self {
+            Self::Niri(compositor) => compositor
+                .snapshot()
+                .await
+                .map(CompositorSnapshot::into_keyboard_layouts),
+            Self::Hyprland(compositor) => compositor.keyboard_layout_snapshot().await,
+        }
+    }
+
+    pub fn capabilities(&self) -> CompositorCapabilities {
+        match self {
+            Self::Niri(compositor) => compositor.capabilities(),
+            Self::Hyprland(compositor) => compositor.capabilities(),
         }
     }
 
