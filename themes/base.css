@@ -819,6 +819,10 @@ popover separator {
     --popover-min-width: 420px;
 }
 
+.audio-popover .audio-device-section:not(:last-child) {
+    margin-bottom: 0;
+}
+
 .privacy-indicator,
 .privacy-recording-icon,
 .privacy-recording-label {

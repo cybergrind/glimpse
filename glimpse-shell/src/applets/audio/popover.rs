@@ -21,13 +21,15 @@ use crate::{
 };
 
 const VOLUME_ECHO_GRACE: Duration = Duration::from_secs(2);
-const VOLUME_COMMAND_INTERVAL: Duration = Duration::from_millis(100);
+const VOLUME_COMMAND_INTERVAL: Duration = Duration::from_millis(50);
 
 pub struct Popover {
     animation: AnimatedPopover,
     state: State,
     max_volume: u32,
     show_streams: bool,
+    outputs_expanded: bool,
+    inputs_expanded: bool,
     streams_expanded: bool,
     pending_output_volume: Rc<RefCell<Option<PendingVolume>>>,
     pending_input_volume: Rc<RefCell<Option<PendingVolume>>>,
@@ -64,6 +66,8 @@ pub enum PopoverInput {
     Toggle,
     UpdateState(State),
     Reconfigure { max_volume: u32, show_streams: bool },
+    ToggleOutputs,
+    ToggleInputs,
     ToggleStreams,
     Command(Command),
 }
@@ -152,15 +156,55 @@ impl SimpleComponent for Popover {
                         set_orientation: gtk::Orientation::Horizontal,
                     },
 
-                    #[local_ref]
-                    outputs_widget -> gtk::Box {},
+                    #[name = "outputs_section"]
+                    #[template]
+                    CollapsibleSectionView {
+                        add_css_class: "audio-device-section",
 
-                    #[local_ref]
-                    inputs_widget -> gtk::Box {},
+                        #[template_child]
+                        title {
+                            set_label: "Output devices",
+                        },
+
+                        #[template_child]
+                        button {
+                            connect_clicked => PopoverInput::ToggleOutputs,
+                        },
+
+                        #[template_child]
+                        content {
+                            #[local_ref]
+                            outputs_widget -> gtk::Box {},
+                        },
+                    },
+
+                    #[name = "inputs_section"]
+                    #[template]
+                    CollapsibleSectionView {
+                        add_css_class: "audio-device-section",
+
+                        #[template_child]
+                        title {
+                            set_label: "Input devices",
+                        },
+
+                        #[template_child]
+                        button {
+                            connect_clicked => PopoverInput::ToggleInputs,
+                        },
+
+                        #[template_child]
+                        content {
+                            #[local_ref]
+                            inputs_widget -> gtk::Box {},
+                        },
+                    },
 
                     #[name = "streams_section"]
                     #[template]
                     CollapsibleSectionView {
+                        add_css_class: "audio-device-section",
+
                         #[template_child]
                         title {
                             set_label: "Apps",
@@ -189,7 +233,7 @@ impl SimpleComponent for Popover {
     ) -> ComponentParts<Self> {
         let outputs = DeviceList::builder()
             .launch(DeviceListInit {
-                header: Some("Output devices".into()),
+                header: None,
                 items: Vec::new(),
             })
             .forward(sender.input_sender(), PopoverInput::Command);
@@ -197,7 +241,7 @@ impl SimpleComponent for Popover {
 
         let inputs = DeviceList::builder()
             .launch(DeviceListInit {
-                header: Some("Input devices".into()),
+                header: None,
                 items: Vec::new(),
             })
             .forward(sender.input_sender(), PopoverInput::Command);
@@ -249,6 +293,8 @@ impl SimpleComponent for Popover {
             state: State::default(),
             max_volume: init.max_volume,
             show_streams: init.show_streams,
+            outputs_expanded: false,
+            inputs_expanded: false,
             streams_expanded: false,
             pending_output_volume,
             pending_input_volume,
@@ -282,6 +328,12 @@ impl SimpleComponent for Popover {
             } => {
                 self.max_volume = max_volume;
                 self.show_streams = show_streams;
+            }
+            PopoverInput::ToggleOutputs => {
+                self.outputs_expanded = !self.outputs_expanded;
+            }
+            PopoverInput::ToggleInputs => {
+                self.inputs_expanded = !self.inputs_expanded;
             }
             PopoverInput::ToggleStreams => {
                 self.streams_expanded = !self.streams_expanded;
@@ -358,15 +410,10 @@ impl SimpleComponent for Popover {
             }
         }
 
+        sync_collapsible_section(&outputs_section, model.outputs_expanded);
+        sync_collapsible_section(&inputs_section, model.inputs_expanded);
         streams_section.set_visible(model.show_streams);
-        streams_section.content.set_visible(model.streams_expanded);
-        streams_section
-            .chevron
-            .set_icon_name(Some(if model.streams_expanded {
-                "pan-down-symbolic"
-            } else {
-                "pan-end-symbolic"
-            }));
+        sync_collapsible_section(&streams_section, model.streams_expanded);
         streams_section
             .title
             .set_label(&format!("Apps ({})", model.state.streams.len()));
@@ -375,6 +422,15 @@ impl SimpleComponent for Popover {
 
 fn scale_is_dragging(scale: &gtk::Scale) -> bool {
     scale.state_flags().contains(gtk::StateFlags::ACTIVE)
+}
+
+fn sync_collapsible_section(section: &CollapsibleSectionView, expanded: bool) {
+    section.content.set_visible(expanded);
+    section.chevron.set_icon_name(Some(if expanded {
+        "pan-down-symbolic"
+    } else {
+        "pan-end-symbolic"
+    }));
 }
 
 fn should_apply_service_volume(
@@ -432,7 +488,8 @@ fn connect_throttled_scale(
             let pending = pending.clone();
             let pending_value = pending_value.clone();
             let sender = sender.clone();
-            glib::timeout_add_local_once(VOLUME_COMMAND_INTERVAL, move || {
+            let delay = VOLUME_COMMAND_INTERVAL.saturating_sub(now.duration_since(last_sent.get()));
+            glib::timeout_add_local_once(delay, move || {
                 if pending.get() {
                     pending.set(false);
                     last_sent.set(Instant::now());

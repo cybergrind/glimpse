@@ -60,6 +60,15 @@ pub enum Command {
     ToggleStreamMute(u64),
 }
 
+impl Command {
+    fn refresh_after_execute(&self) -> bool {
+        !matches!(
+            self,
+            Command::SetOutputVolume(_) | Command::SetInputVolume(_)
+        )
+    }
+}
+
 pub type AudioHandle = ServiceHandle<State, Command>;
 
 pub struct AudioService {
@@ -180,10 +189,13 @@ impl AudioService {
                 Ok(false)
             }
             ServiceCommand::Command(command) => {
+                let refresh_after_execute = command.refresh_after_execute();
                 if let Err(error) = client.execute(command).await {
                     tracing::warn!(%error, "audio command failed");
                 }
-                self.refresh(client).await;
+                if refresh_after_execute {
+                    self.refresh(client).await;
+                }
                 Ok(false)
             }
         }

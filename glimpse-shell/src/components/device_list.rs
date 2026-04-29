@@ -253,16 +253,8 @@ where
                 },
             },
 
-            gtk::ScrolledWindow {
-                set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
-                set_max_content_height: 300,
-                set_propagate_natural_height: true,
-                set_vexpand: false,
-                set_valign: gtk::Align::Start,
-
-                #[local_ref]
-                rows_box -> gtk::Box {},
-            },
+            #[local_ref]
+            rows_box -> gtk::Box {},
         }
     }
 
@@ -273,6 +265,8 @@ where
     ) -> ComponentParts<Self> {
         let rows_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         rows_box.add_css_class("device-list__body");
+        rows_box.set_vexpand(false);
+        rows_box.set_valign(gtk::Align::Start);
         let rows = FactoryVecDeque::builder()
             .launch(rows_box.clone())
             .forward(sender.output_sender(), |output| output);
