@@ -485,6 +485,7 @@ fn parse_outputs(value: &Value) -> Vec<Monitor> {
 fn parse_workspace(value: &Value) -> Option<Workspace> {
     Some(Workspace {
         id: field_usize(value, "id")?,
+        index: field_usize(value, "idx"),
         name: value
             .get("name")
             .and_then(Value::as_str)
@@ -524,6 +525,7 @@ fn parse_window(value: &Value) -> Option<Window> {
             .get("pid")
             .and_then(Value::as_i64)
             .and_then(|pid| i32::try_from(pid).ok()),
+        layout_order: window_layout_order(value),
         workspace: field_usize(value, "workspace_id"),
         focused: value
             .get("is_focused")
@@ -539,6 +541,16 @@ fn parse_window(value: &Value) -> Option<Window> {
             .unwrap_or(false),
         floating: value.get("is_floating").and_then(Value::as_bool),
     })
+}
+
+fn window_layout_order(value: &Value) -> Option<usize> {
+    value
+        .get("layout")
+        .and_then(|layout| layout.get("pos_in_scrolling_layout"))
+        .and_then(Value::as_array)
+        .and_then(|position| position.first())
+        .and_then(Value::as_i64)
+        .and_then(|position| usize::try_from(position).ok())
 }
 
 fn parse_keyboard_layouts_response(value: &Value) -> (Vec<KeyboardLayout>, Option<usize>) {
@@ -598,6 +610,7 @@ mod tests {
             events,
             vec![CompositorEvent::WorkspacesChanged(vec![Workspace {
                 id: 4,
+                index: None,
                 name: None,
                 monitor: None,
                 active: false,
@@ -625,29 +638,28 @@ mod tests {
     }
 
     #[test]
-    fn renders_keyboard_layout_name_when_known() {
+    fn parses_window_layout_order_from_scrolling_layout() {
         let mut state = NiriEventState::default();
 
         let events = parse_niri_event(
-            r#"{"KeyboardLayoutsChanged":{"keyboard_layouts":{"names":["us","de"],"current_idx":1}}}"#,
+            r#"{"WindowOpenedOrChanged":{"window":{"id":12,"workspace_id":6,"layout":{"pos_in_scrolling_layout":[42,0]}}}}"#,
             &mut state,
         );
 
         assert_eq!(
             events,
-            vec![CompositorEvent::KeyboardLayoutsChanged {
-                layouts: vec![
-                    KeyboardLayout {
-                        index: 0,
-                        name: "us".into(),
-                    },
-                    KeyboardLayout {
-                        index: 1,
-                        name: "de".into(),
-                    },
-                ],
-                current: Some(1),
-            }]
+            vec![CompositorEvent::WindowChanged(Window {
+                id: 12,
+                title: None,
+                app_id: None,
+                pid: None,
+                layout_order: Some(42),
+                workspace: Some(6),
+                focused: false,
+                urgent: false,
+                fullscreen: false,
+                floating: None,
+            })]
         );
     }
 }

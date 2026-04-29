@@ -100,6 +100,7 @@ impl CompositorService {
             compositor = compositor.name(),
             "compositor service: connected"
         );
+        self.publish_identity(compositor);
         self.refresh_snapshot(compositor).await;
 
         let (event_tx, mut event_rx) = mpsc::channel(EVENT_QUEUE_SIZE);
@@ -164,15 +165,15 @@ impl CompositorService {
     }
 
     async fn apply_event(&self, compositor: Compositor, event: CompositorEvent) {
-        tracing::debug!(
-            compositor = compositor.name(),
-            event = event.name(),
-            "compositor event"
-        );
-
         let compositor_type = compositor.compositor_type();
-        let mut fallback_refresh = None;
         self.state_tx.send_if_modified(|state| {
+            if event.name() != "window-changed" {
+                tracing::debug!(
+                    compositor = compositor.name(),
+                    event = event.name(),
+                    "compositor event"
+                );
+            }
             let mut changed = set_if_changed(&mut state.compositor, compositor_type);
             match event {
                 CompositorEvent::Snapshot(snapshot) => {
@@ -190,8 +191,6 @@ impl CompositorService {
                 CompositorEvent::WindowTitleChanged { window, title } => {
                     if let Some(item) = state.windows.iter_mut().find(|item| item.id == window) {
                         changed |= set_if_changed(&mut item.title, Some(title));
-                    } else {
-                        fallback_refresh = Some(CompositorRefresh::STRUCTURE);
                     }
                 }
                 CompositorEvent::WindowFullscreenChanged { window, fullscreen } => {
@@ -199,18 +198,12 @@ impl CompositorService {
                         if let Some(item) = state.windows.iter_mut().find(|item| item.id == window)
                         {
                             changed |= set_if_changed(&mut item.fullscreen, fullscreen);
-                        } else {
-                            fallback_refresh = Some(CompositorRefresh::STRUCTURE);
                         }
-                    } else {
-                        fallback_refresh = Some(CompositorRefresh::STRUCTURE);
                     }
                 }
                 CompositorEvent::WindowFloatingChanged { window, floating } => {
                     if let Some(item) = state.windows.iter_mut().find(|item| item.id == window) {
                         changed |= set_if_changed(&mut item.floating, Some(floating));
-                    } else {
-                        fallback_refresh = Some(CompositorRefresh::STRUCTURE);
                     }
                 }
                 CompositorEvent::WindowClosed(window) => {
@@ -305,8 +298,6 @@ impl CompositorService {
                     });
                     if current.is_some() || index.is_some() {
                         changed |= set_if_changed(&mut state.current_keyboard_layout, current);
-                    } else if name.is_some() {
-                        fallback_refresh = Some(CompositorRefresh::KEYBOARD_LAYOUTS);
                     }
                 }
                 CompositorEvent::FocusedWindowChanged(window) => {
@@ -318,10 +309,6 @@ impl CompositorService {
 
             changed
         });
-
-        if let Some(refresh) = fallback_refresh {
-            self.refresh(compositor, refresh).await;
-        }
     }
 
     async fn refresh(&self, compositor: Compositor, refresh: CompositorRefresh) {
@@ -352,6 +339,16 @@ impl CompositorService {
                 });
             }
         }
+    }
+
+    fn publish_identity(&self, compositor: Compositor) {
+        let compositor_type = compositor.compositor_type();
+        let capabilities = compositor.capabilities();
+        self.state_tx.send_if_modified(|state| {
+            let mut changed = set_if_changed(&mut state.compositor, compositor_type);
+            changed |= set_if_changed(&mut state.capabilities, capabilities);
+            changed
+        });
     }
 
     async fn refresh_structure(&self, compositor: Compositor) {
@@ -552,16 +549,36 @@ fn sync_current_workspace_from_focus_or_workspace(state: &mut State) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositors::niri::Niri;
 
     #[test]
-    fn applies_structure_snapshot_without_touching_keyboard_state() {
+    fn publishes_compositor_identity_before_snapshot_data() {
+        let (service, handle) = CompositorService::new();
+
+        service.publish_identity(Compositor::Niri(Niri));
+
+        let state = handle.snapshot();
+        assert_eq!(state.compositor, CompositorType::Niri);
+        assert!(state.capabilities.workspaces);
+        assert!(state.capabilities.windows);
+    }
+
+    #[test]
+    fn applies_structure_snapshot_only_updates_structure_state() {
         let mut state = State {
             compositor: CompositorType::Hyprland,
-            keyboard_layouts: vec![KeyboardLayout {
-                index: 0,
-                name: "us".into(),
-            }],
-            current_keyboard_layout: Some(0),
+            capabilities: CompositorCapabilities {
+                windows: true,
+                workspaces: true,
+                monitors: true,
+                keyboard_layouts: true,
+                focused_window: true,
+                current_workspace: true,
+                fullscreen: true,
+                floating: true,
+                window_titles: true,
+                night_light: true,
+            },
             ..State::default()
         };
         let snapshot = CompositorStructureSnapshot {
@@ -573,8 +590,7 @@ mod tests {
         };
 
         assert!(apply_structure_snapshot(&mut state, snapshot.clone()));
-        assert_eq!(state.keyboard_layouts[0].name, "us");
-        assert_eq!(state.current_keyboard_layout, Some(0));
+        assert!(state.capabilities.night_light);
         assert!(!apply_structure_snapshot(&mut state, snapshot));
     }
 
@@ -609,14 +625,12 @@ mod tests {
             current_workspace: Some(1),
             ..State::default()
         };
-        let mut update = window(7, false, Some(2));
-        update.title = Some("updated".into());
+        let update = window(7, false, Some(2));
 
         assert!(apply_window_changed(&mut state, update));
         assert_eq!(state.focused_window, Some(7));
         assert_eq!(state.current_workspace, Some(2));
         assert!(state.windows[0].focused);
-        assert_eq!(state.windows[0].title.as_deref(), Some("updated"));
     }
 
     #[test]
@@ -634,6 +648,7 @@ mod tests {
             title: None,
             app_id: None,
             pid: None,
+            layout_order: None,
             workspace,
             focused,
             urgent: false,
@@ -645,6 +660,7 @@ mod tests {
     fn workspace(id: usize, focused: bool) -> Workspace {
         Workspace {
             id,
+            index: Some(id),
             name: None,
             monitor: None,
             active: focused,

@@ -222,6 +222,7 @@ pub struct Window {
     pub title: Option<String>,
     pub app_id: Option<String>,
     pub pid: Option<i32>,
+    pub layout_order: Option<usize>,
     pub workspace: Option<usize>,
     pub focused: bool,
     pub urgent: bool,
@@ -232,6 +233,7 @@ pub struct Window {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Workspace {
     pub id: usize,
+    pub index: Option<usize>,
     pub name: Option<String>,
     pub monitor: Option<String>,
     pub active: bool,

@@ -386,6 +386,7 @@ fn parse_workspaces(value: &Value) -> Vec<Workspace> {
         .filter_map(|workspace| {
             Some(Workspace {
                 id: field_usize(workspace, "id")?,
+                index: field_usize(workspace, "id"),
                 name: field_string(workspace, "name"),
                 monitor: field_string(workspace, "monitor"),
                 active: false,
@@ -415,6 +416,7 @@ fn parse_window(value: &Value) -> Option<Window> {
             .get("pid")
             .and_then(Value::as_i64)
             .and_then(|pid| i32::try_from(pid).ok()),
+        layout_order: None,
         workspace: value
             .get("workspace")
             .and_then(|workspace| field_usize(workspace, "id")),
@@ -554,6 +556,18 @@ mod tests {
                 index: None,
                 name: Some("English (US)".into())
             }]
+        );
+    }
+
+    #[test]
+    fn structural_window_events_request_refresh() {
+        let mut state = HyprlandEventState::default();
+
+        assert_eq!(
+            parse_hyprland_event("openwindow>>3f2,1,kitty,Terminal", &mut state),
+            vec![CompositorEvent::RefreshRequested(
+                CompositorRefresh::STRUCTURE
+            )]
         );
     }
 

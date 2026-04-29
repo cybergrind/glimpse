@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{battery, bluetooth, network, session},
+    applets::{battery, bluetooth, network, pager, session},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -21,6 +21,7 @@ pub enum AppletType {
     Battery,
     Bluetooth,
     Network,
+    Pager,
     Session,
 }
 
@@ -30,6 +31,7 @@ impl AppletType {
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
             "network" => Some(Self::Network),
+            "pager" => Some(Self::Pager),
             "session" => Some(Self::Session),
             _ => None,
         }
@@ -72,6 +74,7 @@ pub enum AppletController {
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
     Network(Controller<network::Applet>),
+    Pager(Controller<pager::Applet>),
     Session(Controller<session::Applet>),
 }
 
@@ -81,6 +84,7 @@ impl AppletController {
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
             Self::Network(_) => AppletType::Network,
+            Self::Pager(_) => AppletType::Pager,
             Self::Session(_) => AppletType::Session,
         }
     }
@@ -90,6 +94,7 @@ impl AppletController {
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
+            Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
         }
     }
@@ -108,6 +113,11 @@ impl AppletController {
             }
             Self::Network(controller) => {
                 controller.emit(network::Input::Reconfigure(network::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Pager(controller) => {
+                controller.emit(pager::Input::Reconfigure(pager::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -144,6 +154,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(network::Init {
                     service: services.network.clone(),
                     config: network::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Pager => Some(AppletController::Pager(
+            pager::Applet::builder()
+                .launch(pager::Init {
+                    service: services.compositor.clone(),
+                    config: pager::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -426,6 +444,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "network");
         assert_eq!(entries[0].applet_type, AppletType::Network);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_pager_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["pager".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "pager");
+        assert_eq!(entries[0].applet_type, AppletType::Pager);
         assert!(entries[0].config.is_none());
     }
 

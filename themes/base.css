@@ -365,45 +365,6 @@
     background: var(--color-accent);
 }
 
-.pager-num {
-    min-height: 20px;
-    margin: 0 var(--space-1);
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-pill);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    font-variant-numeric: tabular-nums;
-    transition:
-        background-color var(--motion-fast) var(--ease-standard),
-        color var(--motion-fast) var(--ease-standard),
-        opacity var(--motion-fast) var(--ease-standard);
-}
-
-.pager-num label {
-    color: color-mix(in srgb, currentColor 35%, transparent);
-}
-
-.pager-num.active {
-    background: color-mix(in srgb, currentColor 20%, transparent);
-}
-
-.pager-num.active label {
-    color: currentColor;
-}
-
-.pager-num.occupied label {
-    color: color-mix(in srgb, currentColor 60%, transparent);
-}
-
-.pager-num.urgent {
-    background: var(--color-accent);
-    color: var(--color-accent-fg);
-}
-
-.pager-num.urgent label {
-    color: currentColor;
-}
-
 popover {
     padding: 0;
 }
