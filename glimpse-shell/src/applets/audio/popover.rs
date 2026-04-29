@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -20,17 +20,37 @@ use crate::{
     services::audio::{AudioDevice, AudioStream, Command, State, volume_icon},
 };
 
+const VOLUME_ECHO_GRACE: Duration = Duration::from_secs(2);
+const VOLUME_COMMAND_INTERVAL: Duration = Duration::from_millis(100);
+
 pub struct Popover {
     animation: AnimatedPopover,
     state: State,
     max_volume: u32,
     show_streams: bool,
     streams_expanded: bool,
+    pending_output_volume: Rc<RefCell<Option<PendingVolume>>>,
+    pending_input_volume: Rc<RefCell<Option<PendingVolume>>>,
     updating_output_scale: Rc<Cell<bool>>,
     updating_input_scale: Rc<Cell<bool>>,
     outputs: Controller<DeviceList<Command>>,
     inputs: Controller<DeviceList<Command>>,
     streams: Controller<DeviceList<Command>>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingVolume {
+    value: u32,
+    changed_at: Instant,
+}
+
+impl PendingVolume {
+    fn new(value: u32) -> Self {
+        Self {
+            value,
+            changed_at: Instant::now(),
+        }
+    }
 }
 
 pub struct PopoverInit {
@@ -206,15 +226,20 @@ impl SimpleComponent for Popover {
                 .add_mark(100.0, gtk::PositionType::Bottom, None);
         }
 
+        let pending_output_volume = Rc::new(RefCell::new(None));
+        let pending_input_volume = Rc::new(RefCell::new(None));
+
         connect_throttled_scale(
             &widgets.output_scale,
             updating_output_scale.clone(),
+            pending_output_volume.clone(),
             sender.clone(),
             Command::SetOutputVolume,
         );
         connect_throttled_scale(
             &widgets.input_scale,
             updating_input_scale.clone(),
+            pending_input_volume.clone(),
             sender.clone(),
             Command::SetInputVolume,
         );
@@ -225,6 +250,8 @@ impl SimpleComponent for Popover {
             max_volume: init.max_volume,
             show_streams: init.show_streams,
             streams_expanded: false,
+            pending_output_volume,
+            pending_input_volume,
             updating_output_scale,
             updating_input_scale,
             outputs,
@@ -260,6 +287,17 @@ impl SimpleComponent for Popover {
                 self.streams_expanded = !self.streams_expanded;
             }
             PopoverInput::Command(command) => {
+                match &command {
+                    Command::SetOutputVolume(volume) => {
+                        self.pending_output_volume
+                            .replace(Some(PendingVolume::new(*volume)));
+                    }
+                    Command::SetInputVolume(volume) => {
+                        self.pending_input_volume
+                            .replace(Some(PendingVolume::new(*volume)));
+                    }
+                    _ => {}
+                }
                 let _ = sender.output(PopoverOutput::Command(command));
             }
         }
@@ -291,16 +329,33 @@ impl SimpleComponent for Popover {
         input_scale.set_range(0.0, model.max_volume as f64);
         input_scale.set_sensitive(input.is_some());
 
-        if let Some(device) = output {
-            model.updating_output_scale.set(true);
-            output_scale.set_value(device.volume as f64);
-            model.updating_output_scale.set(false);
+        let now = Instant::now();
+        if let Some(device) = output
+            && !scale_is_dragging(&output_scale)
+        {
+            let should_apply = {
+                let mut pending = model.pending_output_volume.borrow_mut();
+                should_apply_service_volume(&mut pending, device.volume, now)
+            };
+            if should_apply {
+                model.updating_output_scale.set(true);
+                output_scale.set_value(device.volume as f64);
+                model.updating_output_scale.set(false);
+            }
         }
 
-        if let Some(device) = input {
-            model.updating_input_scale.set(true);
-            input_scale.set_value(device.volume as f64);
-            model.updating_input_scale.set(false);
+        if let Some(device) = input
+            && !scale_is_dragging(&input_scale)
+        {
+            let should_apply = {
+                let mut pending = model.pending_input_volume.borrow_mut();
+                should_apply_service_volume(&mut pending, device.volume, now)
+            };
+            if should_apply {
+                model.updating_input_scale.set(true);
+                input_scale.set_value(device.volume as f64);
+                model.updating_input_scale.set(false);
+            }
         }
 
         streams_section.set_visible(model.show_streams);
@@ -318,42 +373,80 @@ impl SimpleComponent for Popover {
     }
 }
 
+fn scale_is_dragging(scale: &gtk::Scale) -> bool {
+    scale.state_flags().contains(gtk::StateFlags::ACTIVE)
+}
+
+fn should_apply_service_volume(
+    pending: &mut Option<PendingVolume>,
+    service_volume: u32,
+    now: Instant,
+) -> bool {
+    let Some(value) = pending else {
+        return true;
+    };
+
+    if value.value == service_volume {
+        *pending = None;
+        return true;
+    }
+
+    if now.duration_since(value.changed_at) < VOLUME_ECHO_GRACE {
+        return false;
+    }
+
+    *pending = None;
+    true
+}
+
 fn connect_throttled_scale(
     scale: &gtk::Scale,
     updating: Rc<Cell<bool>>,
+    pending_volume: Rc<RefCell<Option<PendingVolume>>>,
     sender: ComponentSender<Popover>,
     make_command: fn(u32) -> Command,
 ) {
-    let last_sent = Rc::new(Cell::new(Instant::now()));
+    let last_sent = Rc::new(Cell::new(Instant::now() - VOLUME_COMMAND_INTERVAL));
     let pending = Rc::new(Cell::new(false));
+    let pending_value = Rc::new(Cell::new(0));
 
-    scale.connect_change_value(move |scale, _, value| {
+    scale.connect_change_value(move |_, _, value| {
         if updating.get() {
             return glib::Propagation::Stop;
         }
 
+        let volume = volume_from_scale_value(value);
+        pending_value.set(volume);
+        pending_volume
+            .borrow_mut()
+            .replace(PendingVolume::new(volume));
+
         let now = Instant::now();
-        if now.duration_since(last_sent.get()) >= Duration::from_millis(100) {
+        if now.duration_since(last_sent.get()) >= VOLUME_COMMAND_INTERVAL {
             last_sent.set(now);
             pending.set(false);
-            sender.input(PopoverInput::Command(make_command(value as u32)));
+            sender.input(PopoverInput::Command(make_command(volume)));
         } else if !pending.get() {
             pending.set(true);
             let last_sent = last_sent.clone();
             let pending = pending.clone();
+            let pending_value = pending_value.clone();
             let sender = sender.clone();
-            let scale = scale.clone();
-            glib::timeout_add_local_once(Duration::from_millis(100), move || {
+            glib::timeout_add_local_once(VOLUME_COMMAND_INTERVAL, move || {
                 if pending.get() {
                     pending.set(false);
                     last_sent.set(Instant::now());
-                    sender.input(PopoverInput::Command(make_command(scale.value() as u32)));
+                    sender.input(PopoverInput::Command(make_command(pending_value.get())));
                 }
             });
         }
 
         glib::Propagation::Proceed
     });
+}
+
+fn volume_from_scale_value(value: f64) -> u32 {
+    value.round().clamp(0.0, u32::MAX as f64) as u32
 }
 
 fn output_items(devices: &[AudioDevice]) -> Vec<DeviceListItem<Command>> {
@@ -474,5 +567,48 @@ mod tests {
             items[0].command,
             Some(Command::SetDefaultOutput("sink".into()))
         );
+    }
+
+    #[test]
+    fn pending_volume_ignores_recent_stale_service_values() {
+        let now = Instant::now();
+        let mut pending = Some(PendingVolume {
+            value: 80,
+            changed_at: now,
+        });
+
+        assert!(!should_apply_service_volume(&mut pending, 40, now));
+        assert!(pending.is_some());
+    }
+
+    #[test]
+    fn pending_volume_clears_when_service_catches_up() {
+        let now = Instant::now();
+        let mut pending = Some(PendingVolume {
+            value: 80,
+            changed_at: now,
+        });
+
+        assert!(should_apply_service_volume(&mut pending, 80, now));
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn pending_volume_expires_if_service_never_catches_up() {
+        let now = Instant::now();
+        let mut pending = Some(PendingVolume {
+            value: 80,
+            changed_at: now - VOLUME_ECHO_GRACE - Duration::from_millis(1),
+        });
+
+        assert!(should_apply_service_volume(&mut pending, 40, now));
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn scale_values_are_normalized_before_commands() {
+        assert_eq!(volume_from_scale_value(-1.0), 0);
+        assert_eq!(volume_from_scale_value(40.4), 40);
+        assert_eq!(volume_from_scale_value(40.6), 41);
     }
 }
