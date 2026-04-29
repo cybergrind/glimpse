@@ -4,7 +4,6 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    dbus::login1::Login1ManagerProxy,
     dbus::power_profiles::PowerProfilesDaemonProxy,
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
@@ -17,28 +16,14 @@ pub struct PowerProfiles {
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
-pub struct PowerActions {
-    pub can_suspend: String,
-    pub can_hibernate: String,
-    pub can_reboot: String,
-    pub can_poweroff: String,
-}
-
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct State {
     pub profiles: PowerProfiles,
-    pub actions: PowerActions,
 }
 
 #[derive(Debug, Clone)]
 pub enum Command {
     Refresh,
     SetProfile(String),
-    Suspend,
-    Hibernate,
-    Reboot,
-    Poweroff,
-    Lock,
 }
 
 pub type PowerHandle = ServiceHandle<State, Command>;
@@ -77,28 +62,15 @@ impl PowerService {
     }
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<()> {
-        let logind = Login1ManagerProxy::new(&self.conn).await?;
-
+        let conn = self.conn.clone();
         let mut state = self.state_tx.borrow().clone();
-        self.read_actions(&logind, &mut state).await;
-
-        let pp = PowerProfilesDaemonProxy::new(&self.conn).await;
-        if let Ok(ref pp) = pp {
-            self.read_profiles(pp, &mut state).await;
-            tracing::info!(
-                active = %state.profiles.active,
-                available = ?state.profiles.available,
-                "power: profiles loaded"
-            );
-        } else {
-            tracing::warn!("power: power-profiles-daemon not available");
-        }
+        let mut pp = connect_profiles(&conn, &mut state).await;
 
         self.change_state(state);
 
         let mut profile_changes = match &pp {
-            Ok(pp) => Some(pp.receive_active_profile_changed().await),
-            Err(_) => None,
+            Some(pp) => Some(pp.receive_active_profile_changed().await),
+            None => None,
         };
 
         loop {
@@ -110,9 +82,9 @@ impl PowerService {
                         None => std::future::pending().await,
                     }
                 } => {
-                    if let Ok(ref pp) = pp {
+                    if let Some(ref pp) = pp {
                         let mut next = self.state_tx.borrow().clone();
-                        if self.read_profiles(pp, &mut next).await {
+                        if read_profiles(pp, &mut next).await {
                             self.change_state(next);
                         }
                     }
@@ -122,9 +94,14 @@ impl PowerService {
                         let refresh = self.execute_command(command).await;
                         if refresh {
                             let mut next = self.state_tx.borrow().clone();
-                            self.read_actions(&logind, &mut next).await;
-                            if let Ok(ref pp) = pp {
-                                self.read_profiles(pp, &mut next).await;
+                            if pp.is_none() {
+                                pp = connect_profiles(&conn, &mut next).await;
+                                profile_changes = match &pp {
+                                    Some(pp) => Some(pp.receive_active_profile_changed().await),
+                                    None => None,
+                                };
+                            } else if let Some(ref pp) = pp {
+                                read_profiles(pp, &mut next).await;
                             }
                             if should_emit_state(&self.state_tx.borrow(), &next) {
                                 self.change_state(next);
@@ -132,7 +109,21 @@ impl PowerService {
                         }
                     }
                     Some(ServiceCommand::Control(control)) => match control {
-                        Control::Start(_) | Control::Reconfigure(_) => {}
+                        Control::Start(_) | Control::Reconfigure(_) => {
+                            let mut next = self.state_tx.borrow().clone();
+                            if pp.is_none() {
+                                pp = connect_profiles(&conn, &mut next).await;
+                                profile_changes = match &pp {
+                                    Some(pp) => Some(pp.receive_active_profile_changed().await),
+                                    None => None,
+                                };
+                            } else if let Some(ref pp) = pp {
+                                read_profiles(pp, &mut next).await;
+                            }
+                            if should_emit_state(&self.state_tx.borrow(), &next) {
+                                self.change_state(next);
+                            }
+                        }
                         Control::Shutdown => break,
                     },
                     None => break,
@@ -152,36 +143,6 @@ impl PowerService {
                 }
                 true
             }
-            Command::Suspend => {
-                if let Err(error) = self.suspend().await {
-                    tracing::warn!(error = %error, "power command failed");
-                }
-                false
-            }
-            Command::Hibernate => {
-                if let Err(error) = self.hibernate().await {
-                    tracing::warn!(error = %error, "power command failed");
-                }
-                false
-            }
-            Command::Reboot => {
-                if let Err(error) = self.reboot().await {
-                    tracing::warn!(error = %error, "power command failed");
-                }
-                false
-            }
-            Command::Poweroff => {
-                if let Err(error) = self.poweroff().await {
-                    tracing::warn!(error = %error, "power command failed");
-                }
-                false
-            }
-            Command::Lock => {
-                if let Err(error) = self.lock().await {
-                    tracing::warn!(error = %error, "power command failed");
-                }
-                false
-            }
         }
     }
 
@@ -191,89 +152,51 @@ impl PowerService {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+}
 
-    async fn suspend(&self) -> anyhow::Result<()> {
-        self.logind()
-            .await?
-            .suspend(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+async fn connect_profiles<'a>(
+    conn: &'a zbus::Connection,
+    state: &mut State,
+) -> Option<PowerProfilesDaemonProxy<'a>> {
+    match PowerProfilesDaemonProxy::new(conn).await {
+        Ok(pp) => {
+            read_profiles(&pp, state).await;
+            tracing::info!(
+                active = %state.profiles.active,
+                available = ?state.profiles.available,
+                "power: profiles loaded"
+            );
+            Some(pp)
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "power: power-profiles-daemon not available");
+            None
+        }
     }
+}
 
-    async fn hibernate(&self) -> anyhow::Result<()> {
-        self.logind()
-            .await?
-            .hibernate(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn reboot(&self) -> anyhow::Result<()> {
-        self.logind()
-            .await?
-            .reboot(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn poweroff(&self) -> anyhow::Result<()> {
-        self.logind()
-            .await?
-            .power_off(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn lock(&self) -> anyhow::Result<()> {
-        self.logind()
-            .await?
-            .lock_sessions()
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn logind(&self) -> anyhow::Result<Login1ManagerProxy<'_>> {
-        Login1ManagerProxy::new(&self.conn)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn read_actions(&self, logind: &Login1ManagerProxy<'_>, state: &mut State) -> bool {
-        let next = PowerActions {
-            can_suspend: logind.can_suspend().await.unwrap_or_default(),
-            can_hibernate: logind.can_hibernate().await.unwrap_or_default(),
-            can_reboot: logind.can_reboot().await.unwrap_or_default(),
-            can_poweroff: logind.can_power_off().await.unwrap_or_default(),
-        };
-
-        let changed = state.actions != next;
-        state.actions = next;
-        changed
-    }
-
-    async fn read_profiles(&self, pp: &PowerProfilesDaemonProxy<'_>, state: &mut State) -> bool {
-        let raw = pp.profiles().await.unwrap_or_default();
-        let next = PowerProfiles {
-            active: pp.active_profile().await.unwrap_or_default(),
-            performance_degraded: pp.performance_degraded().await.unwrap_or_default(),
-            available: raw
-                .iter()
-                .filter_map(|entry| {
-                    entry.get("Profile").and_then(|value| {
-                        use zbus::zvariant::Value;
-                        match &**value {
-                            Value::Str(profile) => Some(profile.to_string()),
-                            _ => None,
-                        }
-                    })
+async fn read_profiles(pp: &PowerProfilesDaemonProxy<'_>, state: &mut State) -> bool {
+    let raw = pp.profiles().await.unwrap_or_default();
+    let next = PowerProfiles {
+        active: pp.active_profile().await.unwrap_or_default(),
+        performance_degraded: pp.performance_degraded().await.unwrap_or_default(),
+        available: raw
+            .iter()
+            .filter_map(|entry| {
+                entry.get("Profile").and_then(|value| {
+                    use zbus::zvariant::Value;
+                    match &**value {
+                        Value::Str(profile) => Some(profile.to_string()),
+                        _ => None,
+                    }
                 })
-                .collect(),
-        };
+            })
+            .collect(),
+    };
 
-        let changed = state.profiles != next;
-        state.profiles = next;
-        changed
-    }
+    let changed = state.profiles != next;
+    state.profiles = next;
+    changed
 }
 
 fn should_emit_state(previous: &State, next: &State) -> bool {
