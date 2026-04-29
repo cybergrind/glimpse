@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Config,
     dbus::Dbus,
-    services::{battery, bluetooth, compositor, location, network, power},
+    services::{battery, bluetooth, compositor, location, network, power, session},
 };
 
 macro_rules! for_each_service_handle {
@@ -112,6 +112,7 @@ pub struct Services {
     pub power: ServiceHandle<power::State, power::Command>,
     pub bluetooth: ServiceHandle<bluetooth::State, bluetooth::Command>,
     pub network: network::NetworkHandle,
+    pub session: session::SessionHandle,
     pub compositor: compositor::CompositorHandle,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
@@ -122,7 +123,9 @@ impl Services {
         for_each_service_handle!(
             self,
             control,
-            [location, battery, power, bluetooth, network, compositor]
+            [
+                location, battery, power, bluetooth, network, session, compositor
+            ]
         );
     }
 }
@@ -152,6 +155,9 @@ impl ServiceRuntime {
         let (network_service, network) = network::NetworkService::new(system_dbus.clone());
         let network_service = spawn_service(|cancel| network_service.run(cancel));
 
+        let (session_service, session) = session::SessionService::new(system_dbus.clone());
+        let session_service = spawn_service(|cancel| session_service.run(cancel));
+
         let (compositor_service, compositor) = compositor::CompositorService::new();
         let compositor_service = spawn_service(|cancel| compositor_service.run(cancel));
 
@@ -161,6 +167,7 @@ impl ServiceRuntime {
             power_service,
             bluetooth_service,
             network_service,
+            session_service,
             compositor_service,
         ];
         let handles = Services {
@@ -169,6 +176,7 @@ impl ServiceRuntime {
             power,
             bluetooth,
             network,
+            session,
             compositor,
             system_dbus,
             session_dbus,
