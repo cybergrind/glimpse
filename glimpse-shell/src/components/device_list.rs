@@ -235,6 +235,8 @@ where
             add_css_class: "device-list",
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 0,
+            set_vexpand: false,
+            set_valign: gtk::Align::Start,
 
             gtk::Box {
                 add_css_class: "device-list__header",
@@ -255,6 +257,8 @@ where
                 set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
                 set_max_content_height: 300,
                 set_propagate_natural_height: true,
+                set_vexpand: false,
+                set_valign: gtk::Align::Start,
 
                 #[local_ref]
                 rows_box -> gtk::Box {},

@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Config,
     dbus::Dbus,
-    services::{battery, bluetooth, compositor, location, network, power, session},
+    services::{audio, battery, bluetooth, compositor, location, network, power, session},
 };
 
 macro_rules! for_each_service_handle {
@@ -107,6 +107,7 @@ impl RunningService {
 
 #[derive(Clone)]
 pub struct Services {
+    pub audio: ServiceHandle<audio::State, audio::Command>,
     pub location: ServiceHandle<location::State, location::Command>,
     pub battery: ServiceHandle<battery::State, battery::Command>,
     pub power: ServiceHandle<power::State, power::Command>,
@@ -124,7 +125,7 @@ impl Services {
             self,
             control,
             [
-                location, battery, power, bluetooth, network, session, compositor
+                audio, location, battery, power, bluetooth, network, session, compositor
             ]
         );
     }
@@ -139,6 +140,9 @@ impl ServiceRuntime {
     pub fn new(dbus: Dbus) -> Self {
         let session_dbus = dbus.session;
         let system_dbus = dbus.system;
+
+        let (audio_service, audio) = audio::AudioService::new();
+        let audio_service = spawn_service(|cancel| audio_service.run(cancel));
 
         let (location_service, location) = location::LocationService::new();
         let location_service = spawn_service(|cancel| location_service.run(cancel));
@@ -162,6 +166,7 @@ impl ServiceRuntime {
         let compositor_service = spawn_service(|cancel| compositor_service.run(cancel));
 
         let running_services = vec![
+            audio_service,
             location_service,
             battery_service,
             power_service,
@@ -171,6 +176,7 @@ impl ServiceRuntime {
             compositor_service,
         ];
         let handles = Services {
+            audio,
             location,
             battery,
             power,

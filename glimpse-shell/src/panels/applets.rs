@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{battery, bluetooth, network, pager, session},
+    applets::{audio, battery, bluetooth, network, pager, session},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -18,6 +18,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum AppletType {
+    Audio,
     Battery,
     Bluetooth,
     Network,
@@ -28,6 +29,7 @@ pub enum AppletType {
 impl AppletType {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
+            "audio" => Some(Self::Audio),
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
             "network" => Some(Self::Network),
@@ -71,6 +73,7 @@ pub struct AppletBlueprint {
 }
 
 pub enum AppletController {
+    Audio(Controller<audio::Applet>),
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
     Network(Controller<network::Applet>),
@@ -81,6 +84,7 @@ pub enum AppletController {
 impl AppletController {
     pub fn applet_type(&self) -> AppletType {
         match self {
+            Self::Audio(_) => AppletType::Audio,
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
             Self::Network(_) => AppletType::Network,
@@ -91,6 +95,7 @@ impl AppletController {
 
     pub fn widget(&self) -> gtk::Widget {
         match self {
+            Self::Audio(controller) => controller.widget().clone().upcast(),
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
@@ -101,6 +106,11 @@ impl AppletController {
 
     pub fn reconfigure(&self, config: Option<&AppletConfig>) {
         match self {
+            Self::Audio(controller) => {
+                controller.emit(audio::Input::Reconfigure(audio::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
             Self::Battery(controller) => {
                 controller.emit(battery::Input::Reconfigure(battery::Config::from_raw(
                     &config.cloned(),
@@ -132,6 +142,14 @@ impl AppletController {
 
 pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<AppletController> {
     match blueprint.applet_type {
+        AppletType::Audio => Some(AppletController::Audio(
+            audio::Applet::builder()
+                .launch(audio::Init {
+                    service: services.audio.clone(),
+                    config: audio::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
         AppletType::Battery => Some(AppletController::Battery(
             battery::Applet::builder()
                 .launch(battery::Init {

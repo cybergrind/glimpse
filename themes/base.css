@@ -464,12 +464,14 @@ popover separator {
 }
 
 .section-block,
+.collapsible-section,
 .action-menu,
 .device-list {
     color: var(--popover-fg);
 }
 
 .section-block:not(:last-child),
+.collapsible-section:not(:last-child),
 .action-menu:not(:last-child),
 .device-list:not(:last-child) {
     margin-bottom: var(--popover-section-gap);
@@ -493,6 +495,14 @@ popover separator {
 .action-menu__subtitle {
     color: var(--color-muted-fg);
     font-size: var(--font-size-sm);
+}
+
+.collapsible-section {
+    border-radius: var(--row-radius);
+}
+
+.collapsible-section__content {
+    margin-top: var(--space-2);
 }
 
 .hero-row {
@@ -807,77 +817,6 @@ popover separator {
 
 .audio-popover {
     --popover-min-width: 420px;
-}
-
-.audio-popover .volume-row {
-    margin-bottom: var(--space-2);
-}
-
-.audio-popover .mute-btn {
-    opacity: var(--opacity-muted);
-}
-
-.audio-popover .mute-btn:hover {
-    opacity: 1;
-}
-
-.audio-popover .device-btn {
-    padding: var(--row-padding-y) calc(var(--row-padding-x) - var(--space-1));
-    font-weight: var(--font-weight-normal);
-}
-
-.audio-popover .device-btn label {
-    font-weight: var(--font-weight-normal);
-}
-
-.audio-popover .chevron {
-    font-size: 120%;
-    opacity: var(--opacity-disabled);
-    min-width: var(--row-icon-size);
-}
-
-.audio-popover .device-list {
-    margin-left: var(--space-4);
-    margin-top: var(--space-2);
-    margin-bottom: var(--space-3);
-}
-
-.audio-popover .device-list .action-row__button {
-    padding: var(--row-padding-y) var(--row-padding-x);
-}
-
-.audio-popover .device-icon {
-    opacity: var(--opacity-muted);
-}
-
-.audio-popover .device-check {
-    opacity: var(--opacity-disabled);
-}
-
-.audio-popover .streams-box {
-    margin-left: var(--space-6);
-    margin-top: var(--space-2);
-    margin-bottom: var(--space-3);
-}
-
-.audio-popover .stream-row {
-    margin-top: var(--space-3);
-    margin-bottom: var(--space-3);
-    margin-left: var(--space-5);
-}
-
-.audio-popover .stream-name {
-    color: var(--color-muted-fg);
-    font-size: var(--font-size-md);
-    margin-bottom: var(--space-1);
-}
-
-.audio-label {
-    font-variant-numeric: tabular-nums;
-}
-
-.audio .mic-muted-indicator {
-    color: var(--color-warning);
 }
 
 .privacy-indicator,
