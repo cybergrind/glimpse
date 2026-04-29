@@ -85,6 +85,7 @@ pub struct SessionSnapshot {
     pub capabilities: SessionActionCapabilities,
     pub user_name: String,
     pub host_name: String,
+    pub uptime: String,
     pub subtitle: String,
 }
 
@@ -94,6 +95,7 @@ impl Default for SessionSnapshot {
             capabilities: SessionActionCapabilities::default(),
             user_name: "user".into(),
             host_name: "linux".into(),
+            uptime: String::new(),
             subtitle: String::new(),
         }
     }
@@ -262,6 +264,7 @@ impl SessionService {
             SessionSnapshot {
                 capabilities,
                 user_name: fallback_user_name(),
+                uptime: uptime.clone(),
                 subtitle: build_subtitle(&host_name, &uptime),
                 host_name,
             },
@@ -370,7 +373,7 @@ impl ActionWorker {
     async fn suspend(&self) -> anyhow::Result<()> {
         self.logind()
             .await?
-            .suspend(false)
+            .suspend(true)
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
@@ -378,7 +381,7 @@ impl ActionWorker {
     async fn hibernate(&self) -> anyhow::Result<()> {
         self.logind()
             .await?
-            .hibernate(false)
+            .hibernate(true)
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
@@ -386,7 +389,7 @@ impl ActionWorker {
     async fn reboot(&self) -> anyhow::Result<()> {
         self.logind()
             .await?
-            .reboot(false)
+            .reboot(true)
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
@@ -394,7 +397,7 @@ impl ActionWorker {
     async fn power_off(&self) -> anyhow::Result<()> {
         self.logind()
             .await?
-            .power_off(false)
+            .power_off(true)
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))
     }

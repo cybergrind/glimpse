@@ -100,6 +100,8 @@ where
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 0,
             add_css_class: "action-menu",
+            #[watch]
+            set_visible: has_visible_items(&model.items),
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
@@ -154,6 +156,10 @@ where
     }
 }
 
+fn has_visible_items<Command>(items: &[ActionMenuItem<Command>]) -> bool {
+    items.iter().any(|item| item.visible)
+}
+
 fn render_items<Command>(
     list: &gtk::Box,
     items: &[ActionMenuItem<Command>],
@@ -190,5 +196,28 @@ fn render_items<Command>(
         });
 
         list.append(row.as_ref());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(visible: bool) -> ActionMenuItem<&'static str> {
+        ActionMenuItem {
+            label: "Action".into(),
+            icon: None,
+            visible,
+            checked: None,
+            selectable: None,
+            command: "action",
+        }
+    }
+
+    #[test]
+    fn menu_visibility_follows_visible_items() {
+        assert!(!has_visible_items::<&str>(&[]));
+        assert!(!has_visible_items(&[item(false)]));
+        assert!(has_visible_items(&[item(false), item(true)]));
     }
 }

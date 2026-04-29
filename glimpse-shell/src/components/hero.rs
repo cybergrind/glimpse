@@ -62,10 +62,11 @@ impl WidgetTemplate for HeroView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::components::test_support::gtk_available_on_this_thread;
 
     #[test]
     fn hero_view_exposes_shared_class_contract() {
-        if gtk::init().is_err() {
+        if !gtk_available_on_this_thread() {
             return;
         }
 

@@ -30,10 +30,11 @@ impl WidgetTemplate for PopoverShell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::components::test_support::gtk_available_on_this_thread;
 
     #[test]
     fn popover_shell_template_exposes_stable_class_contract() {
-        if gtk::init().is_err() {
+        if !gtk_available_on_this_thread() {
             return;
         }
 

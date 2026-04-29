@@ -34,10 +34,11 @@ impl WidgetTemplate for DeviceStatusView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::components::test_support::gtk_available_on_this_thread;
 
     #[test]
     fn device_status_view_exposes_label_and_spinner() {
-        if gtk::init().is_err() {
+        if !gtk_available_on_this_thread() {
             return;
         }
 

@@ -463,6 +463,45 @@ popover separator {
     padding: var(--space-2) var(--popover-padding) 0;
 }
 
+.session-confirmation-dialog__content {
+    padding: 24px;
+}
+
+.session-confirmation-dialog__icon-frame {
+    padding: 14px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.session-confirmation-dialog__icon {
+    color: var(--color-accent);
+}
+
+.session-confirmation-dialog__heading {
+    color: var(--color-fg);
+    font-size: 20px;
+    font-weight: var(--font-weight-semibold);
+}
+
+.session-confirmation-dialog__body {
+    color: var(--color-muted-fg);
+    font-size: var(--font-size-md);
+}
+
+.session-confirmation-dialog__actions {
+    margin-top: var(--space-2);
+}
+
+.session-confirmation-dialog__button {
+    min-width: 104px;
+    padding: 8px 14px;
+}
+
+.session-confirmation-dialog__button,
+.session-confirmation-dialog__button label {
+    font-weight: normal;
+}
+
 .section-block,
 .action-menu,
 .device-list {
