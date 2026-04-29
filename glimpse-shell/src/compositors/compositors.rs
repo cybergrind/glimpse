@@ -1,4 +1,5 @@
 use crate::compositors::{hyprland::Hyprland, niri::Niri};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compositor {
@@ -6,11 +7,74 @@ pub enum Compositor {
     Hyprland(Hyprland),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompositorEvent {
+    FocusedWindowChanged { workspace: usize, window: usize },
+    WorkspaceChanged(usize),
+    KeyboardLayoutChanged(String),
+}
+
 impl Compositor {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Niri(_) => "niri",
             Self::Hyprland(_) => "hyprland",
+        }
+    }
+
+    pub async fn listen(self, sender: mpsc::Sender<CompositorEvent>) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.listen(sender).await,
+            Self::Hyprland(compositor) => compositor.listen(sender).await,
+        }
+    }
+
+    pub async fn set_keyboard_layout(&self, layout: usize) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.set_keyboard_layout(layout).await,
+            Self::Hyprland(compositor) => compositor.set_keyboard_layout(layout).await,
+        }
+    }
+
+    pub async fn set_workspace(&self, workspace: usize) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.set_workspace(workspace).await,
+            Self::Hyprland(compositor) => compositor.set_workspace(workspace).await,
+        }
+    }
+
+    pub async fn focus_next_workspace(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.focus_next_workspace().await,
+            Self::Hyprland(compositor) => compositor.focus_next_workspace().await,
+        }
+    }
+
+    pub async fn focus_previous_workspace(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.focus_previous_workspace().await,
+            Self::Hyprland(compositor) => compositor.focus_previous_workspace().await,
+        }
+    }
+
+    pub async fn focus_window(&self, window: usize) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.focus_window(window).await,
+            Self::Hyprland(compositor) => compositor.focus_window(window).await,
+        }
+    }
+
+    pub async fn focus_next_window(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.focus_next_window().await,
+            Self::Hyprland(compositor) => compositor.focus_next_window().await,
+        }
+    }
+
+    pub async fn focus_previous_window(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.focus_previous_window().await,
+            Self::Hyprland(compositor) => compositor.focus_previous_window().await,
         }
     }
 }

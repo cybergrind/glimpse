@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod compositors;
 pub mod hyprland;
 pub mod niri;
