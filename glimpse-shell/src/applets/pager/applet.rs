@@ -214,7 +214,16 @@ struct PagerState {
     current_workspace: Option<usize>,
     focused_window: Option<usize>,
     workspaces: Vec<Workspace>,
-    windows: Vec<Window>,
+    windows: Vec<PagerWindow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PagerWindow {
+    id: usize,
+    layout_order: Option<usize>,
+    workspace: Option<usize>,
+    focused: bool,
+    urgent: bool,
 }
 
 impl From<&State> for PagerState {
@@ -227,7 +236,19 @@ impl From<&State> for PagerState {
             current_workspace: state.current_workspace,
             focused_window: state.focused_window,
             workspaces: state.workspaces.clone(),
-            windows: state.windows.clone(),
+            windows: state.windows.iter().map(PagerWindow::from).collect(),
+        }
+    }
+}
+
+impl From<&Window> for PagerWindow {
+    fn from(window: &Window) -> Self {
+        Self {
+            id: window.id,
+            layout_order: window.layout_order,
+            workspace: window.workspace,
+            focused: window.focused,
+            urgent: window.urgent,
         }
     }
 }
@@ -300,7 +321,7 @@ fn workspace_items(
     compositor: CompositorType,
     current_workspace: Option<usize>,
     workspaces: &[Workspace],
-    windows: &[Window],
+    windows: &[PagerWindow],
 ) -> Vec<PagerItem> {
     let occupied = occupied_workspaces(windows);
     let urgent = urgent_workspaces(windows);
@@ -341,7 +362,7 @@ fn workspace_items(
 fn window_items(
     current_workspace: Option<usize>,
     focused_window: Option<usize>,
-    windows: &[Window],
+    windows: &[PagerWindow],
 ) -> Vec<PagerItem> {
     let Some(current_workspace) = current_workspace else {
         return Vec::new();
@@ -512,14 +533,14 @@ fn current_workspace_window_tooltip(state: &PagerState) -> String {
     format!("{workspace}, {windows} windows")
 }
 
-fn occupied_workspaces(windows: &[Window]) -> HashSet<usize> {
+fn occupied_workspaces(windows: &[PagerWindow]) -> HashSet<usize> {
     windows
         .iter()
         .filter_map(|window| window.workspace)
         .collect()
 }
 
-fn urgent_workspaces(windows: &[Window]) -> HashSet<usize> {
+fn urgent_workspaces(windows: &[PagerWindow]) -> HashSet<usize> {
     windows
         .iter()
         .filter(|window| window.urgent)
@@ -690,13 +711,14 @@ mod tests {
             window(30, Some(3), true),
             window(40, None, true),
         ];
+        let windows = state.windows.iter().map(PagerWindow::from).collect::<Vec<_>>();
 
         let items = workspace_items(
             3,
             state.compositor,
             state.current_workspace,
             &state.workspaces,
-            &state.windows,
+            &windows,
         );
 
         assert_eq!(items.len(), 3);
@@ -803,13 +825,14 @@ mod tests {
         ]);
         state.compositor = CompositorType::Niri;
         state.current_workspace = Some(77);
+        let windows = state.windows.iter().map(PagerWindow::from).collect::<Vec<_>>();
 
         let items = workspace_items(
             2,
             state.compositor,
             state.current_workspace,
             &state.workspaces,
-            &state.windows,
+            &windows,
         );
 
         assert_eq!(items[1].id, 2);
@@ -844,7 +867,8 @@ mod tests {
 
     #[test]
     fn pager_state_ignores_compositor_fields_unrelated_to_rendering() {
-        let state = state_with_workspaces(vec![workspace(2)]);
+        let mut state = state_with_workspaces(vec![workspace(2)]);
+        state.windows = vec![window(7, Some(2), false)];
         let mut unrelated = state.clone();
         unrelated.monitors = vec![crate::compositors::Monitor {
             id: Some(1),
@@ -855,6 +879,11 @@ mod tests {
         }];
         unrelated.capabilities.monitors = true;
         unrelated.capabilities.night_light = true;
+        unrelated.windows[0].title = Some("renamed".into());
+        unrelated.windows[0].app_id = Some("app".into());
+        unrelated.windows[0].pid = Some(42);
+        unrelated.windows[0].fullscreen = true;
+        unrelated.windows[0].floating = Some(true);
 
         assert_eq!(PagerState::from(&state), PagerState::from(&unrelated));
     }
