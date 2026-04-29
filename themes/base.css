@@ -423,6 +423,25 @@ popover arrow {
     border-width: var(--border-width);
 }
 
+popover.animated-popover contents,
+popover.animated-popover arrow {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+    transition: opacity 45ms linear, transform 45ms linear;
+}
+
+popover.animated-popover.animated-popover--open contents,
+popover.animated-popover.animated-popover--open arrow {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+popover.animated-popover.animated-popover--closing contents,
+popover.animated-popover.animated-popover--closing arrow {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+}
+
 popover separator {
     margin-top: var(--popover-section-gap);
     margin-bottom: var(--popover-section-gap);

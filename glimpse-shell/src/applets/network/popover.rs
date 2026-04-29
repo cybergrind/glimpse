@@ -12,14 +12,14 @@ use crate::{
     applets::network::components::{
         VpnSection, VpnSectionInput, WifiSection, WifiSectionInput, WiredSection, WiredSectionInput,
     },
-    components::{hero::HeroView, popover_shell::PopoverShell},
+    components::{animated_popover::AnimatedPopover, hero::HeroView, popover_shell::PopoverShell},
     services::network::{Command, State},
 };
 
 use super::format;
 
 pub struct Popover {
-    popover: gtk::Popover,
+    animation: AnimatedPopover,
     hero_icon_name: String,
     hero_subtitle: String,
     wifi_enabled: bool,
@@ -140,7 +140,7 @@ impl SimpleComponent for Popover {
         });
 
         let model = Popover {
-            popover: widgets.root.clone(),
+            animation: AnimatedPopover::new(&widgets.root),
             hero_icon_name: "network-offline-symbolic".into(),
             hero_subtitle: "Not connected".into(),
             wifi_enabled: false,
@@ -157,11 +157,7 @@ impl SimpleComponent for Popover {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             PopoverInput::Toggle => {
-                if self.popover.is_visible() {
-                    self.popover.popdown();
-                } else {
-                    self.popover.popup();
-                }
+                self.animation.toggle();
             }
             PopoverInput::UpdateState(state) => {
                 self.hero_icon_name = icon_name_for_state(&state).into();

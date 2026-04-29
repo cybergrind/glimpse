@@ -10,6 +10,7 @@ use crate::{
         action_menu::{
             ActionMenu, ActionMenuItem, Init as ActionMenuInit, Input as ActionMenuInput,
         },
+        animated_popover::AnimatedPopover,
         key_value_grid::{KeyValueGrid, KeyValueGridInit, KeyValueGridInput, KeyValueItem},
         popover_shell::PopoverShell,
     },
@@ -20,7 +21,7 @@ use super::components::degraded::DegradedWarningView;
 use super::components::hero::BatteryHeroView;
 use super::format;
 pub struct Popover {
-    popover: gtk::Popover,
+    animation: AnimatedPopover,
     hero_icon_name: String,
     hero_percentage: String,
     hero_progress: f64,
@@ -138,7 +139,7 @@ impl SimpleComponent for Popover {
         widgets.root.set_autohide(true);
 
         let model = Popover {
-            popover: widgets.root.clone(),
+            animation: AnimatedPopover::new(&widgets.root),
             hero_icon_name: "battery-missing-symbolic".into(),
             hero_percentage: "\u{2014}".into(),
             hero_progress: 0.0,
@@ -155,11 +156,7 @@ impl SimpleComponent for Popover {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             PopoverInput::Toggle => {
-                if self.popover.is_visible() {
-                    self.popover.popdown();
-                } else {
-                    self.popover.popup();
-                }
+                self.animation.toggle();
             }
             PopoverInput::UpdateStatus(status) => {
                 self.hero_icon_name = status.icon_name.clone();

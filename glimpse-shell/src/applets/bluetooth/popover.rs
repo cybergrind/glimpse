@@ -10,6 +10,7 @@ use relm4::{
 
 use crate::{
     components::{
+        animated_popover::AnimatedPopover,
         device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
         hero::HeroView,
         popover_shell::PopoverShell,
@@ -23,7 +24,7 @@ use crate::{
 use super::format;
 
 pub struct Popover {
-    popover: gtk::Popover,
+    animation: AnimatedPopover,
     hero_icon_name: String,
     hero_subtitle: String,
     powered: bool,
@@ -132,7 +133,7 @@ impl SimpleComponent for Popover {
         });
 
         let model = Popover {
-            popover: widgets.root.clone(),
+            animation: AnimatedPopover::new(&widgets.root),
             hero_icon_name: "bluetooth-disabled-symbolic".into(),
             hero_subtitle: "Off".into(),
             powered: false,
@@ -147,11 +148,7 @@ impl SimpleComponent for Popover {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             PopoverInput::Toggle => {
-                if self.popover.is_visible() {
-                    self.popover.popdown();
-                } else {
-                    self.popover.popup();
-                }
+                self.animation.toggle();
             }
             PopoverInput::UpdateState(state) => {
                 self.powered = state.snapshot.status.powered;

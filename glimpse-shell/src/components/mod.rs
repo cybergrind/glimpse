@@ -1,4 +1,5 @@
 pub mod action_menu;
+pub mod animated_popover;
 pub mod device_list;
 pub mod device_status;
 pub mod hero;
