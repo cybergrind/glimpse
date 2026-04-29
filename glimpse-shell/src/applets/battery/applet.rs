@@ -54,12 +54,34 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             show_icon: true,
-            label_on_battery: "{percentage}%".into(),
+            label_on_battery: String::new(),
             label_on_ac: String::new(),
             tooltip_on_battery: "{percentage}% {state}, {time_left}".into(),
             tooltip_on_ac: "{percentage}% {state}".into(),
             settings_command: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::battery::BatteryState;
+
+    #[test]
+    fn default_config_hides_label() {
+        let config = Config::default();
+        let status = BatteryStatus {
+            present: true,
+            on_battery: true,
+            percentage: 73,
+            state: BatteryState::Discharging,
+            ..BatteryStatus::default()
+        };
+        let (label_template, _) = select_templates(&config, &status);
+
+        assert_eq!(label_template, "");
+        assert_eq!(format::label(label_template, &status), "");
     }
 }
 
