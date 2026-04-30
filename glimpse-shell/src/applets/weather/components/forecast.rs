@@ -35,29 +35,53 @@ impl WidgetTemplate for ForecastRow {
             add_css_class: "weather-forecast-row",
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 8,
+            set_valign: gtk::Align::Center,
 
             gtk::Label {
                 add_css_class: "weather-forecast-day",
                 set_label: &init.day_name,
                 set_xalign: 0.0,
-                set_hexpand: true,
-            },
-
-            gtk::Image {
-                set_icon_name: Some(&init.icon),
-                set_pixel_size: 20,
-            },
-
-            gtk::Label {
-                add_css_class: "weather-forecast-cond",
-                set_label: &init.condition,
-                set_xalign: 0.0,
-                set_hexpand: true,
             },
 
             gtk::Label {
                 add_css_class: "weather-forecast-temps",
                 set_label: &init.temperatures,
+            },
+
+            gtk::Box {
+                set_hexpand: true,
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 6,
+                set_valign: gtk::Align::Center,
+                set_halign: gtk::Align::End,
+                add_css_class: "weather-forecast-condition",
+
+                gtk::Label {
+                    add_css_class: "weather-forecast-cond",
+                    set_label: &init.condition,
+                    set_valign: gtk::Align::Center,
+                    set_xalign: 1.0,
+                    set_halign: gtk::Align::End,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    set_max_width_chars: 18,
+                },
+
+                gtk::Box {
+                    add_css_class: "weather-forecast-icon-slot",
+                    set_valign: gtk::Align::Center,
+                    set_halign: gtk::Align::Center,
+
+                    gtk::Image {
+                        add_css_class: "weather-forecast-icon",
+                        set_valign: gtk::Align::Center,
+                        set_halign: gtk::Align::Center,
+                        set_icon_name: Some(&init.icon),
+                        set_pixel_size: 18,
+                    },
+                },
             },
         }
     }
@@ -127,8 +151,8 @@ fn forecast_row(item: &DailyForecast) -> ForecastRow {
         condition: item.condition.clone(),
         temperatures: format!(
             "{} / {}",
-            format::temperature(item.temperature_max),
-            format::temperature(item.temperature_min)
+            format::temperature(item.temperature_min),
+            format::temperature(item.temperature_max)
         ),
     });
     if item.is_today {

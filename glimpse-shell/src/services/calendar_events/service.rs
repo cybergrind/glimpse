@@ -21,6 +21,7 @@ use super::{
 const COMMAND_QUEUE_SIZE: usize = 16;
 const PROVIDER_EVENT_QUEUE_SIZE: usize = 16;
 const REFRESH_INTERVAL: Duration = Duration::from_secs(600);
+const SELF_LOAD_EVENT_SUPPRESSION: Duration = Duration::from_secs(3);
 
 pub type CalendarEventsHandle = ServiceHandle<State, Command>;
 
@@ -92,6 +93,7 @@ impl CalendarEventsService {
         let mut queued = BTreeSet::new();
         let mut inflight: Option<(MonthKey, JoinHandle<MonthLoad>)> = None;
         let mut active_months = BTreeSet::new();
+        let mut suppress_provider_events_until = None;
         let refresh = sleep(REFRESH_INTERVAL);
         tokio::pin!(refresh);
 
@@ -108,6 +110,7 @@ impl CalendarEventsService {
             &mut queued,
             &mut inflight,
             &self.state_tx,
+            &mut suppress_provider_events_until,
         );
 
         loop {
@@ -118,11 +121,11 @@ impl CalendarEventsService {
                         self.set_preload_window(month, &mut active_months, &mut pending, &mut queued);
                         abort_inactive_load(&active_months, &mut inflight);
                         self.sync_live_range(&live_range_tx, &active_months);
-                        start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx);
+                        start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx, &mut suppress_provider_events_until);
                     }
                     Some(ServiceCommand::Command(Command::Refresh)) => {
                         self.queue_active_months(&active_months, &mut pending, &mut queued);
-                        start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx);
+                        start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx, &mut suppress_provider_events_until);
                     }
                     Some(ServiceCommand::Control(Control::Shutdown)) | None => break,
                     Some(ServiceCommand::Control(Control::Start(_)))
@@ -136,9 +139,13 @@ impl CalendarEventsService {
                 }, if listener.is_some() => {
                     match event {
                         Some(CalendarProviderEvent::Changed(reason)) => {
-                            tracing::debug!(?reason, "calendar provider changed");
+                            if should_ignore_provider_event(&mut suppress_provider_events_until) {
+                                tracing::trace!(?reason, "ignored calendar provider event from local reload");
+                                continue;
+                            }
+                            tracing::trace!(?reason, "calendar provider changed, refreshing active months");
                             self.queue_active_months(&active_months, &mut pending, &mut queued);
-                            start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx);
+                            start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx, &mut suppress_provider_events_until);
                         }
                         None => {
                             self.publish_health(Health::Degraded("calendar events listener stopped".into()));
@@ -150,7 +157,7 @@ impl CalendarEventsService {
                 }
                 _ = &mut refresh => {
                     self.queue_active_months(&active_months, &mut pending, &mut queued);
-                    start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx);
+                    start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx, &mut suppress_provider_events_until);
                     refresh.as_mut().reset(Instant::now() + REFRESH_INTERVAL);
                 }
                 _ = &mut listener_retry, if listener_retry_scheduled => {
@@ -184,7 +191,7 @@ impl CalendarEventsService {
                         }
                     }
                     self.sync_live_range(&live_range_tx, &active_months);
-                    start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx);
+                    start_next_load(&client, &mut pending, &mut queued, &mut inflight, &self.state_tx, &mut suppress_provider_events_until);
                 }
             }
         }
@@ -232,6 +239,9 @@ impl CalendarEventsService {
         let Some(range) = live_range_for_months(active_months.iter().copied().collect()) else {
             return;
         };
+        if live_range_tx.borrow().as_ref() == Some(&range) {
+            return;
+        }
         let _ = live_range_tx.send(Some(range));
     }
 
@@ -293,6 +303,7 @@ fn start_next_load(
     queued: &mut BTreeSet<MonthKey>,
     inflight: &mut Option<(MonthKey, JoinHandle<MonthLoad>)>,
     state_tx: &watch::Sender<State>,
+    suppress_provider_events_until: &mut Option<Instant>,
 ) {
     if inflight.is_some() {
         return;
@@ -305,6 +316,7 @@ fn start_next_load(
         state.health = Health::Loading;
         state.loading_months.insert(key)
     });
+    *suppress_provider_events_until = Some(Instant::now() + SELF_LOAD_EVENT_SUPPRESSION);
 
     let client = client.clone();
     *inflight = Some((
@@ -328,6 +340,17 @@ fn abort_inactive_load(
             task.abort();
         }
     }
+}
+
+fn should_ignore_provider_event(suppress_provider_events_until: &mut Option<Instant>) -> bool {
+    let Some(until) = *suppress_provider_events_until else {
+        return false;
+    };
+    if Instant::now() < until {
+        return true;
+    }
+    *suppress_provider_events_until = None;
+    false
 }
 
 fn start_listener(

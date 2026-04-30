@@ -1217,16 +1217,31 @@ popover.popover-size-xlarge {
 
 .weather-popover .weather-forecast-day {
     font-size: var(--font-size-md);
+    min-width: 58px;
 }
 
 .weather-popover .weather-forecast-temps {
     font-size: var(--font-size-md);
     font-variant-numeric: tabular-nums;
     font-weight: var(--font-weight-semibold);
+    min-width: 68px;
 }
 
 .weather-popover .weather-forecast-cond {
     font-size: var(--font-size-sm);
+    color: var(--color-muted-fg);
+}
+
+.weather-popover .weather-forecast-condition {
+    min-height: 20px;
+}
+
+.weather-popover .weather-forecast-icon-slot {
+    min-width: 20px;
+    min-height: 20px;
+}
+
+.weather-popover .weather-forecast-icon {
     color: var(--color-muted-fg);
 }
 
