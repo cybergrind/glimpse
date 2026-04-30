@@ -1,6 +1,6 @@
 # Weather Applet
 
-**Source:** Open-Meteo forecast API, Open-Meteo geocoding API, optional IP geolocation via `ipapi.co`
+**Source:** Open-Meteo forecast API, Open-Meteo geocoding API, optional reverse geocoding via Nominatim for service-provided coordinates
 
 **What it does:** The weather applet fetches current weather, hourly forecast, and daily forecast directly from HTTP APIs. It no longer depends on `glimpsed`.
 
@@ -13,14 +13,15 @@
 
 Priority:
 1. `city_name` from panel config
-2. Optional IP-based fallback when `geolocate = true`
+2. Coordinates from the shell location service
 3. Otherwise do nothing
 
 Flow:
-1. Resolve a city string
-2. Geocode the city with Open-Meteo
-3. Fetch forecast data with the resulting coordinates
-4. Refresh on the configured interval
+1. Use a configured city string when present
+2. Otherwise use the current coordinates from the shell location service
+3. Reverse geocode coordinate fallback for the display label when possible
+4. Fetch forecast data with the resulting coordinates
+5. Refresh on the configured interval
 
 ## Geocoding
 
@@ -82,7 +83,7 @@ glimpse-panel/src/applets/weather/
 
 - Open-Meteo is free and requires no API key
 - `timezone=auto` keeps hourly/daily output aligned with the resolved location
-- IP geolocation is optional and intentionally disabled by default
+- Coordinate fallback keeps working if reverse geocoding fails, but the tooltip/location label stays generic
 - The popover shows a configurable future strip via `hourly_slots`, default `5`, starting at `+1h`
 - The details section is an 8-item key/value grid with stronger value emphasis and sunrise/sunset formatting
 - The forecast section starts from tomorrow, keeps precipitation hints in-row, and is controlled by `forecast_days` in the range `0..=10`

@@ -7,12 +7,14 @@ rust-version.workspace = true
 [dependencies]
 adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
 anyhow.workspace = true
+chrono.workspace = true
 futures-util.workspace = true
 gtk4.workspace = true
 glib = "0.20"
 gio.workspace = true
 relm4.workspace = true
 glimpse = { path = "../glimpse" }
+reqwest.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }

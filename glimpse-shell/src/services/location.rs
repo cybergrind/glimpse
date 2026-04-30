@@ -1,5 +1,3 @@
-use std::future;
-
 use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -59,6 +57,8 @@ pub enum State {
 pub enum Command {
     Refresh,
 }
+
+pub type LocationHandle = ServiceHandle<State, Command>;
 
 pub struct LocationService {
     state_tx: watch::Sender<State>,
@@ -120,7 +120,7 @@ enum Lifecycle {
 }
 
 impl LocationService {
-    pub fn new() -> (Self, ServiceHandle<State, Command>) {
+    pub fn new() -> (Self, LocationHandle) {
         let (state_tx, state_rx) = watch::channel(State::Unknown);
         let (command_tx, command_rx) = mpsc::channel(4);
 

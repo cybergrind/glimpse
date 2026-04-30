@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{audio, battery, bluetooth, keyboard, network, pager, session},
+    applets::{audio, battery, bluetooth, keyboard, network, pager, session, weather},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -25,6 +25,7 @@ pub enum AppletType {
     Network,
     Pager,
     Session,
+    Weather,
 }
 
 impl AppletType {
@@ -37,6 +38,7 @@ impl AppletType {
             "network" => Some(Self::Network),
             "pager" => Some(Self::Pager),
             "session" => Some(Self::Session),
+            "weather" => Some(Self::Weather),
             _ => None,
         }
     }
@@ -82,6 +84,7 @@ pub enum AppletController {
     Network(Controller<network::Applet>),
     Pager(Controller<pager::Applet>),
     Session(Controller<session::Applet>),
+    Weather(Controller<weather::Applet>),
 }
 
 impl AppletController {
@@ -94,6 +97,7 @@ impl AppletController {
             Self::Network(_) => AppletType::Network,
             Self::Pager(_) => AppletType::Pager,
             Self::Session(_) => AppletType::Session,
+            Self::Weather(_) => AppletType::Weather,
         }
     }
 
@@ -106,6 +110,7 @@ impl AppletController {
             Self::Network(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
+            Self::Weather(controller) => controller.widget().clone().upcast(),
         }
     }
 
@@ -143,6 +148,11 @@ impl AppletController {
             }
             Self::Session(controller) => {
                 controller.emit(session::Input::Reconfigure(session::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Weather(controller) => {
+                controller.emit(weather::Input::Reconfigure(weather::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -206,6 +216,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(session::Init {
                     service: services.session.clone(),
                     config: session::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Weather => Some(AppletController::Weather(
+            weather::Applet::builder()
+                .launch(weather::Init {
+                    service: services.weather.clone(),
+                    config: weather::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),

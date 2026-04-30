@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Config,
     dbus::Dbus,
-    services::{audio, battery, bluetooth, compositor, location, network, power, session},
+    services::{audio, battery, bluetooth, compositor, location, network, power, session, weather},
 };
 
 macro_rules! for_each_service_handle {
@@ -115,6 +115,7 @@ pub struct Services {
     pub network: network::NetworkHandle,
     pub session: session::SessionHandle,
     pub compositor: compositor::CompositorHandle,
+    pub weather: weather::WeatherHandle,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
 }
@@ -125,7 +126,7 @@ impl Services {
             self,
             control,
             [
-                audio, location, battery, power, bluetooth, network, session, compositor
+                audio, location, battery, power, bluetooth, network, session, compositor, weather
             ]
         );
     }
@@ -165,6 +166,9 @@ impl ServiceRuntime {
         let (compositor_service, compositor) = compositor::CompositorService::new();
         let compositor_service = spawn_service(|cancel| compositor_service.run(cancel));
 
+        let (weather_service, weather) = weather::WeatherService::new(location.clone());
+        let weather_service = spawn_service(|cancel| weather_service.run(cancel));
+
         let running_services = vec![
             audio_service,
             location_service,
@@ -174,6 +178,7 @@ impl ServiceRuntime {
             network_service,
             session_service,
             compositor_service,
+            weather_service,
         ];
         let handles = Services {
             audio,
@@ -184,6 +189,7 @@ impl ServiceRuntime {
             network,
             session,
             compositor,
+            weather,
             system_dbus,
             session_dbus,
         };
