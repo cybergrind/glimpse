@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod battery;
 pub mod bluetooth;
+pub mod clock;
 pub mod keyboard;
 pub mod network;
 pub mod pager;

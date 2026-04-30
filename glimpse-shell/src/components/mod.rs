@@ -6,6 +6,7 @@ pub mod device_status;
 pub mod hero;
 pub mod key_value_grid;
 pub mod popover_shell;
+pub mod section_header;
 
 #[cfg(test)]
 pub(crate) mod test_support {

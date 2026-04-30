@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{audio, battery, bluetooth, keyboard, network, pager, session, weather},
+    applets::{audio, battery, bluetooth, clock, keyboard, network, pager, session, weather},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -21,6 +21,7 @@ pub enum AppletType {
     Audio,
     Battery,
     Bluetooth,
+    Clock,
     Keyboard,
     Network,
     Pager,
@@ -34,6 +35,7 @@ impl AppletType {
             "audio" => Some(Self::Audio),
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
+            "clock" => Some(Self::Clock),
             "keyboard" => Some(Self::Keyboard),
             "network" => Some(Self::Network),
             "pager" => Some(Self::Pager),
@@ -80,6 +82,7 @@ pub enum AppletController {
     Audio(Controller<audio::Applet>),
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
+    Clock(Controller<clock::Applet>),
     Keyboard(Controller<keyboard::Applet>),
     Network(Controller<network::Applet>),
     Pager(Controller<pager::Applet>),
@@ -93,6 +96,7 @@ impl AppletController {
             Self::Audio(_) => AppletType::Audio,
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
+            Self::Clock(_) => AppletType::Clock,
             Self::Keyboard(_) => AppletType::Keyboard,
             Self::Network(_) => AppletType::Network,
             Self::Pager(_) => AppletType::Pager,
@@ -106,6 +110,7 @@ impl AppletController {
             Self::Audio(controller) => controller.widget().clone().upcast(),
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
+            Self::Clock(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
@@ -128,6 +133,11 @@ impl AppletController {
             }
             Self::Bluetooth(controller) => {
                 controller.emit(bluetooth::Input::Reconfigure(bluetooth::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Clock(controller) => {
+                controller.emit(clock::Input::Reconfigure(clock::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -184,6 +194,15 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(bluetooth::Init {
                     service: services.bluetooth.clone(),
                     config: bluetooth::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Clock => Some(AppletController::Clock(
+            clock::Applet::builder()
+                .launch(clock::Init {
+                    clock: services.clock.clone(),
+                    calendar: services.calendar_events.clone(),
+                    config: clock::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -488,6 +507,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "bluetooth");
         assert_eq!(entries[0].applet_type, AppletType::Bluetooth);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_clock_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["clock".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "clock");
+        assert_eq!(entries[0].applet_type, AppletType::Clock);
         assert!(entries[0].config.is_none());
     }
 

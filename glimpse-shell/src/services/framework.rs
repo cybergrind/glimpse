@@ -4,7 +4,10 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Config,
     dbus::Dbus,
-    services::{audio, battery, bluetooth, compositor, location, network, power, session, weather},
+    services::{
+        audio, battery, bluetooth, calendar_events, clock, compositor, location, network, power,
+        session, weather,
+    },
 };
 
 macro_rules! for_each_service_handle {
@@ -16,7 +19,8 @@ macro_rules! for_each_service_handle {
             {
                 tracing::warn!(
                     service = stringify!($name),
-                    "failed to broadcast control: {}", stringify!(err)
+                    %err,
+                    "failed to broadcast control"
                 );
             }
         )*
@@ -108,6 +112,8 @@ impl RunningService {
 #[derive(Clone)]
 pub struct Services {
     pub audio: ServiceHandle<audio::State, audio::Command>,
+    pub clock: clock::ClockHandle,
+    pub calendar_events: calendar_events::CalendarEventsHandle,
     pub location: ServiceHandle<location::State, location::Command>,
     pub battery: ServiceHandle<battery::State, battery::Command>,
     pub power: ServiceHandle<power::State, power::Command>,
@@ -126,7 +132,17 @@ impl Services {
             self,
             control,
             [
-                audio, location, battery, power, bluetooth, network, session, compositor, weather
+                audio,
+                clock,
+                calendar_events,
+                location,
+                battery,
+                power,
+                bluetooth,
+                network,
+                session,
+                compositor,
+                weather
             ]
         );
     }
@@ -144,6 +160,13 @@ impl ServiceRuntime {
 
         let (audio_service, audio) = audio::AudioService::new();
         let audio_service = spawn_service(|cancel| audio_service.run(cancel));
+
+        let (clock_service, clock) = clock::ClockService::new();
+        let clock_service = spawn_service(|cancel| clock_service.run(cancel));
+
+        let (calendar_events_service, calendar_events) =
+            calendar_events::CalendarEventsService::new(session_dbus.clone());
+        let calendar_events_service = spawn_service(|cancel| calendar_events_service.run(cancel));
 
         let (location_service, location) = location::LocationService::new();
         let location_service = spawn_service(|cancel| location_service.run(cancel));
@@ -171,6 +194,8 @@ impl ServiceRuntime {
 
         let running_services = vec![
             audio_service,
+            clock_service,
+            calendar_events_service,
             location_service,
             battery_service,
             power_service,
@@ -182,6 +207,8 @@ impl ServiceRuntime {
         ];
         let handles = Services {
             audio,
+            clock,
+            calendar_events,
             location,
             battery,
             power,

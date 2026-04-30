@@ -8,6 +8,7 @@ rust-version.workspace = true
 adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
 anyhow.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 futures-util.workspace = true
 gtk4.workspace = true
 glib = "0.20"

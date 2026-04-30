@@ -558,12 +558,14 @@ popover.popover-size-xlarge {
     margin-bottom: var(--popover-section-gap);
 }
 
+.section-header,
 .section-block__header,
 .action-menu__header,
 .device-list__header {
     margin-bottom: var(--space-3);
 }
 
+.section-header__title,
 .section-block__title,
 .action-menu__title,
 .device-list__title {

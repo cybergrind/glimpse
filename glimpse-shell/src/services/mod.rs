@@ -1,6 +1,8 @@
 pub mod audio;
 pub mod battery;
 pub mod bluetooth;
+pub mod calendar_events;
+pub mod clock;
 pub mod compositor;
 pub mod framework;
 pub mod location;
