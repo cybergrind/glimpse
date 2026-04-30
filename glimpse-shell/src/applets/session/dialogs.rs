@@ -1,12 +1,17 @@
-use adw::prelude::*;
-use relm4::gtk;
+use std::time::Duration;
+
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use relm4::gtk::{self, gdk, glib, prelude::*};
 
 use crate::services::session::SessionAction;
 
 use super::Config;
 
 const DIALOG_WIDTH: i32 = 420;
+const DIALOG_HORIZONTAL_MARGIN: i32 = 48;
 const ACCEPT_BUTTON_CLASS: &str = "suggested-action";
+const OVERLAY_NAMESPACE: &str = "glimpse-session-confirmation";
+const OVERLAY_CLOSE_ANIMATION: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfirmationSpec {
@@ -58,9 +63,35 @@ pub fn show_confirmation(
     spec: ConfirmationSpec,
     on_accept: impl Fn() + 'static,
 ) {
-    let dialog = adw::Dialog::new();
+    let window = gtk::Window::new();
+    let parent_window = parent.root().and_downcast::<gtk::Window>();
+    if let Some(application) = parent_window
+        .as_ref()
+        .and_then(|window| window.application())
+    {
+        window.set_application(Some(&application));
+    }
+    let monitor = parent_monitor(parent_window.as_ref()).or_else(first_monitor);
+    init_overlay_window(&window, monitor.as_ref());
+
+    let backdrop = gtk::Overlay::new();
+    backdrop.add_css_class("session-confirmation-overlay");
+    backdrop.set_halign(gtk::Align::Fill);
+    backdrop.set_valign(gtk::Align::Fill);
+    backdrop.set_hexpand(true);
+    backdrop.set_vexpand(true);
+    let backdrop_fill = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    backdrop_fill.set_halign(gtk::Align::Fill);
+    backdrop_fill.set_valign(gtk::Align::Fill);
+    backdrop_fill.set_hexpand(true);
+    backdrop_fill.set_vexpand(true);
+    backdrop.set_child(Some(&backdrop_fill));
+
+    let dialog = gtk::Box::new(gtk::Orientation::Vertical, 0);
     dialog.add_css_class("session-confirmation-dialog");
-    dialog.set_content_width(DIALOG_WIDTH);
+    dialog.set_width_request(dialog_width(monitor.as_ref()));
+    dialog.set_halign(gtk::Align::Center);
+    dialog.set_valign(gtk::Align::Center);
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 18);
     content.add_css_class("session-confirmation-dialog__content");
@@ -77,9 +108,9 @@ pub fn show_confirmation(
     let cancel_button = gtk::Button::with_label("Cancel");
     cancel_button.add_css_class("session-confirmation-dialog__button");
     {
-        let dialog = dialog.clone();
+        let window = window.clone();
         cancel_button.connect_clicked(move |_| {
-            dialog.close();
+            close_with_animation(&window);
         });
     }
 
@@ -87,10 +118,10 @@ pub fn show_confirmation(
     accept_button.add_css_class("session-confirmation-dialog__button");
     accept_button.add_css_class(ACCEPT_BUTTON_CLASS);
     {
-        let dialog = dialog.clone();
+        let window = window.clone();
         accept_button.connect_clicked(move |_| {
             on_accept();
-            dialog.close();
+            close_with_animation(&window);
         });
     }
 
@@ -100,8 +131,136 @@ pub fn show_confirmation(
     content.append(&message);
     content.append(&actions);
 
-    dialog.set_child(Some(&content));
-    dialog.present(Some(parent));
+    dialog.append(&content);
+    backdrop.add_overlay(&dialog);
+    window.set_child(Some(&backdrop));
+    install_cancel_shortcut(&window);
+    install_primary_focus(&window, &accept_button);
+    present_with_animation(&window, &accept_button);
+}
+
+fn parent_monitor(parent_window: Option<&gtk::Window>) -> Option<gdk::Monitor> {
+    let surface = parent_window?.surface()?;
+    surface.display().monitor_at_surface(&surface)
+}
+
+fn first_monitor() -> Option<gdk::Monitor> {
+    let display = gdk::Display::default()?;
+    display.monitors().item(0).and_downcast::<gdk::Monitor>()
+}
+
+fn dialog_width(monitor: Option<&gdk::Monitor>) -> i32 {
+    clamp_dialog_width(monitor.map(|monitor| monitor.geometry().width()))
+}
+
+fn clamp_dialog_width(monitor_width: Option<i32>) -> i32 {
+    let Some(monitor_width) = monitor_width else {
+        return DIALOG_WIDTH;
+    };
+
+    let available_width = monitor_width - DIALOG_HORIZONTAL_MARGIN;
+    DIALOG_WIDTH.min(available_width.max(1))
+}
+
+fn init_overlay_window(window: &gtk::Window, monitor: Option<&gdk::Monitor>) {
+    window.add_css_class("session-confirmation-overlay-window");
+    window.set_decorated(false);
+    window.set_deletable(false);
+    window.set_resizable(false);
+    window.init_layer_shell();
+    window.set_layer(Layer::Overlay);
+    window.set_namespace(OVERLAY_NAMESPACE);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
+    window.set_margin(Edge::Top, 0);
+    window.set_margin(Edge::Right, 0);
+    window.set_margin(Edge::Bottom, 0);
+    window.set_margin(Edge::Left, 0);
+    window.set_anchor(Edge::Top, true);
+    window.set_anchor(Edge::Right, true);
+    window.set_anchor(Edge::Bottom, true);
+    window.set_anchor(Edge::Left, true);
+
+    if let Some(monitor) = monitor {
+        window.set_monitor(monitor);
+        let geometry = monitor.geometry();
+        window.set_default_size(geometry.width(), geometry.height());
+        window.set_size_request(geometry.width(), geometry.height());
+    }
+}
+
+fn install_cancel_shortcut(window: &gtk::Window) {
+    let controller = gtk::EventControllerKey::new();
+    let close_window = window.clone();
+    controller.connect_key_pressed(move |_, key, _, _| {
+        if key == gdk::Key::Escape {
+            close_with_animation(&close_window);
+            return glib::Propagation::Stop;
+        }
+
+        glib::Propagation::Proceed
+    });
+    window.add_controller(controller);
+}
+
+fn install_primary_focus(window: &gtk::Window, primary_button: &gtk::Button) {
+    primary_button.set_focusable(true);
+    primary_button.set_receives_default(true);
+    gtk::prelude::GtkWindowExt::set_default_widget(window, Some(primary_button));
+
+    let weak_window = window.downgrade();
+    let weak_primary_button = primary_button.downgrade();
+    window.connect_map(move |_| {
+        if let (Some(window), Some(primary_button)) =
+            (weak_window.upgrade(), weak_primary_button.upgrade())
+        {
+            focus_primary_button(&window, &primary_button);
+        }
+    });
+
+    let weak_window = window.downgrade();
+    let weak_primary_button = primary_button.downgrade();
+    window.connect_is_active_notify(move |_| {
+        if let (Some(window), Some(primary_button)) =
+            (weak_window.upgrade(), weak_primary_button.upgrade())
+        {
+            if !window.is_active() {
+                return;
+            }
+
+            focus_primary_button(&window, &primary_button);
+        }
+    });
+}
+
+fn present_with_animation(window: &gtk::Window, primary_button: &gtk::Button) {
+    window.present();
+
+    let window = window.clone();
+    let primary_button = primary_button.clone();
+    glib::idle_add_local_once(move || {
+        focus_primary_button(&window, &primary_button);
+        window.add_css_class("is-open");
+    });
+}
+
+fn focus_primary_button(window: &gtk::Window, primary_button: &gtk::Button) {
+    gtk::prelude::GtkWindowExt::set_focus_visible(window, true);
+    gtk::prelude::GtkWindowExt::set_focus(window, Some(primary_button));
+    primary_button.grab_focus();
+}
+
+fn close_with_animation(window: &gtk::Window) {
+    if window.has_css_class("is-closing") {
+        return;
+    }
+
+    window.remove_css_class("is-open");
+    window.add_css_class("is-closing");
+
+    let window = window.clone();
+    glib::timeout_add_local_once(OVERLAY_CLOSE_ANIMATION, move || {
+        window.close();
+    });
 }
 
 fn icon_frame(spec: &ConfirmationSpec) -> gtk::Box {
@@ -174,6 +333,17 @@ mod tests {
     fn accept_button_uses_suggested_style_only() {
         assert_eq!(ACCEPT_BUTTON_CLASS, "suggested-action");
         assert_ne!(ACCEPT_BUTTON_CLASS, "destructive-action");
+    }
+
+    #[test]
+    fn dialog_width_clamps_to_available_monitor_width() {
+        assert_eq!(clamp_dialog_width(None), DIALOG_WIDTH);
+        assert_eq!(clamp_dialog_width(Some(1920)), DIALOG_WIDTH);
+        assert_eq!(
+            clamp_dialog_width(Some(DIALOG_WIDTH)),
+            DIALOG_WIDTH - DIALOG_HORIZONTAL_MARGIN
+        );
+        assert_eq!(clamp_dialog_width(Some(1)), 1);
     }
 
     #[test]

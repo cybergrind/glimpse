@@ -424,12 +424,70 @@ popover separator {
     padding: var(--space-2) var(--popover-padding) 0;
 }
 
+.session-confirmation-overlay-window {
+    --session-confirmation-margin: calc(var(--space-6) + var(--space-4));
+    --session-confirmation-close-duration: 70ms;
+    --session-confirmation-open-duration: 90ms;
+    --session-confirmation-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+    background: transparent;
+}
+
+.session-confirmation-overlay {
+    background: rgb(0 0 0 / var(--dim-opacity));
+    opacity: 0;
+    transition: opacity var(--session-confirmation-open-duration)
+        var(--session-confirmation-ease);
+}
+
+.session-confirmation-overlay-window.is-open .session-confirmation-overlay {
+    opacity: 1;
+}
+
+.session-confirmation-overlay-window.is-closing .session-confirmation-overlay {
+    opacity: 0;
+    transition-duration: var(--session-confirmation-close-duration);
+}
+
+.session-confirmation-dialog {
+    margin: var(--session-confirmation-margin);
+    background: var(--popover-bg);
+    color: var(--popover-fg);
+    border: var(--border-width) solid var(--popover-border);
+    border-radius: var(--popover-radius);
+    box-shadow: var(--popover-shadow);
+    opacity: 0;
+    transform: translateY(var(--space-4)) scale(0.98);
+    transition:
+        opacity var(--session-confirmation-open-duration) var(--session-confirmation-ease),
+        transform var(--session-confirmation-open-duration) var(--session-confirmation-ease);
+}
+
+.session-confirmation-overlay-window.is-open .session-confirmation-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.session-confirmation-overlay-window.is-closing .session-confirmation-dialog {
+    opacity: 0;
+    transform: translateY(var(--space-2)) scale(0.99);
+    transition-duration: var(--session-confirmation-close-duration);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .session-confirmation-overlay,
+    .session-confirmation-dialog {
+        transition-duration: 1ms;
+        transform: none;
+    }
+}
+
 .session-confirmation-dialog__content {
-    padding: 24px;
+    padding: var(--session-confirmation-margin);
 }
 
 .session-confirmation-dialog__icon-frame {
-    padding: 14px;
+    padding: calc(var(--space-6) - var(--space-1));
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
@@ -440,7 +498,7 @@ popover separator {
 
 .session-confirmation-dialog__heading {
     color: var(--color-fg);
-    font-size: 20px;
+    font-size: calc(var(--font-size-lg) + var(--space-3));
     font-weight: var(--font-weight-semibold);
 }
 
@@ -454,8 +512,8 @@ popover separator {
 }
 
 .session-confirmation-dialog__button {
-    min-width: 104px;
-    padding: 8px 14px;
+    min-width: calc(var(--space-6) * 6 + var(--space-4));
+    padding: var(--space-4) calc(var(--space-6) - var(--space-1));
 }
 
 .session-confirmation-dialog__button,
