@@ -2,6 +2,7 @@
 
 pub mod compositors;
 pub mod hyprland;
+pub mod keyboard;
 pub mod niri;
 
 pub use compositors::{
@@ -9,3 +10,4 @@ pub use compositors::{
     CompositorStructureSnapshot, CompositorType, KeyboardLayout, KeyboardLayoutSnapshot, Monitor,
     Window, Workspace, detect_compositor,
 };
+pub use keyboard::layout_code as keyboard_layout_code;

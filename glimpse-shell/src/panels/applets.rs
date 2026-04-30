@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{audio, battery, bluetooth, network, pager, session},
+    applets::{audio, battery, bluetooth, keyboard, network, pager, session},
     panels::PanelSection,
     services::framework::Services,
 };
@@ -21,6 +21,7 @@ pub enum AppletType {
     Audio,
     Battery,
     Bluetooth,
+    Keyboard,
     Network,
     Pager,
     Session,
@@ -32,6 +33,7 @@ impl AppletType {
             "audio" => Some(Self::Audio),
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
+            "keyboard" => Some(Self::Keyboard),
             "network" => Some(Self::Network),
             "pager" => Some(Self::Pager),
             "session" => Some(Self::Session),
@@ -76,6 +78,7 @@ pub enum AppletController {
     Audio(Controller<audio::Applet>),
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
+    Keyboard(Controller<keyboard::Applet>),
     Network(Controller<network::Applet>),
     Pager(Controller<pager::Applet>),
     Session(Controller<session::Applet>),
@@ -87,6 +90,7 @@ impl AppletController {
             Self::Audio(_) => AppletType::Audio,
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
+            Self::Keyboard(_) => AppletType::Keyboard,
             Self::Network(_) => AppletType::Network,
             Self::Pager(_) => AppletType::Pager,
             Self::Session(_) => AppletType::Session,
@@ -98,6 +102,7 @@ impl AppletController {
             Self::Audio(controller) => controller.widget().clone().upcast(),
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
+            Self::Keyboard(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
@@ -118,6 +123,11 @@ impl AppletController {
             }
             Self::Bluetooth(controller) => {
                 controller.emit(bluetooth::Input::Reconfigure(bluetooth::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Keyboard(controller) => {
+                controller.emit(keyboard::Input::Reconfigure(keyboard::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -164,6 +174,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(bluetooth::Init {
                     service: services.bluetooth.clone(),
                     config: bluetooth::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Keyboard => Some(AppletController::Keyboard(
+            keyboard::Applet::builder()
+                .launch(keyboard::Init {
+                    service: services.compositor.clone(),
+                    config: keyboard::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),

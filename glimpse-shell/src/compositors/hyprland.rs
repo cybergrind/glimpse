@@ -8,10 +8,13 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::compositors::compositors::{
-    CompositorCapabilities, CompositorEvent, CompositorRefresh, CompositorSnapshot,
-    CompositorStructureSnapshot, KeyboardLayout, KeyboardLayoutSnapshot, Monitor, Window,
-    Workspace,
+use crate::compositors::{
+    compositors::{
+        CompositorCapabilities, CompositorEvent, CompositorRefresh, CompositorSnapshot,
+        CompositorStructureSnapshot, KeyboardLayout, KeyboardLayoutSnapshot, Monitor, Window,
+        Workspace,
+    },
+    keyboard_layout_code,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -449,10 +452,10 @@ async fn read_keyboard_layouts() -> (Vec<KeyboardLayout>, Option<usize>) {
         })
         .unwrap_or_default();
 
-    let active = active_keymap().await;
-    let current = active
+    let current = active_keymap()
+        .await
         .as_deref()
-        .and_then(|active| names.iter().position(|name| name == active));
+        .and_then(|active| active_layout_index(&names, active));
 
     (
         names
@@ -462,6 +465,33 @@ async fn read_keyboard_layouts() -> (Vec<KeyboardLayout>, Option<usize>) {
             .collect(),
         current,
     )
+}
+
+fn active_layout_index(layouts: &[String], active_keymap: &str) -> Option<usize> {
+    layouts
+        .iter()
+        .position(|layout| layout_matches_active_keymap(layout, active_keymap))
+}
+
+fn layout_matches_active_keymap(layout: &str, active_keymap: &str) -> bool {
+    let layout = layout.trim().to_lowercase();
+    let active_keymap = active_keymap.trim();
+    let active_keymap_lower = active_keymap.to_lowercase();
+
+    layout == active_keymap_lower
+        || parenthesized_code(active_keymap)
+            .map(|code| layout == code.to_lowercase())
+            .unwrap_or(false)
+        || layout == keyboard_layout_code(active_keymap).to_lowercase()
+}
+
+fn parenthesized_code(value: &str) -> Option<&str> {
+    let start = value.find('(')?;
+    let rest = &value[start + 1..];
+    let end = rest.find(')')?;
+    let code = rest[..end].trim();
+
+    (!code.is_empty()).then_some(code)
 }
 
 async fn active_keymap() -> Option<String> {
@@ -557,6 +587,17 @@ mod tests {
                 name: Some("English (US)".into())
             }]
         );
+    }
+
+    #[test]
+    fn active_layout_index_matches_hyprland_display_names_to_configured_codes() {
+        let layouts = vec!["us".into(), "ru".into(), "pl".into()];
+
+        assert_eq!(active_layout_index(&layouts, "English (US)"), Some(0));
+        assert_eq!(active_layout_index(&layouts, "Russian"), Some(1));
+        assert_eq!(active_layout_index(&layouts, "Polish"), Some(2));
+        assert_eq!(active_layout_index(&layouts, "us"), Some(0));
+        assert_eq!(active_layout_index(&layouts, "Unknown"), None);
     }
 
     #[test]
