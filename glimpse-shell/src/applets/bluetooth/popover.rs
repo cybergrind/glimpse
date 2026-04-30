@@ -61,6 +61,7 @@ impl SimpleComponent for Popover {
     view! {
         root = gtk::Popover {
             add_css_class: "bluetooth-popover",
+            add_css_class: "popover-size-medium",
             set_hexpand: false,
 
             #[template]

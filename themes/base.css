@@ -85,7 +85,12 @@
     --popover-padding: 16px;
     --popover-section-gap: 12px;
     --popover-row-gap: 6px;
-    --popover-min-width: 260px;
+    --popover-small-width: 280px;
+    --popover-medium-width: 320px;
+    --popover-large-width: 540px;
+    --popover-large-height: 600px;
+    --popover-xlarge-width: 620px;
+    --popover-min-width: var(--popover-small-width);
     --popover-min-height: 0px;
 
     --row-fg: var(--color-fg);
@@ -137,8 +142,6 @@
     --status-danger: var(--color-danger);
     --status-accent: var(--color-accent);
 
-    --notification-popover-min-width: 540px;
-    --notification-popover-min-height: 600px;
     --notification-popup-min-width: 500px;
     --notification-inline-image-size: 48px;
     --notification-control-size: 24px;
@@ -414,6 +417,26 @@ popover separator {
     color: var(--popover-fg);
 }
 
+popover.popover-size-small {
+    --popover-min-width: var(--popover-small-width);
+    --popover-min-height: 0px;
+}
+
+popover.popover-size-medium {
+    --popover-min-width: var(--popover-medium-width);
+    --popover-min-height: 0px;
+}
+
+popover.popover-size-large {
+    --popover-min-width: var(--popover-large-width);
+    --popover-min-height: var(--popover-large-height);
+}
+
+popover.popover-size-xlarge {
+    --popover-min-width: var(--popover-xlarge-width);
+    --popover-min-height: 0px;
+}
+
 .popover-shell__content {
     padding: var(--popover-padding);
 }
@@ -436,8 +459,7 @@ popover separator {
 .session-confirmation-overlay {
     background: rgb(0 0 0 / var(--dim-opacity));
     opacity: 0;
-    transition: opacity var(--session-confirmation-open-duration)
-        var(--session-confirmation-ease);
+    transition: opacity var(--session-confirmation-open-duration) var(--session-confirmation-ease);
 }
 
 .session-confirmation-overlay-window.is-open .session-confirmation-overlay {
@@ -475,6 +497,7 @@ popover separator {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .session-confirmation-overlay,
     .session-confirmation-dialog {
         transition-duration: 1ms;
@@ -835,14 +858,6 @@ popover separator {
 
 /* Battery */
 
-.bluetooth-popover {
-    min-width: calc(var(--popover-min-width) + 120px);
-}
-
-.battery-popover {
-    min-width: calc(var(--popover-min-width) + 80px);
-}
-
 .battery-popover .battery-hero-header {
     margin-bottom: calc(var(--space-4) + var(--space-1));
 }
@@ -873,10 +888,6 @@ popover separator {
 
 /* Audio popover */
 
-.audio-popover {
-    --popover-min-width: 420px;
-}
-
 .audio-popover .audio-device-section:not(:last-child) {
     margin-bottom: 0;
 }
@@ -888,10 +899,6 @@ popover separator {
 }
 
 /* Network popover */
-
-.network-popover {
-    --popover-min-width: 360px;
-}
 
 .network-popover .section-block__header,
 .network-popover .net-section-header {
@@ -952,7 +959,7 @@ popover separator {
 }
 
 .brightness-popover {
-    --popover-min-width: 360px;
+    --popover-min-width: var(--popover-medium-width);
 }
 
 .brightness-popover .brightness-row {
@@ -971,7 +978,7 @@ popover separator {
 /* Clock */
 
 .clock-popover {
-    --popover-min-width: 620px;
+    --popover-min-width: var(--popover-xlarge-width);
 }
 
 .clock-popover .clock-popover-left {
@@ -1115,10 +1122,6 @@ popover separator {
     font-variant-numeric: tabular-nums;
 }
 
-.exec-popover {
-    --popover-min-width: 260px;
-}
-
 .exec-progress {
     min-width: 140px;
 }
@@ -1134,7 +1137,7 @@ popover separator {
 }
 
 .weather-popover {
-    --popover-min-width: 400px;
+    --popover-min-width: var(--popover-medium-width);
 }
 
 .weather-popover .weather-hero {
@@ -1232,7 +1235,7 @@ popover separator {
 }
 
 .mpris-popover {
-    --popover-min-width: 598px;
+    --popover-min-width: var(--popover-xlarge-width);
     --card-bg: color-mix(in srgb, var(--color-fg) 6%, transparent);
     --card-hover-bg: color-mix(in srgb, var(--color-fg) 10%, transparent);
     --card-border: transparent;
@@ -1301,8 +1304,8 @@ popover separator {
 }
 
 .notifications-popover {
-    --popover-min-width: var(--notification-popover-min-width);
-    --popover-min-height: var(--notification-popover-min-height);
+    --popover-min-width: var(--popover-large-width);
+    --popover-min-height: var(--popover-large-height);
     --card-shell-padding: var(--notification-card-padding);
     --card-padding: 0px;
     --card-radius: var(--notification-card-radius);

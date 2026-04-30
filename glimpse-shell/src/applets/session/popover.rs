@@ -62,6 +62,7 @@ impl SimpleComponent for Popover {
     view! {
         root = gtk::Popover {
             add_css_class: "session-popover",
+            add_css_class: "popover-size-small",
             set_hexpand: false,
 
             #[template]

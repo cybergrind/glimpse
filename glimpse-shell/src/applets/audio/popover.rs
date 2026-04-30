@@ -22,6 +22,7 @@ use crate::{
 
 const VOLUME_ECHO_GRACE: Duration = Duration::from_secs(2);
 const VOLUME_COMMAND_INTERVAL: Duration = Duration::from_millis(50);
+const DEVICE_LABEL_MAX_CHARS: usize = 30;
 
 pub struct Popover {
     animation: AnimatedPopover,
@@ -86,6 +87,7 @@ impl SimpleComponent for Popover {
     view! {
         root = gtk::Popover {
             add_css_class: "audio-popover",
+            add_css_class: "popover-size-medium",
             set_hexpand: false,
 
             #[template]
@@ -512,7 +514,7 @@ fn output_items(devices: &[AudioDevice]) -> Vec<DeviceListItem<Command>> {
         .map(|device| DeviceListItem {
             id: device.name.clone(),
             icon: device.icon_name.clone(),
-            label: device.description.clone(),
+            label: device_label(&device.description),
             status: if device.muted {
                 "Muted".into()
             } else {
@@ -533,7 +535,7 @@ fn input_items(devices: &[AudioDevice]) -> Vec<DeviceListItem<Command>> {
         .map(|device| DeviceListItem {
             id: device.name.clone(),
             icon: device.icon_name.clone(),
-            label: device.description.clone(),
+            label: device_label(&device.description),
             status: if device.muted {
                 "Muted".into()
             } else {
@@ -586,6 +588,10 @@ fn hero_subtitle(state: &State) -> String {
         .unwrap_or_else(|| "No output device".into())
 }
 
+fn device_label(description: &str) -> String {
+    description.chars().take(DEVICE_LABEL_MAX_CHARS).collect()
+}
+
 fn input_icon_name(device: Option<&AudioDevice>) -> &'static str {
     match device {
         Some(device) if device.muted => "microphone-sensitivity-muted-symbolic",
@@ -624,6 +630,37 @@ mod tests {
             items[0].command,
             Some(Command::SetDefaultOutput("sink".into()))
         );
+    }
+
+    #[test]
+    fn output_and_input_device_labels_are_limited_to_30_chars() {
+        let long_description = "123456789012345678901234567890EXTRA";
+        let output_items = output_items(&[AudioDevice {
+            index: 1,
+            name: "sink".into(),
+            description: long_description.into(),
+            volume: 70,
+            muted: false,
+            is_default: true,
+            icon_name: "audio-speakers-symbolic".into(),
+        }]);
+        let input_items = input_items(&[AudioDevice {
+            index: 2,
+            name: "source".into(),
+            description: long_description.into(),
+            volume: 55,
+            muted: false,
+            is_default: true,
+            icon_name: "audio-input-microphone-symbolic".into(),
+        }]);
+
+        assert_eq!(
+            output_items[0].label.chars().count(),
+            DEVICE_LABEL_MAX_CHARS
+        );
+        assert_eq!(input_items[0].label.chars().count(), DEVICE_LABEL_MAX_CHARS);
+        assert_eq!(output_items[0].label, "123456789012345678901234567890");
+        assert_eq!(input_items[0].label, "123456789012345678901234567890");
     }
 
     #[test]

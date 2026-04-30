@@ -58,6 +58,7 @@ impl SimpleComponent for Popover {
     view! {
         root = gtk::Popover {
             add_css_class: "network-popover",
+            add_css_class: "popover-size-medium",
             set_hexpand: false,
 
             #[template]
