@@ -5,8 +5,8 @@ use crate::{
     config::Config,
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, calendar_events, clock, compositor, location, network, power,
-        session, weather,
+        audio, battery, bluetooth, calendar_events, clock, compositor, location, network,
+        notifications, power, session, weather,
     },
 };
 
@@ -119,6 +119,7 @@ pub struct Services {
     pub power: ServiceHandle<power::State, power::Command>,
     pub bluetooth: ServiceHandle<bluetooth::State, bluetooth::Command>,
     pub network: network::NetworkHandle,
+    pub notifications: notifications::NotificationsHandle,
     pub session: session::SessionHandle,
     pub compositor: compositor::CompositorHandle,
     pub weather: weather::WeatherHandle,
@@ -140,6 +141,7 @@ impl Services {
                 power,
                 bluetooth,
                 network,
+                notifications,
                 session,
                 compositor,
                 weather
@@ -183,6 +185,10 @@ impl ServiceRuntime {
         let (network_service, network) = network::NetworkService::new(system_dbus.clone());
         let network_service = spawn_service(|cancel| network_service.run(cancel));
 
+        let (notifications_service, notifications) =
+            notifications::NotificationsService::new(session_dbus.clone());
+        let notifications_service = spawn_service(|cancel| notifications_service.run(cancel));
+
         let (session_service, session) = session::SessionService::new(system_dbus.clone());
         let session_service = spawn_service(|cancel| session_service.run(cancel));
 
@@ -201,6 +207,7 @@ impl ServiceRuntime {
             power_service,
             bluetooth_service,
             network_service,
+            notifications_service,
             session_service,
             compositor_service,
             weather_service,
@@ -214,6 +221,7 @@ impl ServiceRuntime {
             power,
             bluetooth,
             network,
+            notifications,
             session,
             compositor,
             weather,

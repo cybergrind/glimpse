@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+summary="${1:-Telegram}"
+body="${2:-$(printf 'Alex\nTest message from Telegram')}"
+
+exec notify-send \
+  --app-name="Telegram" \
+  --icon="org.telegram.desktop" \
+  --app-icon="org.telegram.desktop" \
+  --category="im.received" \
+  --hint=string:desktop-entry:org.telegram.desktop \
+  --urgency=normal \
+  --print-id \
+  --action=default=Open \
+  --action=reply=Reply \
+  "$summary" \
+  "$body"

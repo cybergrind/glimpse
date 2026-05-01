@@ -10,7 +10,9 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
-    applets::{audio, battery, bluetooth, clock, keyboard, network, pager, session, weather},
+    applets::{
+        audio, battery, bluetooth, clock, keyboard, network, notifications, pager, session, weather,
+    },
     panels::PanelSection,
     services::framework::Services,
 };
@@ -24,6 +26,7 @@ pub enum AppletType {
     Clock,
     Keyboard,
     Network,
+    Notifications,
     Pager,
     Session,
     Weather,
@@ -38,6 +41,7 @@ impl AppletType {
             "clock" => Some(Self::Clock),
             "keyboard" => Some(Self::Keyboard),
             "network" => Some(Self::Network),
+            "notifications" => Some(Self::Notifications),
             "pager" => Some(Self::Pager),
             "session" => Some(Self::Session),
             "weather" => Some(Self::Weather),
@@ -85,6 +89,7 @@ pub enum AppletController {
     Clock(Controller<clock::Applet>),
     Keyboard(Controller<keyboard::Applet>),
     Network(Controller<network::Applet>),
+    Notifications(Controller<notifications::Applet>),
     Pager(Controller<pager::Applet>),
     Session(Controller<session::Applet>),
     Weather(Controller<weather::Applet>),
@@ -99,6 +104,7 @@ impl AppletController {
             Self::Clock(_) => AppletType::Clock,
             Self::Keyboard(_) => AppletType::Keyboard,
             Self::Network(_) => AppletType::Network,
+            Self::Notifications(_) => AppletType::Notifications,
             Self::Pager(_) => AppletType::Pager,
             Self::Session(_) => AppletType::Session,
             Self::Weather(_) => AppletType::Weather,
@@ -113,6 +119,7 @@ impl AppletController {
             Self::Clock(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
+            Self::Notifications(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
             Self::Weather(controller) => controller.widget().clone().upcast(),
@@ -150,6 +157,11 @@ impl AppletController {
                 controller.emit(network::Input::Reconfigure(network::Config::from_raw(
                     &config.cloned(),
                 )));
+            }
+            Self::Notifications(controller) => {
+                controller.emit(notifications::Input::Reconfigure(
+                    notifications::Config::from_raw(&config.cloned()),
+                ));
             }
             Self::Pager(controller) => {
                 controller.emit(pager::Input::Reconfigure(pager::Config::from_raw(
@@ -219,6 +231,15 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(network::Init {
                     service: services.network.clone(),
                     config: network::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Notifications => Some(AppletController::Notifications(
+            notifications::Applet::builder()
+                .launch(notifications::Init {
+                    service: services.notifications.clone(),
+                    compositor: services.compositor.clone(),
+                    config: notifications::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -527,6 +548,20 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "network");
         assert_eq!(entries[0].applet_type, AppletType::Network);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_notifications_builtin_name() {
+        let entries = collect_applets(
+            PanelSection::Left,
+            &["notifications".into()],
+            &HashMap::new(),
+        );
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "notifications");
+        assert_eq!(entries[0].applet_type, AppletType::Notifications);
         assert!(entries[0].config.is_none());
     }
 

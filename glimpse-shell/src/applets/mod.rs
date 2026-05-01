@@ -4,6 +4,7 @@ pub mod bluetooth;
 pub mod clock;
 pub mod keyboard;
 pub mod network;
+pub mod notifications;
 pub mod pager;
 pub mod session;
 pub mod weather;

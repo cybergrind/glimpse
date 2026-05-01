@@ -1328,7 +1328,8 @@ popover.popover-size-xlarge {
     --card-radius: var(--notification-card-radius);
 }
 
-.notifications-popover .notif-list {
+.notifications-popover .notif-list,
+.notifications-popover .notification-list {
     padding: var(--space-4);
 }
 
@@ -1407,13 +1408,15 @@ popover.popover-size-xlarge {
     opacity: 1;
 }
 
-.notifications-popover .notif-app-name {
+.notifications-popover .notif-app-name,
+.notifications-popover .notification-app-name {
     font-size: var(--notification-app-name-size);
     font-weight: 600;
     opacity: var(--opacity-muted);
 }
 
-.notifications-popover .notif-icon {
+.notifications-popover .notif-icon,
+.notifications-popover .notification-icon {
     opacity: var(--opacity-muted);
 }
 
@@ -1421,11 +1424,13 @@ popover.popover-size-xlarge {
     -gtk-icon-size: 16px;
 }
 
-.notifications-popover .notif-card-icon {
+.notifications-popover .notif-card-icon,
+.notifications-popover .notification-card-icon {
     -gtk-icon-size: 20px;
 }
 
-.notifications-popover .notif-summary {
+.notifications-popover .notif-summary,
+.notifications-popover .notification-summary {
     font-weight: 600;
     font-size: var(--notification-summary-size);
 }
@@ -1445,18 +1450,21 @@ popover.popover-size-xlarge {
     max-height: var(--notification-inline-image-size);
 }
 
-.notifications-popover .notif-body {
+.notifications-popover .notif-body,
+.notifications-popover .notification-body {
     font-size: var(--notification-body-size);
     opacity: var(--opacity-muted);
 }
 
-.notifications-popover .notif-time {
+.notifications-popover .notif-time,
+.notifications-popover .notification-time {
     font-size: var(--notification-time-size);
     opacity: var(--notification-empty-opacity);
     font-variant-numeric: tabular-nums;
 }
 
 .notifications-popover .notif-dismiss,
+.notifications-popover .notification-dismiss,
 .notification-popup .popup-dismiss {
     min-width: var(--notification-control-size);
     min-height: var(--notification-control-size);
@@ -1466,16 +1474,19 @@ popover.popover-size-xlarge {
 }
 
 .notifications-popover .notif-dismiss:hover,
+.notifications-popover .notification-dismiss:hover,
 .notification-popup .popup-dismiss:hover {
     opacity: 1;
     background: var(--notification-dismiss-hover-bg);
 }
 
-.notifications-popover .notif-actions {
+.notifications-popover .notif-actions,
+.notifications-popover .notification-actions {
     margin-top: 6px;
 }
 
 .notifications-popover .notif-action-btn,
+.notifications-popover .notification-action-button,
 .notification-popup .popup-action-btn {
     font-size: var(--notification-app-name-size);
     padding: 4px 12px;
@@ -1484,8 +1495,13 @@ popover.popover-size-xlarge {
 }
 
 .notifications-popover .notif-action-btn label,
+.notifications-popover .notification-action-button label,
 .notification-popup .popup-action-btn label {
     font-weight: normal;
+}
+
+.notifications-popover .notification-card-critical {
+    border-left: 4px solid var(--color-danger);
 }
 
 /* Notification popup */

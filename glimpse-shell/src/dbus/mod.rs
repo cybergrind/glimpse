@@ -4,6 +4,7 @@ pub mod dbus;
 pub mod login1;
 pub mod network_manager;
 pub mod network_secret_agent;
+pub mod notifications;
 pub mod power_profiles;
 pub mod upower;
 pub use dbus::Dbus;

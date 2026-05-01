@@ -711,7 +711,11 @@ mod tests {
             window(30, Some(3), true),
             window(40, None, true),
         ];
-        let windows = state.windows.iter().map(PagerWindow::from).collect::<Vec<_>>();
+        let windows = state
+            .windows
+            .iter()
+            .map(PagerWindow::from)
+            .collect::<Vec<_>>();
 
         let items = workspace_items(
             3,
@@ -825,7 +829,11 @@ mod tests {
         ]);
         state.compositor = CompositorType::Niri;
         state.current_workspace = Some(77);
-        let windows = state.windows.iter().map(PagerWindow::from).collect::<Vec<_>>();
+        let windows = state
+            .windows
+            .iter()
+            .map(PagerWindow::from)
+            .collect::<Vec<_>>();
 
         let items = workspace_items(
             2,
