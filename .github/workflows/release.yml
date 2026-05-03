@@ -35,16 +35,24 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Restore Cargo cache
+      - name: Restore Cargo dependency cache
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-            target
           key: ${{ runner.os }}-arch-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-arch-cargo-
+
+      - name: Restore Cargo build cache
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-arch-target-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-arch-target-${{ hashFiles('Cargo.lock') }}-
+            ${{ runner.os }}-arch-target-
 
       - name: Verify tag matches workspace version
         run: |
