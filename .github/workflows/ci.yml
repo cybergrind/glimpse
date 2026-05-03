@@ -12,6 +12,8 @@ jobs:
     name: Rust checks
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+    env:
+      CARGO_INCREMENTAL: "1"
     steps:
       - name: Install build dependencies
         run: |
