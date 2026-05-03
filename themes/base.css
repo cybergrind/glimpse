@@ -160,6 +160,10 @@
     --notification-popup-padding: var(--space-5);
     --notification-popup-card-padding: 16px;
     --notification-popup-card-radius: 16px;
+    --notification-popup-enter-duration: 240ms;
+    --notification-popup-leave-duration: 180ms;
+    --notification-popup-enter-offset: 6px;
+    --notification-popup-enter-offset-negative: -6px;
     --notification-popup-shadow:
         0 6px 18px rgb(0 0 0 / 0.5),
         0 1px 3px rgb(0 0 0 / 0.3);
@@ -185,6 +189,7 @@
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
     --ease-emphasized: cubic-bezier(0.2, 0, 0, 1.15);
     --press-scale: 0.985;
+    --popover-animation-duration: 160ms;
     --popover-enter-offset: 6px;
     --popover-enter-scale: 0.985;
 
@@ -296,8 +301,13 @@
         --motion-normal: 1ms;
         --motion-slow: 1ms;
         --press-scale: 1;
+        --popover-animation-duration: 1ms;
         --popover-enter-offset: 0px;
         --popover-enter-scale: 1;
+        --notification-popup-enter-duration: 1ms;
+        --notification-popup-leave-duration: 1ms;
+        --notification-popup-enter-offset: 0px;
+        --notification-popup-enter-offset-negative: 0px;
     }
 }
 
@@ -323,11 +333,14 @@
         transform var(--motion-fast) var(--ease-standard);
 }
 
-.applet:hover {
-    background: var(--indicator-hover-bg);
+button.applet:hover,
+button.applet:active,
+.applet:hover,
+.applet:active {
+    background: transparent;
+    transform: none;
 }
 
-.applet:active,
 .applet.is-active,
 .applet.is-checked {
     background: var(--indicator-active-bg);
@@ -395,7 +408,9 @@ popover.animated-popover contents,
 popover.animated-popover arrow {
     opacity: 0;
     transform: translateY(-4px) scale(0.98);
-    transition: opacity 45ms linear, transform 45ms linear;
+    transition:
+        opacity var(--popover-animation-duration) var(--ease-standard),
+        transform var(--popover-animation-duration) var(--ease-standard);
 }
 
 popover.animated-popover.animated-popover--open contents,
@@ -1527,6 +1542,41 @@ popover.popover-size-xlarge {
     --card-hover-bg: var(--notification-popup-hover-bg);
     --card-extra-shadow: var(--notification-popup-shadow);
     --card-hover-extra-shadow: var(--notification-popup-shadow);
+}
+
+.popup-card {
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+        opacity var(--notification-popup-enter-duration) var(--ease-standard),
+        transform var(--notification-popup-enter-duration) var(--ease-standard);
+}
+
+.notification-popup.popup-from-top .popup-card-enter {
+    opacity: 0;
+    transform: translateY(var(--notification-popup-enter-offset-negative));
+}
+
+.notification-popup.popup-from-bottom .popup-card-enter {
+    opacity: 0;
+    transform: translateY(var(--notification-popup-enter-offset));
+}
+
+.notification-popup.popup-from-top .popup-card-leave {
+    opacity: 0;
+    transform: translateY(var(--notification-popup-enter-offset-negative));
+    transition-duration: var(--notification-popup-leave-duration);
+}
+
+.notification-popup.popup-from-bottom .popup-card-leave {
+    opacity: 0;
+    transform: translateY(var(--notification-popup-enter-offset));
+    transition-duration: var(--notification-popup-leave-duration);
+}
+
+.popup-card-visible {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .popup-card-critical {

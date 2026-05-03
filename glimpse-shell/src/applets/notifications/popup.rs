@@ -1,7 +1,7 @@
 #![allow(unused_assignments)]
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     rc::Rc,
     time::Duration,
@@ -24,6 +24,7 @@ use super::{
 };
 
 const MAX_TRACKED_POPUPS: usize = 20;
+const POPUP_LEAVE_ANIMATION_MS: u64 = 180;
 
 pub struct Popup {
     window: gtk::Window,
@@ -38,8 +39,17 @@ pub struct Popup {
 
 struct PopupCard {
     widget: gtk::Box,
-    timeout: Option<glib::SourceId>,
+    timeout_cancelled: Option<Rc<Cell<bool>>>,
+    removal_cancelled: Option<Rc<Cell<bool>>>,
     order: u64,
+    phase: PopupCardPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupCardPhase {
+    Entering,
+    Visible,
+    Leaving,
 }
 
 pub struct PopupInit {
@@ -90,6 +100,8 @@ pub enum PopupInput {
     Cancel(u32),
     Dismiss(u32),
     FocusAndDismiss(u32),
+    EnterAnimationFinished(u32),
+    LeaveAnimationFinished(u32),
     InvokeAction {
         id: u32,
         action_key: String,
@@ -146,7 +158,7 @@ impl SimpleComponent for Popup {
                 self.prune_surfaced(&notifications);
                 if dnd {
                     self.mark_surfaced(&notifications);
-                    self.hide_all();
+                    self.hide_all(&sender);
                     return;
                 }
 
@@ -177,19 +189,29 @@ impl SimpleComponent for Popup {
                 self.visible_limit = normalize_visible_limit(visible_limit);
                 apply_position(&self.window, position, margin_x, margin_y);
             }
-            PopupInput::TimeoutElapsed(id) => self.remove_card(id, false),
-            PopupInput::Cancel(id) => self.remove_card(id, true),
+            PopupInput::TimeoutElapsed(id) => self.remove_card(id, &sender),
+            PopupInput::Cancel(id) => self.remove_card(id, &sender),
             PopupInput::Dismiss(id) => {
                 let _ = sender.output(popover::PopoverOutput::Dismiss(id));
-                self.remove_card(id, true);
+                self.remove_card(id, &sender);
             }
             PopupInput::FocusAndDismiss(id) => {
                 let _ = sender.output(popover::PopoverOutput::FocusAndDismiss(id));
-                self.remove_card(id, true);
+                self.remove_card(id, &sender);
+            }
+            PopupInput::EnterAnimationFinished(id) => {
+                if let Some(card) = self.cards.borrow_mut().get_mut(&id)
+                    && card.phase == PopupCardPhase::Entering
+                {
+                    card.phase = PopupCardPhase::Visible;
+                }
+            }
+            PopupInput::LeaveAnimationFinished(id) => {
+                self.finish_remove_card_after_animation(id);
             }
             PopupInput::InvokeAction { id, action_key } => {
                 let _ = sender.output(popover::PopoverOutput::InvokeAction { id, action_key });
-                self.remove_card(id, true);
+                self.remove_card(id, &sender);
             }
         }
     }
@@ -198,8 +220,11 @@ impl SimpleComponent for Popup {
 impl Drop for Popup {
     fn drop(&mut self) {
         for (_, card) in self.cards.borrow_mut().drain() {
-            if let Some(timeout) = card.timeout {
-                timeout.remove();
+            if let Some(timeout_cancelled) = card.timeout_cancelled {
+                timeout_cancelled.set(true);
+            }
+            if let Some(removal_cancelled) = card.removal_cancelled {
+                removal_cancelled.set(true);
             }
         }
     }
@@ -207,7 +232,7 @@ impl Drop for Popup {
 
 impl Popup {
     fn show(&mut self, notification: &NotificationEntry, sender: &ComponentSender<Self>) {
-        self.remove_card(notification.id, true);
+        self.finish_remove_card_now(notification.id);
         while self.cards.borrow().len() >= MAX_TRACKED_POPUPS {
             let oldest = self
                 .cards
@@ -218,18 +243,27 @@ impl Popup {
             let Some(id) = oldest else {
                 break;
             };
-            self.remove_card(id, true);
+            self.finish_remove_card_now(id);
         }
 
         let card = build_card(notification, sender);
+        prepare_enter_animation(&card);
         self.card_box.prepend(&card);
+        start_enter_animation(notification.id, &card, sender);
         let timeout = if self.timeout_ms > 0 {
             let id = notification.id;
-            let sender = sender.clone();
-            Some(glib::timeout_add_local_once(
+            let input_sender = sender.input_sender().clone();
+            let cancelled = Rc::new(Cell::new(false));
+            let callback_cancelled = cancelled.clone();
+            glib::timeout_add_local_once(
                 Duration::from_millis(self.timeout_ms as u64),
-                move || sender.input(PopupInput::TimeoutElapsed(id)),
-            ))
+                move || {
+                    if !callback_cancelled.get() {
+                        let _ = input_sender.send(PopupInput::TimeoutElapsed(id));
+                    }
+                },
+            );
+            Some(cancelled)
         } else {
             None
         };
@@ -238,20 +272,66 @@ impl Popup {
             notification.id,
             PopupCard {
                 widget: card,
-                timeout,
+                timeout_cancelled: timeout,
+                removal_cancelled: None,
                 order: notification.timestamp,
+                phase: PopupCardPhase::Entering,
             },
         );
         self.update_overflow();
         self.window.set_visible(true);
     }
 
-    fn remove_card(&mut self, id: u32, remove_timeout: bool) {
+    fn remove_card(&mut self, id: u32, sender: &ComponentSender<Self>) {
+        let mut cards = self.cards.borrow_mut();
+        let Some(card) = cards.get_mut(&id) else {
+            return;
+        };
+
+        if let Some(timeout_cancelled) = card.timeout_cancelled.take() {
+            timeout_cancelled.set(true);
+        }
+
+        if card.phase == PopupCardPhase::Leaving {
+            return;
+        }
+
+        let was_visible = card.widget.is_visible();
+        card.phase = PopupCardPhase::Leaving;
+        start_leave_animation(&card.widget);
+        if !was_visible {
+            card.widget.set_visible(false);
+        }
+
+        let input_sender = sender.input_sender().clone();
+        let cancelled = Rc::new(Cell::new(false));
+        let callback_cancelled = cancelled.clone();
+        glib::timeout_add_local_once(Duration::from_millis(POPUP_LEAVE_ANIMATION_MS), move || {
+            if !callback_cancelled.get() {
+                let _ = input_sender.send(PopupInput::LeaveAnimationFinished(id));
+            }
+        });
+        card.removal_cancelled = Some(cancelled);
+        drop(cards);
+
+        self.update_overflow();
+    }
+
+    fn finish_remove_card_now(&mut self, id: u32) {
+        self.finish_remove_card(id, true);
+    }
+
+    fn finish_remove_card_after_animation(&mut self, id: u32) {
+        self.finish_remove_card(id, false);
+    }
+
+    fn finish_remove_card(&mut self, id: u32, remove_removal_source: bool) {
         if let Some(card) = self.cards.borrow_mut().remove(&id) {
-            if remove_timeout {
-                if let Some(timeout) = card.timeout {
-                    timeout.remove();
-                }
+            if let Some(timeout_cancelled) = card.timeout_cancelled {
+                timeout_cancelled.set(true);
+            }
+            if remove_removal_source && let Some(removal_cancelled) = card.removal_cancelled {
+                removal_cancelled.set(true);
             }
             self.card_box.remove(&card.widget);
         }
@@ -262,22 +342,30 @@ impl Popup {
         }
     }
 
-    fn hide_all(&mut self) {
+    fn hide_all(&mut self, sender: &ComponentSender<Self>) {
         let ids = self.cards.borrow().keys().copied().collect::<Vec<_>>();
         for id in ids {
-            self.remove_card(id, true);
+            self.remove_card(id, sender);
         }
     }
 
     fn update_overflow(&self) {
         let cards = self.cards.borrow();
-        let mut sorted = cards.values().collect::<Vec<_>>();
+        let leaving_visible = cards
+            .values()
+            .filter(|card| card.phase == PopupCardPhase::Leaving && card.widget.is_visible())
+            .count();
+        let visible_slots = active_visible_slots(self.visible_limit, leaving_visible);
+        let mut sorted = cards
+            .values()
+            .filter(|card| card.phase != PopupCardPhase::Leaving)
+            .collect::<Vec<_>>();
         sorted.sort_by(|a, b| b.order.cmp(&a.order));
         for (index, card) in sorted.iter().enumerate() {
-            card.widget.set_visible(index < self.visible_limit);
+            card.widget.set_visible(index < visible_slots);
         }
 
-        let hidden = cards.len().saturating_sub(self.visible_limit);
+        let hidden = sorted.len().saturating_sub(visible_slots);
         self.overflow.set_visible(hidden > 0);
         if hidden > 0 {
             self.overflow.set_label(&format!("+ {hidden} more"));
@@ -306,6 +394,10 @@ impl Popup {
 
 fn normalize_visible_limit(limit: usize) -> usize {
     limit.clamp(1, MAX_TRACKED_POPUPS)
+}
+
+fn active_visible_slots(visible_limit: usize, leaving_visible: usize) -> usize {
+    visible_limit.saturating_sub(leaving_visible)
 }
 
 struct PopupCardInit {
@@ -498,6 +590,28 @@ fn build_card(notification: &NotificationEntry, sender: &ComponentSender<Popup>)
     card.as_ref().clone()
 }
 
+fn prepare_enter_animation(card: &gtk::Box) {
+    card.add_css_class("popup-card-enter");
+}
+
+fn start_enter_animation(id: u32, card: &gtk::Box, sender: &ComponentSender<Popup>) {
+    let card = card.clone();
+    let input_sender = sender.input_sender().clone();
+    glib::idle_add_local_once(move || {
+        if card.has_css_class("popup-card-enter") {
+            card.remove_css_class("popup-card-enter");
+            card.add_css_class("popup-card-visible");
+            let _ = input_sender.send(PopupInput::EnterAnimationFinished(id));
+        }
+    });
+}
+
+fn start_leave_animation(card: &gtk::Box) {
+    card.remove_css_class("popup-card-enter");
+    card.remove_css_class("popup-card-visible");
+    card.add_css_class("popup-card-leave");
+}
+
 fn popup_icon_name(notification: &NotificationEntry) -> &str {
     if notification.app_icon.is_empty() {
         "dialog-information-symbolic"
@@ -548,6 +662,10 @@ fn configure_window(window: &gtk::Window, position: PopupPosition, margin_x: i32
 }
 
 fn apply_position(window: &gtk::Window, position: PopupPosition, margin_x: i32, margin_y: i32) {
+    window.remove_css_class("popup-from-top");
+    window.remove_css_class("popup-from-bottom");
+    window.add_css_class(popup_origin_class(position));
+
     for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
         window.set_anchor(edge, false);
         window.set_margin(edge, 0);
@@ -585,6 +703,17 @@ fn apply_position(window: &gtk::Window, position: PopupPosition, margin_x: i32, 
             window.set_anchor(Edge::Right, true);
             window.set_margin(Edge::Bottom, margin_y);
             window.set_margin(Edge::Right, margin_x);
+        }
+    }
+}
+
+fn popup_origin_class(position: PopupPosition) -> &'static str {
+    match position {
+        PopupPosition::TopLeft | PopupPosition::TopCenter | PopupPosition::TopRight => {
+            "popup-from-top"
+        }
+        PopupPosition::BottomLeft | PopupPosition::BottomCenter | PopupPosition::BottomRight => {
+            "popup-from-bottom"
         }
     }
 }
@@ -630,6 +759,25 @@ mod tests {
         assert_eq!(
             normalize_visible_limit(MAX_TRACKED_POPUPS + 1),
             MAX_TRACKED_POPUPS
+        );
+    }
+
+    #[test]
+    fn leaving_cards_reserve_visible_slots() {
+        assert_eq!(active_visible_slots(8, 0), 8);
+        assert_eq!(active_visible_slots(8, 3), 5);
+        assert_eq!(active_visible_slots(8, 12), 0);
+    }
+
+    #[test]
+    fn popup_origin_class_tracks_vertical_edge() {
+        assert_eq!(
+            popup_origin_class(PopupPosition::TopCenter),
+            "popup-from-top"
+        );
+        assert_eq!(
+            popup_origin_class(PopupPosition::BottomRight),
+            "popup-from-bottom"
         );
     }
 }

@@ -7,7 +7,7 @@ use relm4::gtk::{self, glib, prelude::*};
 const OPEN_CLASS: &str = "animated-popover--open";
 const CLOSING_CLASS: &str = "animated-popover--closing";
 const ROOT_CLASS: &str = "animated-popover";
-const ANIMATION_DURATION: Duration = Duration::from_millis(45);
+const ANIMATION_DURATION: Duration = Duration::from_millis(160);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AnimationState {
