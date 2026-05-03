@@ -44,6 +44,8 @@ pub enum PopoverInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PopoverOutput {
+    Opened,
+    Closed,
     Previous { player_id: String },
     PlayPause { player_id: String },
     Next { player_id: String },
@@ -148,6 +150,16 @@ impl SimpleComponent for Popover {
             .title
             .set_label("Other players");
         popover_scroll::install_half_monitor_limit(&widgets.root, &widgets.scroller, &init.parent);
+
+        let opened_sender = sender.clone();
+        widgets.root.connect_show(move |_| {
+            let _ = opened_sender.output(PopoverOutput::Opened);
+        });
+
+        let closed_sender = sender.clone();
+        widgets.root.connect_closed(move |_| {
+            let _ = closed_sender.output(PopoverOutput::Closed);
+        });
 
         let model = Popover {
             animation: AnimatedPopover::new(&widgets.root),

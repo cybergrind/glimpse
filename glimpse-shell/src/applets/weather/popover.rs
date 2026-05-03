@@ -38,11 +38,17 @@ pub enum PopoverInput {
     Update(State),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopoverOutput {
+    Opened,
+    Closed,
+}
+
 #[relm4::component(pub)]
 impl SimpleComponent for Popover {
     type Init = PopoverInit;
     type Input = PopoverInput;
-    type Output = ();
+    type Output = PopoverOutput;
 
     view! {
         root = gtk::Popover {
@@ -87,7 +93,7 @@ impl SimpleComponent for Popover {
     fn init(
         init: Self::Init,
         _root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let hero = Hero::builder().launch(()).detach();
         let hourly = Hourly::builder().launch(()).detach();
@@ -108,6 +114,16 @@ impl SimpleComponent for Popover {
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+
+        let opened_sender = sender.clone();
+        widgets.root.connect_show(move |_| {
+            let _ = opened_sender.output(PopoverOutput::Opened);
+        });
+
+        let closed_sender = sender.clone();
+        widgets.root.connect_closed(move |_| {
+            let _ = closed_sender.output(PopoverOutput::Closed);
+        });
 
         let model = Popover {
             animation: AnimatedPopover::new(&widgets.root),

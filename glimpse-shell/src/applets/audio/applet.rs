@@ -70,6 +70,7 @@ pub struct Applet {
     tooltip: String,
     service: AudioHandle,
     popover: Controller<Popover>,
+    popover_open: bool,
     subscription_cancel: CancellationToken,
 }
 
@@ -178,6 +179,7 @@ impl SimpleComponent for Applet {
             state,
             service: init.service,
             popover,
+            popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -214,10 +216,9 @@ impl SimpleComponent for Applet {
             Input::Reconfigure(config) => {
                 self.config = config;
                 self.apply_state(self.service.snapshot());
-                self.popover.emit(PopoverInput::Reconfigure {
-                    max_volume: self.config.max_volume,
-                    show_streams: self.config.show_streams,
-                });
+                if self.popover_open {
+                    self.sync_popover_config();
+                }
             }
             Input::Scroll(dy) => {
                 let Some(output) = self.state.default_output() else {
@@ -239,6 +240,14 @@ impl SimpleComponent for Applet {
             Input::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
             }
+            Input::PopoverOutput(PopoverOutput::Opened) => {
+                self.popover_open = true;
+                self.sync_popover_config();
+                self.sync_popover_state();
+            }
+            Input::PopoverOutput(PopoverOutput::Closed) => {
+                self.popover_open = false;
+            }
             Input::PopoverOutput(PopoverOutput::Command(command)) => {
                 self.send_command(command);
             }
@@ -252,7 +261,21 @@ impl Applet {
         self.label = format::label(&self.config.label_format, &state);
         self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
         self.state = state.clone();
-        self.popover.emit(PopoverInput::UpdateState(state));
+        if self.popover_open {
+            self.popover.emit(PopoverInput::UpdateState(state));
+        }
+    }
+
+    fn sync_popover_config(&self) {
+        self.popover.emit(PopoverInput::Reconfigure {
+            max_volume: self.config.max_volume,
+            show_streams: self.config.show_streams,
+        });
+    }
+
+    fn sync_popover_state(&self) {
+        self.popover
+            .emit(PopoverInput::UpdateState(self.state.clone()));
     }
 
     fn send_command(&self, command: Command) {

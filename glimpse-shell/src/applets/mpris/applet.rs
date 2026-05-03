@@ -70,8 +70,10 @@ pub struct Applet {
     label: String,
     tooltip: String,
     hidden: bool,
+    state: State,
     service: MprisHandle,
     popover: Controller<Popover>,
+    popover_open: bool,
     subscription_cancel: CancellationToken,
 }
 
@@ -147,8 +149,10 @@ impl SimpleComponent for Applet {
             label,
             tooltip,
             hidden,
+            state,
             service: init.service,
             popover,
+            popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -182,14 +186,25 @@ impl SimpleComponent for Applet {
             Input::ServiceStateChanged(state) => self.apply_state(state),
             Input::Reconfigure(config) => {
                 self.config = config;
-                self.popover.emit(PopoverInput::Reconfigure {
-                    max_rows: self.config.normalized_max_rows(),
-                    show_artwork: self.config.show_artwork,
-                });
+                if self.popover_open {
+                    self.sync_popover_config();
+                }
                 self.apply_state(self.service.snapshot());
             }
             Input::TogglePopover => self.popover.emit(PopoverInput::Toggle),
-            Input::PopoverOutput(output) => self.send_command(command_for_popover_output(output)),
+            Input::PopoverOutput(PopoverOutput::Opened) => {
+                self.popover_open = true;
+                self.sync_popover_config();
+                self.sync_popover_state();
+            }
+            Input::PopoverOutput(PopoverOutput::Closed) => {
+                self.popover_open = false;
+            }
+            Input::PopoverOutput(output) => {
+                if let Some(command) = command_for_popover_output(output) {
+                    self.send_command(command);
+                }
+            }
         }
     }
 }
@@ -199,7 +214,21 @@ impl Applet {
         self.label = format::label(&self.config.label_format, &state);
         self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
         self.hidden = self.config.hide_when_empty && self.label.is_empty();
-        self.popover.emit(PopoverInput::Update(state));
+        self.state = state.clone();
+        if self.popover_open {
+            self.popover.emit(PopoverInput::Update(state));
+        }
+    }
+
+    fn sync_popover_config(&self) {
+        self.popover.emit(PopoverInput::Reconfigure {
+            max_rows: self.config.normalized_max_rows(),
+            show_artwork: self.config.show_artwork,
+        });
+    }
+
+    fn sync_popover_state(&self) {
+        self.popover.emit(PopoverInput::Update(self.state.clone()));
     }
 
     fn send_command(&self, command: Command) {
@@ -218,12 +247,13 @@ impl Drop for Applet {
     }
 }
 
-fn command_for_popover_output(output: PopoverOutput) -> Command {
+fn command_for_popover_output(output: PopoverOutput) -> Option<Command> {
     match output {
-        PopoverOutput::Previous { player_id } => Command::Previous { player_id },
-        PopoverOutput::PlayPause { player_id } => Command::PlayPause { player_id },
-        PopoverOutput::Next { player_id } => Command::Next { player_id },
-        PopoverOutput::Raise { player_id } => Command::Raise { player_id },
+        PopoverOutput::Opened | PopoverOutput::Closed => None,
+        PopoverOutput::Previous { player_id } => Some(Command::Previous { player_id }),
+        PopoverOutput::PlayPause { player_id } => Some(Command::PlayPause { player_id }),
+        PopoverOutput::Next { player_id } => Some(Command::Next { player_id }),
+        PopoverOutput::Raise { player_id } => Some(Command::Raise { player_id }),
     }
 }
 
@@ -249,9 +279,9 @@ mod tests {
             command_for_popover_output(PopoverOutput::PlayPause {
                 player_id: "spotify".into()
             }),
-            Command::PlayPause {
+            Some(Command::PlayPause {
                 player_id: "spotify".into()
-            }
+            })
         );
     }
 }

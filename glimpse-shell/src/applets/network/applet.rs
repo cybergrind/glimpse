@@ -57,8 +57,10 @@ pub struct Applet {
     icon_name: String,
     label: String,
     tooltip: String,
+    state: State,
     service: NetworkHandle,
     popover: Controller<Popover>,
+    popover_open: bool,
     subscription_cancel: CancellationToken,
 }
 
@@ -127,13 +129,17 @@ impl SimpleComponent for Applet {
             })
             .forward(sender.input_sender(), Input::PopoverOutput);
 
+        let state = init.service.snapshot();
+        let config = init.config;
         let model = Applet {
-            config: init.config,
-            icon_name: "network-offline-symbolic".into(),
-            label: String::new(),
-            tooltip: "Network".into(),
+            icon_name: icon_name_for_state(&state).into(),
+            label: format::label(&config.label_format, &state),
+            tooltip: format::tooltip(&config.tooltip_format, &state),
+            config,
+            state,
             service: init.service,
             popover,
+            popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -168,21 +174,31 @@ impl SimpleComponent for Applet {
                 self.icon_name = icon_name_for_state(&state).into();
                 self.label = format::label(&self.config.label_format, &state);
                 self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
-                self.popover.emit(PopoverInput::UpdateState(state));
+                self.state = state.clone();
+                if self.popover_open {
+                    self.popover.emit(PopoverInput::UpdateState(state));
+                }
             }
             Input::Reconfigure(config) => {
                 self.config = config;
                 let state = self.service.snapshot();
                 self.label = format::label(&self.config.label_format, &state);
                 self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
+                self.state = state;
+                if self.popover_open {
+                    self.sync_popover();
+                }
             }
             Input::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
             }
             Input::PopoverOutput(PopoverOutput::Opened) => {
+                self.popover_open = true;
+                self.sync_popover();
                 self.send_command(Command::StartScanning { interval_secs: 10 });
             }
             Input::PopoverOutput(PopoverOutput::Closed) => {
+                self.popover_open = false;
                 self.send_command(Command::StopScanning);
             }
             Input::PopoverOutput(PopoverOutput::Command(command)) => {
@@ -193,6 +209,11 @@ impl SimpleComponent for Applet {
 }
 
 impl Applet {
+    fn sync_popover(&self) {
+        self.popover
+            .emit(PopoverInput::UpdateState(self.state.clone()));
+    }
+
     fn send_command(&self, command: Command) {
         let service = self.service.clone();
         relm4::spawn(async move {

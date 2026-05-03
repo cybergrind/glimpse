@@ -86,6 +86,7 @@ pub struct Applet {
     badge_visible: bool,
     badge_classes: Vec<&'static str>,
     popover: Controller<Popover>,
+    popover_open: bool,
     popup: Controller<Popup>,
     subscription_cancel: CancellationToken,
 }
@@ -197,6 +198,7 @@ impl SimpleComponent for Applet {
             service: init.service,
             compositor: init.compositor,
             popover,
+            popover_open: false,
             popup,
             subscription_cancel: CancellationToken::new(),
         };
@@ -235,10 +237,9 @@ impl Applet {
         self.label = format::label(&self.config.label_format, &state);
         self.tooltip = format::tooltip(&self.config.tooltip_format, &state);
         self.sync_badge(state.notifications.len(), state.dnd);
-        self.popover.emit(PopoverInput::Update {
-            notifications: state.notifications.clone(),
-            dnd: state.dnd,
-        });
+        if self.popover_open {
+            self.sync_popover(&state);
+        }
         self.popup.emit(PopupInput::Update {
             notifications: state.notifications.clone(),
             dnd: state.dnd,
@@ -264,8 +265,22 @@ impl Applet {
         self.config.badge_style == "count"
     }
 
-    fn handle_output(&self, output: PopoverOutput) {
+    fn sync_popover(&self, state: &State) {
+        self.popover.emit(PopoverInput::Update {
+            notifications: state.notifications.clone(),
+            dnd: state.dnd,
+        });
+    }
+
+    fn handle_output(&mut self, output: PopoverOutput) {
         match output {
+            PopoverOutput::Opened => {
+                self.popover_open = true;
+                self.sync_popover(&self.state);
+            }
+            PopoverOutput::Closed => {
+                self.popover_open = false;
+            }
             PopoverOutput::Dismiss(id) => self.send_notification(Command::Dismiss { id }),
             PopoverOutput::DismissMany(ids) => {
                 for id in ids {

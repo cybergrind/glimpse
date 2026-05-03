@@ -94,6 +94,9 @@ pub struct Applet {
     service: BatteryHandle,
     power_service: PowerHandle,
     popover: Controller<Popover>,
+    popover_open: bool,
+    latest_status: BatteryStatus,
+    latest_profiles: power::PowerProfiles,
     subscription_cancel: CancellationToken,
 }
 
@@ -110,6 +113,8 @@ pub enum Input {
     PowerStateChanged(power::State),
     Reconfigure(Config),
     TogglePopover,
+    PopoverOpened,
+    PopoverClosed,
     SetPowerProfile(String),
 }
 
@@ -166,9 +171,13 @@ impl SimpleComponent for Applet {
                 parent: root.clone(),
             })
             .forward(sender.input_sender(), |output| match output {
+                PopoverOutput::Opened => Input::PopoverOpened,
+                PopoverOutput::Closed => Input::PopoverClosed,
                 PopoverOutput::SetProfile(profile) => Input::SetPowerProfile(profile),
             });
 
+        let latest_status = init.service.snapshot().status;
+        let latest_profiles = init.power_service.snapshot().profiles;
         let model = Applet {
             label: String::new(),
             tooltip: String::new(),
@@ -178,6 +187,9 @@ impl SimpleComponent for Applet {
             service: init.service,
             power_service: init.power_service,
             popover,
+            popover_open: false,
+            latest_status,
+            latest_profiles,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -232,19 +244,33 @@ impl SimpleComponent for Applet {
             Input::BatteryStateChanged(state) => {
                 let status = state.status;
                 apply_status(self, &status);
-                self.popover.emit(PopoverInput::UpdateStatus(status));
+                self.latest_status = status.clone();
+                if self.popover_open {
+                    self.popover.emit(PopoverInput::UpdateStatus(status));
+                }
             }
             Input::PowerStateChanged(state) => {
-                self.popover
-                    .emit(PopoverInput::UpdateProfiles(state.profiles));
+                self.latest_profiles = state.profiles.clone();
+                if self.popover_open {
+                    self.popover
+                        .emit(PopoverInput::UpdateProfiles(state.profiles));
+                }
             }
             Input::Reconfigure(config) => {
                 self.config = config;
                 let snapshot = self.service.snapshot();
                 apply_status(self, &snapshot.status);
+                self.latest_status = snapshot.status;
             }
             Input::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
+            }
+            Input::PopoverOpened => {
+                self.popover_open = true;
+                self.sync_popover();
+            }
+            Input::PopoverClosed => {
+                self.popover_open = false;
             }
             Input::SetPowerProfile(profile) => {
                 let service = self.power_service.clone();
@@ -258,6 +284,15 @@ impl SimpleComponent for Applet {
                 });
             }
         }
+    }
+}
+
+impl Applet {
+    fn sync_popover(&self) {
+        self.popover
+            .emit(PopoverInput::UpdateStatus(self.latest_status.clone()));
+        self.popover
+            .emit(PopoverInput::UpdateProfiles(self.latest_profiles.clone()));
     }
 }
 

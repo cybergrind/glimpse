@@ -69,6 +69,8 @@ pub enum PopoverInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PopoverOutput {
+    Opened,
+    Closed,
     Dismiss(u32),
     DismissAll,
     DismissMany(Vec<u32>),
@@ -159,6 +161,17 @@ impl SimpleComponent for Popover {
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
         popover_scroll::install_half_monitor_limit(&widgets.root, &widgets.scroller, &init.parent);
+
+        let opened_sender = _sender.clone();
+        widgets.root.connect_show(move |_| {
+            let _ = opened_sender.output(PopoverOutput::Opened);
+        });
+
+        let closed_sender = _sender.clone();
+        widgets.root.connect_closed(move |_| {
+            let _ = closed_sender.output(PopoverOutput::Closed);
+        });
+
         widgets
             .hero
             .icon
@@ -181,8 +194,11 @@ impl SimpleComponent for Popover {
 
         let refresh_timer = glib::timeout_add_seconds_local(60, {
             let sender = _sender.clone();
+            let root = widgets.root.clone();
             move || {
-                sender.input(PopoverInput::RefreshTimes);
+                if root.is_visible() {
+                    sender.input(PopoverInput::RefreshTimes);
+                }
                 glib::ControlFlow::Continue
             }
         });

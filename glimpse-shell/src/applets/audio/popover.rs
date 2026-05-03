@@ -75,6 +75,8 @@ pub enum PopoverInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PopoverOutput {
+    Opened,
+    Closed,
     Command(Command),
 }
 
@@ -262,6 +264,16 @@ impl SimpleComponent for Popover {
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+
+        let opened_sender = sender.clone();
+        widgets.root.connect_show(move |_| {
+            let _ = opened_sender.output(PopoverOutput::Opened);
+        });
+
+        let closed_sender = sender.clone();
+        widgets.root.connect_closed(move |_| {
+            let _ = closed_sender.output(PopoverOutput::Closed);
+        });
 
         if init.max_volume > 100 {
             widgets
