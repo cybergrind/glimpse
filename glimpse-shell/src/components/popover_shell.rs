@@ -14,6 +14,7 @@ impl WidgetTemplate for PopoverShell {
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 0,
+                set_vexpand: true,
                 add_css_class: "popover-shell__content",
             },
 

@@ -136,7 +136,7 @@ impl WeatherClient {
                     "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset"
                         .to_string(),
                 ),
-                ("forecast_days", config.forecast_days().to_string()),
+                ("forecast_days", config.api_forecast_days().to_string()),
                 ("timezone", "auto".to_string()),
             ])
             .send()

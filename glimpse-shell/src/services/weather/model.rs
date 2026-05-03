@@ -27,6 +27,10 @@ impl Config {
         self.forecast_days.clamp(1, 10)
     }
 
+    pub fn api_forecast_days(&self) -> usize {
+        self.forecast_days() + 1
+    }
+
     pub fn refresh_interval(&self) -> u64 {
         self.refresh_interval.max(60)
     }
@@ -122,6 +126,17 @@ mod tests {
 
         assert_eq!(config.hourly_slots(), 8);
         assert_eq!(config.forecast_days(), 10);
+        assert_eq!(config.api_forecast_days(), 11);
         assert_eq!(config.refresh_interval(), 60);
+    }
+
+    #[test]
+    fn api_forecast_days_includes_today_for_details() {
+        let config = Config {
+            forecast_days: 5,
+            ..Config::default()
+        };
+
+        assert_eq!(config.api_forecast_days(), 6);
     }
 }

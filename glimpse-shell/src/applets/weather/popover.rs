@@ -12,7 +12,7 @@ use crate::{
 
 use super::components::{
     details::{Details, DetailsInput},
-    forecast::{Forecast, ForecastInput},
+    forecast::{Forecast, ForecastInput, has_forecast_items},
     hero::{Hero, HeroInput},
     hourly::{Hourly, HourlyInput},
 };
@@ -130,7 +130,8 @@ impl SimpleComponent for Popover {
                 let snapshot = ready_snapshot(&state);
                 let show_hourly = snapshot.is_some_and(|snapshot| !snapshot.hourly.is_empty());
                 let show_details = snapshot.is_some();
-                let show_forecast = snapshot.is_some_and(|snapshot| !snapshot.forecast.is_empty());
+                let show_forecast =
+                    snapshot.is_some_and(|snapshot| has_forecast_items(&snapshot.forecast));
                 self.hourly_separator
                     .set_visible(show_hourly || show_details || show_forecast);
                 self.details_separator

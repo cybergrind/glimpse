@@ -13,6 +13,7 @@ use crate::{
         animated_popover::AnimatedPopover,
         device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
         hero::HeroView,
+        popover_scroll,
         popover_shell::PopoverShell,
     },
     services::bluetooth::{
@@ -86,8 +87,15 @@ impl SimpleComponent for Popover {
                         set_orientation: gtk::Orientation::Horizontal,
                     },
 
-                    #[local_ref]
-                    devices_widget -> gtk::Box {},
+                    #[name = "scroller"]
+                    gtk::ScrolledWindow {
+                        set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                        set_vexpand: false,
+                        set_propagate_natural_height: true,
+
+                        #[local_ref]
+                        devices_widget -> gtk::Box {},
+                    },
                 },
             },
         }
@@ -110,6 +118,7 @@ impl SimpleComponent for Popover {
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+        popover_scroll::install_half_monitor_limit(&widgets.root, &widgets.scroller, &init.parent);
         devices.widget().set_visible(false);
 
         let toggle_guard = updating_power.clone();

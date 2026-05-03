@@ -12,7 +12,10 @@ use crate::{
     applets::network::components::{
         VpnSection, VpnSectionInput, WifiSection, WifiSectionInput, WiredSection, WiredSectionInput,
     },
-    components::{animated_popover::AnimatedPopover, hero::HeroView, popover_shell::PopoverShell},
+    components::{
+        animated_popover::AnimatedPopover, hero::HeroView, popover_scroll,
+        popover_shell::PopoverShell,
+    },
     services::network::{Command, State},
 };
 
@@ -83,14 +86,26 @@ impl SimpleComponent for Popover {
                         set_orientation: gtk::Orientation::Horizontal,
                     },
 
-                    #[local_ref]
-                    wifi_widget -> gtk::Box {},
+                    #[name = "scroller"]
+                    gtk::ScrolledWindow {
+                        set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                        set_vexpand: false,
+                        set_propagate_natural_height: true,
 
-                    #[local_ref]
-                    wired_widget -> gtk::Box {},
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 0,
 
-                    #[local_ref]
-                    vpn_widget -> gtk::Box {},
+                            #[local_ref]
+                            wifi_widget -> gtk::Box {},
+
+                            #[local_ref]
+                            wired_widget -> gtk::Box {},
+
+                            #[local_ref]
+                            vpn_widget -> gtk::Box {},
+                        },
+                    },
                 },
             },
         }
@@ -118,6 +133,7 @@ impl SimpleComponent for Popover {
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+        popover_scroll::install_half_monitor_limit(&widgets.root, &widgets.scroller, &init.parent);
 
         let toggle_guard = updating_wifi.clone();
         let toggle_sender = sender.clone();

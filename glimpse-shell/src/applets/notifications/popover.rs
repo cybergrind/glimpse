@@ -12,7 +12,10 @@ use relm4::{
 };
 
 use crate::{
-    components::{animated_popover::AnimatedPopover, hero::HeroView, popover_shell::PopoverShell},
+    components::{
+        animated_popover::AnimatedPopover, hero::HeroView, popover_scroll,
+        popover_shell::PopoverShell,
+    },
     services::notifications::model::NotificationEntry,
 };
 
@@ -29,6 +32,7 @@ pub struct Popover {
     dnd: bool,
     rows: HashMap<u32, NotificationRow>,
     list: gtk::Box,
+    scroller: gtk::ScrolledWindow,
     empty: gtk::Box,
     hero_icon: gtk::Image,
     hero_subtitle: gtk::Label,
@@ -97,6 +101,7 @@ impl SimpleComponent for Popover {
                         set_halign: gtk::Align::Center,
                         set_valign: gtk::Align::Center,
                         set_vexpand: true,
+                        set_hexpand: true,
                         add_css_class: "empty-state",
 
                         gtk::Label {
@@ -110,6 +115,7 @@ impl SimpleComponent for Popover {
                         },
                     },
 
+                    #[name = "scroller"]
                     gtk::ScrolledWindow {
                         set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
                         set_vexpand: true,
@@ -145,6 +151,7 @@ impl SimpleComponent for Popover {
         let widgets = view_output!();
         widgets.root.set_parent(&init.parent);
         widgets.root.set_autohide(true);
+        popover_scroll::install_half_monitor_limit(&widgets.root, &widgets.scroller, &init.parent);
         widgets
             .hero
             .icon
@@ -171,6 +178,7 @@ impl SimpleComponent for Popover {
             dnd: false,
             rows: HashMap::new(),
             list: widgets.list.clone(),
+            scroller: widgets.scroller.clone(),
             empty: widgets.empty.clone(),
             hero_icon: widgets.hero.icon.clone(),
             hero_subtitle: widgets.hero.subtitle.clone(),
@@ -214,7 +222,7 @@ impl Popover {
         let mut seen = HashSet::new();
         let mut previous: Option<gtk::Widget> = None;
         self.empty.set_visible(self.notifications.is_empty());
-        self.list.set_visible(!self.notifications.is_empty());
+        self.scroller.set_visible(!self.notifications.is_empty());
         self.hero_icon.set_icon_name(Some(if self.dnd {
             "notifications-disabled-symbolic"
         } else {

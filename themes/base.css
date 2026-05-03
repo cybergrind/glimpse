@@ -1322,7 +1322,7 @@ popover.popover-size-xlarge {
 
 .notifications-popover {
     --popover-min-width: var(--popover-large-width);
-    --popover-min-height: var(--popover-large-height);
+    --popover-min-height: 0px;
     --card-shell-padding: var(--notification-card-padding);
     --card-padding: 0px;
     --card-radius: var(--notification-card-radius);

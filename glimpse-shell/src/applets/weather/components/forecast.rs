@@ -117,7 +117,7 @@ impl SimpleComponent for Forecast {
         match message {
             ForecastInput::Update(state) => {
                 let items = match state {
-                    State::Ready(snapshot) => snapshot.forecast,
+                    State::Ready(snapshot) => forecast_items(snapshot.forecast),
                     State::Unknown | State::Loading | State::Unavailable(_) => Vec::new(),
                 };
                 self.update_items(items);
@@ -159,4 +159,48 @@ fn forecast_row(item: &DailyForecast) -> ForecastRow {
         row.as_ref().add_css_class("weather-forecast-today");
     }
     row
+}
+
+pub(in crate::applets::weather) fn has_forecast_items(items: &[DailyForecast]) -> bool {
+    items.iter().any(|item| !item.is_today)
+}
+
+fn forecast_items(items: Vec<DailyForecast>) -> Vec<DailyForecast> {
+    items.into_iter().filter(|item| !item.is_today).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forecast_items_start_after_today() {
+        let today = DailyForecast {
+            date: "2099-01-01".into(),
+            day_name: "Today".into(),
+            is_today: true,
+            ..DailyForecast::default()
+        };
+        let tomorrow = DailyForecast {
+            date: "2099-01-02".into(),
+            day_name: "Fri".into(),
+            ..DailyForecast::default()
+        };
+
+        let items = forecast_items(vec![today, tomorrow.clone()]);
+
+        assert_eq!(items, vec![tomorrow]);
+    }
+
+    #[test]
+    fn has_forecast_items_ignores_today() {
+        assert!(!has_forecast_items(&[DailyForecast {
+            is_today: true,
+            ..DailyForecast::default()
+        }]));
+        assert!(has_forecast_items(&[DailyForecast {
+            is_today: false,
+            ..DailyForecast::default()
+        }]));
+    }
 }
