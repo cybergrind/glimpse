@@ -1,0 +1,24 @@
+[package]
+name = "glimpse-wallpaper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+css-color.workspace = true
+dirs.workspace = true
+gio.workspace = true
+glimpse-config = { path = "../glimpse-config" }
+gtk4 = { workspace = true, features = ["v4_8"] }
+gtk4-layer-shell.workspace = true
+image = "0.25"
+libheif-rs = "2.7.0"
+notify.workspace = true
+notify-debouncer-full.workspace = true
+relm4.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zbus.workspace = true

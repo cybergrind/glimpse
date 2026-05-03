@@ -5,6 +5,7 @@
 | Binary | Description | Install to |
 |--------|-------------|------------|
 | `glimpse-panel` | Wayland status panel | `/usr/bin/glimpse-panel` |
+| `glimpse-wallpaper` | Wayland wallpaper and backdrop daemon | `/usr/bin/glimpse-wallpaper` |
 
 ## Polkit
 
@@ -67,22 +68,49 @@ WantedBy=graphical-session.target
 
 **Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-panel.service`.
 
+### User service for glimpse-wallpaper
+
+```ini
+# ~/.config/systemd/user/glimpse-wallpaper.service
+[Unit]
+Description=Glimpse wallpaper
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpse-wallpaper
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+**Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-wallpaper.service`.
+Start it together with `glimpse-shell` for shell-based sessions. Do not run it alongside older panel-owned background surfaces because both processes would own background layer surfaces.
+
 ## Configuration
 
 | File | Location |
 |------|----------|
-| Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./config.toml` |
+| Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./panel.toml` |
+| Shell and wallpaper config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
 | Built-in structure/theme layers | embedded in `glimpse-panel` binary |
+
+`glimpse-wallpaper` enables the optional backdrop by default. If `[backdrop]` is omitted, the daemon uses `wallpaper.path` for the backdrop image and applies the default `blur_radius = 24`.
 
 ## Arch Linux PKGBUILD notes
 
 ```bash
 # Build
 cargo build --release -p glimpse --bin glimpse-panel --no-default-features
+cargo build --release -p glimpse-wallpaper
 
 # Install binary
 install -Dm755 target/release/glimpse-panel "$pkgdir/usr/bin/glimpse-panel"
+install -Dm755 target/release/glimpse-wallpaper "$pkgdir/usr/bin/glimpse-wallpaper"
 
 # Polkit
 install -Dm755 data/glimpse-battery-helper "$pkgdir/usr/lib/glimpse/glimpse-battery-helper"
@@ -90,4 +118,5 @@ install -Dm644 data/io.glimpse.battery.policy "$pkgdir/usr/share/polkit-1/action
 
 # Systemd user service
 install -Dm644 data/glimpse-panel.service "$pkgdir/usr/lib/systemd/user/glimpse-panel.service"
+install -Dm644 data/glimpse-wallpaper.service "$pkgdir/usr/lib/systemd/user/glimpse-wallpaper.service"
 ```

@@ -1,0 +1,245 @@
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use glimpse_config::{
+    AppletConfig, BackdropConfig, Config, ConfigDiscovery, FitMode, ResolvedBackdropSpec,
+    ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
+};
+
+#[test]
+fn config_discovery_prefers_glimpse_config_env_then_cwd_then_xdg() {
+    let temp = TestDir::new("discovery-precedence");
+    let env_file = temp.file("env/config.toml");
+    let cwd_file = temp.file("cwd/config.toml");
+    let xdg_file = temp.file("xdg/glimpse/config.toml");
+    touch(&env_file);
+    touch(&cwd_file);
+    touch(&xdg_file);
+
+    let discovery = ConfigDiscovery::new(
+        HashMap::from([("GLIMPSE_CONFIG".into(), env_file.display().to_string())]),
+        temp.path("cwd"),
+        Some(temp.path("xdg")),
+        Some(temp.path("home")),
+    );
+
+    assert_eq!(discovery.detect_config_file(), env_file);
+
+    let discovery = ConfigDiscovery::new(
+        HashMap::new(),
+        temp.path("cwd"),
+        Some(temp.path("xdg")),
+        None,
+    );
+    assert_eq!(discovery.detect_config_file(), cwd_file);
+
+    fs::remove_file(cwd_file).unwrap();
+    assert_eq!(discovery.detect_config_file(), xdg_file);
+}
+
+#[test]
+fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
+    let config = Config::from_toml_str(
+        r##"
+        [theme]
+        name = "adwaita"
+        mode = "dark"
+
+        [location]
+        provider = "static"
+        latitude = 52.23
+        longitude = 21.01
+
+        [wallpaper]
+        color = "#203040"
+        path = "/tmp/wall.png"
+        fit = "contain"
+        transition_ms = 250
+        mode = "image"
+
+        [backdrop]
+        enabled = true
+        path = "/tmp/backdrop.png"
+        blur_radius = 18
+
+        [[panels]]
+        position = "top"
+        left = ["clock"]
+
+        [applets.clock]
+        format = "%H:%M"
+        "##,
+    )
+    .unwrap();
+
+    assert_eq!(config.theme.mode, ThemeMode::Dark);
+    assert_eq!(config.wallpaper.fit, FitMode::Contain);
+    assert_eq!(config.wallpaper.transition_ms, 250);
+    assert_eq!(config.panels.len(), 1);
+    assert!(matches!(
+        config.applets.get("clock"),
+        Some(AppletConfig { .. })
+    ));
+
+    let serialized = config.background_toml().unwrap();
+    assert!(!serialized.contains("mode"));
+    assert!(serialized.contains("[wallpaper]"));
+    assert!(serialized.contains("[backdrop]"));
+}
+
+#[test]
+fn resolves_color_only_wallpaper_spec() {
+    let config = Config {
+        wallpaper: WallpaperConfig {
+            color: "#101010".into(),
+            path: None,
+            fit: FitMode::Cover,
+            transition_ms: 800,
+        },
+        backdrop: BackdropConfig {
+            enabled: false,
+            ..BackdropConfig::default()
+        },
+        ..Config::default()
+    };
+
+    assert_eq!(
+        config.resolve_wallpaper(ThemeMode::Light),
+        ResolvedWallpaperSpec {
+            color: "#101010".into(),
+            image: None,
+            transition_ms: 800,
+            theme_mode: ThemeMode::Light,
+            backdrop: ResolvedBackdropSpec::Disabled,
+        }
+    );
+}
+
+#[test]
+fn resolves_wallpaper_and_backdrop_image_spec() {
+    let config = Config {
+        wallpaper: WallpaperConfig {
+            color: "#202020".into(),
+            path: Some(PathBuf::from("/tmp/wall.png")),
+            fit: FitMode::Fill,
+            transition_ms: 100,
+        },
+        backdrop: BackdropConfig {
+            enabled: true,
+            path: Some(PathBuf::from("/tmp/backdrop.png")),
+            blur_radius: 24,
+        },
+        ..Config::default()
+    };
+
+    assert_eq!(
+        config.resolve_wallpaper(ThemeMode::Dark),
+        ResolvedWallpaperSpec {
+            color: "#202020".into(),
+            image: Some(ResolvedImageSpec {
+                path: PathBuf::from("/tmp/wall.png"),
+                fit: FitMode::Fill,
+            }),
+            transition_ms: 100,
+            theme_mode: ThemeMode::Dark,
+            backdrop: ResolvedBackdropSpec::Enabled {
+                path: Some(PathBuf::from("/tmp/backdrop.png")),
+                blur_radius: 24,
+            },
+        }
+    );
+}
+
+#[test]
+fn enabled_backdrop_without_path_falls_back_to_wallpaper_image() {
+    let config = Config {
+        wallpaper: WallpaperConfig {
+            color: "#202020".into(),
+            path: Some(PathBuf::from("/tmp/wall.png")),
+            fit: FitMode::Cover,
+            transition_ms: 800,
+        },
+        backdrop: BackdropConfig {
+            enabled: true,
+            path: None,
+            blur_radius: 24,
+        },
+        ..Config::default()
+    };
+
+    assert_eq!(
+        config.resolve_wallpaper(ThemeMode::Dark).backdrop,
+        ResolvedBackdropSpec::Enabled {
+            path: Some(PathBuf::from("/tmp/wall.png")),
+            blur_radius: 24,
+        }
+    );
+}
+
+#[test]
+fn backdrop_defaults_to_enabled_with_blur_24_and_wallpaper_fallback() {
+    let config = Config {
+        wallpaper: WallpaperConfig {
+            color: "#202020".into(),
+            path: Some(PathBuf::from("/tmp/wall.png")),
+            fit: FitMode::Cover,
+            transition_ms: 800,
+        },
+        ..Config::default()
+    };
+
+    assert_eq!(
+        config.backdrop,
+        BackdropConfig {
+            enabled: true,
+            path: None,
+            blur_radius: 24,
+        }
+    );
+    assert_eq!(
+        config.resolve_wallpaper(ThemeMode::Dark).backdrop,
+        ResolvedBackdropSpec::Enabled {
+            path: Some(PathBuf::from("/tmp/wall.png")),
+            blur_radius: 24,
+        }
+    );
+}
+
+fn touch(path: &Path) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, "").unwrap();
+}
+
+struct TestDir {
+    root: PathBuf,
+}
+
+impl TestDir {
+    fn new(name: &str) -> Self {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("glimpse-config-{name}-{suffix}"));
+        fs::create_dir_all(&root).unwrap();
+        Self { root }
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.root.join(relative)
+    }
+
+    fn file(&self, relative: &str) -> PathBuf {
+        self.root.join(relative)
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}

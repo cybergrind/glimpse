@@ -3,13 +3,13 @@ _pkgname=glimpse
 _srcname=glimpse-panel-git-src
 pkgver=0.1.0.r252.g739def5
 pkgrel=1
-pkgdesc="Wayland status panel for the Glimpse ecosystem"
+pkgdesc="Wayland status panel and wallpaper daemon for the Glimpse ecosystem"
 arch=('x86_64' 'aarch64')
 license=('custom:unknown')
 makedepends=('cargo' 'git' 'pkgconf')
 depends=('gtk4' 'libadwaita' 'gtk4-layer-shell' 'libheif')
-provides=('glimpse-panel')
-conflicts=('glimpse-panel')
+provides=('glimpse-panel' 'glimpse-wallpaper')
+conflicts=('glimpse-panel' 'glimpse-wallpaper')
 source=("$_srcname::git+file://$PWD")
 b2sums=('SKIP')
 
@@ -31,12 +31,16 @@ build() {
     export CARGO_TARGET_DIR=target
 
     cargo build --release -p glimpse --bin glimpse-panel --no-default-features
+    cargo build --release -p glimpse-wallpaper
 }
 
 package() {
     cd "$srcdir/$_srcname"
 
     install -Dm755 "target/release/glimpse-panel" "$pkgdir/usr/bin/glimpse-panel"
+    install -Dm755 "target/release/glimpse-wallpaper" "$pkgdir/usr/bin/glimpse-wallpaper"
     install -Dm644 "data/glimpse-panel.service" \
         "$pkgdir/usr/lib/systemd/user/glimpse-panel.service"
+    install -Dm644 "data/glimpse-wallpaper.service" \
+        "$pkgdir/usr/lib/systemd/user/glimpse-wallpaper.service"
 }
