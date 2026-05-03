@@ -103,6 +103,36 @@ Start it together with `glimpse-shell` for shell-based sessions. Do not run it a
 
 ## Arch Linux PKGBUILD notes
 
+The AUR package is `glimpse` and consumes GitHub release binaries. It does not compile Rust code on user machines. Release archives are named:
+
+```text
+glimpse-<version>-x86_64.tar.zst
+```
+
+Each archive contains the final `/usr` tree:
+
+```text
+usr/bin/glimpse-panel
+usr/bin/glimpse-wallpaper
+usr/lib/systemd/user/glimpse-panel.service
+usr/lib/systemd/user/glimpse-wallpaper.service
+```
+
+Local release helpers:
+
+```bash
+just binary-package      # Build dist/glimpse-<version>-x86_64.tar.zst
+just github-release      # Upload the local archive to the matching GitHub release
+just aur-publish         # Publish PKGBUILD + .SRCINFO to ssh://aur@aur.archlinux.org/glimpse.git
+just release-local       # Tag, push, upload release asset, then publish AUR metadata
+```
+
+The tag-push GitHub workflow performs the same binary build and AUR publish path. Configure the repository secret `AUR_SSH_PRIVATE_KEY` with an SSH key accepted by the AUR account before expecting automatic AUR publication.
+
+The source repository `PKGBUILD` keeps `b2sums_x86_64=('SKIP')` as a template. The local and GitHub release paths render the AUR copy with the actual BLAKE2 checksum for the uploaded binary archive.
+
+### Manual source build commands
+
 ```bash
 # Build
 cargo build --release -p glimpse --bin glimpse-panel --no-default-features

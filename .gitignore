@@ -1,7 +1,8 @@
 target/
 _old/
 .claude/
-Cargo.lock
+**/Cargo.lock
+!/Cargo.lock
 
 # Beads / Dolt files (added by bd init)
 .dolt/

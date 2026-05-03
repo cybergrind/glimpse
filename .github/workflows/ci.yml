@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            cargo \
+            git \
+            gtk4 \
+            gtk4-layer-shell \
+            libadwaita \
+            libheif \
+            pkgconf
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify lockfile
+        run: cargo fetch --locked
+
+      - name: Test config and wallpaper crates
+        run: |
+          cargo test --locked -p glimpse-config
+          cargo test --locked -p glimpse-wallpaper
+
+      - name: Check wallpaper daemon
+        run: cargo check --locked -p glimpse-wallpaper
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
+          cargo build --release --locked -p glimpse-wallpaper

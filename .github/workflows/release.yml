@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  binary-and-aur:
+    name: Build binary release and publish AUR
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      AUR_PKG: glimpse
+      AUR_REMOTE: ssh://aur@aur.archlinux.org/glimpse.git
+      AUR_KEY_SET: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - name: Install build and release dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            cargo \
+            git \
+            github-cli \
+            gtk4 \
+            gtk4-layer-shell \
+            libadwaita \
+            libheif \
+            openssh \
+            pkgconf \
+            zstd
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches workspace version
+        run: |
+          version="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          tag="${GITHUB_REF_NAME#v}"
+          test "$version" = "$tag"
+
+      - name: Test release crates
+        run: |
+          cargo test --locked -p glimpse-config
+          cargo test --locked -p glimpse-wallpaper
+          cargo check --locked -p glimpse-wallpaper
+
+      - name: Build binary archive
+        id: package
+        run: |
+          asset="$(scripts/package-binary.sh "${GITHUB_REF_NAME#v}")"
+          checksum="$(b2sum "$asset" | awk '{ print $1 }')"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release asset
+        if: env.ACT != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.package.outputs.asset }}" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Glimpse ${GITHUB_REF_NAME#v}" \
+          || gh release upload "$GITHUB_REF_NAME" "${{ steps.package.outputs.asset }}" --clobber
+
+      - name: Configure AUR SSH
+        if: env.ACT != 'true' && env.AUR_KEY_SET == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Publish AUR package
+        if: env.ACT != 'true' && env.AUR_KEY_SET == 'true'
+        env:
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/aur -o IdentitiesOnly=yes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          git clone "$AUR_REMOTE" "$tmpdir"
+          scripts/render-aur-pkgbuild.sh "$version" "${{ steps.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
+          cd "$tmpdir"
+          useradd -m builder
+          chown -R builder:builder "$tmpdir"
+          runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "AUR package $AUR_PKG already up to date"
+          else
+            git commit -m "Release $version"
+            git push origin master
+          fi
+
+      - name: Skip AUR publish
+        if: env.ACT != 'true' && env.AUR_KEY_SET != 'true'
+        run: echo "AUR_SSH_PRIVATE_KEY is not configured; GitHub release asset was published, AUR publish skipped."
+
+      - name: Render AUR metadata for act
+        if: env.ACT == 'true'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          scripts/render-aur-pkgbuild.sh "$version" "${{ steps.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
+          useradd -m builder
+          chown -R builder:builder "$tmpdir"
+          runuser -u builder -- bash -c 'cd "$1" && makepkg --printsrcinfo' bash "$tmpdir" > dist/.SRCINFO
+          cp "$tmpdir/PKGBUILD" dist/PKGBUILD
+          test -s dist/.SRCINFO
