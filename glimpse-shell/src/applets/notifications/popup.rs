@@ -68,7 +68,7 @@ pub enum PopupPosition {
 
 impl Default for PopupPosition {
     fn default() -> Self {
-        Self::TopRight
+        Self::TopCenter
     }
 }
 
@@ -85,6 +85,7 @@ pub enum PopupInput {
         margin_y: i32,
     },
     TimeoutElapsed(u32),
+    Cancel(u32),
     Dismiss(u32),
     FocusAndDismiss(u32),
     InvokeAction {
@@ -169,9 +170,10 @@ impl SimpleComponent for Popup {
                 margin_y,
             } => {
                 self.timeout_ms = timeout_ms;
-                configure_window(&self.window, position, margin_x, margin_y);
+                apply_position(&self.window, position, margin_x, margin_y);
             }
             PopupInput::TimeoutElapsed(id) => self.remove_card(id, false),
+            PopupInput::Cancel(id) => self.remove_card(id, true),
             PopupInput::Dismiss(id) => {
                 let _ = sender.output(popover::PopoverOutput::Dismiss(id));
                 self.remove_card(id, true);
@@ -183,6 +185,16 @@ impl SimpleComponent for Popup {
             PopupInput::InvokeAction { id, action_key } => {
                 let _ = sender.output(popover::PopoverOutput::InvokeAction { id, action_key });
                 self.remove_card(id, true);
+            }
+        }
+    }
+}
+
+impl Drop for Popup {
+    fn drop(&mut self) {
+        for (_, card) in self.cards.borrow_mut().drain() {
+            if let Some(timeout) = card.timeout {
+                timeout.remove();
             }
         }
     }
@@ -430,6 +442,9 @@ fn build_card(notification: &NotificationEntry, sender: &ComponentSender<Popup>)
     if let Some(texture) = load_notification_image(notification) {
         card.image.set_paintable(Some(&texture));
         card.image.set_visible(true);
+    } else {
+        card.image.set_paintable(None::<&gdk::Texture>);
+        card.image.set_visible(false);
     }
 
     let actions = format::visible_actions(notification).collect::<Vec<_>>();
@@ -467,7 +482,7 @@ fn build_card(notification: &NotificationEntry, sender: &ComponentSender<Popup>)
             return;
         }
         gesture.set_state(gtk::EventSequenceState::Claimed);
-        sender_clone.input(PopupInput::Dismiss(id));
+        sender_clone.input(PopupInput::Cancel(id));
     });
     card.as_ref().add_controller(right_click);
 

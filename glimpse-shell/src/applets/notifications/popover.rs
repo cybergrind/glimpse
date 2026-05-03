@@ -22,14 +22,17 @@ use crate::{
 use super::{
     components::{
         NotificationActionButton, NotificationActionButtonInit, NotificationActionButtonStyle,
+        NotificationGroup, NotificationGroupAction, NotificationListItem, notification_items,
     },
     format,
 };
 
 pub struct Popover {
     animation: AnimatedPopover,
+    refresh_timer: Option<glib::SourceId>,
     notifications: Vec<NotificationEntry>,
     dnd: bool,
+    groups: HashMap<String, NotificationGroup>,
     rows: HashMap<u32, NotificationRow>,
     list: gtk::Box,
     scroller: gtk::ScrolledWindow,
@@ -55,6 +58,9 @@ pub enum PopoverInput {
     DismissAll,
     SetDnd(bool),
     FocusAndDismiss(u32),
+    DismissGroup(Vec<u32>),
+    ToggleGroup(String),
+    RefreshTimes,
     InvokeAction {
         id: u32,
         action_key: String,
@@ -65,6 +71,7 @@ pub enum PopoverInput {
 pub enum PopoverOutput {
     Dismiss(u32),
     DismissAll,
+    DismissMany(Vec<u32>),
     SetDnd(bool),
     FocusAndDismiss(u32),
     InvokeAction { id: u32, action_key: String },
@@ -172,10 +179,20 @@ impl SimpleComponent for Popover {
             }
         });
 
+        let refresh_timer = glib::timeout_add_seconds_local(60, {
+            let sender = _sender.clone();
+            move || {
+                sender.input(PopoverInput::RefreshTimes);
+                glib::ControlFlow::Continue
+            }
+        });
+
         let model = Popover {
             animation: AnimatedPopover::new(&widgets.root),
+            refresh_timer: Some(refresh_timer),
             notifications: Vec::new(),
             dnd: false,
+            groups: HashMap::new(),
             rows: HashMap::new(),
             list: widgets.list.clone(),
             scroller: widgets.scroller.clone(),
@@ -209,6 +226,16 @@ impl SimpleComponent for Popover {
             PopoverInput::FocusAndDismiss(id) => {
                 let _ = sender.output(PopoverOutput::FocusAndDismiss(id));
             }
+            PopoverInput::DismissGroup(ids) => {
+                let _ = sender.output(PopoverOutput::DismissMany(ids));
+            }
+            PopoverInput::ToggleGroup(key) => {
+                if let Some(group) = self.groups.get(&key) {
+                    group.toggle();
+                }
+                self.sync(&sender);
+            }
+            PopoverInput::RefreshTimes => self.refresh_times(),
             PopoverInput::InvokeAction { id, action_key } => {
                 let _ = sender.output(PopoverOutput::InvokeAction { id, action_key });
             }
@@ -219,7 +246,9 @@ impl SimpleComponent for Popover {
 impl Popover {
     fn sync(&mut self, sender: &ComponentSender<Self>) {
         let now = now_ms();
-        let mut seen = HashSet::new();
+        let items = notification_items(&self.notifications);
+        let mut seen_groups = HashSet::new();
+        let mut seen_rows = HashSet::new();
         let mut previous: Option<gtk::Widget> = None;
         self.empty.set_visible(self.notifications.is_empty());
         self.scroller.set_visible(!self.notifications.is_empty());
@@ -238,29 +267,138 @@ impl Popover {
         self.hero_toggle.set_active(!self.dnd);
         self.updating_dnd.set(false);
 
-        for notification in &self.notifications {
-            seen.insert(notification.id);
-            let row = self
-                .rows
-                .entry(notification.id)
-                .or_insert_with(|| NotificationRow::new(sender));
-            row.update(notification, now, sender);
-            if row.root.as_ref().parent().is_none() {
-                self.list.append(row.root.as_ref());
+        for item in &items {
+            match item {
+                NotificationListItem::Notification(notification) => {
+                    seen_rows.insert(notification.id);
+                    let row = self
+                        .rows
+                        .entry(notification.id)
+                        .or_insert_with(|| NotificationRow::new(sender));
+                    row.update(notification, now, sender);
+                    row.set_header_visible(true);
+                    row.set_card_actions_enabled(true);
+                    place_row(row, &self.list, previous.as_ref());
+                    previous = Some(row.root.as_ref().clone().upcast());
+                }
+                NotificationListItem::Group(group_model) => {
+                    seen_groups.insert(group_model.key.clone());
+                    let group = self
+                        .groups
+                        .entry(group_model.key.clone())
+                        .or_insert_with(|| {
+                            let sender = sender.clone();
+                            NotificationGroup::new(&group_model.key, move |action| match action {
+                                NotificationGroupAction::Dismiss(ids) => {
+                                    sender.input(PopoverInput::DismissGroup(ids));
+                                }
+                                NotificationGroupAction::Toggle(key) => {
+                                    sender.input(PopoverInput::ToggleGroup(key));
+                                }
+                            })
+                        });
+                    if group.root_widget().parent().is_none() {
+                        self.list.append(group.root_widget());
+                    }
+                    self.list
+                        .reorder_child_after(group.root_widget(), previous.as_ref());
+                    previous = Some(group.root_widget().clone().upcast());
+                    group.update(group_model, now);
+
+                    let mut expanded_previous: Option<gtk::Widget> = None;
+                    for notification in &group_model.notifications {
+                        seen_rows.insert(notification.id);
+                        let row = self
+                            .rows
+                            .entry(notification.id)
+                            .or_insert_with(|| NotificationRow::new(sender));
+                        row.update(notification, now, sender);
+                        row.set_header_visible(false);
+
+                        if group.is_expanded() {
+                            row.set_card_actions_enabled(true);
+                            place_row(row, group.expanded_list(), expanded_previous.as_ref());
+                            expanded_previous = Some(row.root.as_ref().clone().upcast());
+                        } else if notification.id == group_model.lead.id {
+                            row.set_card_actions_enabled(false);
+                            place_row(row, group.collapsed_stack(), None);
+                        } else if let Some(parent) = row.root.as_ref().parent() {
+                            if let Ok(parent) = parent.downcast::<gtk::Box>() {
+                                parent.remove(row.root.as_ref());
+                            }
+                        }
+                    }
+                }
             }
-            self.list
-                .reorder_child_after(row.root.as_ref(), previous.as_ref());
-            previous = Some(row.root.as_ref().clone().upcast());
         }
 
         self.rows.retain(|id, row| {
-            let keep = seen.contains(id);
+            let keep = seen_rows.contains(id);
             if !keep {
-                self.list.remove(row.root.as_ref());
+                if let Some(parent) = row.root.as_ref().parent() {
+                    if let Ok(parent) = parent.downcast::<gtk::Box>() {
+                        parent.remove(row.root.as_ref());
+                    }
+                }
+            }
+            keep
+        });
+        self.groups.retain(|key, group| {
+            let keep = seen_groups.contains(key);
+            if !keep {
+                group.detach_rows();
+                self.list.remove(group.root_widget());
             }
             keep
         });
     }
+
+    fn refresh_times(&self) {
+        let now = now_ms();
+        for item in notification_items(&self.notifications) {
+            match item {
+                NotificationListItem::Notification(notification) => {
+                    if let Some(row) = self.rows.get(&notification.id) {
+                        row.update_time(&notification, now);
+                    }
+                }
+                NotificationListItem::Group(group_model) => {
+                    if let Some(group) = self.groups.get(&group_model.key) {
+                        group.update_time(&group_model, now);
+                    }
+                    for notification in &group_model.notifications {
+                        if let Some(row) = self.rows.get(&notification.id) {
+                            row.update_time(notification, now);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Popover {
+    fn drop(&mut self) {
+        if let Some(refresh_timer) = self.refresh_timer.take() {
+            refresh_timer.remove();
+        }
+    }
+}
+
+fn place_row(row: &NotificationRow, container: &gtk::Box, previous: Option<&gtk::Widget>) {
+    let row_widget = row.root.as_ref();
+    let target = container.clone().upcast::<gtk::Widget>();
+    let already_in_container = row_widget.parent().is_some_and(|parent| parent == target);
+
+    if !already_in_container {
+        if let Some(parent) = row_widget.parent() {
+            if let Ok(parent) = parent.downcast::<gtk::Box>() {
+                parent.remove(row_widget);
+            }
+        }
+        container.append(row_widget);
+    }
+    container.reorder_child_after(row_widget, previous);
 }
 
 #[relm4::widget_template]
@@ -272,6 +410,7 @@ impl WidgetTemplate for NotificationRowView {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 4,
 
+            #[name = "header"]
             gtk::Box {
                 add_css_class: "card-surface__header",
                 set_orientation: gtk::Orientation::Horizontal,
@@ -371,12 +510,14 @@ impl WidgetTemplate for NotificationRowView {
 struct NotificationRow {
     root: NotificationRowView,
     id: Rc<Cell<u32>>,
+    card_actions_enabled: Rc<Cell<bool>>,
 }
 
 impl NotificationRow {
     fn new(sender: &ComponentSender<Popover>) -> Self {
         let root = NotificationRowView::init(());
         let id = Rc::new(Cell::new(0));
+        let card_actions_enabled = Rc::new(Cell::new(true));
 
         root.dismiss.connect_clicked({
             let id = id.clone();
@@ -393,7 +534,11 @@ impl NotificationRow {
             let root_widget = root.as_ref().clone();
             let dismiss = root.dismiss.clone();
             let actions_box = root.actions_box.clone();
+            let card_actions_enabled = card_actions_enabled.clone();
             move |gesture, _, x, y| {
+                if !card_actions_enabled.get() {
+                    return;
+                }
                 if point_inside_widget(&root_widget, &dismiss, x, y)
                     || point_inside_widget(&root_widget, &actions_box, x, y)
                 {
@@ -414,7 +559,11 @@ impl NotificationRow {
             let root_widget = root.as_ref().clone();
             let dismiss = root.dismiss.clone();
             let actions_box = root.actions_box.clone();
+            let card_actions_enabled = card_actions_enabled.clone();
             move |gesture, _, x, y| {
+                if !card_actions_enabled.get() {
+                    return;
+                }
                 if point_inside_widget(&root_widget, &dismiss, x, y)
                     || point_inside_widget(&root_widget, &actions_box, x, y)
                 {
@@ -426,7 +575,23 @@ impl NotificationRow {
         });
         root.as_ref().add_controller(root_click);
 
-        Self { root, id }
+        Self {
+            root,
+            id,
+            card_actions_enabled,
+        }
+    }
+
+    fn set_card_actions_enabled(&self, enabled: bool) {
+        self.card_actions_enabled.set(enabled);
+        self.root.actions_box.set_sensitive(enabled);
+        self.root
+            .actions_box
+            .set_visible(enabled && self.root.actions_box.first_child().is_some());
+    }
+
+    fn set_header_visible(&self, visible: bool) {
+        self.root.header.set_visible(visible);
     }
 
     fn update(
@@ -460,6 +625,7 @@ impl NotificationRow {
             self.root.image.set_paintable(Some(&texture));
             self.root.image.set_visible(true);
         } else {
+            self.root.image.set_paintable(None::<&gdk::Texture>);
             self.root.image.set_visible(false);
         }
 
@@ -489,6 +655,12 @@ impl NotificationRow {
         self.root
             .actions_box
             .set_visible(self.root.actions_box.first_child().is_some());
+    }
+
+    fn update_time(&self, notification: &NotificationEntry, now: u64) {
+        self.root
+            .time_label
+            .set_label(&format::relative_time(now, notification.timestamp));
     }
 }
 

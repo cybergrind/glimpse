@@ -1,17 +1,15 @@
-#![allow(unused_assignments)]
-
 use relm4::{
     WidgetTemplate,
     gtk::{self, prelude::*},
 };
 
-pub(super) struct NotificationActionButtonInit {
+pub(crate) struct NotificationActionButtonInit {
     pub label: String,
     pub style: NotificationActionButtonStyle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum NotificationActionButtonStyle {
+pub(crate) enum NotificationActionButtonStyle {
     Popover,
     Popup,
 }
@@ -25,7 +23,7 @@ impl NotificationActionButtonStyle {
     }
 }
 
-#[relm4::widget_template(pub(super))]
+#[relm4::widget_template(pub(crate))]
 impl WidgetTemplate for NotificationActionButton {
     type Init = NotificationActionButtonInit;
 

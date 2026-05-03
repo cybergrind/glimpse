@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use anyhow::{Result, anyhow};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -9,10 +7,7 @@ use crate::{
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
 
-use super::{
-    model::{ActiveAction, Command, Health, NotificationEntry, Signal, State},
-    persistence,
-};
+use super::model::{ActiveAction, Command, Health, NotificationEntry, Signal, State};
 
 const COMMAND_QUEUE_SIZE: usize = 32;
 const SERVER_QUEUE_SIZE: usize = 256;
@@ -25,7 +20,6 @@ pub struct NotificationsService {
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
     server_rx: mpsc::Receiver<ServerRequest>,
     dispatcher: NotificationServerDispatcher,
-    persistence_path: Option<PathBuf>,
 }
 
 pub(crate) enum ServerRequest {
@@ -86,17 +80,13 @@ impl NotificationsService {
                 command_rx,
                 server_rx,
                 dispatcher,
-                persistence_path: persistence::notifications_state_path(),
             },
             ServiceHandle::new(state_rx, command_tx),
         )
     }
 
     pub async fn run(mut self, cancel: CancellationToken) {
-        let mut state = State {
-            dnd: self.load_dnd(),
-            ..State::default()
-        };
+        let mut state = State::default();
         let signal_emitter = match notification_dbus::register_server(
             &self.session,
             self.dispatcher.clone(),
@@ -155,7 +145,16 @@ impl NotificationsService {
                     summary = %entry.summary,
                     "notification received"
                 );
-                upsert_notification(&mut state.notifications, entry);
+                if accepts_notification(state, &entry) {
+                    upsert_notification(&mut state.notifications, entry);
+                } else {
+                    tracing::debug!(
+                        id = entry.id,
+                        app = %entry.app_name,
+                        urgency = entry.urgency,
+                        "notification ignored by do not disturb"
+                    );
+                }
                 let _ = reply.send(Ok(()));
             }
             ServerRequest::Close { id, reply } => {
@@ -174,7 +173,7 @@ impl NotificationsService {
         state.active_action = Some(active_action_for(&command));
         self.publish(state);
 
-        let result = match command {
+        let result: Result<()> = match command {
             Command::Dismiss { id } => {
                 close_notification(self, state, signal_emitter, id, 2).await;
                 Ok(())
@@ -222,7 +221,7 @@ impl NotificationsService {
             }
             Command::SetDnd(enabled) => {
                 state.dnd = enabled;
-                self.save_dnd(enabled)
+                Ok(())
             }
         };
 
@@ -249,21 +248,6 @@ impl NotificationsService {
                 signal_name(&signal)
             ));
         }
-    }
-
-    fn load_dnd(&self) -> bool {
-        self.persistence_path
-            .as_ref()
-            .map(persistence::load_dnd_from)
-            .unwrap_or_else(persistence::load_dnd)
-    }
-
-    fn save_dnd(&self, enabled: bool) -> Result<()> {
-        self.persistence_path
-            .as_ref()
-            .map(|path| persistence::save_dnd_to(path, enabled))
-            .unwrap_or_else(|| persistence::save_dnd(enabled))
-            .map_err(Into::into)
     }
 
     fn publish(&self, next: &State) {
@@ -301,6 +285,10 @@ fn upsert_notification(notifications: &mut Vec<NotificationEntry>, entry: Notifi
     } else {
         notifications.insert(0, entry);
     }
+}
+
+fn accepts_notification(state: &State, entry: &NotificationEntry) -> bool {
+    !state.dnd || entry.urgency == 2
 }
 
 fn active_action_for(command: &Command) -> ActiveAction {
@@ -381,5 +369,19 @@ mod tests {
                 action_key: "default".into(),
             }
         );
+    }
+
+    #[test]
+    fn dnd_accepts_only_critical_notifications() {
+        let state = State {
+            dnd: true,
+            ..State::default()
+        };
+        let normal = notification(1, "normal");
+        let mut critical = notification(2, "critical");
+        critical.urgency = 2;
+
+        assert!(!accepts_notification(&state, &normal));
+        assert!(accepts_notification(&state, &critical));
     }
 }

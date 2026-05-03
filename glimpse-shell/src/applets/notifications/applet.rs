@@ -64,7 +64,7 @@ impl Default for Config {
             tooltip_format: format::DEFAULT_TOOLTIP_FORMAT.into(),
             badge_style: "count".into(),
             popup_timeout_ms: 5000,
-            popup_position: PopupPosition::TopRight,
+            popup_position: PopupPosition::TopCenter,
             popup_margin_x: 12,
             popup_margin_y: 32,
         }
@@ -263,6 +263,11 @@ impl Applet {
     fn handle_output(&self, output: PopoverOutput) {
         match output {
             PopoverOutput::Dismiss(id) => self.send_notification(Command::Dismiss { id }),
+            PopoverOutput::DismissMany(ids) => {
+                for id in ids {
+                    self.send_notification(Command::Dismiss { id });
+                }
+            }
             PopoverOutput::DismissAll => self.send_notification(Command::DismissAll),
             PopoverOutput::SetDnd(enabled) => self.send_notification(Command::SetDnd(enabled)),
             PopoverOutput::FocusAndDismiss(id) => self.focus_and_dismiss_notification(id),
@@ -505,5 +510,10 @@ mod tests {
         assert_eq!(config.popup_position, PopupPosition::BottomRight);
         assert_eq!(config.popup_margin_x, 24);
         assert_eq!(config.popup_margin_y, 40);
+    }
+
+    #[test]
+    fn config_defaults_popup_position_to_top_center() {
+        assert_eq!(Config::default().popup_position, PopupPosition::TopCenter);
     }
 }

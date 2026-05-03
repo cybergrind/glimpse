@@ -152,10 +152,10 @@
     --notification-action-radius: 8px;
     --notification-list-padding-y: 4px;
     --notification-group-gap: 4px;
-    --notification-group-header-padding: 4px 12px 10px 12px;
-    --notification-stack-offset: 4px;
-    --notification-stack-second-min-height: 66px;
-    --notification-stack-third-min-height: 70px;
+    --notification-group-header-padding: 4px 12px 0px 12px;
+    --notification-stack-offset: 2px;
+    --notification-stack-second-height: 4px;
+    --notification-stack-third-height: 3px;
     --notification-popup-card-margin-bottom: 8px;
     --notification-popup-padding: var(--space-5);
     --notification-popup-card-padding: 16px;
@@ -1373,25 +1373,28 @@ popover.popover-size-xlarge {
 
 .notifications-popover .notif-stack-backplates {
     background: transparent;
+    padding-bottom: 1px;
 }
 
 .notifications-popover .notif-stack-backplate {
-    margin: var(--notification-card-margin-y) 0;
-    padding: var(--notification-card-padding);
-    border-radius: var(--notification-card-radius);
+    margin: 0 6px;
+    padding: 0;
+    border-radius: 0 0 var(--notification-card-radius) var(--notification-card-radius);
     background: var(--notification-surface-bg);
     border: 1px solid transparent;
 }
 
 .notifications-popover .notif-stack-backplate-second {
-    min-height: var(--notification-stack-second-min-height);
+    min-height: var(--notification-stack-second-height);
     margin-top: var(--notification-stack-offset);
     box-shadow: var(--shadow-sm);
     opacity: var(--opacity-muted);
 }
 
 .notifications-popover .notif-stack-backplate-lower {
-    min-height: var(--notification-stack-third-min-height);
+    min-height: var(--notification-stack-third-height);
+    margin-left: 12px;
+    margin-right: 12px;
     margin-top: var(--notification-stack-offset);
     opacity: var(--opacity-disabled);
 }

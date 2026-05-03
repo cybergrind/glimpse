@@ -73,16 +73,10 @@ impl NotificationServer {
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        [
-            "actions",
-            "body",
-            "body-markup",
-            "icon-static",
-            "persistence",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+        ["actions", "body", "body-markup", "icon-static"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
