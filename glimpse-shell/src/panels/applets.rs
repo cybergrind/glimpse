@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, clock, keyboard, network, notifications, pager, session, tray,
-        weather,
+        audio, battery, bluetooth, clock, keyboard, mpris, network, notifications, pager, session,
+        tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -26,6 +26,7 @@ fn applet_type_from_name(name: &str) -> Option<AppletType> {
         "bluetooth" => Some(AppletType::Bluetooth),
         "clock" => Some(AppletType::Clock),
         "keyboard" => Some(AppletType::Keyboard),
+        "mpris" => Some(AppletType::Mpris),
         "network" => Some(AppletType::Network),
         "notifications" => Some(AppletType::Notifications),
         "pager" => Some(AppletType::Pager),
@@ -57,6 +58,7 @@ pub enum AppletController {
     Bluetooth(Controller<bluetooth::Applet>),
     Clock(Controller<clock::Applet>),
     Keyboard(Controller<keyboard::Applet>),
+    Mpris(Controller<mpris::Applet>),
     Network(Controller<network::Applet>),
     Notifications(Controller<notifications::Applet>),
     Pager(Controller<pager::Applet>),
@@ -73,6 +75,7 @@ impl AppletController {
             Self::Bluetooth(_) => AppletType::Bluetooth,
             Self::Clock(_) => AppletType::Clock,
             Self::Keyboard(_) => AppletType::Keyboard,
+            Self::Mpris(_) => AppletType::Mpris,
             Self::Network(_) => AppletType::Network,
             Self::Notifications(_) => AppletType::Notifications,
             Self::Pager(_) => AppletType::Pager,
@@ -89,6 +92,7 @@ impl AppletController {
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
             Self::Clock(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
+            Self::Mpris(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
             Self::Notifications(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
@@ -127,6 +131,11 @@ impl AppletController {
             }
             Self::Network(controller) => {
                 controller.emit(network::Input::Reconfigure(network::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Mpris(controller) => {
+                controller.emit(mpris::Input::Reconfigure(mpris::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -208,6 +217,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(network::Init {
                     service: services.network.clone(),
                     config: network::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Mpris => Some(AppletController::Mpris(
+            mpris::Applet::builder()
+                .launch(mpris::Init {
+                    service: services.mpris.clone(),
+                    config: mpris::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -533,6 +550,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "network");
         assert_eq!(entries[0].applet_type, AppletType::Network);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_mpris_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["mpris".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "mpris");
+        assert_eq!(entries[0].applet_type, AppletType::Mpris);
         assert!(entries[0].config.is_none());
     }
 

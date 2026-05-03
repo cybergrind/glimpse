@@ -3,6 +3,7 @@ pub mod battery;
 pub mod bluetooth;
 pub mod clock;
 pub mod keyboard;
+pub mod mpris;
 pub mod network;
 pub mod notifications;
 pub mod pager;

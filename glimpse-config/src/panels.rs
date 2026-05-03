@@ -45,9 +45,17 @@ impl Default for PanelConfig {
             position: Position::Top,
             margin: Margin::default(),
             theme_mode: ThemeMode::Dark,
-            left: vec![],
-            center: vec![],
-            right: vec![],
+            left: vec!["pager".into(), "mpris".into()],
+            center: vec!["clock".into(), "weather".into(), "notifications".into()],
+            right: vec![
+                "tray".into(),
+                "keyboard".into(),
+                "bluetooth".into(),
+                "network".into(),
+                "audio".into(),
+                "battery".into(),
+                "session".into(),
+            ],
         }
     }
 }
@@ -60,6 +68,7 @@ pub enum AppletType {
     Bluetooth,
     Clock,
     Keyboard,
+    Mpris,
     Network,
     Notifications,
     Pager,

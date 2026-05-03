@@ -82,7 +82,7 @@
     --popover-border: var(--color-border);
     --popover-shadow: var(--shadow-md);
     --popover-radius: var(--radius-lg);
-    --popover-padding: 16px;
+    --popover-padding: 4px;
     --popover-section-gap: 12px;
     --popover-row-gap: 6px;
     --popover-small-width: 280px;
@@ -1270,65 +1270,111 @@ popover.popover-size-xlarge {
     font-variant-numeric: tabular-nums;
 }
 
-.mpris-popover {
+.mpris-popover,
+popover.mpris-popover {
     --popover-min-width: var(--popover-xlarge-width);
-    --card-bg: color-mix(in srgb, var(--color-fg) 6%, transparent);
-    --card-hover-bg: color-mix(in srgb, var(--color-fg) 10%, transparent);
+    --popover-min-height: 0px;
+    max-width: var(--popover-xlarge-width);
+    --card-bg: color-mix(in srgb, var(--color-fg) 7%, transparent);
+    --card-hover-bg: color-mix(in srgb, var(--color-fg) 11%, transparent);
     --card-border: transparent;
-    --card-radius: var(--radius-lg);
+    --card-radius: 14px;
     --card-shell-padding: var(--space-4) var(--space-5);
     --card-extra-shadow: 0 0 transparent;
     --card-hover-extra-shadow: 0 0 transparent;
 }
 
-.mpris-popover .mpris-card {
-    margin: var(--space-1) 0;
+.mpris-current-player {
+    padding: 14px;
 }
 
-.mpris-popover .mpris-card-art-slot {
+.mpris-current-player__art {
     min-width: 92px;
     min-height: 92px;
-    border-radius: calc(var(--radius-lg) - var(--space-1));
+    border-radius: 12px;
     background: var(--overlay-hover);
 }
 
-.mpris-popover .mpris-card-art {
-    min-width: 92px;
-    min-height: 92px;
+.mpris-current-player__art image {
+    color: var(--color-accent);
 }
 
-.mpris-popover .mpris-card-content,
-.mpris-popover .mpris-card-copy {
+.mpris-current-player__meta,
+.mpris-current-player__copy,
+.mpris-player-row__copy {
     min-width: 0;
 }
 
-.mpris-popover .mpris-card-title {
+.mpris-current-player__title {
+    font-size: var(--font-size-lg);
     font-weight: var(--font-weight-semibold);
 }
 
-.mpris-popover .mpris-card-subtitle {
+.mpris-current-player__subtitle,
+.mpris-player-row__subtitle,
+.mpris-player-row__status {
     color: var(--color-muted-fg);
 }
 
-.mpris-popover .mpris-card-progress {
+.mpris-current-player__progress {
     color: var(--color-muted-fg);
     font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
 }
 
-.mpris-popover .mpris-card-progress progressbar {
-    min-height: 8px;
+.mpris-current-player__progress progressbar {
+    min-height: 6px;
 }
 
-.mpris-popover .mpris-card-controls button {
-    min-width: 28px;
-    min-height: 28px;
+.mpris-current-player__controls button,
+.mpris-player-row__play {
+    min-width: 30px;
+    min-height: 30px;
     padding: 0;
     border-radius: var(--radius-pill);
 }
 
-.mpris-popover .mpris-card-controls button label {
+.mpris-current-player__play {
+    min-width: 36px;
+    min-height: 36px;
+}
+
+.mpris-current-player__controls button label,
+.mpris-player-row__play label {
     font-weight: var(--font-weight-normal);
+}
+
+.mpris-other-players {
+    margin-top: var(--space-4);
+}
+
+.mpris-player-row {
+    min-height: 50px;
+    padding: 7px var(--space-2);
+    border-radius: 10px;
+}
+
+.mpris-player-row:hover {
+    background: var(--row-hover-bg);
+}
+
+.mpris-player-row__art {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--color-fg) 6%, transparent);
+}
+
+.mpris-player-row__art image {
+    color: var(--color-accent);
+}
+
+.mpris-player-row__title {
+    font-weight: var(--font-weight-semibold);
+}
+
+.mpris-player-row__status {
+    font-size: var(--font-size-sm);
 }
 
 /* Notifications */

@@ -6,6 +6,7 @@ pub mod clock;
 pub mod compositor;
 pub mod framework;
 pub mod location;
+pub mod mpris;
 pub mod network;
 pub mod notifications;
 pub mod power;

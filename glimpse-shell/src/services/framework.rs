@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, calendar_events, clock, compositor, location, network,
+        audio, battery, bluetooth, calendar_events, clock, compositor, location, mpris, network,
         notifications, power, session, tray, weather,
     },
 };
@@ -115,6 +115,7 @@ pub struct Services {
     pub clock: clock::ClockHandle,
     pub calendar_events: calendar_events::CalendarEventsHandle,
     pub location: ServiceHandle<location::State, location::Command>,
+    pub mpris: mpris::MprisHandle,
     pub battery: ServiceHandle<battery::State, battery::Command>,
     pub power: ServiceHandle<power::State, power::Command>,
     pub bluetooth: ServiceHandle<bluetooth::State, bluetooth::Command>,
@@ -138,6 +139,7 @@ impl Services {
                 clock,
                 calendar_events,
                 location,
+                mpris,
                 battery,
                 power,
                 bluetooth,
@@ -175,6 +177,9 @@ impl ServiceRuntime {
         let (location_service, location) = location::LocationService::new();
         let location_service = spawn_service(|cancel| location_service.run(cancel));
 
+        let (mpris_service, mpris) = mpris::MprisService::new(session_dbus.clone());
+        let mpris_service = spawn_service(|cancel| mpris_service.run(cancel));
+
         let (battery_service, battery) = battery::BatteryService::new(system_dbus.clone());
         let battery_service = spawn_service(|cancel| battery_service.run(cancel));
 
@@ -208,6 +213,7 @@ impl ServiceRuntime {
             clock_service,
             calendar_events_service,
             location_service,
+            mpris_service,
             battery_service,
             power_service,
             bluetooth_service,
@@ -223,6 +229,7 @@ impl ServiceRuntime {
             clock,
             calendar_events,
             location,
+            mpris,
             battery,
             power,
             bluetooth,
