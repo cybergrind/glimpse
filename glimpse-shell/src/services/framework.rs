@@ -6,7 +6,7 @@ use crate::{
     dbus::Dbus,
     services::{
         audio, battery, bluetooth, calendar_events, clock, compositor, location, network,
-        notifications, power, session, weather,
+        notifications, power, session, tray, weather,
     },
 };
 
@@ -123,6 +123,7 @@ pub struct Services {
     pub session: session::SessionHandle,
     pub compositor: compositor::CompositorHandle,
     pub weather: weather::WeatherHandle,
+    pub tray: tray::TrayHandle,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
 }
@@ -144,7 +145,8 @@ impl Services {
                 notifications,
                 session,
                 compositor,
-                weather
+                weather,
+                tray
             ]
         );
     }
@@ -198,6 +200,9 @@ impl ServiceRuntime {
         let (weather_service, weather) = weather::WeatherService::new(location.clone());
         let weather_service = spawn_service(|cancel| weather_service.run(cancel));
 
+        let (tray_service, tray) = tray::TrayService::new(session_dbus.clone());
+        let tray_service = spawn_service(|cancel| tray_service.run(cancel));
+
         let running_services = vec![
             audio_service,
             clock_service,
@@ -211,6 +216,7 @@ impl ServiceRuntime {
             session_service,
             compositor_service,
             weather_service,
+            tray_service,
         ];
         let handles = Services {
             audio,
@@ -225,6 +231,7 @@ impl ServiceRuntime {
             session,
             compositor,
             weather,
+            tray,
             system_dbus,
             session_dbus,
         };

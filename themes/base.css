@@ -339,6 +339,10 @@
     outline-offset: 2px;
 }
 
+.applet.needs-attention {
+    color: var(--accent-bg);
+}
+
 .pager {
     padding: 0 var(--space-2);
 }

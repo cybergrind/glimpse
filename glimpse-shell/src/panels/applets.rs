@@ -11,7 +11,8 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, clock, keyboard, network, notifications, pager, session, weather,
+        audio, battery, bluetooth, clock, keyboard, network, notifications, pager, session, tray,
+        weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -29,6 +30,7 @@ pub enum AppletType {
     Notifications,
     Pager,
     Session,
+    Tray,
     Weather,
 }
 
@@ -44,6 +46,7 @@ impl AppletType {
             "notifications" => Some(Self::Notifications),
             "pager" => Some(Self::Pager),
             "session" => Some(Self::Session),
+            "tray" => Some(Self::Tray),
             "weather" => Some(Self::Weather),
             _ => None,
         }
@@ -92,6 +95,7 @@ pub enum AppletController {
     Notifications(Controller<notifications::Applet>),
     Pager(Controller<pager::Applet>),
     Session(Controller<session::Applet>),
+    Tray(Controller<tray::Applet>),
     Weather(Controller<weather::Applet>),
 }
 
@@ -107,6 +111,7 @@ impl AppletController {
             Self::Notifications(_) => AppletType::Notifications,
             Self::Pager(_) => AppletType::Pager,
             Self::Session(_) => AppletType::Session,
+            Self::Tray(_) => AppletType::Tray,
             Self::Weather(_) => AppletType::Weather,
         }
     }
@@ -122,6 +127,7 @@ impl AppletController {
             Self::Notifications(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
+            Self::Tray(controller) => controller.widget().clone().upcast(),
             Self::Weather(controller) => controller.widget().clone().upcast(),
         }
     }
@@ -170,6 +176,11 @@ impl AppletController {
             }
             Self::Session(controller) => {
                 controller.emit(session::Input::Reconfigure(session::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Tray(controller) => {
+                controller.emit(tray::Input::Reconfigure(tray::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -256,6 +267,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(session::Init {
                     service: services.session.clone(),
                     config: session::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Tray => Some(AppletController::Tray(
+            tray::Applet::builder()
+                .launch(tray::Init {
+                    service: services.tray.clone(),
+                    config: tray::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -582,6 +601,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "session");
         assert_eq!(entries[0].applet_type, AppletType::Session);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_tray_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["tray".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "tray");
+        assert_eq!(entries[0].applet_type, AppletType::Tray);
         assert!(entries[0].config.is_none());
     }
 

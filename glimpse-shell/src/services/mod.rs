@@ -10,4 +10,5 @@ pub mod network;
 pub mod notifications;
 pub mod power;
 pub mod session;
+pub mod tray;
 pub mod weather;

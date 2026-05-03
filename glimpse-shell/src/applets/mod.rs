@@ -7,4 +7,5 @@ pub mod network;
 pub mod notifications;
 pub mod pager;
 pub mod session;
+pub mod tray;
 pub mod weather;
