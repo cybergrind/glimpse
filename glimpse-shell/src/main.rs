@@ -2,7 +2,6 @@ mod app;
 mod applets;
 mod components;
 mod compositors;
-mod config;
 mod dbus;
 mod panels;
 mod prompts;
@@ -15,9 +14,9 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     app::{App, AppInit},
     compositors::detect_compositor,
-    config::Config,
     dbus::Dbus,
 };
+use glimpse_config::Config;
 
 fn register_resources() {
     gio::resources_register_include!("glimpse-shell.gresource")

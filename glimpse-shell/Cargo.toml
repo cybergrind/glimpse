@@ -15,6 +15,7 @@ glib = "0.20"
 gio.workspace = true
 relm4.workspace = true
 glimpse = { path = "../glimpse" }
+glimpse-config = { path = "../glimpse-config" }
 reqwest.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

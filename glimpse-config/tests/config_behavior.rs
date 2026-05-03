@@ -6,8 +6,8 @@ use std::{
 };
 
 use glimpse_config::{
-    AppletConfig, BackdropConfig, Config, ConfigDiscovery, FitMode, ResolvedBackdropSpec,
-    ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
+    AppletConfig, AppletType, BackdropConfig, Config, ConfigDiscovery, FitMode,
+    ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
 };
 
 #[test]
@@ -68,10 +68,13 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
 
         [[panels]]
         position = "top"
-        left = ["clock"]
+        left = ["clock", "tray"]
 
         [applets.clock]
         format = "%H:%M"
+
+        [applets.system_tray]
+        extends = "tray"
         "##,
     )
     .unwrap();
@@ -84,6 +87,13 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
         config.applets.get("clock"),
         Some(AppletConfig { .. })
     ));
+    assert_eq!(
+        config
+            .applets
+            .get("system_tray")
+            .and_then(|applet| applet.extends),
+        Some(AppletType::Tray)
+    );
 
     let serialized = config.background_toml().unwrap();
     assert!(!serialized.contains("mode"));

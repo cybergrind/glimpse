@@ -2,37 +2,12 @@ use adw::gdk::{self};
 use gtk4::CssProvider;
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
-use serde::Deserialize;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use crate::config::Config;
+use glimpse_config::{Config, ThemeMode};
 
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ThemeMode {
-    Light,
-    Dark,
-    Auto,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct ThemeConfig {
-    pub name: String,
-    pub mode: ThemeMode,
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self {
-            name: String::from("adwaita"),
-            mode: ThemeMode::Auto,
-        }
-    }
-}
 
 pub struct ThemeState {
     base: CssProvider,

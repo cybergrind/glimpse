@@ -23,7 +23,6 @@ use super::{
     format, popover,
 };
 
-const MAX_VISIBLE_POPUPS: usize = 5;
 const MAX_TRACKED_POPUPS: usize = 20;
 
 pub struct Popup {
@@ -31,6 +30,7 @@ pub struct Popup {
     card_box: gtk::Box,
     overflow: gtk::Label,
     timeout_ms: u32,
+    visible_limit: usize,
     started_at: u64,
     surfaced: HashMap<u32, u64>,
     cards: Rc<RefCell<HashMap<u32, PopupCard>>>,
@@ -44,6 +44,7 @@ struct PopupCard {
 
 pub struct PopupInit {
     pub timeout_ms: u32,
+    pub visible_limit: usize,
     pub position: PopupPosition,
     pub margin_x: i32,
     pub margin_y: i32,
@@ -80,6 +81,7 @@ pub enum PopupInput {
     },
     Reconfigure {
         timeout_ms: u32,
+        visible_limit: usize,
         position: PopupPosition,
         margin_x: i32,
         margin_y: i32,
@@ -129,6 +131,7 @@ impl SimpleComponent for Popup {
             card_box: widgets.card_box.clone(),
             overflow: widgets.overflow.clone(),
             timeout_ms: init.timeout_ms,
+            visible_limit: normalize_visible_limit(init.visible_limit),
             started_at: now_ms(),
             surfaced: HashMap::new(),
             cards: Rc::new(RefCell::new(HashMap::new())),
@@ -165,11 +168,13 @@ impl SimpleComponent for Popup {
             }
             PopupInput::Reconfigure {
                 timeout_ms,
+                visible_limit,
                 position,
                 margin_x,
                 margin_y,
             } => {
                 self.timeout_ms = timeout_ms;
+                self.visible_limit = normalize_visible_limit(visible_limit);
                 apply_position(&self.window, position, margin_x, margin_y);
             }
             PopupInput::TimeoutElapsed(id) => self.remove_card(id, false),
@@ -269,10 +274,10 @@ impl Popup {
         let mut sorted = cards.values().collect::<Vec<_>>();
         sorted.sort_by(|a, b| b.order.cmp(&a.order));
         for (index, card) in sorted.iter().enumerate() {
-            card.widget.set_visible(index < MAX_VISIBLE_POPUPS);
+            card.widget.set_visible(index < self.visible_limit);
         }
 
-        let hidden = cards.len().saturating_sub(MAX_VISIBLE_POPUPS);
+        let hidden = cards.len().saturating_sub(self.visible_limit);
         self.overflow.set_visible(hidden > 0);
         if hidden > 0 {
             self.overflow.set_label(&format!("+ {hidden} more"));
@@ -297,6 +302,10 @@ impl Popup {
                 .insert(notification.id, notification.timestamp);
         }
     }
+}
+
+fn normalize_visible_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_TRACKED_POPUPS)
 }
 
 struct PopupCardInit {
@@ -612,5 +621,15 @@ mod tests {
         assert!(card.image.has_css_class("popup-inline-image"));
         assert!(card.actions_box.has_css_class("popup-actions"));
         assert!(!card.actions_box.is_visible());
+    }
+
+    #[test]
+    fn visible_limit_is_bounded_by_tracked_limit() {
+        assert_eq!(normalize_visible_limit(0), 1);
+        assert_eq!(normalize_visible_limit(8), 8);
+        assert_eq!(
+            normalize_visible_limit(MAX_TRACKED_POPUPS + 1),
+            MAX_TRACKED_POPUPS
+        );
     }
 }

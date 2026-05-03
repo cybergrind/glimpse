@@ -6,7 +6,6 @@ use relm4::{
         prelude::{BoxExt, WidgetExt},
     },
 };
-use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
@@ -18,55 +17,22 @@ use crate::{
     services::framework::Services,
 };
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum AppletType {
-    Audio,
-    Battery,
-    Bluetooth,
-    Clock,
-    Keyboard,
-    Network,
-    Notifications,
-    Pager,
-    Session,
-    Tray,
-    Weather,
-}
+pub use glimpse_config::{AppletConfig, AppletType};
 
-impl AppletType {
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "audio" => Some(Self::Audio),
-            "battery" => Some(Self::Battery),
-            "bluetooth" => Some(Self::Bluetooth),
-            "clock" => Some(Self::Clock),
-            "keyboard" => Some(Self::Keyboard),
-            "network" => Some(Self::Network),
-            "notifications" => Some(Self::Notifications),
-            "pager" => Some(Self::Pager),
-            "session" => Some(Self::Session),
-            "tray" => Some(Self::Tray),
-            "weather" => Some(Self::Weather),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct AppletConfig {
-    pub extends: Option<AppletType>,
-    #[serde(flatten)]
-    pub settings: toml::Value,
-}
-
-impl Default for AppletConfig {
-    fn default() -> Self {
-        Self {
-            extends: None,
-            settings: toml::Value::Table(toml::map::Map::new()),
-        }
+fn applet_type_from_name(name: &str) -> Option<AppletType> {
+    match name {
+        "audio" => Some(AppletType::Audio),
+        "battery" => Some(AppletType::Battery),
+        "bluetooth" => Some(AppletType::Bluetooth),
+        "clock" => Some(AppletType::Clock),
+        "keyboard" => Some(AppletType::Keyboard),
+        "network" => Some(AppletType::Network),
+        "notifications" => Some(AppletType::Notifications),
+        "pager" => Some(AppletType::Pager),
+        "session" => Some(AppletType::Session),
+        "tray" => Some(AppletType::Tray),
+        "weather" => Some(AppletType::Weather),
+        _ => None,
     }
 }
 
@@ -486,7 +452,7 @@ fn resolve_applet(
     let applet_type = applet_config
         .as_ref()
         .and_then(|config| config.extends)
-        .or_else(|| AppletType::from_name(name));
+        .or_else(|| applet_type_from_name(name));
 
     let Some(applet_type) = applet_type else {
         tracing::warn!(name, "unknown applet config, ignoring");

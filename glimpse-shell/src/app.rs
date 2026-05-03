@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, ConfigEvent, watch_for_config_changes},
     panels,
     prompts::{bluetooth as bluetooth_prompts, network as network_prompts},
     services::framework::{Control, ServiceRuntime, Services},
@@ -10,6 +9,7 @@ use crate::{
 use adw::gdk::{self, prelude::DisplayExt, prelude::MonitorExt};
 use gio::prelude::ListModelExt;
 use glib::object::{Cast, CastNone};
+use glimpse_config::{Config, ConfigEvent, PanelConfig, watch_for_config_changes};
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -263,7 +263,7 @@ fn monitor_connector(monitor: &gdk::Monitor) -> Option<String> {
 
 fn build_panel(
     index: usize,
-    config: panels::Config,
+    config: PanelConfig,
     services: Services,
     monitor: gdk::Monitor,
     app_config: Config,

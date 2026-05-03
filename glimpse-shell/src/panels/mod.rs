@@ -4,81 +4,12 @@ use gtk4::gdk;
 use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{Component, ComponentParts, ComponentSender, gtk};
-use serde::Deserialize;
 
 pub mod applets;
 
-use crate::panels::applets::{
-    AppletConfig, AppletController, AppletKey, build_applets, reconcile_applets,
-};
-use crate::{services::framework::Services, theme::ThemeMode};
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum Position {
-    Left,
-    Top,
-    Right,
-    Bottom,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
-pub struct Margin {
-    #[serde(default)]
-    pub left: i32,
-    #[serde(default)]
-    pub right: i32,
-    #[serde(default)]
-    pub top: i32,
-    #[serde(default)]
-    pub bottom: i32,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct Config {
-    #[serde(default = "default_panel_size")]
-    pub size: i32,
-    pub monitor: Option<String>,
-    pub position: Position,
-    #[serde(default)]
-    pub margin: Margin,
-    #[serde(default = "default_panel_theme_mode")]
-    pub theme_mode: ThemeMode,
-    #[serde(default)]
-    pub left: Vec<String>,
-    #[serde(default)]
-    pub center: Vec<String>,
-    #[serde(default)]
-    pub right: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            position: Position::Top,
-            size: default_panel_size(),
-            theme_mode: default_panel_theme_mode(),
-            left: vec![],
-            center: vec![],
-            right: vec![],
-            monitor: None,
-            margin: Margin {
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-            },
-        }
-    }
-}
-
-pub fn default_panel_size() -> i32 {
-    36
-}
-
-pub fn default_panel_theme_mode() -> ThemeMode {
-    ThemeMode::Dark
-}
+use crate::panels::applets::{AppletController, AppletKey, build_applets, reconcile_applets};
+use crate::services::framework::Services;
+use glimpse_config::{AppletConfig, PanelConfig, Position, ThemeMode};
 
 #[derive(PartialEq, Clone, Eq, Hash)]
 pub struct PanelKey {
@@ -88,7 +19,7 @@ pub struct PanelKey {
 }
 
 pub struct Init {
-    pub config: Config,
+    pub config: PanelConfig,
     pub services: Services,
     pub monitor: Option<gdk::Monitor>,
     pub applet_configs: HashMap<String, AppletConfig>,
@@ -101,7 +32,7 @@ pub enum Input {
 
 #[derive(Debug)]
 pub struct PanelRuntimeConfig {
-    pub config: Config,
+    pub config: PanelConfig,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
 
@@ -273,7 +204,7 @@ fn init_layer_shell(window: &gtk::Window) {
     window.auto_exclusive_zone_enable();
 }
 
-fn apply_panel_config(window: &gtk::Window, config: &Config) {
+fn apply_panel_config(window: &gtk::Window, config: &PanelConfig) {
     window.set_margin(gtk4_layer_shell::Edge::Top, config.margin.top);
     window.set_margin(gtk4_layer_shell::Edge::Right, config.margin.right);
     window.set_margin(gtk4_layer_shell::Edge::Bottom, config.margin.bottom);

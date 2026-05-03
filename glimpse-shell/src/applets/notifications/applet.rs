@@ -33,6 +33,7 @@ pub struct Config {
     pub tooltip_format: String,
     pub badge_style: String,
     pub popup_timeout_ms: u32,
+    pub popup_visible_limit: usize,
     pub popup_position: PopupPosition,
     pub popup_margin_x: i32,
     pub popup_margin_y: i32,
@@ -64,6 +65,7 @@ impl Default for Config {
             tooltip_format: format::DEFAULT_TOOLTIP_FORMAT.into(),
             badge_style: "count".into(),
             popup_timeout_ms: 5000,
+            popup_visible_limit: 8,
             popup_position: PopupPosition::TopCenter,
             popup_margin_x: 12,
             popup_margin_y: 32,
@@ -173,6 +175,7 @@ impl SimpleComponent for Applet {
         let popup = Popup::builder()
             .launch(PopupInit {
                 timeout_ms: init.config.popup_timeout_ms,
+                visible_limit: init.config.popup_visible_limit,
                 position: init.config.popup_position,
                 margin_x: init.config.popup_margin_x,
                 margin_y: init.config.popup_margin_y,
@@ -214,6 +217,7 @@ impl SimpleComponent for Applet {
                 self.apply_state(self.service.snapshot());
                 self.popup.emit(PopupInput::Reconfigure {
                     timeout_ms: self.config.popup_timeout_ms,
+                    visible_limit: self.config.popup_visible_limit,
                     position: self.config.popup_position,
                     margin_x: self.config.popup_margin_x,
                     margin_y: self.config.popup_margin_y,
@@ -501,6 +505,7 @@ mod tests {
                 popup_position = "bottom_right"
                 popup_margin_x = 24
                 popup_margin_y = 40
+                popup_visible_limit = 6
             }
             .into(),
         };
@@ -510,10 +515,16 @@ mod tests {
         assert_eq!(config.popup_position, PopupPosition::BottomRight);
         assert_eq!(config.popup_margin_x, 24);
         assert_eq!(config.popup_margin_y, 40);
+        assert_eq!(config.popup_visible_limit, 6);
     }
 
     #[test]
     fn config_defaults_popup_position_to_top_center() {
         assert_eq!(Config::default().popup_position, PopupPosition::TopCenter);
+    }
+
+    #[test]
+    fn config_defaults_popup_visible_limit_to_eight() {
+        assert_eq!(Config::default().popup_visible_limit, 8);
     }
 }

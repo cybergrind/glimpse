@@ -64,6 +64,7 @@ pub enum AppletType {
     Notifications,
     Pager,
     Session,
+    Tray,
     Weather,
 }
 

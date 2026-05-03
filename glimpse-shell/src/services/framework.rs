@@ -2,13 +2,13 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    config::Config,
     dbus::Dbus,
     services::{
         audio, battery, bluetooth, calendar_events, clock, compositor, location, network,
         notifications, power, session, tray, weather,
     },
 };
+use glimpse_config::Config;
 
 macro_rules! for_each_service_handle {
     ($self:expr, $control:expr, [$($name:ident),* $(,)?]) => {

@@ -1,40 +1,9 @@
-use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
-
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(tag = "provider", rename_all = "snake_case")]
-pub enum LocationConfig {
-    Static {
-        latitude: f64,
-        longitude: f64,
-    },
-    GeoClue,
-    #[serde(rename = "ipapi")]
-    IPAPI,
-}
-
-impl Default for LocationConfig {
-    fn default() -> Self {
-        Self::GeoClue
-    }
-}
-
-impl std::fmt::Display for LocationConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Static {
-                latitude,
-                longitude,
-            } => write!(f, "static({latitude}, {longitude})"),
-            Self::GeoClue => f.write_str("geoclue"),
-            Self::IPAPI => f.write_str("ipapi"),
-        }
-    }
-}
+use glimpse_config::LocationConfig;
 
 #[derive(Debug, Clone)]
 pub enum LocationError {}
