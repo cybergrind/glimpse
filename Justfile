@@ -16,6 +16,7 @@ sync-pkgver:
 verify-release: sync-pkgver
     cargo test --locked -p glimpse-config
     cargo test --locked -p glimpse-wallpaper
+    cargo check --locked -p glimpse-shell
     cargo check --locked -p glimpse-wallpaper
 
 binary-package: verify-release

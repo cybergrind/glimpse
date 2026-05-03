@@ -1,0 +1,14 @@
+[Unit]
+Description=Glimpse shell
+PartOf=graphical-session.target
+After=graphical-session-pre.target glimpse-wallpaper.service
+Wants=glimpse-wallpaper.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpse-shell
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

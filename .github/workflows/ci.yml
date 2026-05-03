@@ -57,9 +57,12 @@ jobs:
           cargo test --locked -p glimpse-wallpaper
 
       - name: Check wallpaper daemon
-        run: cargo check --locked -p glimpse-wallpaper
+        run: |
+          cargo check --locked -p glimpse-shell
+          cargo check --locked -p glimpse-wallpaper
 
       - name: Build release binaries
         run: |
           cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
+          cargo build --release --locked -p glimpse-shell
           cargo build --release --locked -p glimpse-wallpaper

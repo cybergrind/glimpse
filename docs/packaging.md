@@ -5,6 +5,7 @@
 | Binary | Description | Install to |
 |--------|-------------|------------|
 | `glimpse-panel` | Wayland status panel | `/usr/bin/glimpse-panel` |
+| `glimpse-shell` | Wayland shell | `/usr/bin/glimpse-shell` |
 | `glimpse-wallpaper` | Wayland wallpaper and backdrop daemon | `/usr/bin/glimpse-wallpaper` |
 
 ## Polkit
@@ -47,18 +48,19 @@ Future providers that need root (e.g. airplane mode via rfkill) should follow th
 
 ## Systemd
 
-### User service for glimpse-panel
+### User service for glimpse-shell
 
 ```ini
-# ~/.config/systemd/user/glimpse-panel.service
+# ~/.config/systemd/user/glimpse-shell.service
 [Unit]
-Description=Glimpse panel
+Description=Glimpse shell
 PartOf=graphical-session.target
-After=graphical-session-pre.target
+After=graphical-session-pre.target glimpse-wallpaper.service
+Wants=glimpse-wallpaper.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/glimpse-panel
+ExecStart=/usr/bin/glimpse-shell
 Restart=on-failure
 RestartSec=2
 
@@ -66,7 +68,8 @@ RestartSec=2
 WantedBy=graphical-session.target
 ```
 
-**Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-panel.service`.
+**Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-shell.service`.
+It wants `glimpse-wallpaper.service` so starting the shell also starts the wallpaper daemon.
 
 ### User service for glimpse-wallpaper
 
@@ -113,8 +116,9 @@ Each archive contains the final `/usr` tree:
 
 ```text
 usr/bin/glimpse-panel
+usr/bin/glimpse-shell
 usr/bin/glimpse-wallpaper
-usr/lib/systemd/user/glimpse-panel.service
+usr/lib/systemd/user/glimpse-shell.service
 usr/lib/systemd/user/glimpse-wallpaper.service
 ```
 
@@ -136,10 +140,12 @@ The source repository `PKGBUILD` keeps `b2sums_x86_64=('SKIP')` as a template. T
 ```bash
 # Build
 cargo build --release -p glimpse --bin glimpse-panel --no-default-features
+cargo build --release -p glimpse-shell
 cargo build --release -p glimpse-wallpaper
 
 # Install binary
 install -Dm755 target/release/glimpse-panel "$pkgdir/usr/bin/glimpse-panel"
+install -Dm755 target/release/glimpse-shell "$pkgdir/usr/bin/glimpse-shell"
 install -Dm755 target/release/glimpse-wallpaper "$pkgdir/usr/bin/glimpse-wallpaper"
 
 # Polkit
@@ -147,6 +153,6 @@ install -Dm755 data/glimpse-battery-helper "$pkgdir/usr/lib/glimpse/glimpse-batt
 install -Dm644 data/io.glimpse.battery.policy "$pkgdir/usr/share/polkit-1/actions/io.glimpse.battery.policy"
 
 # Systemd user service
-install -Dm644 data/glimpse-panel.service "$pkgdir/usr/lib/systemd/user/glimpse-panel.service"
+install -Dm644 data/glimpse-shell.service "$pkgdir/usr/lib/systemd/user/glimpse-shell.service"
 install -Dm644 data/glimpse-wallpaper.service "$pkgdir/usr/lib/systemd/user/glimpse-wallpaper.service"
 ```
