@@ -27,6 +27,17 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            target
+          key: ${{ runner.os }}-arch-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-arch-cargo-
+
       - name: Verify lockfile
         run: cargo fetch --locked
 
