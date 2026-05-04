@@ -209,7 +209,8 @@ impl Popover {
 
 fn selected_day(state: &CalendarState, date: NaiveDate) -> Option<CalendarDaySnapshot> {
     let key = MonthKey::from_date(date);
-    let calendar_date = crate::services::calendar_events::CalendarDate::from_naive_date(date);
+    let calendar_date =
+        glimpse_core::services::calendar_events::CalendarDate::from_naive_date(date);
     state
         .month_cache
         .get(&key)

@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "glimpse",
-    "glimpse-config",
+    "glimpse-core",
     "glimpse-settings",
     "glimpse-shell",
     "glimpse-wallpaper",

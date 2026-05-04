@@ -2,11 +2,11 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::LocationConfig;
 use crate::services::{
     framework::{Control, ServiceCommand, ServiceHandle},
     geoclue,
 };
-use glimpse_config::LocationConfig;
 
 #[derive(Debug, Clone)]
 pub enum LocationError {

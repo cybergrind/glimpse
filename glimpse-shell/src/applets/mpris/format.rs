@@ -1,4 +1,4 @@
-use crate::services::mpris::{PlaybackStatus, Player, State};
+use glimpse_core::services::mpris::{PlaybackStatus, Player, State};
 
 pub const DEFAULT_LABEL_FORMAT: &str = "{artist} - {title}";
 pub const DEFAULT_TOOLTIP_FORMAT: &str = "{player}: {artist} - {title}";
@@ -127,7 +127,7 @@ fn fallback_label(player: &Player) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::mpris::{State, model::Snapshot};
+    use glimpse_core::services::mpris::{State, model::Snapshot};
 
     fn player() -> Player {
         Player {

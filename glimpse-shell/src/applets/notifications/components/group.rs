@@ -11,7 +11,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::services::notifications::model::NotificationEntry;
+use glimpse_core::services::notifications::model::NotificationEntry;
 
 use super::super::format;
 

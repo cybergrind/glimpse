@@ -1,4 +1,4 @@
-use crate::services::weather::model::{CurrentWeather, Location, State};
+use glimpse_core::services::weather::model::{CurrentWeather, Location, State};
 
 pub const DEFAULT_LABEL_FORMAT: &str = "{temp}°";
 pub const DEFAULT_TOOLTIP_FORMAT: &str =

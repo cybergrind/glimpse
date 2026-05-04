@@ -3,7 +3,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::services::weather::model::{CurrentWeather, State};
+use glimpse_core::services::weather::model::{CurrentWeather, State};
 
 use super::super::format;
 

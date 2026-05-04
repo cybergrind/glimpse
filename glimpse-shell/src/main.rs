@@ -1,22 +1,21 @@
 mod app;
 mod applets;
 mod components;
-mod compositors;
-mod dbus;
 mod panels;
 mod prompts;
-mod services;
 mod theme;
 
 use relm4::{RELM_THREADS, RelmApp};
 use tracing_subscriber::EnvFilter;
+
+pub use glimpse_core::{compositors, dbus, services};
 
 use crate::{
     app::{App, AppInit},
     compositors::detect_compositor,
     dbus::Dbus,
 };
-use glimpse_config::Config;
+use glimpse_core::Config;
 
 fn register_resources() {
     gio::resources_register_include!("glimpse-shell.gresource")

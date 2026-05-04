@@ -163,7 +163,7 @@ impl SimpleComponent for Popover {
     }
 }
 
-fn ready_snapshot(state: &State) -> Option<&crate::services::weather::model::Snapshot> {
+fn ready_snapshot(state: &State) -> Option<&glimpse_core::services::weather::model::Snapshot> {
     match state {
         State::Ready(snapshot) => Some(snapshot),
         State::Unknown | State::Loading | State::Unavailable(_) => None,

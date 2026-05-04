@@ -12,7 +12,7 @@ use relm4::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::services::{
+use glimpse_core::services::{
     framework::ServiceCommand,
     network::{Command, NetworkHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply, State},
 };
@@ -351,7 +351,7 @@ fn response_generation_is_current(current: u64, expected: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::network::{NetworkPrompt, NetworkPromptId, NetworkPromptReply};
+    use glimpse_core::services::network::{NetworkPrompt, NetworkPromptId, NetworkPromptReply};
 
     fn prompt(id: u64, ssid: &str) -> NetworkPrompt {
         NetworkPrompt {

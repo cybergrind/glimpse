@@ -241,7 +241,7 @@ fn icon_name_for_state(state: &State) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::bluetooth::{BluetoothSnapshot, BluetoothStatus};
+    use glimpse_core::services::bluetooth::{BluetoothSnapshot, BluetoothStatus};
     use toml::map::Map;
 
     #[test]

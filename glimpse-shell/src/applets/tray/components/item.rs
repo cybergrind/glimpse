@@ -7,7 +7,7 @@ use relm4::{
     gtk::{self, gdk, gio, glib, prelude::*},
 };
 
-use crate::services::tray::{
+use glimpse_core::services::tray::{
     model::{Icon, Item, Status},
     protocol::ScrollOrientation,
 };
@@ -432,7 +432,7 @@ fn texture_from_pixmap(width: i32, height: i32, pixels: &[u8]) -> Option<gdk::Te
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::tray::model::{Category, Tooltip};
+    use glimpse_core::services::tray::model::{Category, Tooltip};
 
     #[test]
     fn tooltip_prefers_description_then_title_then_fallback() {

@@ -14,7 +14,7 @@ use relm4::{
 };
 use serde::Deserialize;
 
-use crate::services::notifications::model::NotificationEntry;
+use glimpse_core::services::notifications::model::NotificationEntry;
 
 use super::{
     components::{

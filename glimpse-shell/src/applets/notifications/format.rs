@@ -1,4 +1,4 @@
-use crate::services::notifications::model::{NotificationEntry, State};
+use glimpse_core::services::notifications::model::{NotificationEntry, State};
 
 pub const DEFAULT_LABEL_FORMAT: &str = "";
 pub const DEFAULT_TOOLTIP_FORMAT: &str = "{count} notifications";
@@ -66,7 +66,7 @@ fn render(format: &str, count: usize, dnd: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::notifications::model::State;
+    use glimpse_core::services::notifications::model::State;
 
     #[test]
     fn renders_count_and_state_placeholders() {

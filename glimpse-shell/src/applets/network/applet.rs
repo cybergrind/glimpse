@@ -241,7 +241,7 @@ fn icon_name_for_state(state: &State) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::network::{NetworkSnapshot, NetworkStatus};
+    use glimpse_core::services::network::{NetworkSnapshot, NetworkStatus};
     use toml::map::Map;
 
     #[test]

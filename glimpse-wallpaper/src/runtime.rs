@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, bail};
-use glimpse_config::ResolvedWallpaperSpec;
+use glimpse_core::ResolvedWallpaperSpec;
 use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 
 pub const APP_ID: &str = "me.aresa.GlimpseWallpaper";

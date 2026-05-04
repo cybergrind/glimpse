@@ -5,7 +5,7 @@ use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use glimpse_config::{Config, ThemeMode};
+use glimpse_core::{Config, ThemeMode};
 
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
 

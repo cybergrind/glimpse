@@ -8,8 +8,8 @@ use relm4::{Component, ComponentParts, ComponentSender, gtk};
 pub mod applets;
 
 use crate::panels::applets::{AppletController, AppletKey, build_applets, reconcile_applets};
-use crate::services::framework::Services;
-use glimpse_config::{AppletConfig, PanelConfig, Position, ThemeMode};
+use glimpse_core::services::framework::Services;
+use glimpse_core::{AppletConfig, PanelConfig, Position, ThemeMode};
 
 #[derive(PartialEq, Clone, Eq, Hash)]
 pub struct PanelKey {

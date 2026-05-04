@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use glimpse_config::{
+use glimpse_core::{
     FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
 };
 use glimpse_wallpaper::{

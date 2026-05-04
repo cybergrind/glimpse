@@ -239,9 +239,9 @@ impl Drop for Applet {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct PrivacyState {
-    microphones: Vec<crate::services::microphone::MicrophoneUsage>,
-    webcams: Vec<crate::services::webcam::WebcamUsage>,
-    screencasts: Vec<crate::compositors::ScreencastSession>,
+    microphones: Vec<glimpse_core::services::microphone::MicrophoneUsage>,
+    webcams: Vec<glimpse_core::services::webcam::WebcamUsage>,
+    screencasts: Vec<glimpse_core::compositors::ScreencastSession>,
     location_in_use: bool,
 }
 
@@ -292,7 +292,9 @@ fn view_from_state(state: &PrivacyState) -> View {
     }
 }
 
-fn active_screencasts(state: &CompositorState) -> Vec<crate::compositors::ScreencastSession> {
+fn active_screencasts(
+    state: &CompositorState,
+) -> Vec<glimpse_core::compositors::ScreencastSession> {
     state
         .screencasts
         .iter()
@@ -301,7 +303,9 @@ fn active_screencasts(state: &CompositorState) -> Vec<crate::compositors::Screen
         .collect()
 }
 
-fn stoppable_screencast_id(session: &crate::compositors::ScreencastSession) -> Option<String> {
+fn stoppable_screencast_id(
+    session: &glimpse_core::compositors::ScreencastSession,
+) -> Option<String> {
     if !session.stoppable {
         return None;
     }

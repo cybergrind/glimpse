@@ -66,7 +66,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::battery::BatteryState;
+    use glimpse_core::services::battery::BatteryState;
 
     #[test]
     fn default_config_hides_label() {

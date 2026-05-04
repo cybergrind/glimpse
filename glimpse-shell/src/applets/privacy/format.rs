@@ -71,7 +71,7 @@ fn screencast_label(session: &ScreencastSession) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compositors::{ScreencastKind, ScreencastTarget};
+    use glimpse_core::compositors::{ScreencastKind, ScreencastTarget};
 
     #[test]
     fn tooltip_lists_active_privacy_sources() {

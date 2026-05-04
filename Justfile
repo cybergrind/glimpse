@@ -14,7 +14,7 @@ sync-pkgver:
     sed -i -E "s/^pkgver=.*/pkgver=$(just version)/" PKGBUILD
 
 verify-release: sync-pkgver
-    cargo test --locked -p glimpse-config
+    cargo test --locked -p glimpse-core
     cargo test --locked -p glimpse-wallpaper
     cargo check --locked -p glimpse-shell
     cargo check --locked -p glimpse-wallpaper

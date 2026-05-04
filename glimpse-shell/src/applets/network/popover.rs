@@ -228,7 +228,7 @@ fn icon_name_for_state(state: &State) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::network::{
+    use glimpse_core::services::network::{
         NetworkActiveAction, NetworkServiceHealth, NetworkSnapshot, NetworkStatus,
     };
 

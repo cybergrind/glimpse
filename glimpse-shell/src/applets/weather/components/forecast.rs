@@ -5,7 +5,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::services::weather::model::{DailyForecast, State};
+use glimpse_core::services::weather::model::{DailyForecast, State};
 
 use super::super::format;
 

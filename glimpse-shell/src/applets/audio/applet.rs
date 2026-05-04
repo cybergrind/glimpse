@@ -311,7 +311,7 @@ fn input_muted(state: &State) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::audio::AudioDevice;
+    use glimpse_core::services::audio::AudioDevice;
 
     #[test]
     fn config_accepts_absent_and_empty_settings() {

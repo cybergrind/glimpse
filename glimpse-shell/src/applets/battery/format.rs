@@ -1,4 +1,4 @@
-use crate::services::battery::{BatteryState, BatteryStatus};
+use glimpse_core::services::battery::{BatteryState, BatteryStatus};
 
 pub fn label(template: &str, status: &BatteryStatus) -> String {
     if template.is_empty() {

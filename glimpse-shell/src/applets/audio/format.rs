@@ -1,4 +1,4 @@
-use crate::services::audio::State;
+use glimpse_core::services::audio::State;
 
 pub const DEFAULT_LABEL_FORMAT: &str = "";
 pub const DEFAULT_TOOLTIP_FORMAT: &str = "{device} - {volume}%";
@@ -61,7 +61,7 @@ fn state_label(state: &State) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::audio::AudioDevice;
+    use glimpse_core::services::audio::AudioDevice;
 
     #[test]
     fn default_label_is_empty() {

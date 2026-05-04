@@ -17,7 +17,7 @@ use crate::{
     services::framework::Services,
 };
 
-pub use glimpse_config::{AppletConfig, AppletType};
+pub use glimpse_core::{AppletConfig, AppletType};
 
 fn applet_type_from_name(name: &str) -> Option<AppletType> {
     AppletType::from_config_name(name)

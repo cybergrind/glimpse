@@ -294,7 +294,7 @@ fn scroll_direction(dx: f64, dy: f64) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compositors::CompositorCapabilities;
+    use glimpse_core::compositors::CompositorCapabilities;
 
     #[test]
     fn config_accepts_absent_and_empty_settings() {

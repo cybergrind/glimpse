@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use glimpse_config::{
+use glimpse_core::{
     AppletConfig, AppletType, BackdropConfig, Config, ConfigDiscovery, FitMode,
     ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
 };

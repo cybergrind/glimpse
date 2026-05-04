@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, NaiveDate};
 
-use crate::services::{
+use glimpse_core::services::{
     calendar_events::{CalendarEvent, MonthKey},
     clock::State as ClockState,
 };

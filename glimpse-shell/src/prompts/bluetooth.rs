@@ -10,7 +10,7 @@ use relm4::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::services::{
+use glimpse_core::services::{
     bluetooth::{
         BluetoothHandle, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
         BluetoothPromptReply, BluetoothSnapshot, Command, State,
@@ -580,7 +580,7 @@ fn prompt_reply_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::bluetooth::{BluetoothDevice, BluetoothDeviceType};
+    use glimpse_core::services::bluetooth::{BluetoothDevice, BluetoothDeviceType};
 
     fn snapshot_with_device(address: &str, name: &str) -> BluetoothSnapshot {
         let mut snapshot = BluetoothSnapshot::default();

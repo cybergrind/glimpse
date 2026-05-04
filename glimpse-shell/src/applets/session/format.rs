@@ -1,4 +1,4 @@
-use crate::services::session::{SessionAction, SessionServiceHealth, State};
+use glimpse_core::services::session::{SessionAction, SessionServiceHealth, State};
 
 pub const DEFAULT_LABEL_FORMAT: &str = "{user}";
 pub const DEFAULT_TOOLTIP_FORMAT: &str = "{user} on {host}";
@@ -57,7 +57,9 @@ fn action_text(action: SessionAction) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::session::{SessionAction, SessionServiceHealth, SessionSnapshot, State};
+    use glimpse_core::services::session::{
+        SessionAction, SessionServiceHealth, SessionSnapshot, State,
+    };
 
     #[test]
     fn formats_session_placeholders() {

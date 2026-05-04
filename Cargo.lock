@@ -1265,15 +1265,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "glimpse-config"
+name = "glimpse-core"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
+ "chrono",
+ "chrono-tz",
+ "futures-util",
  "notify",
  "notify-debouncer-full",
+ "pipewire",
+ "reqwest",
+ "secret-service",
  "serde",
+ "serde_json",
+ "system-tray",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tracing",
+ "uuid",
+ "zbus",
 ]
 
 [[package]]
@@ -1303,32 +1315,24 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "chrono",
- "chrono-tz",
- "futures-util",
  "gio 0.20.12",
  "glib 0.20.12",
  "glib-build-tools 0.22.0",
  "glimpse",
- "glimpse-config",
+ "glimpse-core",
  "gtk4",
  "gtk4-layer-shell",
  "libadwaita",
  "notify",
  "notify-debouncer-full",
- "pipewire",
  "relm4",
- "reqwest",
- "secret-service",
  "serde",
  "serde_json",
- "system-tray",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "uuid",
- "zbus",
 ]
 
 [[package]]
@@ -1339,7 +1343,7 @@ dependencies = [
  "css-color",
  "dirs",
  "gio 0.20.12",
- "glimpse-config",
+ "glimpse-core",
  "gtk4",
  "gtk4-layer-shell",
  "image",

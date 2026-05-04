@@ -8,7 +8,7 @@ use std::{
 
 use css_color::Srgb;
 use gio::prelude::ListModelExt;
-use glimpse_config::{
+use glimpse_core::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
     watch_for_config_changes,
 };
@@ -1252,7 +1252,7 @@ mod tests {
         DecodedImage, ImageCacheKey, ImageLayerInit, active_paths, backdrop_texture_dimensions,
         blur_processing_dimensions, load_cached_image, should_start_image_load, write_cached_image,
     };
-    use glimpse_config::{
+    use glimpse_core::{
         FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
     };
     use std::{

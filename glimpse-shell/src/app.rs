@@ -9,7 +9,7 @@ use crate::{
 use adw::gdk::{self, prelude::DisplayExt, prelude::MonitorExt};
 use gio::prelude::ListModelExt;
 use glib::object::{Cast, CastNone};
-use glimpse_config::{Config, ConfigEvent, PanelConfig, watch_for_config_changes};
+use glimpse_core::{Config, ConfigEvent, PanelConfig, watch_for_config_changes};
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 
 pub struct AppInit {
     pub config: Config,
-    pub dbus: crate::dbus::Dbus,
+    pub dbus: glimpse_core::dbus::Dbus,
 }
 
 #[derive(Debug)]

@@ -303,7 +303,7 @@ fn hero_subtitle(state: &State) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::session::{SessionActionCapabilities, SessionSnapshot};
+    use glimpse_core::services::session::{SessionActionCapabilities, SessionSnapshot};
 
     #[test]
     fn action_available_accepts_challenge() {

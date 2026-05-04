@@ -1,4 +1,4 @@
-use crate::services::bluetooth::{
+use glimpse_core::services::bluetooth::{
     BluetoothActiveAction, BluetoothPrompt, BluetoothPromptKind, BluetoothServiceHealth,
     BluetoothSnapshot, State,
 };
@@ -119,7 +119,7 @@ fn active_action_text(action: Option<&BluetoothActiveAction>) -> Option<&'static
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::bluetooth::{BluetoothSnapshot, BluetoothStatus};
+    use glimpse_core::services::bluetooth::{BluetoothSnapshot, BluetoothStatus};
 
     #[test]
     fn formats_connected_device_placeholder() {

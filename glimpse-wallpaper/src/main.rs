@@ -1,4 +1,4 @@
-use glimpse_config::Config;
+use glimpse_core::Config;
 use glimpse_wallpaper::{
     app::{AppInit, WallpaperAppModel},
     runtime::{GTK_APPLICATION_ID, WallpaperRuntime},

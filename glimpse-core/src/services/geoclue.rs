@@ -7,11 +7,11 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use zbus::zvariant::OwnedObjectPath;
 
+use crate::{Config, LocationConfig};
 use crate::{
     dbus::geoclue::{GeoClueClientProxy, GeoClueLocationProxy, GeoClueManagerProxy},
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
-use glimpse_config::{Config, LocationConfig};
 
 const COMMAND_QUEUE_SIZE: usize = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(5);

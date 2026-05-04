@@ -3,7 +3,7 @@ use std::time::Duration;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk::{self, gdk, glib, prelude::*};
 
-use crate::services::session::SessionAction;
+use glimpse_core::services::session::SessionAction;
 
 use super::Config;
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::compositors::{KeyboardLayout, keyboard_layout_code};
+use glimpse_core::compositors::{KeyboardLayout, keyboard_layout_code};
 
 pub fn layout_label(layout: &KeyboardLayout, labels: &HashMap<String, String>) -> String {
     let code = keyboard_layout_code(&layout.name);

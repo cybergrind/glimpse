@@ -614,7 +614,7 @@ fn scroll_direction(dx: f64, dy: f64) -> Option<(bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compositors::CompositorCapabilities;
+    use glimpse_core::compositors::CompositorCapabilities;
     use toml::map::Map;
 
     #[test]
@@ -878,7 +878,7 @@ mod tests {
         let mut state = state_with_workspaces(vec![workspace(2)]);
         state.windows = vec![window(7, Some(2), false)];
         let mut unrelated = state.clone();
-        unrelated.monitors = vec![crate::compositors::Monitor {
+        unrelated.monitors = vec![glimpse_core::compositors::Monitor {
             id: Some(1),
             name: "eDP-1".into(),
             description: None,

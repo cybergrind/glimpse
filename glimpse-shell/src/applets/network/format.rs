@@ -1,4 +1,4 @@
-use crate::services::network::{
+use glimpse_core::services::network::{
     NetworkActiveAction, NetworkServiceHealth, NetworkSnapshot, State, WifiAccessPoint,
 };
 
@@ -179,7 +179,7 @@ fn speed_text(speed_mbps: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::network::{NetworkStatus, State};
+    use glimpse_core::services::network::{NetworkStatus, State};
 
     #[test]
     fn formats_state_and_connection_placeholders() {

@@ -108,7 +108,7 @@ pub enum Input {
     Scroll {
         address: String,
         delta: i32,
-        orientation: crate::services::tray::protocol::ScrollOrientation,
+        orientation: glimpse_core::services::tray::protocol::ScrollOrientation,
     },
     MenuItemInvoked {
         address: String,
@@ -563,7 +563,7 @@ fn command_for_click(item: &Item, click: ClickKind, x: i32, y: i32) -> ClickOutc
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::tray::model::{Category, Icon, MenuDisposition, MenuToggleState};
+    use glimpse_core::services::tray::model::{Category, Icon, MenuDisposition, MenuToggleState};
 
     #[test]
     fn normal_item_left_click_activates() {

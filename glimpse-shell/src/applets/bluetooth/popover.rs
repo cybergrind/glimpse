@@ -441,7 +441,7 @@ fn looks_like_mac(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::bluetooth::{BluetoothDeviceType, BluetoothStatus};
+    use glimpse_core::services::bluetooth::{BluetoothDeviceType, BluetoothStatus};
 
     fn device(address: &str, name: &str, connected: bool, paired: bool) -> BluetoothDevice {
         BluetoothDevice {
