@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{Context, anyhow, bail};
 use glimpse_config::ResolvedWallpaperSpec;
+use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 
 pub const APP_ID: &str = "me.aresa.GlimpseWallpaper";
 pub const GTK_APPLICATION_ID: &str = "me.aresa.GlimpseWallpaper.App";
@@ -82,30 +83,37 @@ impl ImageLoadResult {
 }
 
 pub struct InstanceGuard {
-    name: &'static str,
-    connection: zbus::Connection,
-}
-
-impl Drop for InstanceGuard {
-    fn drop(&mut self) {
-        let connection = self.connection.clone();
-        let name = self.name;
-        relm4::spawn(async move {
-            let _ = connection.release_name(name).await;
-        });
-    }
+    _name: &'static str,
+    _connection: zbus::Connection,
 }
 
 async fn acquire_dbus_name(name: &'static str) -> anyhow::Result<InstanceGuard> {
-    let connection = zbus::connection::Builder::session()
-        .context("create session D-Bus connection builder")?
-        .name(name)
-        .with_context(|| format!("prepare D-Bus name {name}"))?
-        .build()
+    tracing::debug!(name, "connecting to session D-Bus");
+    let connection = zbus::Connection::session()
+        .await
+        .context("connect to session D-Bus")?;
+    let proxy = DBusProxy::new(&connection)
+        .await
+        .context("create session D-Bus proxy")?;
+    let well_known_name = zbus::names::WellKnownName::try_from(name)
+        .with_context(|| format!("validate D-Bus name {name}"))?;
+    let reply = proxy
+        .request_name(well_known_name, RequestNameFlags::DoNotQueue.into())
         .await
         .with_context(|| format!("request D-Bus name {name}"))?;
 
-    Ok(InstanceGuard { name, connection })
+    match reply {
+        RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner => {
+            tracing::debug!(name, reply = ?reply, "D-Bus name acquired");
+            Ok(InstanceGuard {
+                _name: name,
+                _connection: connection,
+            })
+        }
+        RequestNameReply::Exists | RequestNameReply::InQueue => {
+            bail!("another glimpse-wallpaper instance already owns {name}")
+        }
+    }
 }
 
 #[derive(Debug)]

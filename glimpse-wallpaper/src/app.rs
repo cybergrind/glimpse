@@ -43,6 +43,7 @@ pub struct WallpaperAppModel {
     wallpaper_windows: HashMap<String, Controller<WallpaperWindow>>,
     backdrop_windows: HashMap<String, Controller<BackdropWindow>>,
     asset_watch_cancel: Option<CancellationToken>,
+    ready_logged: bool,
 }
 
 impl WallpaperAppModel {
@@ -87,29 +88,44 @@ impl SimpleComponent for WallpaperAppModel {
         root.set_keyboard_mode(KeyboardMode::None);
         root.set_default_size(-1, -1);
         root.set_opacity(0.0);
+        tracing::debug!("initialized invisible wallpaper app root window");
 
         let (config_tx, mut config_rx) = mpsc::channel(1);
         relm4::spawn(async move {
+            tracing::debug!("starting configuration watcher");
             watch_for_config_changes(config_tx).await;
         });
 
         let config_sender = sender.clone();
         relm4::spawn(async move {
             while let Some(ConfigEvent::Changed(config)) = config_rx.recv().await {
+                tracing::info!("configuration changed, applying wallpaper settings");
                 let spec = config.resolve_wallpaper(config.theme.mode);
                 let _ = config_sender.input(AppCommand::ApplyResolvedSpec(spec));
             }
         });
 
         if let Some(display) = gdk::Display::default() {
+            let monitor_count = display.monitors().n_items();
+            tracing::debug!(monitor_count, "connected to default GDK display");
             let monitor_sender = sender.clone();
             let _ = monitor_sender.input(AppCommand::MonitorsChanged);
             display.monitors().connect_items_changed(move |_, _, _, _| {
+                tracing::info!("monitor list changed, reconciling wallpaper surfaces");
                 let _ = monitor_sender.input(AppCommand::MonitorsChanged);
             });
+        } else {
+            tracing::warn!("no default GDK display; wallpaper surfaces cannot be created yet");
         }
 
         let initial_spec = init.config.resolve_wallpaper(init.config.theme.mode);
+        tracing::info!(
+            color = %initial_spec.color,
+            image = initial_spec.image.as_ref().map(|image| image.path.display().to_string()).as_deref().unwrap_or("<none>"),
+            transition_ms = initial_spec.transition_ms,
+            backdrop = backdrop_label(&initial_spec.backdrop),
+            "applying initial wallpaper spec"
+        );
         let _ = sender.input(AppCommand::ApplyResolvedSpec(initial_spec));
 
         let model = WallpaperAppModel::default();
@@ -120,20 +136,24 @@ impl SimpleComponent for WallpaperAppModel {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             AppCommand::ApplyResolvedSpec(spec) => {
+                tracing::debug!("received resolved wallpaper spec");
                 self.apply_resolved_spec(spec, false, sender);
             }
             AppCommand::ReloadConfig => {
+                tracing::info!("reloading wallpaper configuration");
                 let config = Config::load();
                 let spec = config.resolve_wallpaper(config.theme.mode);
                 let _ = sender.input(AppCommand::ApplyResolvedSpec(spec));
             }
             AppCommand::ReloadAssets => {
+                tracing::info!("reloading wallpaper assets");
                 let config = Config::load();
                 let spec = config.resolve_wallpaper(config.theme.mode);
                 self.apply_resolved_spec(spec, true, sender);
             }
             AppCommand::MonitorsChanged => {
                 if let Some(spec) = self.active_spec.clone() {
+                    tracing::debug!("reconciling wallpaper surfaces after monitor change");
                     self.reconcile_windows(&spec, false);
                 }
             }
@@ -149,8 +169,17 @@ impl WallpaperAppModel {
         sender: ComponentSender<Self>,
     ) {
         if !force_image_reload && self.active_spec.as_ref() == Some(&spec) {
+            tracing::debug!("wallpaper spec unchanged; skipping reconfigure");
             return;
         }
+        tracing::info!(
+            color = %spec.color,
+            image = spec.image.as_ref().map(|image| image.path.display().to_string()).as_deref().unwrap_or("<none>"),
+            transition_ms = spec.transition_ms,
+            force_image_reload,
+            backdrop = backdrop_label(&spec.backdrop),
+            "applying wallpaper spec"
+        );
         self.active_spec = Some(spec.clone());
         self.reconcile_windows(&spec, force_image_reload);
         self.watch_active_paths(spec, sender);
@@ -158,9 +187,19 @@ impl WallpaperAppModel {
 
     fn reconcile_windows(&mut self, spec: &ResolvedWallpaperSpec, force_image_reload: bool) {
         let Some(display) = gdk::Display::default() else {
+            tracing::warn!("no default GDK display while reconciling wallpaper surfaces");
             return;
         };
         let monitors = list_monitors(&display);
+        if monitors.is_empty() {
+            tracing::warn!("no monitors reported by GDK; no wallpaper surfaces created");
+        } else {
+            tracing::info!(
+                monitor_count = monitors.len(),
+                force_image_reload,
+                "reconciling wallpaper surfaces"
+            );
+        }
         let mut existing_wallpaper = std::mem::take(&mut self.wallpaper_windows);
         let mut next_wallpaper = HashMap::new();
 
@@ -168,24 +207,42 @@ impl WallpaperAppModel {
             let key = connector_name(monitor);
             let controller = match existing_wallpaper.remove(&key) {
                 Some(controller) => {
+                    tracing::debug!(monitor = %key, "reconfiguring wallpaper surface");
                     controller.emit(WallpaperWindowInput::Reconfigure {
                         spec: spec.clone(),
                         force_image_reload,
                     });
                     controller
                 }
-                None => WallpaperWindow::builder()
-                    .launch(WallpaperWindowInit {
-                        monitor: monitor.clone(),
-                        spec: spec.clone(),
-                    })
-                    .detach(),
+                None => {
+                    tracing::info!(monitor = %key, "creating wallpaper surface");
+                    WallpaperWindow::builder()
+                        .launch(WallpaperWindowInit {
+                            monitor: monitor.clone(),
+                            spec: spec.clone(),
+                        })
+                        .detach()
+                }
             };
             next_wallpaper.insert(key, controller);
         }
         self.wallpaper_windows = next_wallpaper;
 
         self.reconcile_backdrop_windows(&monitors, spec, force_image_reload);
+        if !self.ready_logged {
+            tracing::info!(
+                wallpaper_surfaces = self.wallpaper_windows.len(),
+                backdrop_surfaces = self.backdrop_windows.len(),
+                "glimpse-wallpaper is running"
+            );
+            self.ready_logged = true;
+        } else {
+            tracing::debug!(
+                wallpaper_surfaces = self.wallpaper_windows.len(),
+                backdrop_surfaces = self.backdrop_windows.len(),
+                "wallpaper surface reconciliation complete"
+            );
+        }
     }
 
     fn reconcile_backdrop_windows(
@@ -195,6 +252,9 @@ impl WallpaperAppModel {
         force_image_reload: bool,
     ) {
         if matches!(spec.backdrop, ResolvedBackdropSpec::Disabled) {
+            if !self.backdrop_windows.is_empty() {
+                tracing::info!("backdrop disabled, removing backdrop surfaces");
+            }
             self.backdrop_windows.clear();
             return;
         }
@@ -205,18 +265,22 @@ impl WallpaperAppModel {
             let key = connector_name(monitor);
             let controller = match existing.remove(&key) {
                 Some(controller) => {
+                    tracing::debug!(monitor = %key, "reconfiguring backdrop surface");
                     controller.emit(BackdropWindowInput::Reconfigure {
                         backdrop: spec.backdrop.clone(),
                         force_image_reload,
                     });
                     controller
                 }
-                None => BackdropWindow::builder()
-                    .launch(BackdropWindowInit {
-                        monitor: monitor.clone(),
-                        backdrop: spec.backdrop.clone(),
-                    })
-                    .detach(),
+                None => {
+                    tracing::info!(monitor = %key, "creating backdrop surface");
+                    BackdropWindow::builder()
+                        .launch(BackdropWindowInit {
+                            monitor: monitor.clone(),
+                            backdrop: spec.backdrop.clone(),
+                        })
+                        .detach()
+                }
             };
             next.insert(key, controller);
         }
@@ -230,9 +294,18 @@ impl WallpaperAppModel {
 
         let paths = active_paths(&spec);
         if paths.is_empty() {
+            tracing::debug!("no wallpaper asset paths to watch");
             return;
         }
 
+        tracing::debug!(
+            paths = %paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            "watching wallpaper asset paths"
+        );
         let cancel = CancellationToken::new();
         let task_cancel = cancel.clone();
         let input_sender = sender.input_sender().clone();
@@ -254,6 +327,8 @@ fn active_paths(spec: &ResolvedWallpaperSpec) -> Vec<PathBuf> {
     {
         paths.push(path.clone());
     }
+    paths.sort();
+    paths.dedup();
     paths
 }
 
@@ -306,10 +381,14 @@ async fn watch_paths(
                 "failed to watch wallpaper asset directory {}: {err}",
                 dir.display()
             );
+        } else {
+            tracing::debug!(directory = %dir.display(), "watching wallpaper asset directory");
         }
     }
 
+    tracing::debug!("wallpaper asset watcher is running");
     cancel.cancelled().await;
+    tracing::debug!("wallpaper asset watcher stopped");
 }
 
 fn list_monitors(display: &gdk::Display) -> Vec<gdk::Monitor> {
@@ -332,6 +411,14 @@ fn connector_name(monitor: &gdk::Monitor) -> String {
         .connector()
         .map(|connector| connector.to_string())
         .unwrap_or_else(|| format!("{:?}", monitor.geometry()))
+}
+
+fn backdrop_label(backdrop: &ResolvedBackdropSpec) -> &'static str {
+    match backdrop {
+        ResolvedBackdropSpec::Disabled => "disabled",
+        ResolvedBackdropSpec::Enabled { path: Some(_), .. } => "image",
+        ResolvedBackdropSpec::Enabled { path: None, .. } => "enabled-no-image",
+    }
 }
 
 #[derive(Debug)]
@@ -375,6 +462,12 @@ impl SimpleComponent for WallpaperWindow {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         setup_layer_window(&root, &init.monitor, WALLPAPER_NAMESPACE);
+        tracing::info!(
+            monitor = %connector_name(&init.monitor),
+            color = %init.spec.color,
+            image = init.spec.image.as_ref().map(|image| image.path.display().to_string()).as_deref().unwrap_or("<none>"),
+            "presenting wallpaper surface"
+        );
 
         let color = ColorLayer::builder()
             .launch(init.spec.color.clone())
@@ -459,6 +552,13 @@ impl SimpleComponent for BackdropWindow {
         setup_layer_window(&root, &init.monitor, BACKDROP_NAMESPACE);
         let geometry = init.monitor.geometry();
         let target_size = (geometry.width(), geometry.height());
+        tracing::info!(
+            monitor = %connector_name(&init.monitor),
+            target_width = target_size.0,
+            target_height = target_size.1,
+            backdrop = backdrop_label(&init.backdrop),
+            "presenting backdrop surface"
+        );
         let image = ImageLayer::builder()
             .launch(backdrop_image_init(init.backdrop, Some(target_size)))
             .detach();
@@ -824,10 +924,11 @@ fn spawn_image_load(
             target_height = target_size.map(|(_, height)| height).unwrap_or_default(),
             "loading wallpaper image"
         );
-        let result = tokio::task::spawn_blocking(move || decode_image(&path, blur_radius, target_size))
-            .await
-            .map_err(|error| format!("wallpaper worker failed: {error}"))
-            .and_then(|result| result.map_err(|error| error.to_string()));
+        let result =
+            tokio::task::spawn_blocking(move || decode_image(&path, blur_radius, target_size))
+                .await
+                .map_err(|error| format!("wallpaper worker failed: {error}"))
+                .and_then(|result| result.map_err(|error| error.to_string()));
         match &result {
             Ok(decoded) => tracing::info!(
                 request_id,
@@ -966,7 +1067,11 @@ fn decode_image(
 
 fn resize_rgba_to_cover(image: image::RgbaImage, width: u32, height: u32) -> image::RgbaImage {
     image::DynamicImage::ImageRgba8(image)
-        .resize_to_fill(width.max(1), height.max(1), image::imageops::FilterType::Nearest)
+        .resize_to_fill(
+            width.max(1),
+            height.max(1),
+            image::imageops::FilterType::Nearest,
+        )
         .into_rgba8()
 }
 
@@ -1029,12 +1134,7 @@ fn source_signature(source_path: &Path) -> anyhow::Result<String> {
         .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
         .unwrap_or((0, 0));
 
-    Ok(format!(
-        "{}:{}:{}",
-        metadata.len(),
-        modified.0,
-        modified.1
-    ))
+    Ok(format!("{}:{}:{}", metadata.len(), modified.0, modified.1))
 }
 
 fn load_cached_image(cache_key: &ImageCacheKey) -> anyhow::Result<Option<DecodedImage>> {
@@ -1149,10 +1249,12 @@ fn image_color_label(color: image::ColorType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        DecodedImage, ImageCacheKey, ImageLayerInit, backdrop_texture_dimensions,
+        DecodedImage, ImageCacheKey, ImageLayerInit, active_paths, backdrop_texture_dimensions,
         blur_processing_dimensions, load_cached_image, should_start_image_load, write_cached_image,
     };
-    use glimpse_config::{FitMode, ResolvedImageSpec};
+    use glimpse_config::{
+        FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
+    };
     use std::{
         fs,
         path::PathBuf,
@@ -1245,6 +1347,26 @@ mod tests {
         assert_eq!(cached.pixels, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
         let _ = fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn active_paths_dedupes_wallpaper_and_backdrop_path() {
+        let path = PathBuf::from("/tmp/wallpaper.png");
+        let spec = ResolvedWallpaperSpec {
+            color: "#101010".into(),
+            image: Some(ResolvedImageSpec {
+                path: path.clone(),
+                fit: FitMode::Cover,
+            }),
+            transition_ms: 800,
+            theme_mode: ThemeMode::Auto,
+            backdrop: ResolvedBackdropSpec::Enabled {
+                path: Some(path.clone()),
+                blur_radius: 24,
+            },
+        };
+
+        assert_eq!(active_paths(&spec), vec![path]);
     }
 
     fn temp_path(name: &str) -> PathBuf {
