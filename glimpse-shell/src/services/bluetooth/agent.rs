@@ -22,6 +22,13 @@ enum BluezError {
     Canceled(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServiceAuthorizationPolicy {
+    Prompt,
+    Accept,
+    TrustAndAccept,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptRegistryError {
     Busy,
@@ -260,6 +267,14 @@ fn prompt_reply_name(reply: &BluetoothPromptReply) -> &'static str {
     }
 }
 
+fn service_authorization_policy(paired: bool, trusted: bool) -> ServiceAuthorizationPolicy {
+    match (paired, trusted) {
+        (true, true) => ServiceAuthorizationPolicy::Accept,
+        (true, false) => ServiceAuthorizationPolicy::TrustAndAccept,
+        (false, _) => ServiceAuthorizationPolicy::Prompt,
+    }
+}
+
 #[derive(Clone)]
 pub struct BluetoothAgent {
     registry: Arc<Mutex<PromptRegistry>>,
@@ -380,6 +395,40 @@ impl BluetoothAgent {
             device_path.to_owned()
         } else {
             alias
+        }
+    }
+
+    async fn trust_if_paired(&self, device_path: &str) -> zbus::fdo::Result<bool> {
+        let builder = Device1Proxy::builder(&self.conn)
+            .path(device_path)
+            .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+        let proxy = builder
+            .build()
+            .await
+            .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+        let paired = proxy.paired().await.unwrap_or(false);
+        let trusted = proxy.trusted().await.unwrap_or(false);
+
+        match service_authorization_policy(paired, trusted) {
+            ServiceAuthorizationPolicy::Prompt => {
+                tracing::debug!(
+                    device = device_path,
+                    "bluetooth-agent: service authorization needs prompt because device is not paired"
+                );
+                Ok(false)
+            }
+            ServiceAuthorizationPolicy::Accept => Ok(true),
+            ServiceAuthorizationPolicy::TrustAndAccept => {
+                tracing::debug!(
+                    device = device_path,
+                    "bluetooth-agent: trusting paired device for service authorization"
+                );
+                proxy
+                    .set_trusted(true)
+                    .await
+                    .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+                Ok(true)
+            }
         }
     }
 
@@ -532,6 +581,15 @@ impl BluetoothAgent {
             uuid,
             "bluetooth-agent: authorizing service"
         );
+        if self.trust_if_paired(&device_path).await? {
+            tracing::info!(
+                device = device_path,
+                uuid,
+                "bluetooth-agent: authorized service for paired device"
+            );
+            return Ok(());
+        }
+
         tracing::debug!(
             device = device_path,
             uuid,
@@ -660,6 +718,26 @@ impl BluetoothAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn service_authorization_policy_matches_gnome_trust_behavior() {
+        assert_eq!(
+            service_authorization_policy(true, false),
+            ServiceAuthorizationPolicy::TrustAndAccept
+        );
+        assert_eq!(
+            service_authorization_policy(true, true),
+            ServiceAuthorizationPolicy::Accept
+        );
+        assert_eq!(
+            service_authorization_policy(false, false),
+            ServiceAuthorizationPolicy::Prompt
+        );
+        assert_eq!(
+            service_authorization_policy(false, true),
+            ServiceAuthorizationPolicy::Prompt
+        );
+    }
 
     #[tokio::test]
     async fn prompt_registry_completes_matching_request() {

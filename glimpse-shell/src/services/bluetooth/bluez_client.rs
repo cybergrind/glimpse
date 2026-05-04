@@ -281,7 +281,37 @@ impl BluezClient {
             .pair()
             .await
             .with_context(|| format!("failed to pair {}", device.address))?;
-        tracing::info!(address = %device.address, name = %device.name, "bluetooth: pair succeeded");
+        tracing::debug!(
+            address = %device.address,
+            name = %device.name,
+            "bluetooth: trusting paired device"
+        );
+        proxy
+            .set_trusted(true)
+            .await
+            .with_context(|| format!("failed to trust paired device {}", device.address))?;
+        tracing::debug!(
+            address = %device.address,
+            name = %device.name,
+            "bluetooth: connecting paired device"
+        );
+        if proxy.connected().await.unwrap_or(false) {
+            tracing::debug!(
+                address = %device.address,
+                name = %device.name,
+                "bluetooth: paired device already connected"
+            );
+        } else {
+            proxy
+                .connect()
+                .await
+                .with_context(|| format!("failed to connect paired device {}", device.address))?;
+        }
+        tracing::info!(
+            address = %device.address,
+            name = %device.name,
+            "bluetooth: pair, trust, and connect succeeded"
+        );
         Ok(())
     }
 
