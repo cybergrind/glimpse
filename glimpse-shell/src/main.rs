@@ -24,6 +24,11 @@ fn register_resources() {
 }
 
 fn main() -> anyhow::Result<()> {
+    if let Some(output) = version_output(std::env::args()) {
+        println!("{output}");
+        return Ok(());
+    }
+
     let filter = EnvFilter::try_from_env("GLIMPSE_LOG_LEVEL")
         .or_else(|_| EnvFilter::try_from_default_env())
         .unwrap_or_else(|_| EnvFilter::new("info,relm4=warn"));
@@ -45,11 +50,48 @@ fn main() -> anyhow::Result<()> {
 
     let dbus = Dbus::connect()?;
 
-    let app_id = "me.aresa.GlimpseShell";
-    let app = RelmApp::new(app_id);
+    let app_id = std::env::var("GLIMPSE_SHELL_APP_ID").unwrap_or("me.aresa.GlimpseShell".into());
+    let app = RelmApp::new(app_id.as_str());
 
     register_resources();
     app.with_args(vec![]).run::<App>(AppInit { config, dbus });
 
     Ok(())
+}
+
+fn version_output<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| matches!(arg.as_ref(), "--version" | "-V"))
+        .then(|| format!("glimpse-shell {}", env!("CARGO_PKG_VERSION")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_output;
+
+    #[test]
+    fn version_output_uses_cargo_package_version_for_long_flag() {
+        assert_eq!(
+            version_output(["glimpse-shell", "--version"]),
+            Some(format!("glimpse-shell {}", env!("CARGO_PKG_VERSION")))
+        );
+    }
+
+    #[test]
+    fn version_output_uses_cargo_package_version_for_short_flag() {
+        assert_eq!(
+            version_output(["glimpse-shell", "-V"]),
+            Some(format!("glimpse-shell {}", env!("CARGO_PKG_VERSION")))
+        );
+    }
+
+    #[test]
+    fn version_output_is_absent_without_flag() {
+        assert_eq!(version_output(["glimpse-shell"]), None);
+    }
 }

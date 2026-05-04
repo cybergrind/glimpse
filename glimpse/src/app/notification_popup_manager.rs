@@ -206,8 +206,7 @@ mod tests {
             theme_mode: PanelThemeMode::Dark,
         };
         let new = NotificationPopupConfig {
-            config: toml::from_str(r#"popup_position = "bottom-right""#)
-                .expect("new popup config"),
+            config: toml::from_str(r#"popup_position = "bottom-right""#).expect("new popup config"),
             theme_mode: PanelThemeMode::Dark,
         };
 

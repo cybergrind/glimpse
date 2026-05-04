@@ -25,6 +25,9 @@ cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-featu
 cargo build --release --locked -p glimpse-shell
 cargo build --release --locked -p glimpse-wallpaper
 
+test "$(target/release/glimpse-shell --version)" = "glimpse-shell $version"
+test "$(target/release/glimpse-wallpaper --version)" = "glimpse-wallpaper $version"
+
 install -Dm755 target/release/glimpse-panel "$pkgroot/usr/bin/glimpse-panel"
 install -Dm755 target/release/glimpse-shell "$pkgroot/usr/bin/glimpse-shell"
 install -Dm755 target/release/glimpse-wallpaper "$pkgroot/usr/bin/glimpse-wallpaper"

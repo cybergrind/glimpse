@@ -6,7 +6,7 @@ use crate::{
     compositors::{
         Compositor, CompositorCapabilities, CompositorEvent, CompositorRefresh, CompositorSnapshot,
         CompositorStructureSnapshot, CompositorType, KeyboardLayout, KeyboardLayoutSnapshot,
-        Monitor, Window, Workspace, detect_compositor,
+        Monitor, ScreencastSession, Window, Workspace, detect_compositor,
     },
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
@@ -23,6 +23,7 @@ pub struct State {
     pub windows: Vec<Window>,
     pub workspaces: Vec<Workspace>,
     pub monitors: Vec<Monitor>,
+    pub screencasts: Vec<ScreencastSession>,
     pub current_keyboard_layout: Option<usize>,
     pub focused_window: Option<usize>,
     pub current_workspace: Option<usize>,
@@ -39,6 +40,7 @@ pub enum Command {
     FocusWindow(usize),
     FocusNextWindow,
     FocusPreviousWindow,
+    StopScreencast(String),
 }
 
 pub type CompositorHandle = ServiceHandle<State, Command>;
@@ -305,6 +307,17 @@ impl CompositorService {
                     changed |= mark_focused_window(&mut state.windows, state.focused_window);
                     changed |= sync_current_workspace_from_focus_or_workspace(state);
                 }
+                CompositorEvent::ScreencastsChanged(screencasts) => {
+                    changed |= set_if_changed(&mut state.screencasts, screencasts);
+                }
+                CompositorEvent::ScreencastChanged(screencast) => {
+                    changed |= apply_screencast_changed(state, screencast);
+                }
+                CompositorEvent::ScreencastStopped(id) => {
+                    let len = state.screencasts.len();
+                    state.screencasts.retain(|item| item.id != id);
+                    changed |= state.screencasts.len() != len;
+                }
             }
 
             changed
@@ -399,6 +412,7 @@ impl CompositorService {
             Command::FocusWindow(window) => compositor.focus_window(window).await,
             Command::FocusNextWindow => compositor.focus_next_window().await,
             Command::FocusPreviousWindow => compositor.focus_previous_window().await,
+            Command::StopScreencast(session_id) => compositor.stop_screencast(&session_id).await,
         };
 
         if let Err(error) = result {
@@ -417,6 +431,7 @@ fn apply_snapshot(
         windows,
         workspaces,
         monitors,
+        screencasts,
         keyboard_layouts,
         current_keyboard_layout,
         focused_window,
@@ -424,6 +439,7 @@ fn apply_snapshot(
     } = snapshot;
     let mut changed = set_if_changed(&mut state.compositor, compositor);
     changed |= set_if_changed(&mut state.capabilities, capabilities);
+    changed |= set_if_changed(&mut state.screencasts, screencasts);
     changed |= apply_structure_snapshot(
         state,
         CompositorStructureSnapshot {
@@ -442,6 +458,25 @@ fn apply_snapshot(
         },
     );
     changed
+}
+
+fn apply_screencast_changed(state: &mut State, screencast: ScreencastSession) -> bool {
+    if !screencast.active {
+        let len = state.screencasts.len();
+        state.screencasts.retain(|item| item.id != screencast.id);
+        return state.screencasts.len() != len;
+    }
+
+    if let Some(existing) = state
+        .screencasts
+        .iter_mut()
+        .find(|item| item.id == screencast.id)
+    {
+        return set_if_changed(existing, screencast);
+    }
+
+    state.screencasts.push(screencast);
+    true
 }
 
 fn apply_structure_snapshot(state: &mut State, snapshot: CompositorStructureSnapshot) -> bool {
@@ -578,6 +613,8 @@ mod tests {
                 floating: true,
                 window_titles: true,
                 night_light: true,
+                screencast_state: crate::compositors::ScreencastStateCapability::None,
+                screencast_control: crate::compositors::ScreencastControlCapability::None,
             },
             ..State::default()
         };

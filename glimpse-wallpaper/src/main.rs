@@ -11,6 +11,11 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if let Some(output) = version_output(std::env::args()) {
+        println!("{output}");
+        return Ok(());
+    }
+
     let filter = log_filter();
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
@@ -79,9 +84,20 @@ fn normalized_glimpse_log_filter(value: &str) -> Option<EnvFilter> {
     EnvFilter::try_new(filter).ok()
 }
 
+fn version_output<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| matches!(arg.as_ref(), "--version" | "-V"))
+        .then(|| format!("glimpse-wallpaper {}", env!("CARGO_PKG_VERSION")))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalized_glimpse_log_filter;
+    use super::{normalized_glimpse_log_filter, version_output};
 
     #[test]
     fn bare_glimpse_log_level_keeps_relm4_quiet() {
@@ -99,5 +115,26 @@ mod tests {
 
         assert!(filter.contains("info"));
         assert!(filter.contains("relm4=debug"));
+    }
+
+    #[test]
+    fn version_output_uses_cargo_package_version_for_long_flag() {
+        assert_eq!(
+            version_output(["glimpse-wallpaper", "--version"]),
+            Some(format!("glimpse-wallpaper {}", env!("CARGO_PKG_VERSION")))
+        );
+    }
+
+    #[test]
+    fn version_output_uses_cargo_package_version_for_short_flag() {
+        assert_eq!(
+            version_output(["glimpse-wallpaper", "-V"]),
+            Some(format!("glimpse-wallpaper {}", env!("CARGO_PKG_VERSION")))
+        );
+    }
+
+    #[test]
+    fn version_output_is_absent_without_flag() {
+        assert_eq!(version_output(["glimpse-wallpaper"]), None);
     }
 }

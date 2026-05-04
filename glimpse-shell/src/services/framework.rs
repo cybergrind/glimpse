@@ -4,8 +4,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, calendar_events, clock, compositor, location, mpris, network,
-        notifications, power, session, tray, weather,
+        audio, battery, bluetooth, calendar_events, clock, compositor, geoclue, location,
+        microphone, mpris, network, notifications, power, session, tray, weather, webcam,
     },
 };
 use glimpse_config::Config;
@@ -114,7 +114,9 @@ pub struct Services {
     pub audio: ServiceHandle<audio::State, audio::Command>,
     pub clock: clock::ClockHandle,
     pub calendar_events: calendar_events::CalendarEventsHandle,
+    pub geoclue: geoclue::GeoClueHandle,
     pub location: ServiceHandle<location::State, location::Command>,
+    pub microphone: microphone::MicrophoneHandle,
     pub mpris: mpris::MprisHandle,
     pub battery: ServiceHandle<battery::State, battery::Command>,
     pub power: ServiceHandle<power::State, power::Command>,
@@ -125,6 +127,7 @@ pub struct Services {
     pub compositor: compositor::CompositorHandle,
     pub weather: weather::WeatherHandle,
     pub tray: tray::TrayHandle,
+    pub webcam: webcam::WebcamHandle,
     pub system_dbus: zbus::Connection,
     pub session_dbus: zbus::Connection,
 }
@@ -138,7 +141,9 @@ impl Services {
                 audio,
                 clock,
                 calendar_events,
+                geoclue,
                 location,
+                microphone,
                 mpris,
                 battery,
                 power,
@@ -148,7 +153,8 @@ impl Services {
                 session,
                 compositor,
                 weather,
-                tray
+                tray,
+                webcam
             ]
         );
     }
@@ -174,8 +180,14 @@ impl ServiceRuntime {
             calendar_events::CalendarEventsService::new(session_dbus.clone());
         let calendar_events_service = spawn_service(|cancel| calendar_events_service.run(cancel));
 
-        let (location_service, location) = location::LocationService::new();
+        let (geoclue_service, geoclue) = geoclue::GeoClueService::new(system_dbus.clone());
+        let geoclue_service = spawn_service(|cancel| geoclue_service.run(cancel));
+
+        let (location_service, location) = location::LocationService::new(geoclue.clone());
         let location_service = spawn_service(|cancel| location_service.run(cancel));
+
+        let (microphone_service, microphone) = microphone::MicrophoneService::new();
+        let microphone_service = spawn_service(|cancel| microphone_service.run(cancel));
 
         let (mpris_service, mpris) = mpris::MprisService::new(session_dbus.clone());
         let mpris_service = spawn_service(|cancel| mpris_service.run(cancel));
@@ -208,11 +220,16 @@ impl ServiceRuntime {
         let (tray_service, tray) = tray::TrayService::new(session_dbus.clone());
         let tray_service = spawn_service(|cancel| tray_service.run(cancel));
 
+        let (webcam_service, webcam) = webcam::WebcamService::new();
+        let webcam_service = spawn_service(|cancel| webcam_service.run(cancel));
+
         let running_services = vec![
             audio_service,
             clock_service,
             calendar_events_service,
+            geoclue_service,
             location_service,
+            microphone_service,
             mpris_service,
             battery_service,
             power_service,
@@ -223,12 +240,15 @@ impl ServiceRuntime {
             compositor_service,
             weather_service,
             tray_service,
+            webcam_service,
         ];
         let handles = Services {
             audio,
             clock,
             calendar_events,
+            geoclue,
             location,
+            microphone,
             mpris,
             battery,
             power,
@@ -239,6 +259,7 @@ impl ServiceRuntime {
             compositor,
             weather,
             tray,
+            webcam,
             system_dbus,
             session_dbus,
         };

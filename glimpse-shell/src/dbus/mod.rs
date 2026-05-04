@@ -1,6 +1,7 @@
 pub mod bluez;
 pub mod calendar;
 pub mod dbus;
+pub mod geoclue;
 pub mod login1;
 pub mod mpris;
 pub mod network_manager;

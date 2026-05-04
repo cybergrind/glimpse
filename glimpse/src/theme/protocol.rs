@@ -21,7 +21,9 @@ pub enum ThemeHealth {
     #[default]
     Starting,
     Ready,
-    Degraded { message: String },
+    Degraded {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]

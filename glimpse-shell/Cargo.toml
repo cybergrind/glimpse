@@ -16,6 +16,8 @@ gio.workspace = true
 relm4.workspace = true
 glimpse = { path = "../glimpse" }
 glimpse-config = { path = "../glimpse-config" }
+libpulse-binding = "2.30"
+pipewire = "0.9"
 reqwest.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

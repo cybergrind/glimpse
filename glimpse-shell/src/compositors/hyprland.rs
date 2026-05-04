@@ -9,6 +9,8 @@ use tokio::{
 };
 
 use crate::compositors::{
+    ScreencastControlCapability, ScreencastKind, ScreencastSession, ScreencastStateCapability,
+    ScreencastTarget,
     compositors::{
         CompositorCapabilities, CompositorEvent, CompositorRefresh, CompositorSnapshot,
         CompositorStructureSnapshot, KeyboardLayout, KeyboardLayoutSnapshot, Monitor, Window,
@@ -49,6 +51,7 @@ impl Hyprland {
             windows: structure.windows,
             workspaces: structure.workspaces,
             monitors: structure.monitors,
+            screencasts: Vec::new(),
             keyboard_layouts: keyboard.keyboard_layouts,
             current_keyboard_layout: keyboard.current_keyboard_layout,
             focused_window: structure.focused_window,
@@ -114,6 +117,8 @@ impl Hyprland {
             floating: true,
             window_titles: true,
             night_light: false,
+            screencast_state: ScreencastStateCapability::ActiveKind,
+            screencast_control: ScreencastControlCapability::None,
         }
     }
 
@@ -308,6 +313,25 @@ fn parse_hyprland_event(line: &str, state: &mut HyprlandEventState) -> Vec<Compo
         }
     }
 
+    if let Some(payload) = line.strip_prefix("screencast>>") {
+        let mut parts = payload.split(',');
+        if let (Some(active), Some(target)) = (
+            parts.next().and_then(parse_bool_int),
+            parts.next().and_then(parse_screencast_target),
+        ) {
+            return vec![CompositorEvent::ScreencastChanged(ScreencastSession {
+                id: hyprland_screencast_id(target).into(),
+                session_id: None,
+                kind: ScreencastKind::Unknown,
+                target,
+                active,
+                pipewire_node: None,
+                client_pid: None,
+                stoppable: false,
+            })];
+        }
+    }
+
     if is_structural_event(line) {
         return vec![CompositorEvent::RefreshRequested(
             CompositorRefresh::STRUCTURE,
@@ -315,6 +339,22 @@ fn parse_hyprland_event(line: &str, state: &mut HyprlandEventState) -> Vec<Compo
     }
 
     Vec::new()
+}
+
+fn parse_screencast_target(value: &str) -> Option<ScreencastTarget> {
+    match value.trim() {
+        "0" => Some(ScreencastTarget::Monitor),
+        "1" => Some(ScreencastTarget::Window),
+        _ => None,
+    }
+}
+
+fn hyprland_screencast_id(target: ScreencastTarget) -> &'static str {
+    match target {
+        ScreencastTarget::Monitor => "hyprland:monitor",
+        ScreencastTarget::Window => "hyprland:window",
+        ScreencastTarget::Unknown => "hyprland:unknown",
+    }
 }
 
 fn is_structural_event(line: &str) -> bool {
@@ -636,6 +676,38 @@ mod tests {
                 window: 0x3f2,
                 floating: true,
             }]
+        );
+    }
+
+    #[test]
+    fn parses_screencast_events() {
+        let mut state = HyprlandEventState::default();
+
+        assert_eq!(
+            parse_hyprland_event("screencast>>1,0", &mut state),
+            vec![CompositorEvent::ScreencastChanged(ScreencastSession {
+                id: "hyprland:monitor".into(),
+                session_id: None,
+                kind: ScreencastKind::Unknown,
+                target: ScreencastTarget::Monitor,
+                active: true,
+                pipewire_node: None,
+                client_pid: None,
+                stoppable: false,
+            })]
+        );
+        assert_eq!(
+            parse_hyprland_event("screencast>>0,1", &mut state),
+            vec![CompositorEvent::ScreencastChanged(ScreencastSession {
+                id: "hyprland:window".into(),
+                session_id: None,
+                kind: ScreencastKind::Unknown,
+                target: ScreencastTarget::Window,
+                active: false,
+                pipewire_node: None,
+                client_pid: None,
+                stoppable: false,
+            })]
         );
     }
 }

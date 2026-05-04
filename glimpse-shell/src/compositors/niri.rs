@@ -9,8 +9,9 @@ use tokio::{
 };
 
 use crate::compositors::compositors::{
-    CompositorCapabilities, CompositorEvent, CompositorSnapshot, KeyboardLayout, Monitor, Window,
-    Workspace,
+    CompositorCapabilities, CompositorEvent, CompositorSnapshot, KeyboardLayout, Monitor,
+    ScreencastControlCapability, ScreencastKind, ScreencastSession, ScreencastStateCapability,
+    ScreencastTarget, Window, Workspace,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -100,11 +101,26 @@ impl Niri {
                 .map(|workspace| workspace.id);
         }
 
+        let screencast_result = request_ok(json!("Casts")).await;
+        let screencasts = screencast_result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.get("Casts"))
+            .and_then(Value::as_array)
+            .map(|casts| casts.iter().filter_map(parse_cast).collect())
+            .unwrap_or_default();
+        let mut capabilities = self.capabilities();
+        if screencast_result.is_err() {
+            capabilities.screencast_state = ScreencastStateCapability::None;
+            capabilities.screencast_control = ScreencastControlCapability::None;
+        }
+
         Ok(CompositorSnapshot {
-            capabilities: self.capabilities(),
+            capabilities,
             windows,
             workspaces,
             monitors,
+            screencasts,
             keyboard_layouts,
             current_keyboard_layout,
             focused_window,
@@ -124,6 +140,8 @@ impl Niri {
             floating: false,
             window_titles: true,
             night_light: false,
+            screencast_state: ScreencastStateCapability::Sessions,
+            screencast_control: ScreencastControlCapability::StopSession,
         }
     }
 
@@ -174,6 +192,18 @@ impl Niri {
 
     pub async fn focus_previous_window(&self) -> anyhow::Result<()> {
         send_action(json!({ "FocusWindowUpOrColumnLeft": {} })).await
+    }
+
+    pub async fn stop_screencast(&self, session_id: &str) -> anyhow::Result<()> {
+        let session_id = session_id
+            .parse::<u64>()
+            .context("niri screencast session id is not numeric")?;
+        send_action(json!({
+            "StopCast": {
+                "session_id": session_id
+            }
+        }))
+        .await
     }
 }
 
@@ -304,7 +334,105 @@ fn parse_niri_event(line: &str, state: &mut NiriEventState) -> Vec<CompositorEve
         return parse_keyboard_layout_switched(event, state);
     }
 
+    if let Some(casts) = event
+        .get("CastsChanged")
+        .and_then(|event| event.get("casts"))
+        .and_then(Value::as_array)
+    {
+        return vec![CompositorEvent::ScreencastsChanged(
+            casts.iter().filter_map(parse_cast).collect(),
+        )];
+    }
+
+    if let Some(cast) = event
+        .get("CastStartedOrChanged")
+        .and_then(|event| event.get("cast"))
+        .and_then(parse_cast)
+    {
+        return vec![CompositorEvent::ScreencastChanged(cast)];
+    }
+
+    if let Some(stream_id) = event
+        .get("CastStopped")
+        .and_then(|event| event.get("stream_id"))
+        .and_then(Value::as_u64)
+    {
+        return vec![CompositorEvent::ScreencastStopped(stream_id.to_string())];
+    }
+
     Vec::new()
+}
+
+fn parse_cast(value: &Value) -> Option<ScreencastSession> {
+    let stream_id = field_usize(value, "stream_id")?.to_string();
+    let session_id = field_usize(value, "session_id").map(|id| id.to_string());
+    let kind = parse_cast_kind(value.get("kind"));
+    let target = parse_cast_target(value.get("target"));
+    let active = value
+        .get("is_active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let pipewire_node = value
+        .get("pw_node_id")
+        .and_then(Value::as_u64)
+        .and_then(|id| u32::try_from(id).ok());
+    let client_pid = value
+        .get("pid")
+        .and_then(Value::as_i64)
+        .and_then(|pid| i32::try_from(pid).ok());
+
+    Some(ScreencastSession {
+        id: stream_id,
+        session_id,
+        kind,
+        target,
+        active,
+        pipewire_node,
+        client_pid,
+        stoppable: kind == ScreencastKind::PipeWire,
+    })
+}
+
+fn parse_cast_kind(value: Option<&Value>) -> ScreencastKind {
+    let Some(value) = value else {
+        return ScreencastKind::Unknown;
+    };
+    let text = tagged_value_name(value).to_ascii_lowercase();
+
+    if text.contains("pipewire") {
+        ScreencastKind::PipeWire
+    } else if text.contains("wlr") || text.contains("screencopy") {
+        ScreencastKind::WlrScreencopy
+    } else {
+        ScreencastKind::Unknown
+    }
+}
+
+fn parse_cast_target(value: Option<&Value>) -> ScreencastTarget {
+    let Some(value) = value else {
+        return ScreencastTarget::Unknown;
+    };
+    let text = tagged_value_name(value).to_ascii_lowercase();
+
+    if text.contains("output") || text.contains("monitor") {
+        ScreencastTarget::Monitor
+    } else if text.contains("window") {
+        ScreencastTarget::Window
+    } else {
+        ScreencastTarget::Unknown
+    }
+}
+
+fn tagged_value_name(value: &Value) -> String {
+    if let Some(value) = value.as_str() {
+        return value.to_owned();
+    }
+
+    value
+        .as_object()
+        .and_then(|object| object.keys().next())
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn parse_workspaces_changed(
@@ -660,6 +788,35 @@ mod tests {
                 fullscreen: false,
                 floating: None,
             })]
+        );
+    }
+
+    #[test]
+    fn parses_screencast_events() {
+        let mut state = NiriEventState::default();
+
+        let events = parse_niri_event(
+            r#"{"CastStartedOrChanged":{"cast":{"stream_id":8,"session_id":5,"kind":"PipeWire","target":{"Output":"eDP-1"},"is_active":true,"pid":1234,"pw_node_id":42}}}"#,
+            &mut state,
+        );
+
+        assert_eq!(
+            events,
+            vec![CompositorEvent::ScreencastChanged(ScreencastSession {
+                id: "8".into(),
+                session_id: Some("5".into()),
+                kind: ScreencastKind::PipeWire,
+                target: ScreencastTarget::Monitor,
+                active: true,
+                pipewire_node: Some(42),
+                client_pid: Some(1234),
+                stoppable: true,
+            })]
+        );
+
+        assert_eq!(
+            parse_niri_event(r#"{"CastStopped":{"stream_id":8}}"#, &mut state),
+            vec![CompositorEvent::ScreencastStopped("8".into())]
         );
     }
 }

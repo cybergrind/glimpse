@@ -2,11 +2,16 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
+use crate::services::{
+    framework::{Control, ServiceCommand, ServiceHandle},
+    geoclue,
+};
 use glimpse_config::LocationConfig;
 
 #[derive(Debug, Clone)]
-pub enum LocationError {}
+pub enum LocationError {
+    Unavailable,
+}
 
 #[derive(Debug, Clone)]
 pub struct Coordinates {
@@ -30,6 +35,7 @@ pub enum Command {
 pub type LocationHandle = ServiceHandle<State, Command>;
 
 pub struct LocationService {
+    geoclue: geoclue::GeoClueHandle,
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
 }
@@ -54,7 +60,7 @@ impl ActiveProvider {
         }
     }
 
-    fn spawn(config: LocationConfig) -> Self {
+    fn spawn(config: LocationConfig, geoclue: geoclue::GeoClueHandle) -> Self {
         let (command_tx, command_rx) = mpsc::channel(1);
         let (message_tx, message_rx) = mpsc::channel(1);
         let cancel = CancellationToken::new();
@@ -67,7 +73,7 @@ impl ActiveProvider {
                 static_provider(latitude, longitude, command_rx, message_tx, task_cancel).await;
             }),
             LocationConfig::GeoClue => tokio::spawn(async move {
-                task_cancel.cancelled().await;
+                geoclue_provider(geoclue, command_rx, message_tx, task_cancel).await;
             }),
             LocationConfig::IPAPI => tokio::spawn(async move {
                 task_cancel.cancelled().await;
@@ -89,12 +95,13 @@ enum Lifecycle {
 }
 
 impl LocationService {
-    pub fn new() -> (Self, LocationHandle) {
+    pub fn new(geoclue: geoclue::GeoClueHandle) -> (Self, LocationHandle) {
         let (state_tx, state_rx) = watch::channel(State::Unknown);
         let (command_tx, command_rx) = mpsc::channel(4);
 
         (
             Self {
+                geoclue,
                 state_tx,
                 command_rx,
             },
@@ -139,7 +146,7 @@ impl LocationService {
                             Control::Start(config) => {
                                 tracing::debug!("start location provider: {}", config.location);
                                 shutdown_task(lifecycle).await;
-                                Lifecycle::Running(ActiveProvider::spawn(config.location.clone()))
+                                Lifecycle::Running(ActiveProvider::spawn(config.location.clone(), self.geoclue.clone()))
                             },
                             Control::Reconfigure(ref config) => match lifecycle {
                                 Lifecycle::Running(ref provider) =>  {
@@ -147,7 +154,7 @@ impl LocationService {
                                     if new_config != provider.config {
                                         tracing::debug!("reconfiguring location service: {}", new_config);
                                         shutdown_task(lifecycle).await;
-                                         Lifecycle::Running(ActiveProvider::spawn(new_config))
+                                         Lifecycle::Running(ActiveProvider::spawn(new_config, self.geoclue.clone()))
                                     } else {
                                         lifecycle
                                     }
@@ -226,9 +233,59 @@ async fn static_provider(
                         }
                     }
                 },
-                None => {}
+                None => break,
             }
         }
+    }
+}
+
+async fn geoclue_provider(
+    geoclue: geoclue::GeoClueHandle,
+    mut command_rx: mpsc::Receiver<ProviderCommand>,
+    message_tx: mpsc::Sender<ProviderMessage>,
+    cancel: CancellationToken,
+) {
+    let mut state_rx = geoclue.subscribe();
+    let state = { state_rx.borrow().clone() };
+    publish_geoclue_location(state, &message_tx).await;
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            changed = state_rx.changed() => {
+                if changed.is_err() {
+                    let _ = message_tx.send(ProviderMessage::Unavailable(LocationError::Unavailable)).await;
+                    break;
+                }
+                let state = { state_rx.borrow().clone() };
+                publish_geoclue_location(state, &message_tx).await;
+            }
+            command = command_rx.recv() => match command {
+                Some(ProviderCommand::Refresh) => {
+                    let state = { state_rx.borrow().clone() };
+                    publish_geoclue_location(state, &message_tx).await;
+                }
+                None => break,
+            }
+        }
+    }
+}
+
+async fn publish_geoclue_location(
+    state: geoclue::State,
+    message_tx: &mpsc::Sender<ProviderMessage>,
+) {
+    if let Some(coordinates) = &state.coordinates {
+        let _ = message_tx
+            .send(ProviderMessage::Value(Coordinates {
+                latitude: coordinates.latitude,
+                longitude: coordinates.longitude,
+            }))
+            .await;
+    } else if !state.available || state.error.is_some() {
+        let _ = message_tx
+            .send(ProviderMessage::Unavailable(LocationError::Unavailable))
+            .await;
     }
 }
 

@@ -68,6 +68,9 @@ pub enum CompositorEvent {
         name: Option<String>,
     },
     FocusedWindowChanged(Option<usize>),
+    ScreencastsChanged(Vec<ScreencastSession>),
+    ScreencastChanged(ScreencastSession),
+    ScreencastStopped(String),
 }
 
 impl CompositorEvent {
@@ -89,6 +92,9 @@ impl CompositorEvent {
             Self::KeyboardLayoutsChanged { .. } => "keyboard-layouts-changed",
             Self::KeyboardLayoutChanged { .. } => "keyboard-layout-changed",
             Self::FocusedWindowChanged(_) => "focused-window-changed",
+            Self::ScreencastsChanged(_) => "screencasts-changed",
+            Self::ScreencastChanged(_) => "screencast-changed",
+            Self::ScreencastStopped(_) => "screencast-stopped",
         }
     }
 }
@@ -162,6 +168,7 @@ pub struct CompositorSnapshot {
     pub windows: Vec<Window>,
     pub workspaces: Vec<Workspace>,
     pub monitors: Vec<Monitor>,
+    pub screencasts: Vec<ScreencastSession>,
     pub keyboard_layouts: Vec<KeyboardLayout>,
     pub current_keyboard_layout: Option<usize>,
     pub focused_window: Option<usize>,
@@ -214,6 +221,49 @@ pub struct CompositorCapabilities {
     pub floating: bool,
     pub window_titles: bool,
     pub night_light: bool,
+    pub screencast_state: ScreencastStateCapability,
+    pub screencast_control: ScreencastControlCapability,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScreencastStateCapability {
+    #[default]
+    None,
+    ActiveKind,
+    Sessions,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScreencastControlCapability {
+    #[default]
+    None,
+    StopSession,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreencastKind {
+    PipeWire,
+    WlrScreencopy,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreencastTarget {
+    Monitor,
+    Window,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreencastSession {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub kind: ScreencastKind,
+    pub target: ScreencastTarget,
+    pub active: bool,
+    pub pipewire_node: Option<u32>,
+    pub client_pid: Option<i32>,
+    pub stoppable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -356,6 +406,13 @@ impl Compositor {
         match self {
             Self::Niri(compositor) => compositor.focus_previous_window().await,
             Self::Hyprland(compositor) => compositor.focus_previous_window().await,
+        }
+    }
+
+    pub async fn stop_screencast(&self, session_id: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Niri(compositor) => compositor.stop_screencast(session_id).await,
+            Self::Hyprland(_) => anyhow::bail!("hyprland does not support stopping screencasts"),
         }
     }
 }
