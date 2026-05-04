@@ -23,8 +23,6 @@ export {
   Dropdown,
   DropdownItem,
   EmptyState,
-  Entry,
-  FooterAction,
   Grid,
   GridChild,
   Hero,
@@ -32,7 +30,6 @@ export {
   Image,
   Label,
   type Orientation,
-  Password,
   Progress,
   Row,
   Scale,
@@ -42,4 +39,5 @@ export {
   StatusDot,
   Switch,
   type TreeNode,
+  type Variant,
 } from "./widgets.js";

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 use crate::ThemeMode;
@@ -67,6 +67,7 @@ pub enum AppletType {
     Battery,
     Bluetooth,
     Clock,
+    Exec,
     Keyboard,
     Mpris,
     Network,
@@ -77,7 +78,28 @@ pub enum AppletType {
     Weather,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+impl AppletType {
+    pub fn from_config_name(name: &str) -> Option<Self> {
+        match name {
+            "audio" => Some(Self::Audio),
+            "battery" => Some(Self::Battery),
+            "bluetooth" => Some(Self::Bluetooth),
+            "clock" => Some(Self::Clock),
+            "exec" => Some(Self::Exec),
+            "keyboard" => Some(Self::Keyboard),
+            "mpris" => Some(Self::Mpris),
+            "network" => Some(Self::Network),
+            "notifications" => Some(Self::Notifications),
+            "pager" => Some(Self::Pager),
+            "session" => Some(Self::Session),
+            "tray" => Some(Self::Tray),
+            "weather" => Some(Self::Weather),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(default)]
 pub struct AppletConfig {
     pub extends: Option<AppletType>,
@@ -91,6 +113,47 @@ impl Default for AppletConfig {
             extends: None,
             settings: toml::Value::Table(toml::map::Map::new()),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for AppletConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(default)]
+        struct RawAppletConfig {
+            extends: Option<String>,
+            #[serde(flatten)]
+            settings: toml::Value,
+        }
+
+        impl Default for RawAppletConfig {
+            fn default() -> Self {
+                Self {
+                    extends: None,
+                    settings: toml::Value::Table(toml::map::Map::new()),
+                }
+            }
+        }
+
+        let raw = RawAppletConfig::deserialize(deserializer)?;
+        let extends = raw.extends.as_deref().and_then(|name| {
+            let applet_type = AppletType::from_config_name(name);
+            if applet_type.is_none() {
+                tracing::warn!(
+                    extends = name,
+                    "unknown applet type in extends, ignoring applet config"
+                );
+            }
+            applet_type
+        });
+
+        Ok(Self {
+            extends,
+            settings: raw.settings,
+        })
     }
 }
 

@@ -20,6 +20,15 @@ class Orientation(StrEnum):
     VERTICAL = "vertical"
 
 
+class Variant(StrEnum):
+    NORMAL = "normal"
+    MUTED = "muted"
+    ACCENT = "accent"
+    SUCCESS = "success"
+    WARNING = "warning"
+    DANGER = "danger"
+
+
 @dataclass(slots=True)
 class CommonProps:
     id: str | None = None
@@ -29,7 +38,7 @@ class CommonProps:
     halign: Align | None = None
     valign: Align | None = None
     tooltip: str | None = None
-    css_classes: list[str] = field(default_factory=list)
+    variant: Variant | None = None
 
     def apply_common(self, payload: dict[str, object]) -> dict[str, object]:
         if self.id is not None:
@@ -46,8 +55,8 @@ class CommonProps:
             payload["valign"] = self.valign.value
         if self.tooltip is not None:
             payload["tooltip"] = self.tooltip
-        if self.css_classes:
-            payload["css_classes"] = self.css_classes
+        if self.variant is not None:
+            payload["variant"] = self.variant.value
         return payload
 
 
@@ -157,24 +166,6 @@ class Button(Widget):
         if self.child is not None:
             payload["child"] = self.child.to_protocol()
         return {"type": self.widget_type, "data": payload}
-
-
-@dataclass(slots=True)
-class Entry(Widget):
-    text: str = ""
-    placeholder: str | None = None
-    widget_type: str = "entry"
-
-    def to_protocol(self) -> dict[str, object]:
-        payload = self.apply_common({"text": self.text})
-        if self.placeholder is not None:
-            payload["placeholder"] = self.placeholder
-        return {"type": self.widget_type, "data": payload}
-
-
-@dataclass(slots=True)
-class Password(Entry):
-    widget_type: str = "password"
 
 
 @dataclass(slots=True)
@@ -404,17 +395,6 @@ class DetailGrid(Widget):
 
 
 @dataclass(slots=True)
-class FooterAction(Widget):
-    title: str = ""
-    subtitle: str = ""
-    widget_type: str = "footer_action"
-
-    def to_protocol(self) -> dict[str, object]:
-        payload = self.apply_common({"title": self.title, "subtitle": self.subtitle})
-        return {"type": self.widget_type, "data": payload}
-
-
-@dataclass(slots=True)
 class EmptyState(Widget):
     title: str = ""
     subtitle: str = ""
@@ -450,7 +430,6 @@ TreeNode: TypeAlias = (
     | Section
     | Row
     | DetailGrid
-    | FooterAction
     | EmptyState
     | Badge
     | StatusDot
@@ -463,8 +442,6 @@ TreeNode: TypeAlias = (
     | IconWidget
     | Image
     | Button
-    | Entry
-    | Password
     | Switch
     | Scale
     | Dropdown

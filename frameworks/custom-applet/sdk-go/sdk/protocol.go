@@ -1,21 +1,21 @@
 package sdk
 
 type Icon struct {
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	Name string `json:"name,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 func IconName(value string) *Icon {
-	return &Icon{Type: "name", Value: value}
+	return &Icon{Name: value}
 }
 
 func IconPath(value string) *Icon {
-	return &Icon{Type: "path", Value: value}
+	return &Icon{Path: value}
 }
 
 type StatusItem struct {
-	ID   string `json:"id,omitempty"`
-	Icon *Icon  `json:"icon,omitempty"`
-	Text string `json:"text,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Icon    *Icon  `json:"icon,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Tooltip string `json:"tooltip,omitempty"`
 }
-

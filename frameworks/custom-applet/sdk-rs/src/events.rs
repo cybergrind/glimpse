@@ -48,9 +48,7 @@ pub struct ToggleEvent {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct IncomingMessage {
-    #[serde(rename = "type")]
     pub kind: String,
-    #[serde(default)]
     pub data: Value,
 }
 
@@ -64,6 +62,7 @@ struct InitPayload {
 #[derive(Debug, Deserialize)]
 struct CallbackPayload {
     id: String,
+    #[serde(rename = "type")]
     event: String,
     #[serde(default)]
     button: Option<String>,
@@ -73,6 +72,18 @@ struct CallbackPayload {
     text: Option<String>,
     #[serde(default)]
     value: Option<Value>,
+    #[serde(default)]
+    active: Option<bool>,
+}
+
+pub(crate) fn parse_incoming_line(line: &str) -> serde_json::Result<IncomingMessage> {
+    let Some((kind, data)) = line.trim().split_once(char::is_whitespace) else {
+        return Err(serde::de::Error::custom("missing command payload"));
+    };
+    Ok(IncomingMessage {
+        kind: kind.into(),
+        data: serde_json::from_str(data.trim_start())?,
+    })
 }
 
 pub fn parse_init_event(data: Value) -> serde_json::Result<InitEvent> {
@@ -100,7 +111,10 @@ pub fn parse_callback_event(data: Value) -> serde_json::Result<CallbackEvent> {
         }),
         "toggle" => CallbackEvent::Toggle(ToggleEvent {
             id: payload.id,
-            value: payload.value.and_then(|v| v.as_bool()).unwrap_or(false),
+            value: payload
+                .active
+                .or_else(|| payload.value.and_then(|v| v.as_bool()))
+                .unwrap_or(false),
         }),
         _ => CallbackEvent::Change(ChangeEvent {
             id: payload.id,

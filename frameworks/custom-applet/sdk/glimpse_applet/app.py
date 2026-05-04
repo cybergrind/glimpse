@@ -32,9 +32,10 @@ class Applet(Generic[StateT]):
     def __init__(self) -> None:
         self.state: StateT = self.initial_state()
         self._incoming: asyncio.Queue[InitEvent | CallbackEvent] = asyncio.Queue()
-        self._outgoing: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._outgoing: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         self._handler_map = self._collect_handlers()
         self._render_task: asyncio.Task[None] | None = None
+        self._render_requested = False
         self._last_status: list[dict[str, Any]] | None = None
         self._last_tree: dict[str, Any] | None = None
 
@@ -62,22 +63,25 @@ class Applet(Generic[StateT]):
         await asyncio.sleep(0)
 
     def _schedule_render(self) -> None:
+        self._render_requested = True
         if self._render_task is None or self._render_task.done():
             self._render_task = asyncio.create_task(self._flush_render())
 
     async def _flush_render(self) -> None:
         await asyncio.sleep(0)
-        rendered = await self.render()
-        status = [item.to_protocol() for item in rendered.status]
-        content = None if rendered.tree is None else rendered.tree.to_protocol()
-        tree = {"content": content}
+        while self._render_requested:
+            self._render_requested = False
+            rendered = await self.render()
+            status = [item.to_protocol() for item in rendered.status]
+            content = None if rendered.tree is None else rendered.tree.to_protocol()
+            tree = {"root": content}
 
-        if status != self._last_status:
-            self._last_status = status
-            await self._outgoing.put({"type": "status", "data": {"items": status}})
-        if tree != self._last_tree:
-            self._last_tree = tree
-            await self._outgoing.put({"type": "tree", "data": tree})
+            if status != self._last_status:
+                self._last_status = status
+                await self._outgoing.put(("status", {"items": status}))
+            if tree != self._last_tree:
+                self._last_tree = tree
+                await self._outgoing.put(("popover", tree))
 
     def _collect_handlers(self) -> dict[tuple[str, str], Any]:
         handlers: dict[tuple[str, str], Any] = {}
@@ -100,18 +104,19 @@ class Applet(Generic[StateT]):
             line = await asyncio.to_thread(sys.stdin.readline)
             if line == "":
                 break
-            raw = json.loads(line)
-            message_type = raw.get("type")
-            data = raw.get("data", {})
+            parsed = _parse_line(line)
+            if parsed is None:
+                continue
+            message_type, data = parsed
             if message_type == "init":
                 await self._incoming.put(parse_init_event(data))
-            elif message_type == "callback":
+            elif message_type == "event":
                 await self._incoming.put(parse_callback_event(data))
 
     async def _writer_loop(self) -> None:
         while True:
-            payload = await self._outgoing.get()
-            sys.stdout.write(json.dumps(payload) + "\n")
+            command, payload = await self._outgoing.get()
+            sys.stdout.write(f"{command} {json.dumps(payload, separators=(',', ':'))}\n")
             sys.stdout.flush()
 
     async def _event_loop(self) -> None:
@@ -121,6 +126,8 @@ class Applet(Generic[StateT]):
             event = await self._incoming.get()
             if isinstance(event, InitEvent):
                 await self.on_init(event)
+                self._schedule_render()
+                await asyncio.sleep(0)
             else:
                 await self._dispatch_callback(event)
 
@@ -137,3 +144,16 @@ class Applet(Generic[StateT]):
 
     def run(self) -> None:
         asyncio.run(self._run())
+
+
+def _parse_line(line: str) -> tuple[str, dict[str, Any]] | None:
+    stripped = line.strip()
+    if not stripped:
+        return None
+    command, _, payload = stripped.partition(" ")
+    if not payload:
+        raise ValueError("missing command payload")
+    data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise ValueError("command payload must be an object")
+    return command, data

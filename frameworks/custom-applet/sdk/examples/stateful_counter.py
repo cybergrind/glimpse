@@ -31,7 +31,7 @@ class CounterApplet(Applet[CounterState]):
                 StatusItem(
                     id="counter",
                     icon=Icon.name("view-refresh-symbolic"),
-                    text=str(self.state.count),
+                    label=str(self.state.count),
                 )
             ],
             hero=Hero(

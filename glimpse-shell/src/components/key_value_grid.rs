@@ -22,6 +22,18 @@ pub struct KeyValueItem {
     pub visible: bool,
 }
 
+pub fn static_key_value_grid(values: Vec<KeyValueItem>) -> gtk::Box {
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    root.add_css_class("key-value-grid");
+
+    for value in values {
+        let row = KeyValueRow::init(value);
+        root.append(row.as_ref());
+    }
+
+    root
+}
+
 #[derive(Debug)]
 pub struct KeyValueGridInit {
     pub values: Vec<KeyValueItem>,

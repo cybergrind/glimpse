@@ -9,7 +9,7 @@ import {
   DropdownItem,
   Hero,
   Icon,
-  type InputEvent,
+  type InitEvent,
   Label,
   RenderResult,
   StatusItem,
@@ -28,11 +28,8 @@ class DemoApplet extends Applet<DemoState> {
 
   constructor() {
     super();
-    this.onInput("version", async (event: InputEvent) => {
-      await this.setState({ version: event.text });
-    });
     this.onClick("submit", async () => {
-      await this.setState({ clicks: this.state.clicks + 1 });
+      await this.setState({ clicks: this.state.clicks + 1, version: "v2" });
     });
   }
 
@@ -42,7 +39,7 @@ class DemoApplet extends Applet<DemoState> {
         new StatusItem({
           id: "demo",
           icon: Icon.name("demo-symbolic"),
-          text: this.state.version,
+          label: this.state.version,
         }),
       ],
       tree: Box.vertical([
@@ -53,8 +50,16 @@ class DemoApplet extends Applet<DemoState> {
     });
   }
 
+  protected async onInit(event: InitEvent): Promise<void> {
+    this.state.version = event.instance;
+  }
+
   async drain(): Promise<unknown[]> {
     return this.drainOutgoingForTest();
+  }
+
+  async initForTest(instance: string): Promise<void> {
+    await (this as any).handleIncoming("init", { instance, options: {} });
   }
 }
 
@@ -70,22 +75,23 @@ test("setState updates state and emits protocol messages", async () => {
     const applet = new DemoApplet();
     await applet.setState({ version: "v2" });
     const drained = await applet.drain();
-    const types = drained.map((message: any) => message.type);
-    assert.deepEqual(types, ["status", "tree"]);
-    assert.equal((drained[0] as any).data.items[0].text, "v2");
+    const commands = drained.map((message: any) => message.command);
+    assert.deepEqual(commands, ["status", "popover"]);
+    assert.equal((drained[0] as any).data.items[0].label, "v2");
+    assert.equal((drained[0] as any).line, 'status {"items":[{"id":"demo","icon":{"name":"demo-symbolic"},"label":"v2"}]}');
     assert.equal(writes.length, 2);
   } finally {
     process.stdout.write = originalWrite;
   }
 });
 
-test("parseCallbackEvent returns typed input event", () => {
-  const event = parseCallbackEvent({ id: "version", event: "input", text: "abc" });
-  assert.equal(event.event, "input");
-  if (event.event !== "input") {
-    throw new Error("expected input event");
+test("parseCallbackEvent returns typed click event", () => {
+  const event = parseCallbackEvent({ id: "submit", type: "click", button: "left" });
+  assert.equal(event.event, "click");
+  if (event.event !== "click") {
+    throw new Error("expected click event");
   }
-  assert.equal(event.text, "abc");
+  assert.equal(event.button, "left");
 });
 
 test("dropdown serializes items", () => {
@@ -97,6 +103,19 @@ test("dropdown serializes items", () => {
   const payload = node.toProtocol();
   assert.equal(payload.type, "dropdown");
   assert.equal((payload.data as any).items[0].id, "prod");
+});
+
+test("init event rerenders changed state", async () => {
+  const applet = new DemoApplet();
+  await applet.drain();
+  await applet.initForTest("v3");
+  const drained = await applet.drain();
+  assert.equal((drained[0] as any).data.items[0].label, "v3");
+});
+
+test("variant serializes as semantic protocol value", () => {
+  const payload = new Label("Warning", { variant: "warning" }).toProtocol();
+  assert.equal((payload.data as any).variant, "warning");
 });
 
 test("RenderResult defaults to empty status and null tree", () => {

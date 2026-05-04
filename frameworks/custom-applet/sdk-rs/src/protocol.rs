@@ -1,21 +1,19 @@
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type", content = "value")]
+#[serde(untagged)]
 pub enum Icon {
-    #[serde(rename = "name")]
-    Name(String),
-    #[serde(rename = "path")]
-    Path(String),
+    Name { name: String },
+    Path { path: String },
 }
 
 impl Icon {
     pub fn name(value: impl Into<String>) -> Self {
-        Self::Name(value.into())
+        Self::Name { name: value.into() }
     }
 
     pub fn path(value: impl Into<String>) -> Self {
-        Self::Path(value.into())
+        Self::Path { path: value.into() }
     }
 }
 
@@ -26,7 +24,9 @@ pub struct StatusItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Icon>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
 }
 
 impl StatusItem {
@@ -42,9 +42,13 @@ impl StatusItem {
         self
     }
 
-    pub fn text(mut self, text: impl Into<String>) -> Self {
-        self.text = Some(text.into());
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 }
-

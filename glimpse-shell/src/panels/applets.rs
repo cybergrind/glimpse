@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, clock, keyboard, mpris, network, notifications, pager, session,
-        tray, weather,
+        audio, battery, bluetooth, clock, exec, keyboard, mpris, network, notifications, pager,
+        session, tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -20,21 +20,7 @@ use crate::{
 pub use glimpse_config::{AppletConfig, AppletType};
 
 fn applet_type_from_name(name: &str) -> Option<AppletType> {
-    match name {
-        "audio" => Some(AppletType::Audio),
-        "battery" => Some(AppletType::Battery),
-        "bluetooth" => Some(AppletType::Bluetooth),
-        "clock" => Some(AppletType::Clock),
-        "keyboard" => Some(AppletType::Keyboard),
-        "mpris" => Some(AppletType::Mpris),
-        "network" => Some(AppletType::Network),
-        "notifications" => Some(AppletType::Notifications),
-        "pager" => Some(AppletType::Pager),
-        "session" => Some(AppletType::Session),
-        "tray" => Some(AppletType::Tray),
-        "weather" => Some(AppletType::Weather),
-        _ => None,
-    }
+    AppletType::from_config_name(name)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -57,6 +43,7 @@ pub enum AppletController {
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
     Clock(Controller<clock::Applet>),
+    Exec(Controller<exec::Applet>),
     Keyboard(Controller<keyboard::Applet>),
     Mpris(Controller<mpris::Applet>),
     Network(Controller<network::Applet>),
@@ -74,6 +61,7 @@ impl AppletController {
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
             Self::Clock(_) => AppletType::Clock,
+            Self::Exec(_) => AppletType::Exec,
             Self::Keyboard(_) => AppletType::Keyboard,
             Self::Mpris(_) => AppletType::Mpris,
             Self::Network(_) => AppletType::Network,
@@ -91,6 +79,7 @@ impl AppletController {
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
             Self::Clock(controller) => controller.widget().clone().upcast(),
+            Self::Exec(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
             Self::Mpris(controller) => controller.widget().clone().upcast(),
             Self::Network(controller) => controller.widget().clone().upcast(),
@@ -121,6 +110,11 @@ impl AppletController {
             }
             Self::Clock(controller) => {
                 controller.emit(clock::Input::Reconfigure(clock::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Exec(controller) => {
+                controller.emit(exec::Input::Reconfigure(exec::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -204,6 +198,21 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 })
                 .detach(),
         )),
+        AppletType::Exec => {
+            let config = exec::Config::from_raw(&blueprint.config);
+            if !exec::Applet::can_launch(&config) {
+                tracing::warn!(name = %blueprint.name, "exec applet requires a non-empty command");
+                return None;
+            }
+            Some(AppletController::Exec(
+                exec::Applet::builder()
+                    .launch(exec::Init {
+                        name: blueprint.name,
+                        config,
+                    })
+                    .detach(),
+            ))
+        }
         AppletType::Keyboard => Some(AppletController::Keyboard(
             keyboard::Applet::builder()
                 .launch(keyboard::Init {
@@ -540,6 +549,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "clock");
         assert_eq!(entries[0].applet_type, AppletType::Clock);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_exec_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["exec".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "exec");
+        assert_eq!(entries[0].applet_type, AppletType::Exec);
         assert!(entries[0].config.is_none());
     }
 

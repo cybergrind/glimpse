@@ -19,6 +19,17 @@ pub enum Orientation {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Variant {
+    Normal,
+    Muted,
+    Accent,
+    Success,
+    Warning,
+    Danger,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct CommonProps {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,8 +46,8 @@ pub struct CommonProps {
     pub valign: Option<Align>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub css_classes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant: Option<Variant>,
 }
 
 macro_rules! with_common {
@@ -130,59 +141,6 @@ impl Button {
 }
 
 with_common!(Button);
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Entry {
-    #[serde(flatten)]
-    pub common: CommonProps,
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub placeholder: Option<String>,
-}
-
-impl Entry {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            common: CommonProps {
-                id: Some(id.into()),
-                ..CommonProps::default()
-            },
-            text: String::new(),
-            placeholder: None,
-        }
-    }
-
-    pub fn text(mut self, text: impl Into<String>) -> Self {
-        self.text = text.into();
-        self
-    }
-}
-
-with_common!(Entry);
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Password {
-    #[serde(flatten)]
-    pub common: CommonProps,
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub placeholder: Option<String>,
-}
-
-impl Password {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            common: CommonProps {
-                id: Some(id.into()),
-                ..CommonProps::default()
-            },
-            text: String::new(),
-            placeholder: None,
-        }
-    }
-}
-
-with_common!(Password);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Switch {
@@ -637,34 +595,6 @@ impl DetailGrid {
 with_common!(DetailGrid);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct FooterAction {
-    #[serde(flatten)]
-    pub common: CommonProps,
-    pub title: String,
-    pub subtitle: String,
-}
-
-impl FooterAction {
-    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
-        Self {
-            common: CommonProps {
-                id: Some(id.into()),
-                ..CommonProps::default()
-            },
-            title: title.into(),
-            subtitle: String::new(),
-        }
-    }
-
-    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
-        self.subtitle = subtitle.into();
-        self
-    }
-}
-
-with_common!(FooterAction);
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EmptyState {
     #[serde(flatten)]
     pub common: CommonProps,
@@ -731,7 +661,6 @@ pub enum TreeNode {
     Section(Section),
     Row(Row),
     DetailGrid(DetailGrid),
-    FooterAction(FooterAction),
     EmptyState(EmptyState),
     Badge(Badge),
     StatusDot(StatusDot),
@@ -744,8 +673,6 @@ pub enum TreeNode {
     Icon(IconWidget),
     Image(Image),
     Button(Button),
-    Entry(Entry),
-    Password(Password),
     Switch(Switch),
     Scale(Scale),
     Dropdown(Dropdown),
@@ -753,74 +680,107 @@ pub enum TreeNode {
 }
 
 impl From<Hero> for TreeNode {
-    fn from(value: Hero) -> Self { Self::Hero(value) }
+    fn from(value: Hero) -> Self {
+        Self::Hero(value)
+    }
 }
 impl From<Card> for TreeNode {
-    fn from(value: Card) -> Self { Self::Card(value) }
+    fn from(value: Card) -> Self {
+        Self::Card(value)
+    }
 }
 impl From<Section> for TreeNode {
-    fn from(value: Section) -> Self { Self::Section(value) }
+    fn from(value: Section) -> Self {
+        Self::Section(value)
+    }
 }
 impl From<Row> for TreeNode {
-    fn from(value: Row) -> Self { Self::Row(value) }
+    fn from(value: Row) -> Self {
+        Self::Row(value)
+    }
 }
 impl From<DetailGrid> for TreeNode {
-    fn from(value: DetailGrid) -> Self { Self::DetailGrid(value) }
-}
-impl From<FooterAction> for TreeNode {
-    fn from(value: FooterAction) -> Self { Self::FooterAction(value) }
+    fn from(value: DetailGrid) -> Self {
+        Self::DetailGrid(value)
+    }
 }
 impl From<EmptyState> for TreeNode {
-    fn from(value: EmptyState) -> Self { Self::EmptyState(value) }
+    fn from(value: EmptyState) -> Self {
+        Self::EmptyState(value)
+    }
 }
 impl From<Badge> for TreeNode {
-    fn from(value: Badge) -> Self { Self::Badge(value) }
+    fn from(value: Badge) -> Self {
+        Self::Badge(value)
+    }
 }
 impl From<StatusDot> for TreeNode {
-    fn from(value: StatusDot) -> Self { Self::StatusDot(value) }
+    fn from(value: StatusDot) -> Self {
+        Self::StatusDot(value)
+    }
 }
 impl From<BoxNode> for TreeNode {
-    fn from(value: BoxNode) -> Self { Self::Box(value) }
+    fn from(value: BoxNode) -> Self {
+        Self::Box(value)
+    }
 }
 impl From<Grid> for TreeNode {
-    fn from(value: Grid) -> Self { Self::Grid(value) }
+    fn from(value: Grid) -> Self {
+        Self::Grid(value)
+    }
 }
 impl From<Scroll> for TreeNode {
-    fn from(value: Scroll) -> Self { Self::Scroll(value) }
+    fn from(value: Scroll) -> Self {
+        Self::Scroll(value)
+    }
 }
 impl From<Progress> for TreeNode {
-    fn from(value: Progress) -> Self { Self::Progress(value) }
+    fn from(value: Progress) -> Self {
+        Self::Progress(value)
+    }
 }
 impl From<Separator> for TreeNode {
-    fn from(value: Separator) -> Self { Self::Separator(value) }
+    fn from(value: Separator) -> Self {
+        Self::Separator(value)
+    }
 }
 impl From<Label> for TreeNode {
-    fn from(value: Label) -> Self { Self::Label(value) }
+    fn from(value: Label) -> Self {
+        Self::Label(value)
+    }
 }
 impl From<IconWidget> for TreeNode {
-    fn from(value: IconWidget) -> Self { Self::Icon(value) }
+    fn from(value: IconWidget) -> Self {
+        Self::Icon(value)
+    }
 }
 impl From<Image> for TreeNode {
-    fn from(value: Image) -> Self { Self::Image(value) }
+    fn from(value: Image) -> Self {
+        Self::Image(value)
+    }
 }
 impl From<Button> for TreeNode {
-    fn from(value: Button) -> Self { Self::Button(value) }
-}
-impl From<Entry> for TreeNode {
-    fn from(value: Entry) -> Self { Self::Entry(value) }
-}
-impl From<Password> for TreeNode {
-    fn from(value: Password) -> Self { Self::Password(value) }
+    fn from(value: Button) -> Self {
+        Self::Button(value)
+    }
 }
 impl From<Switch> for TreeNode {
-    fn from(value: Switch) -> Self { Self::Switch(value) }
+    fn from(value: Switch) -> Self {
+        Self::Switch(value)
+    }
 }
 impl From<Scale> for TreeNode {
-    fn from(value: Scale) -> Self { Self::Scale(value) }
+    fn from(value: Scale) -> Self {
+        Self::Scale(value)
+    }
 }
 impl From<Dropdown> for TreeNode {
-    fn from(value: Dropdown) -> Self { Self::Dropdown(value) }
+    fn from(value: Dropdown) -> Self {
+        Self::Dropdown(value)
+    }
 }
 impl From<Checkbox> for TreeNode {
-    fn from(value: Checkbox) -> Self { Self::Checkbox(value) }
+    fn from(value: Checkbox) -> Self {
+        Self::Checkbox(value)
+    }
 }

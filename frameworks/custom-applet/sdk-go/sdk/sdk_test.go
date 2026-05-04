@@ -32,16 +32,11 @@ func (a *demoApplet) OnInit(context.Context, InitEvent) error { return nil }
 
 func (a *demoApplet) OnCallback(_ context.Context, event CallbackEvent) error {
 	switch e := event.(type) {
-	case InputEvent:
-		if e.ID == "version" {
-			a.SetState(func(state *demoState) {
-				state.Version = e.Text
-			})
-		}
 	case ClickEvent:
 		if e.ID == "submit" {
 			a.SetState(func(state *demoState) {
 				state.Clicks++
+				state.Version = "v2"
 			})
 		}
 	}
@@ -51,7 +46,7 @@ func (a *demoApplet) OnCallback(_ context.Context, event CallbackEvent) error {
 func (a *demoApplet) Render(context.Context) (RenderResult, error) {
 	return RenderResult{
 		Status: []StatusItem{
-			{ID: "demo", Icon: IconName("demo-symbolic"), Text: a.State().Version},
+			{ID: "demo", Icon: IconName("demo-symbolic"), Label: a.State().Version},
 		},
 		Tree: ptr(BoxVertical([]TreeNode{
 			NewHero("Demo", a.State().Version),
@@ -61,17 +56,17 @@ func (a *demoApplet) Render(context.Context) (RenderResult, error) {
 	}, nil
 }
 
-func TestParseCallbackEventReturnsTypedInputVariant(t *testing.T) {
-	event, err := parseCallbackEvent([]byte(`{"id":"version","event":"input","text":"abc"}`))
+func TestParseCallbackEventReturnsTypedClickVariant(t *testing.T) {
+	event, err := parseCallbackEvent([]byte(`{"id":"submit","type":"click","button":"left"}`))
 	if err != nil {
 		t.Fatalf("parse callback event: %v", err)
 	}
-	input, ok := event.(InputEvent)
+	click, ok := event.(ClickEvent)
 	if !ok {
-		t.Fatalf("expected InputEvent, got %T", event)
+		t.Fatalf("expected ClickEvent, got %T", event)
 	}
-	if input.Text != "abc" {
-		t.Fatalf("expected text abc, got %q", input.Text)
+	if click.Button != "left" {
+		t.Fatalf("expected left button, got %q", click.Button)
 	}
 }
 
@@ -87,6 +82,24 @@ func TestDropdownSerializesItems(t *testing.T) {
 	}
 	if decoded["type"] != "dropdown" {
 		t.Fatalf("expected dropdown type, got %v", decoded["type"])
+	}
+}
+
+func TestVariantSerializesAsSemanticProtocolValue(t *testing.T) {
+	node := NewLabel("Warning")
+	label, ok := node.Data.(Label)
+	if !ok {
+		t.Fatalf("expected Label data, got %T", node.Data)
+	}
+	label.Variant = VariantWarning
+	node.Data = label
+
+	payload, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("marshal label: %v", err)
+	}
+	if !strings.Contains(string(payload), `"variant":"warning"`) {
+		t.Fatalf("expected warning variant, got %s", payload)
 	}
 }
 
@@ -107,15 +120,15 @@ func TestRuntimeFlushesRenderedMessages(t *testing.T) {
 
 func TestSetStateUpdatesRenderedStatus(t *testing.T) {
 	applet := newDemoApplet()
-	if err := applet.OnCallback(context.Background(), InputEvent{ID: "version", Text: "v2"}); err != nil {
+	if err := applet.OnCallback(context.Background(), ClickEvent{ID: "submit", Button: "left"}); err != nil {
 		t.Fatalf("callback: %v", err)
 	}
 	rendered, err := applet.Render(context.Background())
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if rendered.Status[0].Text != "v2" {
-		t.Fatalf("expected updated status text, got %q", rendered.Status[0].Text)
+	if rendered.Status[0].Label != "v2" {
+		t.Fatalf("expected updated status label, got %q", rendered.Status[0].Label)
 	}
 }
 
@@ -149,7 +162,7 @@ func (a *asyncDemoApplet) OnCallback(context.Context, CallbackEvent) error { ret
 func (a *asyncDemoApplet) Render(context.Context) (RenderResult, error) {
 	return RenderResult{
 		Status: []StatusItem{
-			{ID: "demo", Icon: IconName("demo-symbolic"), Text: a.State().Version},
+			{ID: "demo", Icon: IconName("demo-symbolic"), Label: a.State().Version},
 		},
 	}, nil
 }
@@ -186,13 +199,13 @@ func TestRuntimeFlushesWhenStateChangesWithoutInput(t *testing.T) {
 			continue
 		}
 		line := scanner.Text()
-		if !strings.Contains(line, "\"type\":\"status\"") {
+		if !strings.HasPrefix(line, "status ") {
 			continue
 		}
-		if strings.Contains(line, "\"text\":\"v1\"") {
+		if strings.Contains(line, "\"label\":\"v1\"") {
 			sawV1 = true
 		}
-		if strings.Contains(line, "\"text\":\"v2\"") {
+		if strings.Contains(line, "\"label\":\"v2\"") {
 			sawV2 = true
 		}
 	}

@@ -21,7 +21,7 @@ func newCounterApplet() *counterApplet {
 	}
 }
 
-func (a *counterApplet) OnStart(context.Context) error { return nil }
+func (a *counterApplet) OnStart(context.Context) error               { return nil }
 func (a *counterApplet) OnInit(context.Context, sdk.InitEvent) error { return nil }
 
 func (a *counterApplet) OnCallback(_ context.Context, event sdk.CallbackEvent) error {
@@ -36,7 +36,7 @@ func (a *counterApplet) OnCallback(_ context.Context, event sdk.CallbackEvent) e
 func (a *counterApplet) Render(context.Context) (sdk.RenderResult, error) {
 	return sdk.RenderResult{
 		Status: []sdk.StatusItem{
-			{ID: "counter", Icon: sdk.IconName("view-refresh-symbolic"), Text: fmt.Sprintf("%d", a.State().Count)},
+			{ID: "counter", Icon: sdk.IconName("view-refresh-symbolic"), Label: fmt.Sprintf("%d", a.State().Count)},
 		},
 		Tree: ptr(sdk.BoxVertical([]sdk.TreeNode{
 			sdk.NewHero("Counter", fmt.Sprintf("Value: %d", a.State().Count)),

@@ -2,6 +2,7 @@ package sdk
 
 type Align string
 type Orientation string
+type Variant string
 
 const (
 	AlignFill     Align = "fill"
@@ -12,17 +13,24 @@ const (
 
 	OrientationHorizontal Orientation = "horizontal"
 	OrientationVertical   Orientation = "vertical"
+
+	VariantNormal  Variant = "normal"
+	VariantMuted   Variant = "muted"
+	VariantAccent  Variant = "accent"
+	VariantSuccess Variant = "success"
+	VariantWarning Variant = "warning"
+	VariantDanger  Variant = "danger"
 )
 
 type CommonProps struct {
-	ID         string   `json:"id,omitempty"`
-	Visible    *bool    `json:"visible,omitempty"`
-	HExpand    *bool    `json:"hexpand,omitempty"`
-	VExpand    *bool    `json:"vexpand,omitempty"`
-	HAlign     Align    `json:"halign,omitempty"`
-	VAlign     Align    `json:"valign,omitempty"`
-	Tooltip    string   `json:"tooltip,omitempty"`
-	CSSClasses []string `json:"css_classes,omitempty"`
+	ID      string  `json:"id,omitempty"`
+	Visible *bool   `json:"visible,omitempty"`
+	HExpand *bool   `json:"hexpand,omitempty"`
+	VExpand *bool   `json:"vexpand,omitempty"`
+	HAlign  Align   `json:"halign,omitempty"`
+	VAlign  Align   `json:"valign,omitempty"`
+	Tooltip string  `json:"tooltip,omitempty"`
+	Variant Variant `json:"variant,omitempty"`
 }
 
 type TreeNode struct {
@@ -65,10 +73,10 @@ func NewProgress(value float64) TreeNode {
 
 type Label struct {
 	CommonProps
-	Text       string  `json:"text"`
-	Wrap       bool    `json:"wrap,omitempty"`
+	Text       string   `json:"text"`
+	Wrap       bool     `json:"wrap,omitempty"`
 	XAlign     *float32 `json:"xalign,omitempty"`
-	Selectable bool    `json:"selectable,omitempty"`
+	Selectable bool     `json:"selectable,omitempty"`
 }
 
 func NewLabel(text string) TreeNode {
@@ -94,26 +102,6 @@ type Button struct {
 
 func NewButton(id string, label string) TreeNode {
 	return TreeNode{Type: "button", Data: Button{CommonProps: CommonProps{ID: id}, Label: label}}
-}
-
-type Entry struct {
-	CommonProps
-	Text        string `json:"text"`
-	Placeholder string `json:"placeholder,omitempty"`
-}
-
-func NewEntry(id string, text string) TreeNode {
-	return TreeNode{Type: "entry", Data: Entry{CommonProps: CommonProps{ID: id}, Text: text}}
-}
-
-type Password struct {
-	CommonProps
-	Text        string `json:"text"`
-	Placeholder string `json:"placeholder,omitempty"`
-}
-
-func NewPassword(id string) TreeNode {
-	return TreeNode{Type: "password", Data: Password{CommonProps: CommonProps{ID: id}}}
 }
 
 type Switch struct {
@@ -262,16 +250,6 @@ type DetailGrid struct {
 
 func NewDetailGrid(rows []DetailGridItem) TreeNode {
 	return TreeNode{Type: "detail_grid", Data: DetailGrid{Rows: rows}}
-}
-
-type FooterAction struct {
-	CommonProps
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle,omitempty"`
-}
-
-func NewFooterAction(id string, title string) TreeNode {
-	return TreeNode{Type: "footer_action", Data: FooterAction{CommonProps: CommonProps{ID: id}, Title: title}}
 }
 
 type EmptyState struct {

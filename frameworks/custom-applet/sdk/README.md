@@ -47,7 +47,7 @@ class DeployApplet(Applet[DeployState]):
                 StatusItem(
                     id="deploy",
                     icon=Icon.name("software-update-available-symbolic"),
-                    text=self.state.status,
+                    label=self.state.status,
                 )
             ],
             hero=Hero(

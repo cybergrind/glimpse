@@ -24,7 +24,7 @@ type CounterApplet struct {
 func (a *CounterApplet) Render(context.Context) (sdk.RenderResult, error) {
     return sdk.RenderResult{
         Status: []sdk.StatusItem{
-            {ID: "counter", Icon: sdk.IconName("view-refresh-symbolic"), Text: fmt.Sprintf("%d", a.State().Count)},
+            {ID: "counter", Icon: sdk.IconName("view-refresh-symbolic"), Label: fmt.Sprintf("%d", a.State().Count)},
         },
         Hero: &sdk.Hero{
             Title: "Counter",

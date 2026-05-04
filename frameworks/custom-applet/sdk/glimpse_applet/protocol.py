@@ -5,26 +5,27 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class Icon:
-    type: str
+    kind: str
     value: str
 
     @classmethod
     def name(cls, value: str) -> "Icon":
-        return cls(type="name", value=value)
+        return cls(kind="name", value=value)
 
     @classmethod
     def path(cls, value: str) -> "Icon":
-        return cls(type="path", value=value)
+        return cls(kind="path", value=value)
 
     def to_protocol(self) -> dict[str, str]:
-        return {"type": self.type, "value": self.value}
+        return {self.kind: self.value}
 
 
 @dataclass(slots=True)
 class StatusItem:
     id: str | None = None
     icon: Icon | None = None
-    text: str | None = None
+    label: str | None = None
+    tooltip: str | None = None
 
     def to_protocol(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -32,8 +33,9 @@ class StatusItem:
             payload["id"] = self.id
         if self.icon is not None:
             payload["icon"] = self.icon.to_protocol()
-        if self.text is not None:
-            payload["text"] = self.text
+        if self.label is not None:
+            payload["label"] = self.label
+        if self.tooltip is not None:
+            payload["tooltip"] = self.tooltip
         return payload
-
 

@@ -2,6 +2,7 @@ pub mod audio;
 pub mod battery;
 pub mod bluetooth;
 pub mod clock;
+pub mod exec;
 pub mod keyboard;
 pub mod mpris;
 pub mod network;

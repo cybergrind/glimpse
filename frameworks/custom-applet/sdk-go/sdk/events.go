@@ -1,6 +1,10 @@
 package sdk
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
 
 type InitEvent struct {
 	Instance string
@@ -53,8 +57,8 @@ func (e ToggleEvent) CallbackID() string   { return e.ID }
 func (e ToggleEvent) CallbackType() string { return "toggle" }
 
 type incomingMessage struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type string
+	Data json.RawMessage
 }
 
 type initPayload struct {
@@ -63,12 +67,25 @@ type initPayload struct {
 }
 
 type callbackPayload struct {
-	ID     string `json:"id"`
-	Event  string `json:"event"`
-	Button string `json:"button,omitempty"`
+	ID     string  `json:"id"`
+	Event  string  `json:"type"`
+	Button string  `json:"button,omitempty"`
 	DeltaY float64 `json:"delta_y,omitempty"`
-	Text   string `json:"text,omitempty"`
-	Value  any    `json:"value,omitempty"`
+	Text   string  `json:"text,omitempty"`
+	Value  any     `json:"value,omitempty"`
+	Active *bool   `json:"active,omitempty"`
+}
+
+func parseIncomingLine(line []byte) (incomingMessage, error) {
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 {
+		return incomingMessage{}, nil
+	}
+	command, payload, ok := bytes.Cut(line, []byte(" "))
+	if !ok || len(bytes.TrimSpace(payload)) == 0 {
+		return incomingMessage{}, fmt.Errorf("missing command payload")
+	}
+	return incomingMessage{Type: string(command), Data: bytes.TrimSpace(payload)}, nil
 }
 
 func parseInitEvent(data []byte) (InitEvent, error) {
@@ -95,7 +112,12 @@ func parseCallbackEvent(data []byte) (CallbackEvent, error) {
 	case "input":
 		return InputEvent{ID: payload.ID, Text: payload.Text}, nil
 	case "toggle":
-		value, _ := payload.Value.(bool)
+		value := false
+		if payload.Active != nil {
+			value = *payload.Active
+		} else if parsed, ok := payload.Value.(bool); ok {
+			value = parsed
+		}
 		return ToggleEvent{ID: payload.ID, Value: value}, nil
 	default:
 		return ChangeEvent{ID: payload.ID, Value: payload.Value}, nil

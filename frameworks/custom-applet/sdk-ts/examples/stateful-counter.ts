@@ -31,7 +31,7 @@ class CounterApplet extends Applet<CounterState> {
         new StatusItem({
           id: "counter",
           icon: Icon.name("view-refresh-symbolic"),
-          text: String(this.state.count),
+          label: String(this.state.count),
         }),
       ],
       tree: Box.vertical([

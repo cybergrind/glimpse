@@ -75,6 +75,10 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
 
         [applets.system_tray]
         extends = "tray"
+
+        [applets.sysinfo]
+        extends = "exec"
+        command = ["/tmp/sysinfo"]
         "##,
     )
     .unwrap();
@@ -94,11 +98,45 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
             .and_then(|applet| applet.extends),
         Some(AppletType::Tray)
     );
+    assert_eq!(
+        config
+            .applets
+            .get("sysinfo")
+            .and_then(|applet| applet.extends),
+        Some(AppletType::Exec)
+    );
 
     let serialized = config.background_toml().unwrap();
     assert!(!serialized.contains("mode"));
     assert!(serialized.contains("[wallpaper]"));
     assert!(serialized.contains("[backdrop]"));
+}
+
+#[test]
+fn config_ignores_unknown_applet_extends_values() {
+    let config = Config::from_toml_str(
+        r#"
+        [[panels]]
+        left = ["broken", "clock"]
+
+        [applets.broken]
+        extends = "made_up"
+        command = ["/tmp/ignored"]
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        config
+            .applets
+            .get("broken")
+            .and_then(|applet| applet.extends),
+        None
+    );
+    assert_eq!(
+        config.applets["broken"].settings["command"][0].as_str(),
+        Some("/tmp/ignored")
+    );
 }
 
 #[test]

@@ -17,8 +17,9 @@ import { type TreeNode } from "./widgets.js";
 type Handler<EventT> = (event: EventT) => void | Promise<void>;
 
 interface OutgoingMessage {
-  type: string;
+  command: string;
   data: unknown;
+  line: string;
 }
 
 export class RenderResult {
@@ -44,6 +45,7 @@ export abstract class Applet<State extends object> {
   private readonly handlerMap = new Map<string, Handler<CallbackEvent>>();
   private readonly outgoing: OutgoingMessage[] = [];
   private flushPromise: Promise<void> | null = null;
+  private renderQueued = false;
   private lastStatus: unknown[] | null = null;
   private lastTree: Record<string, unknown> | null = null;
 
@@ -101,16 +103,12 @@ export abstract class Applet<State extends object> {
       if (!line) {
         continue;
       }
-      const raw = JSON.parse(line) as { type?: unknown; data?: Record<string, unknown> };
-      const type = String(raw.type ?? "");
-      const data = raw.data ?? {};
-      if (type === "init") {
-        await this.onInit(parseInitEvent(data));
+      const raw = parseLine(line);
+      if (raw === null) {
         continue;
       }
-      if (type === "callback") {
-        await this.dispatchCallback(parseCallbackEvent(data));
-      }
+      const data = raw.data as Record<string, unknown>;
+      await this.handleIncoming(raw.command, data);
     }
   }
 
@@ -134,11 +132,26 @@ export abstract class Applet<State extends object> {
     await this.onCallback(event);
   }
 
+  private async handleIncoming(type: string, data: Record<string, unknown>): Promise<void> {
+    if (type === "init") {
+      await this.onInit(parseInitEvent(data));
+      await this.scheduleRender();
+      return;
+    }
+    if (type === "event") {
+      await this.dispatchCallback(parseCallbackEvent(data));
+    }
+  }
+
   private async scheduleRender(): Promise<void> {
+    this.renderQueued = true;
     if (this.flushPromise === null) {
       this.flushPromise = Promise.resolve().then(async () => {
         try {
-          await this.flushRender();
+          while (this.renderQueued) {
+            this.renderQueued = false;
+            await this.flushRender();
+          }
         } finally {
           this.flushPromise = null;
         }
@@ -150,22 +163,38 @@ export abstract class Applet<State extends object> {
   private async flushRender(): Promise<void> {
     const rendered = await this.render();
     const status = rendered.status.map((item) => item.toProtocol());
-    const tree = { content: rendered.tree?.toProtocol() ?? null };
+    const tree = { root: rendered.tree?.toProtocol() ?? null };
 
     if (!deepEqual(status, this.lastStatus)) {
       this.lastStatus = status;
-      this.emit({ type: "status", data: { items: status } });
+      this.emit("status", { items: status });
     }
     if (!deepEqual(tree, this.lastTree)) {
       this.lastTree = tree;
-      this.emit({ type: "tree", data: tree });
+      this.emit("popover", tree);
     }
   }
 
-  private emit(message: OutgoingMessage): void {
-    this.outgoing.push(message);
-    process.stdout.write(`${JSON.stringify(message)}\n`);
+  private emit(command: string, data: unknown): void {
+    const line = `${command} ${JSON.stringify(data)}`;
+    this.outgoing.push({ command, data, line });
+    process.stdout.write(`${line}\n`);
   }
+}
+
+function parseLine(line: string): { command: string; data: unknown } | null {
+  const trimmed = line.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const split = trimmed.search(/\s/);
+  if (split < 0) {
+    throw new Error("missing command payload");
+  }
+  return {
+    command: trimmed.slice(0, split),
+    data: JSON.parse(trimmed.slice(split).trimStart()),
+  };
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {

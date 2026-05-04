@@ -7,6 +7,8 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
+use super::action_row::{ActionRow, ActionRowInit};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionMenuItem<Command> {
     pub label: String,
@@ -32,58 +34,6 @@ pub struct Init<Command> {
 #[derive(Debug)]
 pub enum Input<Command> {
     Update(Vec<ActionMenuItem<Command>>),
-}
-
-struct ActionItemRowInit {
-    label: String,
-    icon: Option<String>,
-    visible: bool,
-    selectable: bool,
-}
-
-#[relm4::widget_template]
-impl WidgetTemplate for ActionItemRow {
-    type Init = ActionItemRowInit;
-
-    view! {
-        gtk::Box {
-            add_css_class: "action-row",
-            set_visible: init.visible,
-
-            #[name = "button"]
-            gtk::Button {
-                add_css_class: "flat",
-                add_css_class: "action-row__button",
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 8,
-                    add_css_class: "action-row__content-shell",
-
-                    gtk::Image {
-                        set_icon_name: init.icon.as_deref(),
-                        set_pixel_size: 16,
-                        set_visible: init.icon.is_some(),
-                        add_css_class: "action-row__leading",
-                    },
-
-                    gtk::Label {
-                        set_label: &init.label,
-                        set_hexpand: true,
-                        set_halign: gtk::Align::Start,
-                        add_css_class: "action-row__title",
-                    },
-
-                    gtk::Image {
-                        set_icon_name: Some("object-select-symbolic"),
-                        set_pixel_size: 14,
-                        set_visible: init.selectable,
-                        add_css_class: "action-row__trailing",
-                    },
-                }
-            }
-        }
-    }
 }
 
 #[relm4::component(pub)]
@@ -174,8 +124,10 @@ fn render_items<Command>(
     for item in items {
         let selectable = item.selectable.unwrap_or(item.checked.is_some());
         let checked = item.checked.unwrap_or(false);
-        let row = ActionItemRow::init(ActionItemRowInit {
-            label: item.label.clone(),
+        let row = ActionRow::init(ActionRowInit {
+            title: item.label.clone(),
+            subtitle: String::new(),
+            meta: String::new(),
             icon: item.icon.clone(),
             visible: item.visible,
             selectable,

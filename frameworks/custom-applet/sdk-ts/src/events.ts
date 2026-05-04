@@ -48,7 +48,7 @@ export function parseInitEvent(payload: Record<string, unknown>): InitEvent {
 }
 
 export function parseCallbackEvent(payload: Record<string, unknown>): CallbackEvent {
-  const event = String(payload.event ?? "");
+  const event = String(payload.type ?? payload.event ?? "");
   const id = String(payload.id ?? "");
   if (event === "click") {
     return { id, event, button: payload.button === undefined ? undefined : String(payload.button) };
@@ -64,7 +64,7 @@ export function parseCallbackEvent(payload: Record<string, unknown>): CallbackEv
     return { id, event, text: String(payload.text ?? "") };
   }
   if (event === "toggle") {
-    return { id, event, value: Boolean(payload.value) };
+    return { id, event, value: Boolean(payload.active ?? payload.value) };
   }
   return { id, event: "change", value: payload.value };
 }

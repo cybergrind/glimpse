@@ -2,6 +2,7 @@ import { Icon } from "./protocol.js";
 
 export type Align = "fill" | "start" | "end" | "center" | "baseline";
 export type Orientation = "horizontal" | "vertical";
+export type Variant = "normal" | "muted" | "accent" | "success" | "warning" | "danger";
 
 export interface WidgetNode {
   toProtocol(): Record<string, unknown>;
@@ -15,7 +16,7 @@ export interface CommonProps {
   halign?: Align;
   valign?: Align;
   tooltip?: string;
-  css_classes?: string[];
+  variant?: Variant;
 }
 
 function applyCommonProps(
@@ -29,9 +30,7 @@ function applyCommonProps(
   if (props.halign !== undefined) payload.halign = props.halign;
   if (props.valign !== undefined) payload.valign = props.valign;
   if (props.tooltip !== undefined) payload.tooltip = props.tooltip;
-  if (props.css_classes !== undefined && props.css_classes.length > 0) {
-    payload.css_classes = props.css_classes;
-  }
+  if (props.variant !== undefined) payload.variant = props.variant;
   return payload;
 }
 
@@ -136,40 +135,6 @@ export class Button extends WidgetBase {
     if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
     if (this.options.child !== undefined) payload.child = this.options.child.toProtocol();
     return { type: "button", data: payload };
-  }
-}
-
-export class Entry extends WidgetBase {
-  constructor(
-    private readonly options: CommonProps & {
-      text?: string;
-      placeholder?: string;
-    } = {},
-  ) {
-    super(options);
-  }
-
-  toProtocol(): Record<string, unknown> {
-    const payload = this.withCommon({ text: this.options.text ?? "" });
-    if (this.options.placeholder !== undefined) payload.placeholder = this.options.placeholder;
-    return { type: "entry", data: payload };
-  }
-}
-
-export class Password extends WidgetBase {
-  constructor(
-    private readonly options: CommonProps & {
-      text?: string;
-      placeholder?: string;
-    } = {},
-  ) {
-    super(options);
-  }
-
-  toProtocol(): Record<string, unknown> {
-    const payload = this.withCommon({ text: this.options.text ?? "" });
-    if (this.options.placeholder !== undefined) payload.placeholder = this.options.placeholder;
-    return { type: "password", data: payload };
   }
 }
 
@@ -448,27 +413,6 @@ export class DetailGrid extends WidgetBase {
   }
 }
 
-export class FooterAction extends WidgetBase {
-  constructor(
-    private readonly options: CommonProps & {
-      title: string;
-      subtitle?: string;
-    },
-  ) {
-    super(options);
-  }
-
-  toProtocol(): Record<string, unknown> {
-    return {
-      type: "footer_action",
-      data: this.withCommon({
-        title: this.options.title,
-        subtitle: this.options.subtitle ?? "",
-      }),
-    };
-  }
-}
-
 export class EmptyState extends WidgetBase {
   constructor(
     private readonly options: CommonProps & {
@@ -556,7 +500,6 @@ export type TreeNode =
   | Section
   | Row
   | DetailGrid
-  | FooterAction
   | EmptyState
   | Badge
   | StatusDot
@@ -569,8 +512,6 @@ export type TreeNode =
   | IconWidget
   | Image
   | Button
-  | Entry
-  | Password
   | Switch
   | Scale
   | Dropdown

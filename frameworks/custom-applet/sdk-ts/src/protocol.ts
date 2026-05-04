@@ -2,7 +2,7 @@ export type IconKind = "name" | "path";
 
 export class Icon {
   constructor(
-    public readonly type: IconKind,
+    public readonly kind: IconKind,
     public readonly value: string,
   ) {}
 
@@ -14,8 +14,8 @@ export class Icon {
     return new Icon("path", value);
   }
 
-  toProtocol(): { type: IconKind; value: string } {
-    return { type: this.type, value: this.value };
+  toProtocol(): { name: string } | { path: string } {
+    return this.kind === "name" ? { name: this.value } : { path: this.value };
   }
 }
 
@@ -24,7 +24,8 @@ export class StatusItem {
     public readonly options: {
       id?: string;
       icon?: Icon;
-      text?: string;
+      label?: string;
+      tooltip?: string;
     } = {},
   ) {}
 
@@ -36,10 +37,12 @@ export class StatusItem {
     if (this.options.icon !== undefined) {
       payload.icon = this.options.icon.toProtocol();
     }
-    if (this.options.text !== undefined) {
-      payload.text = this.options.text;
+    if (this.options.label !== undefined) {
+      payload.label = this.options.label;
+    }
+    if (this.options.tooltip !== undefined) {
+      payload.tooltip = this.options.tooltip;
     }
     return payload;
   }
 }
-

@@ -590,13 +590,7 @@ fn hero_subtitle(state: &State) -> String {
 
     state
         .default_output()
-        .map(|device| {
-            if device.muted {
-                format!("{} muted", device.description)
-            } else {
-                device.description.clone()
-            }
-        })
+        .map(|device| device.description.clone())
         .unwrap_or_else(|| "No output device".into())
 }
 

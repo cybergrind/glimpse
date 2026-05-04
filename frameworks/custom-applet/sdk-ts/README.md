@@ -48,7 +48,7 @@ class DeployApplet extends Applet<DeployState> {
         new StatusItem({
           id: "deploy",
           icon: Icon.name("software-update-available-symbolic"),
-          text: this.state.status,
+          label: this.state.status,
         }),
       ],
       hero: new Hero({
@@ -77,4 +77,4 @@ Use explicit registration helpers instead of decorators:
 - `this.onChange(id, handler)`
 - `this.onToggle(id, handler)`
 
-The SDK owns the JSON-lines transport and writes `status`, `hero`, and `tree` messages derived from `render()`.
+The SDK owns the line transport and writes `status {json}` and `popover {json}` messages derived from `render()`.

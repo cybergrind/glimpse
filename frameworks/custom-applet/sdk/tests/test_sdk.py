@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import unittest
 from dataclasses import dataclass
 
@@ -11,14 +13,13 @@ from glimpse_applet import (
     ChangeEvent,
     Dropdown,
     DropdownItem,
-    Hero,
     Icon,
-    InputEvent,
+    InitEvent,
     Label,
     RenderResult,
     StatusItem,
+    Variant,
     click,
-    input,
 )
 from glimpse_applet.events import parse_callback_event
 
@@ -36,19 +37,19 @@ class DemoApplet(Applet[DemoState]):
     async def render(self) -> RenderResult:
         return RenderResult(
             status=[
-                StatusItem(id="demo", icon=Icon.name("demo-symbolic"), text=self.state.version)
+                StatusItem(id="demo", icon=Icon.name("demo-symbolic"), label=self.state.version)
             ],
-            hero=Hero(title="Demo", subtitle=self.state.version),
             tree=Box.vertical([Label(self.state.version), Button(id="submit", label="Submit")]),
         )
 
-    @input("version")
-    async def handle_version(self, event: InputEvent) -> None:
-        await self.set_state(version=event.text)
-
     @click("submit")
     async def handle_submit(self, _event) -> None:
-        await self.set_state(clicks=self.state.clicks + 1)
+        await self.set_state(clicks=self.state.clicks + 1, version="v2")
+
+
+class InitApplet(DemoApplet):
+    async def on_init(self, event: InitEvent) -> None:
+        self.state.version = event.instance
 
 
 class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
@@ -62,28 +63,47 @@ class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
         await applet.set_state(version="v2")
         await applet._flush_render()
         status = await applet._outgoing.get()
-        hero = await applet._outgoing.get()
         tree = await applet._outgoing.get()
-        self.assertEqual(status["type"], "status")
-        self.assertEqual(hero["type"], "hero")
-        self.assertEqual(tree["type"], "tree")
+        self.assertEqual(status[0], "status")
+        self.assertEqual(status[1]["items"][0]["label"], "v2")
+        self.assertEqual(tree[0], "popover")
+        self.assertIn("root", tree[1])
 
     async def test_render_result_defaults_allow_partial_updates(self) -> None:
         result = RenderResult()
         self.assertEqual(result.status, [])
-        self.assertIsNone(result.hero)
         self.assertIsNone(result.tree)
 
     def test_parse_callback_event_returns_typed_variant(self) -> None:
-        event = parse_callback_event({"id": "version", "event": "input", "text": "abc"})
-        self.assertIsInstance(event, InputEvent)
-        self.assertEqual(event.text, "abc")
+        event = parse_callback_event({"id": "submit", "type": "click", "button": "left"})
+        self.assertEqual(event.event, "click")
+        self.assertEqual(getattr(event, "button"), "left")
 
     def test_dropdown_serializes_items(self) -> None:
         node = Dropdown(id="env", items=[DropdownItem(id="prod", label="Production")], selected=0)
         payload = node.to_protocol()
         self.assertEqual(payload["type"], "dropdown")
         self.assertEqual(payload["data"]["items"][0]["id"], "prod")
+
+    def test_variant_serializes_as_semantic_protocol_value(self) -> None:
+        payload = Label("Warning", variant=Variant.WARNING).to_protocol()
+        self.assertEqual(payload["data"]["variant"], "warning")
+
+    async def test_init_event_rerenders_changed_state(self) -> None:
+        applet = InitApplet()
+        loop_task = asyncio.create_task(applet._event_loop())
+        try:
+            status = await applet._outgoing.get()
+            await applet._outgoing.get()
+            self.assertEqual(status[1]["items"][0]["label"], "v1")
+
+            await applet._incoming.put(InitEvent(instance="v3", options={}))
+            status = await applet._outgoing.get()
+            self.assertEqual(status[1]["items"][0]["label"], "v3")
+        finally:
+            loop_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await loop_task
 
 
 if __name__ == "__main__":

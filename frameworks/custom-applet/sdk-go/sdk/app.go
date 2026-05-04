@@ -62,7 +62,7 @@ func (a *BaseApplet[S]) Updates() <-chan struct{} {
 }
 
 type treePayload struct {
-	Content *TreeNode `json:"content"`
+	Root *TreeNode `json:"root"`
 }
 
 type Runtime[S any] struct {
@@ -130,7 +130,7 @@ func (r *Runtime[S]) Run(ctx context.Context) error {
 				if err := r.applet.OnInit(ctx, event); err != nil {
 					return err
 				}
-			case "callback":
+			case "event":
 				event, err := parseCallbackEvent(msg.Data)
 				if err != nil {
 					return err
@@ -166,10 +166,13 @@ func (r *Runtime[S]) scanInput(
 		if len(line) == 0 {
 			continue
 		}
-		var msg incomingMessage
-		if err := json.Unmarshal(line, &msg); err != nil {
+		msg, err := parseIncomingLine(line)
+		if err != nil {
 			errCh <- err
 			return
+		}
+		if msg.Type == "" {
+			continue
 		}
 		select {
 		case <-ctx.Done():
@@ -195,9 +198,9 @@ func (r *Runtime[S]) flush(ctx context.Context) error {
 		}
 		r.lastStatus = append([]StatusItem(nil), rendered.Status...)
 	}
-	tree := &treePayload{Content: rendered.Tree}
+	tree := &treePayload{Root: rendered.Tree}
 	if !treePayloadEqual(r.lastTree, tree) {
-		if err := r.writeMessage("tree", tree); err != nil {
+		if err := r.writeMessage("popover", tree); err != nil {
 			return err
 		}
 		r.lastTree = tree
@@ -208,15 +211,11 @@ func (r *Runtime[S]) flush(ctx context.Context) error {
 func (r *Runtime[S]) writeMessage(kind string, data any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	payload := map[string]any{
-		"type": kind,
-		"data": data,
-	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.writer, "%s\n", encoded); err != nil {
+	if _, err := fmt.Fprintf(r.writer, "%s %s\n", kind, encoded); err != nil {
 		return err
 	}
 	return nil

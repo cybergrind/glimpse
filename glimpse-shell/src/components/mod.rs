@@ -1,13 +1,18 @@
 pub mod action_menu;
+pub mod action_row;
 pub mod animated_popover;
+pub mod badge;
+pub mod card_surface;
 pub mod collapsible_section;
 pub mod device_list;
 pub mod device_status;
+pub mod empty_state;
 pub mod hero;
 pub mod key_value_grid;
 pub mod popover_scroll;
 pub mod popover_shell;
 pub mod section_header;
+pub mod status_dot;
 
 #[cfg(test)]
 pub(crate) mod test_support {

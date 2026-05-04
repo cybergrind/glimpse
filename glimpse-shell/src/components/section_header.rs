@@ -19,6 +19,15 @@ impl WidgetTemplate for SectionHeader {
                 set_halign: gtk::Align::Start,
                 set_xalign: 0.0,
             },
+
+            #[name = "subtitle"]
+            gtk::Label {
+                add_css_class: "section-header__subtitle",
+                add_css_class: "section-block__subtitle",
+                set_halign: gtk::Align::Start,
+                set_xalign: 0.0,
+                set_visible: false,
+            },
         }
     }
 }
@@ -40,5 +49,8 @@ mod tests {
         assert!(header.has_css_class("section-block__header"));
         assert!(header.title.has_css_class("section-header__title"));
         assert!(header.title.has_css_class("section-block__title"));
+        assert!(header.subtitle.has_css_class("section-header__subtitle"));
+        assert!(header.subtitle.has_css_class("section-block__subtitle"));
+        assert!(!header.subtitle.is_visible());
     }
 }

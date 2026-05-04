@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use glimpse_custom_applet_sdk::{
-    Applet, AppletResult, BoxNode, Button, Hero, Icon, Label, RenderResult, StateStore,
-    StatusItem, TreeNode, run,
+    Applet, AppletResult, BoxNode, Button, Hero, Icon, Label, RenderResult, StateStore, StatusItem,
+    TreeNode, run,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -27,9 +27,11 @@ impl Applet for CounterApplet {
 
     async fn render(&self) -> AppletResult<RenderResult> {
         Ok(RenderResult {
-            status: vec![StatusItem::new("counter")
-                .icon(Icon::name("view-refresh-symbolic"))
-                .text(self.state().count.to_string())],
+            status: vec![
+                StatusItem::new("counter")
+                    .icon(Icon::name("view-refresh-symbolic"))
+                    .label(self.state().count.to_string()),
+            ],
             tree: Some(TreeNode::from(
                 BoxNode::vertical(vec![
                     TreeNode::from(

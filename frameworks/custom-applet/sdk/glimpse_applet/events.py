@@ -49,7 +49,7 @@ def parse_init_event(payload: dict[str, Any]) -> InitEvent:
 
 
 def parse_callback_event(payload: dict[str, Any]) -> CallbackEvent:
-    event_type = str(payload.get("event", ""))
+    event_type = str(payload.get("type", payload.get("event", "")))
     callback_id = str(payload.get("id", ""))
     if event_type == "click":
         return ClickEvent(id=callback_id, event=event_type, button=payload.get("button"))
@@ -58,5 +58,9 @@ def parse_callback_event(payload: dict[str, Any]) -> CallbackEvent:
     if event_type == "input":
         return InputEvent(id=callback_id, event=event_type, text=str(payload.get("text", "")))
     if event_type == "toggle":
-        return ToggleEvent(id=callback_id, event=event_type, value=bool(payload.get("value", False)))
+        return ToggleEvent(
+            id=callback_id,
+            event=event_type,
+            value=bool(payload.get("active", payload.get("value", False))),
+        )
     return ChangeEvent(id=callback_id, event=event_type, value=payload.get("value"))

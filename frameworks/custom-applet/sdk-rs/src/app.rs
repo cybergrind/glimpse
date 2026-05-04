@@ -3,7 +3,9 @@ use serde::Serialize;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::{
-    events::{CallbackEvent, IncomingMessage, InitEvent, parse_callback_event, parse_init_event},
+    events::{
+        CallbackEvent, InitEvent, parse_callback_event, parse_incoming_line, parse_init_event,
+    },
     protocol::StatusItem,
     widgets::TreeNode,
 };
@@ -83,15 +85,8 @@ pub trait Applet: Send {
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-struct OutgoingMessage<T> {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    data: T,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
 struct TreePayload {
-    content: Option<TreeNode>,
+    root: Option<TreeNode>,
 }
 
 pub async fn run<A>(mut applet: A) -> AppletResult<()>
@@ -112,12 +107,12 @@ where
             continue;
         }
 
-        let incoming: IncomingMessage = serde_json::from_str(&line)?;
+        let incoming = parse_incoming_line(&line)?;
         match incoming.kind.as_str() {
             "init" => {
                 applet.on_init(parse_init_event(incoming.data)?).await?;
             }
-            "callback" => {
+            "event" => {
                 applet
                     .on_callback(parse_callback_event(incoming.data)?)
                     .await?;
@@ -138,24 +133,23 @@ async fn flush_render(
     next: RenderResult,
 ) -> AppletResult<()> {
     let changed = previous.as_ref();
-    if changed.map(|prev| prev.status != next.status).unwrap_or(true) {
+    if changed
+        .map(|prev| prev.status != next.status)
+        .unwrap_or(true)
+    {
         write_message(
             stdout,
-            &OutgoingMessage {
-                kind: "status",
-                data: serde_json::json!({ "items": next.status }),
-            },
+            "status",
+            &serde_json::json!({ "items": next.status }),
         )
         .await?;
     }
     if changed.map(|prev| prev.tree != next.tree).unwrap_or(true) {
         write_message(
             stdout,
-            &OutgoingMessage {
-                kind: "tree",
-                data: TreePayload {
-                    content: next.tree.clone(),
-                },
+            "popover",
+            &TreePayload {
+                root: next.tree.clone(),
             },
         )
         .await?;
@@ -165,8 +159,14 @@ async fn flush_render(
     Ok(())
 }
 
-async fn write_message<T: Serialize>(stdout: &mut io::Stdout, message: &T) -> AppletResult<()> {
-    let encoded = serde_json::to_vec(message)?;
+async fn write_message<T: Serialize>(
+    stdout: &mut io::Stdout,
+    command: &str,
+    payload: &T,
+) -> AppletResult<()> {
+    let encoded = serde_json::to_vec(payload)?;
+    stdout.write_all(command.as_bytes()).await?;
+    stdout.write_all(b" ").await?;
     stdout.write_all(&encoded).await?;
     stdout.write_all(b"\n").await?;
     stdout.flush().await?;
@@ -178,7 +178,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{BoxNode, Button, CallbackEvent, Icon, InputEvent, Label, StatusItem, TreeNode};
+    use crate::{BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, StatusItem, TreeNode};
 
     struct DemoApplet {
         store: StateStore<DemoState>,
@@ -204,9 +204,11 @@ mod tests {
 
         async fn render(&self) -> AppletResult<RenderResult> {
             Ok(RenderResult {
-                status: vec![StatusItem::new("demo")
-                    .icon(Icon::name("demo-symbolic"))
-                    .text(self.state().version.clone())],
+                status: vec![
+                    StatusItem::new("demo")
+                        .icon(Icon::name("demo-symbolic"))
+                        .label(self.state().version.clone()),
+                ],
                 tree: Some(TreeNode::from(BoxNode::vertical(vec![
                     TreeNode::from(crate::Hero::new("Demo", self.state().version.clone())),
                     TreeNode::from(Label::new(self.state().version.clone())),
@@ -217,11 +219,9 @@ mod tests {
 
         async fn on_callback(&mut self, event: CallbackEvent) -> AppletResult<()> {
             match event {
-                CallbackEvent::Input(InputEvent { id, text }) if id == "version" => {
-                    self.set_state(|state| state.version = text);
-                }
                 CallbackEvent::Click(click) if click.id == "submit" => {
                     self.set_state(|state| state.clicks += 1);
+                    self.set_state(|state| state.version = "v2".into());
                 }
                 _ => {}
             }
@@ -237,32 +237,38 @@ mod tests {
     }
 
     #[test]
-    fn parse_callback_event_returns_typed_input_variant() {
+    fn parse_callback_event_returns_typed_click_variant() {
         let event = parse_callback_event(json!({
-            "id": "version",
-            "event": "input",
-            "text": "abc"
+            "id": "submit",
+            "type": "click",
+            "button": "left"
         }))
-        .expect("input event should parse");
+        .expect("click event should parse");
 
         assert_eq!(
             event,
-            CallbackEvent::Input(InputEvent {
-                id: "version".into(),
-                text: "abc".into(),
+            CallbackEvent::Click(ClickEvent {
+                id: "submit".into(),
+                button: Some("left".into()),
             })
         );
     }
 
     #[test]
     fn dropdown_like_tree_nodes_serialize() {
-        let node = crate::Dropdown::new(
-            "env",
-            vec![crate::DropdownItem::new("prod", "Production")],
-        );
+        let node =
+            crate::Dropdown::new("env", vec![crate::DropdownItem::new("prod", "Production")]);
         let payload = serde_json::to_value(TreeNode::from(node)).expect("tree should serialize");
         assert_eq!(payload["type"], "dropdown");
         assert_eq!(payload["data"]["items"][0]["id"], "prod");
+    }
+
+    #[test]
+    fn variant_serializes_as_semantic_protocol_value() {
+        let mut label = Label::new("Warning");
+        label.common.variant = Some(crate::Variant::Warning);
+        let payload = serde_json::to_value(TreeNode::from(label)).expect("tree should serialize");
+        assert_eq!(payload["data"]["variant"], "warning");
     }
 
     #[tokio::test]
@@ -275,14 +281,14 @@ mod tests {
         };
 
         applet
-            .on_callback(CallbackEvent::Input(InputEvent {
-                id: "version".into(),
-                text: "v2".into(),
+            .on_callback(CallbackEvent::Click(ClickEvent {
+                id: "submit".into(),
+                button: Some("left".into()),
             }))
             .await
             .expect("callback should update state");
 
         let rendered = applet.render().await.expect("render should succeed");
-        assert_eq!(rendered.status[0].text.as_deref(), Some("v2"));
+        assert_eq!(rendered.status[0].label.as_deref(), Some("v2"));
     }
 }
