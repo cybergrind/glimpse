@@ -127,7 +127,7 @@ Local release helpers:
 ```bash
 just binary-package      # Build dist/glimpse-<version>-x86_64.tar.zst
 just github-release      # Upload the local archive to the matching GitHub release
-just aur-publish         # Publish PKGBUILD + .SRCINFO to ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git
+just aur-publish         # Publish PKGBUILD + .SRCINFO for the uploaded GitHub release asset
 just release-local       # Tag, push, upload release asset, then publish AUR metadata
 ```
 

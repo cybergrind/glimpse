@@ -22,12 +22,16 @@ verify-release: sync-pkgver
 binary-package: verify-release
     scripts/package-binary.sh "$(just version)"
 
-aur-pkgbuild: binary-package
+aur-pkgbuild:
     #!/usr/bin/env bash
     set -euo pipefail
     version="$(just version)"
-    asset="dist/glimpse-${version}-$(uname -m).tar.zst"
-    checksum="$(b2sum "$asset" | awk '{ print $1 }')"
+    asset="glimpse-${version}-$(uname -m).tar.zst"
+    url="https://github.com/{{github_repo}}/releases/download/v${version}/${asset}"
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    curl -fsSL "$url" -o "$tmpdir/$asset"
+    checksum="$(b2sum "$tmpdir/$asset" | awk '{ print $1 }')"
     scripts/render-aur-pkgbuild.sh "$version" "$checksum" > dist/PKGBUILD
 
 aur-srcinfo: aur-pkgbuild
