@@ -2,14 +2,13 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
-    sync::mpsc as std_mpsc,
     thread,
 };
 
 use pipewire as pw;
 use pw::{
-    link::{Link, LinkState},
-    node::Node,
+    link::{Link, LinkInfoRef},
+    node::{Node, NodeInfoRef},
     proxy::{Listener, ProxyT},
     types::ObjectType,
 };
@@ -24,7 +23,6 @@ use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
 
 const COMMAND_QUEUE_SIZE: usize = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
-const PIPEWIRE_ITERATION_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WebcamUsage {
@@ -106,7 +104,7 @@ impl WebcamService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         let (monitor_tx, mut monitor_rx) = mpsc::unbounded_channel();
-        let (control_tx, control_rx) = std_mpsc::channel();
+        let (control_tx, control_rx) = pw::channel::channel();
         let monitor = thread::Builder::new()
             .name("glimpse-webcam-pipewire".into())
             .spawn(move || {
@@ -114,7 +112,6 @@ impl WebcamService {
                     let _ = monitor_tx.send(MonitorMessage::Failed(error.to_string()));
                 }
             })?;
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -132,7 +129,9 @@ impl WebcamService {
                     }
                 },
                 message = monitor_rx.recv() => match message {
-                    Some(MonitorMessage::State(state)) => self.change_state(state),
+                    Some(MonitorMessage::State(state)) => {
+                        self.change_state(state);
+                    }
                     Some(MonitorMessage::Failed(error)) => {
                         tracing::warn!(%error, "pipewire webcam monitor failed");
                         self.change_state(State::default());
@@ -161,7 +160,7 @@ impl WebcamService {
 }
 
 async fn stop_monitor(
-    control_tx: std_mpsc::Sender<MonitorControl>,
+    control_tx: pw::channel::Sender<MonitorControl>,
     monitor: thread::JoinHandle<()>,
 ) {
     let _ = control_tx.send(MonitorControl::Shutdown);
@@ -170,7 +169,7 @@ async fn stop_monitor(
 
 fn run_pipewire_monitor(
     state_tx: mpsc::UnboundedSender<MonitorMessage>,
-    control_rx: std_mpsc::Receiver<MonitorControl>,
+    control_rx: pw::channel::Receiver<MonitorControl>,
 ) -> anyhow::Result<()> {
     let main_loop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&main_loop, None)?;
@@ -180,13 +179,23 @@ fn run_pipewire_monitor(
     let graph = Rc::new(RefCell::new(PipeWireGraph::default()));
     let bound_objects = Rc::new(RefCell::new(BoundObjects::default()));
 
+    let control_loop = main_loop.clone();
+    let control_graph = Rc::clone(&graph);
+    let control_tx = state_tx.clone();
+    let _control = control_rx.attach(main_loop.loop_(), move |command| match command {
+        MonitorControl::Refresh => publish_graph(&control_graph, &control_tx),
+        MonitorControl::Shutdown => control_loop.quit(),
+    });
+
+    let core_loop = main_loop.clone();
     let state_tx_ref = state_tx.clone();
     let _core_listener = core
         .add_listener_local()
         .error(move |id, seq, res, message| {
             tracing::warn!(id, seq, res, message, "pipewire core error");
-            if id == 0 {
+            if id == pw::core::PW_ID_CORE {
                 let _ = state_tx_ref.send(MonitorMessage::Failed(message.to_owned()));
+                core_loop.quit();
             }
         })
         .register();
@@ -199,7 +208,7 @@ fn run_pipewire_monitor(
         .global(move |object| {
             let object_id = object.id;
 
-            match &object.type_ {
+            match object.type_ {
                 ObjectType::Client => {
                     graph_ref
                         .borrow_mut()
@@ -219,19 +228,15 @@ fn run_pipewire_monitor(
                     let listener = node
                         .add_listener_local()
                         .info(move |info| {
-                            graph
-                                .borrow_mut()
-                                .update_node(info.id(), props_from_dict(info.props()));
+                            graph.borrow_mut().update_node(
+                                object_id,
+                                props_from_dict(info.props()),
+                                node_is_running(info),
+                            );
                             publish_graph(&graph, &tx);
                         })
                         .register();
-                    store_bound_object(
-                        &bound_objects_ref,
-                        &graph_ref,
-                        &state_tx_ref,
-                        node,
-                        Box::new(listener),
-                    );
+                    store_bound_object(&bound_objects_ref, node, Box::new(listener));
                 }
                 ObjectType::Link => {
                     let Some(registry) = registry_weak.upgrade() else {
@@ -247,21 +252,15 @@ fn run_pipewire_monitor(
                         .add_listener_local()
                         .info(move |info| {
                             graph.borrow_mut().update_link(
-                                info.id(),
+                                object_id,
                                 info.output_node_id(),
                                 info.input_node_id(),
-                                matches!(info.state(), LinkState::Active),
+                                link_is_active(info),
                             );
                             publish_graph(&graph, &tx);
                         })
                         .register();
-                    store_bound_object(
-                        &bound_objects_ref,
-                        &graph_ref,
-                        &state_tx_ref,
-                        link,
-                        Box::new(listener),
-                    );
+                    store_bound_object(&bound_objects_ref, link, Box::new(listener));
                 }
                 _ => {}
             }
@@ -269,9 +268,7 @@ fn run_pipewire_monitor(
         .global_remove({
             let graph = Rc::clone(&graph);
             let state_tx = state_tx.clone();
-            let bound_objects = Rc::clone(&bound_objects);
             move |id| {
-                bound_objects.borrow_mut().remove(id);
                 graph.borrow_mut().remove_object(id);
                 publish_graph(&graph, &state_tx);
             }
@@ -279,17 +276,7 @@ fn run_pipewire_monitor(
         .register();
 
     publish_graph(&graph, &state_tx);
-
-    loop {
-        match control_rx.try_recv() {
-            Ok(MonitorControl::Refresh) => publish_graph(&graph, &state_tx),
-            Ok(MonitorControl::Shutdown) => break,
-            Err(std_mpsc::TryRecvError::Empty) => {}
-            Err(std_mpsc::TryRecvError::Disconnected) => break,
-        }
-
-        main_loop.loop_().iterate(PIPEWIRE_ITERATION_TIMEOUT);
-    }
+    main_loop.run();
 
     Ok(())
 }
@@ -306,57 +293,50 @@ fn publish_graph(
 
 fn store_bound_object<P: ProxyT + 'static>(
     bound_objects: &Rc<RefCell<BoundObjects>>,
-    graph: &Rc<RefCell<PipeWireGraph>>,
-    state_tx: &mpsc::UnboundedSender<MonitorMessage>,
     proxy: P,
     listener: Box<dyn Listener>,
 ) {
     let proxy_id = proxy.upcast_ref().id();
-    let mut bound_object = BoundObject {
-        proxy: Box::new(proxy),
-        listeners: vec![listener],
-    };
+    let proxy: Box<dyn ProxyT> = Box::new(proxy);
     let bound_objects_weak = Rc::downgrade(bound_objects);
-    let graph_weak = Rc::downgrade(graph);
-    let state_tx = state_tx.clone();
-    let proxy_listener = bound_object
-        .proxy
+    let proxy_listener = proxy
         .upcast_ref()
         .add_listener_local()
         .removed(move || {
             if let Some(bound_objects) = bound_objects_weak.upgrade() {
                 bound_objects.borrow_mut().remove(proxy_id);
             }
-            if let Some(graph) = graph_weak.upgrade() {
-                graph.borrow_mut().remove_object(proxy_id);
-                publish_graph(&graph, &state_tx);
-            }
         })
         .register();
-    bound_object.listeners.push(Box::new(proxy_listener));
-    bound_objects.borrow_mut().insert(proxy_id, bound_object);
+
+    bound_objects
+        .borrow_mut()
+        .insert(proxy_id, proxy, listener, Box::new(proxy_listener));
 }
 
 #[derive(Default)]
 struct BoundObjects {
-    objects: HashMap<u32, BoundObject>,
+    proxies: HashMap<u32, Box<dyn ProxyT>>,
+    listeners: HashMap<u32, Vec<Box<dyn Listener>>>,
 }
 
 impl BoundObjects {
-    fn insert(&mut self, id: u32, object: BoundObject) {
-        self.objects.insert(id, object);
+    fn insert(
+        &mut self,
+        proxy_id: u32,
+        proxy: Box<dyn ProxyT>,
+        object_listener: Box<dyn Listener>,
+        proxy_listener: Box<dyn Listener>,
+    ) {
+        self.proxies.insert(proxy_id, proxy);
+        self.listeners
+            .insert(proxy_id, vec![object_listener, proxy_listener]);
     }
 
-    fn remove(&mut self, id: u32) {
-        self.objects.remove(&id);
+    fn remove(&mut self, proxy_id: u32) {
+        self.proxies.remove(&proxy_id);
+        self.listeners.remove(&proxy_id);
     }
-}
-
-struct BoundObject {
-    #[allow(dead_code)]
-    proxy: Box<dyn ProxyT>,
-    #[allow(dead_code)]
-    listeners: Vec<Box<dyn Listener>>,
 }
 
 type Props = HashMap<String, String>;
@@ -373,8 +353,8 @@ impl PipeWireGraph {
         self.clients.insert(id, ClientInfo { props });
     }
 
-    fn update_node(&mut self, id: u32, props: Props) {
-        self.nodes.insert(id, NodeInfo { props });
+    fn update_node(&mut self, id: u32, props: Props, running: bool) {
+        self.nodes.insert(id, NodeInfo { props, running });
     }
 
     fn update_link(&mut self, id: u32, output_node: u32, input_node: u32, active: bool) {
@@ -398,6 +378,7 @@ impl PipeWireGraph {
         let cameras = self.camera_nodes();
         let mut usages = Vec::new();
         let mut seen = HashSet::new();
+        let mut attributed_cameras = HashSet::new();
 
         for link in self.links.values().filter(|link| link.active) {
             let Some((camera_id, app_id)) =
@@ -418,12 +399,39 @@ impl PipeWireGraph {
                 continue;
             }
 
+            attributed_cameras.insert(camera_id);
             usages.push(WebcamUsage {
                 id,
                 app_name: app.app_name,
                 app_icon: app.app_icon,
                 camera_name,
                 pipewire_node: Some(u64::from(app_id)),
+            });
+        }
+
+        for (camera_id, camera_name) in cameras {
+            if attributed_cameras.contains(&camera_id) {
+                continue;
+            }
+
+            let Some(node) = self.nodes.get(&camera_id) else {
+                continue;
+            };
+            if !node.running {
+                continue;
+            }
+
+            let id = format!("webcam:{camera_id}:active");
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+
+            usages.push(WebcamUsage {
+                id,
+                app_name: "Camera in use".into(),
+                app_icon: "camera-web-symbolic".into(),
+                camera_name,
+                pipewire_node: Some(u64::from(camera_id)),
             });
         }
 
@@ -497,6 +505,7 @@ struct ClientInfo {
 #[derive(Debug, Clone, Default)]
 struct NodeInfo {
     props: Props,
+    running: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -518,6 +527,14 @@ fn props_from_dict(dict: Option<&pw::spa::utils::dict::DictRef>) -> Props {
             .collect()
     })
     .unwrap_or_default()
+}
+
+fn node_is_running(info: &NodeInfoRef) -> bool {
+    info.as_raw().state == pw::sys::pw_node_state_PW_NODE_STATE_RUNNING
+}
+
+fn link_is_active(info: &LinkInfoRef) -> bool {
+    info.as_raw().state == pw::sys::pw_link_state_PW_LINK_STATE_ACTIVE
 }
 
 fn camera_link(output: u32, input: u32, cameras: &HashMap<u32, String>) -> Option<(u32, u32)> {
@@ -571,6 +588,7 @@ mod tests {
                 ("node.description", "Integrated Camera"),
                 ("object.path", "v4l2:/dev/video0"),
             ]),
+            true,
         );
         graph.update_client(
             20,
@@ -582,6 +600,7 @@ mod tests {
         graph.update_node(
             21,
             props(&[("client.id", "20"), ("node.name", "firefox-camera")]),
+            true,
         );
         graph.update_link(30, 10, 21, true);
 
@@ -607,11 +626,37 @@ mod tests {
                 ("media.role", "Camera"),
                 ("node.description", "Integrated Camera"),
             ]),
+            false,
         );
-        graph.update_node(21, props(&[("application.name", "Firefox")]));
+        graph.update_node(21, props(&[("application.name", "Firefox")]), false);
         graph.update_link(30, 10, 21, false);
 
         assert!(graph.usages().is_empty());
+    }
+
+    #[test]
+    fn renders_running_camera_node_without_link() {
+        let mut graph = PipeWireGraph::default();
+        graph.update_node(
+            10,
+            props(&[
+                ("media.class", "Video/Source"),
+                ("media.role", "Camera"),
+                ("node.description", "Integrated Camera"),
+            ]),
+            true,
+        );
+
+        assert_eq!(
+            graph.usages(),
+            vec![WebcamUsage {
+                id: "webcam:10:active".into(),
+                app_name: "Camera in use".into(),
+                app_icon: "camera-web-symbolic".into(),
+                camera_name: "Integrated Camera".into(),
+                pipewire_node: Some(10),
+            }]
+        );
     }
 
     fn props(items: &[(&str, &str)]) -> Props {

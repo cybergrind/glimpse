@@ -1,12 +1,15 @@
+use std::fs;
+
 use tokio::sync::{mpsc, watch};
-use tokio::time::{Duration, Instant, sleep};
+use tokio::time::{Duration, Instant, MissedTickBehavior, interval, sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     compositors::{
         Compositor, CompositorCapabilities, CompositorEvent, CompositorRefresh, CompositorSnapshot,
         CompositorStructureSnapshot, CompositorType, KeyboardLayout, KeyboardLayoutSnapshot,
-        Monitor, ScreencastSession, Window, Workspace, detect_compositor,
+        Monitor, ScreencastKind, ScreencastSession, ScreencastTarget, Window, Workspace,
+        detect_compositor,
     },
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
@@ -15,6 +18,8 @@ const COMMAND_QUEUE_SIZE: usize = 8;
 const EVENT_QUEUE_SIZE: usize = 32;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const REFRESH_DEBOUNCE: Duration = Duration::from_millis(40);
+const DIRECT_SCREENCAST_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const DIRECT_SCREENCAST_ID_PREFIX: &str = "direct-screen-capture:";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
@@ -111,6 +116,10 @@ impl CompositorService {
         let refresh_timer = sleep(REFRESH_DEBOUNCE);
         tokio::pin!(refresh_timer);
         let mut pending_refresh = None;
+        let mut direct_screencast_tick = interval(DIRECT_SCREENCAST_REFRESH_INTERVAL);
+        direct_screencast_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        direct_screencast_tick.tick().await;
+        self.refresh_direct_screencasts().await;
 
         loop {
             tokio::select! {
@@ -145,6 +154,9 @@ impl CompositorService {
                     }
                     Some(event) => self.apply_event(compositor, event).await,
                     None => return Ok(RunOutcome::RetryAfterDelay),
+                },
+                _ = direct_screencast_tick.tick() => {
+                    self.refresh_direct_screencasts().await;
                 },
                 command = self.command_rx.recv() => match command {
                     Some(ServiceCommand::Command(command)) => {
@@ -308,7 +320,7 @@ impl CompositorService {
                     changed |= sync_current_workspace_from_focus_or_workspace(state);
                 }
                 CompositorEvent::ScreencastsChanged(screencasts) => {
-                    changed |= set_if_changed(&mut state.screencasts, screencasts);
+                    changed |= apply_compositor_screencasts(&mut state.screencasts, screencasts);
                 }
                 CompositorEvent::ScreencastChanged(screencast) => {
                     changed |= apply_screencast_changed(state, screencast);
@@ -419,6 +431,22 @@ impl CompositorService {
             tracing::warn!(error = %error, "compositor command failed");
         }
     }
+
+    async fn refresh_direct_screencasts(&self) {
+        match tokio::task::spawn_blocking(scan_direct_screencasts).await {
+            Ok(screencasts) => {
+                self.state_tx.send_if_modified(|state| {
+                    apply_direct_screencasts(&mut state.screencasts, screencasts)
+                });
+            }
+            Err(error) => {
+                tracing::warn!(?error, "failed to scan direct screencast usage");
+                self.state_tx.send_if_modified(|state| {
+                    apply_direct_screencasts(&mut state.screencasts, Vec::new())
+                });
+            }
+        }
+    }
 }
 
 fn apply_snapshot(
@@ -439,7 +467,7 @@ fn apply_snapshot(
     } = snapshot;
     let mut changed = set_if_changed(&mut state.compositor, compositor);
     changed |= set_if_changed(&mut state.capabilities, capabilities);
-    changed |= set_if_changed(&mut state.screencasts, screencasts);
+    changed |= apply_compositor_screencasts(&mut state.screencasts, screencasts);
     changed |= apply_structure_snapshot(
         state,
         CompositorStructureSnapshot {
@@ -477,6 +505,28 @@ fn apply_screencast_changed(state: &mut State, screencast: ScreencastSession) ->
 
     state.screencasts.push(screencast);
     true
+}
+
+fn apply_compositor_screencasts(
+    screencasts: &mut Vec<ScreencastSession>,
+    compositor: Vec<ScreencastSession>,
+) -> bool {
+    let original = screencasts.clone();
+    screencasts.retain(|session| is_direct_screencast(&session.id));
+    screencasts.extend(compositor);
+    screencasts.sort_by(|left, right| left.id.cmp(&right.id));
+    *screencasts != original
+}
+
+fn apply_direct_screencasts(
+    screencasts: &mut Vec<ScreencastSession>,
+    direct: Vec<ScreencastSession>,
+) -> bool {
+    let original = screencasts.clone();
+    screencasts.retain(|session| !is_direct_screencast(&session.id));
+    screencasts.extend(direct);
+    screencasts.sort_by(|left, right| left.id.cmp(&right.id));
+    *screencasts != original
 }
 
 fn apply_structure_snapshot(state: &mut State, snapshot: CompositorStructureSnapshot) -> bool {
@@ -581,10 +631,67 @@ fn sync_current_workspace_from_focus_or_workspace(state: &mut State) -> bool {
     set_if_changed(&mut state.current_workspace, current_workspace)
 }
 
+fn scan_direct_screencasts() -> Vec<ScreencastSession> {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+
+    let mut screencasts = entries
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<i32>().ok())?;
+            let process_name = process_name(pid)?;
+            if !is_direct_screencast_process(&process_name) {
+                return None;
+            }
+
+            Some(ScreencastSession {
+                id: format!("{DIRECT_SCREENCAST_ID_PREFIX}{pid}:{process_name}"),
+                session_id: None,
+                kind: ScreencastKind::WlrScreencopy,
+                target: ScreencastTarget::Monitor,
+                active: true,
+                pipewire_node: None,
+                client_pid: Some(pid),
+                stoppable: false,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    screencasts.sort_by(|left, right| left.id.cmp(&right.id));
+    screencasts
+}
+
+fn process_name(pid: i32) -> Option<String> {
+    let name = fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+fn is_direct_screencast_process(name: &str) -> bool {
+    matches!(
+        name,
+        "wf-recorder"
+            | "wl-screenrec"
+            | "gpu-screen-recorder"
+            | "kooha"
+            | "obs"
+            | "obs-studio"
+            | "wl-mirror"
+    )
+}
+
+fn is_direct_screencast(id: &str) -> bool {
+    id.starts_with(DIRECT_SCREENCAST_ID_PREFIX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compositors::niri::Niri;
+    use crate::compositors::{ScreencastKind, ScreencastTarget, niri::Niri};
 
     #[test]
     fn publishes_compositor_identity_before_snapshot_data() {
@@ -679,6 +786,68 @@ mod tests {
         assert_eq!(value, Some(2));
     }
 
+    #[test]
+    fn applies_direct_screencasts_without_removing_compositor_sessions() {
+        let mut screencasts = vec![screencast("niri:1", ScreencastKind::PipeWire)];
+        let direct = vec![screencast(
+            "direct-screen-capture:42:wf-recorder",
+            ScreencastKind::WlrScreencopy,
+        )];
+
+        assert!(apply_direct_screencasts(&mut screencasts, direct));
+        assert_eq!(screencasts.len(), 2);
+
+        assert!(!apply_direct_screencasts(
+            &mut screencasts,
+            vec![screencast(
+                "direct-screen-capture:42:wf-recorder",
+                ScreencastKind::WlrScreencopy,
+            )],
+        ));
+
+        assert!(apply_direct_screencasts(&mut screencasts, Vec::new()));
+        assert_eq!(
+            screencasts,
+            vec![screencast("niri:1", ScreencastKind::PipeWire)]
+        );
+    }
+
+    #[test]
+    fn compositor_screencast_replacement_preserves_direct_sessions() {
+        let mut screencasts = vec![
+            screencast("old-niri", ScreencastKind::PipeWire),
+            screencast(
+                "direct-screen-capture:42:wf-recorder",
+                ScreencastKind::WlrScreencopy,
+            ),
+        ];
+
+        assert!(apply_compositor_screencasts(
+            &mut screencasts,
+            vec![screencast("new-niri", ScreencastKind::PipeWire)]
+        ));
+
+        assert_eq!(
+            screencasts,
+            vec![
+                screencast(
+                    "direct-screen-capture:42:wf-recorder",
+                    ScreencastKind::WlrScreencopy,
+                ),
+                screencast("new-niri", ScreencastKind::PipeWire),
+            ]
+        );
+    }
+
+    #[test]
+    fn identifies_direct_screencast_processes() {
+        assert!(is_direct_screencast_process("wf-recorder"));
+        assert!(is_direct_screencast_process("wl-screenrec"));
+        assert!(is_direct_screencast_process("obs"));
+        assert!(!is_direct_screencast_process("firefox"));
+        assert!(!is_direct_screencast_process("pipewire"));
+    }
+
     fn window(id: usize, focused: bool, workspace: Option<usize>) -> Window {
         Window {
             id,
@@ -714,6 +883,19 @@ mod tests {
             description: None,
             active_workspace,
             focused,
+        }
+    }
+
+    fn screencast(id: &str, kind: ScreencastKind) -> ScreencastSession {
+        ScreencastSession {
+            id: id.into(),
+            session_id: None,
+            kind,
+            target: ScreencastTarget::Monitor,
+            active: true,
+            pipewire_node: None,
+            client_pid: None,
+            stoppable: false,
         }
     }
 }

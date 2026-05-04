@@ -1,24 +1,9 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    sync::mpsc as std_mpsc,
-    thread,
-    time::Instant,
-};
+use std::process::Stdio;
 
-use libpulse_binding as pulse;
-use pulse::{
-    callbacks::ListResult,
-    context::{
-        Context as PulseContext, FlagSet as PulseContextFlagSet, State as PulseContextState,
-        subscribe::{Facility, InterestMaskSet, Operation},
-    },
-    mainloop::standard::{IterateResult as PulseIterateResult, Mainloop as PulseMainloop},
-    operation::State as PulseOperationState,
-    proplist::Proplist as PulseProplist,
-};
 use serde::{Deserialize, Serialize};
 use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command as TokioCommand,
     sync::{mpsc, watch},
     time::{Duration, sleep},
 };
@@ -28,8 +13,6 @@ use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
 
 const COMMAND_QUEUE_SIZE: usize = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
-const PULSE_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
-const PULSE_ITERATION_PAUSE: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MicrophoneUsage {
@@ -58,18 +41,11 @@ pub struct MicrophoneService {
 
 enum RunOutcome {
     Cancelled,
+    Restart,
     RetryAfterDelay,
 }
 
-enum MonitorControl {
-    Refresh,
-    Shutdown,
-}
-
-enum MonitorMessage {
-    State(State),
-    Failed(String),
-}
+struct MicrophoneClient;
 
 impl MicrophoneService {
     pub fn new() -> (Self, MicrophoneHandle) {
@@ -97,6 +73,7 @@ impl MicrophoneService {
 
             match outcome {
                 RunOutcome::Cancelled => break,
+                RunOutcome::Restart => continue,
                 RunOutcome::RetryAfterDelay => {
                     tokio::select! {
                         _ = cancel.cancelled() => break,
@@ -108,46 +85,73 @@ impl MicrophoneService {
     }
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
-        let (monitor_tx, mut monitor_rx) = mpsc::unbounded_channel();
-        let (control_tx, control_rx) = std_mpsc::channel();
-        let monitor = thread::Builder::new()
-            .name("glimpse-microphone-pulse".into())
-            .spawn(move || {
-                if let Err(error) = run_pulse_monitor(monitor_tx.clone(), control_rx) {
-                    let _ = monitor_tx.send(MonitorMessage::Failed(error.to_string()));
-                }
-            })?;
+        let client = MicrophoneClient;
+        if !client.available().await {
+            tracing::warn!("microphone service unavailable: pactl is not available");
+            self.change_state(State::default());
+            return Ok(RunOutcome::RetryAfterDelay);
+        }
+
+        self.refresh(&client).await;
+
+        let mut sub = TokioCommand::new("pactl")
+            .arg("subscribe")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdout = sub
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("pactl subscribe did not expose stdout"))?;
+        let mut lines = BufReader::new(stdout).lines();
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    stop_monitor(control_tx, monitor).await;
+                    let _ = sub.kill().await;
                     return Ok(RunOutcome::Cancelled);
                 }
-                command = self.command_rx.recv() => match command {
-                    Some(ServiceCommand::Control(Control::Shutdown)) | None => {
-                        stop_monitor(control_tx, monitor).await;
+                command = self.command_rx.recv() => {
+                    let Some(command) = command else {
+                        let _ = sub.kill().await;
                         return Ok(RunOutcome::Cancelled);
-                    }
-                    Some(ServiceCommand::Control(Control::Start(_) | Control::Reconfigure(_)))
-                    | Some(ServiceCommand::Command(Command::Refresh)) => {
-                        let _ = control_tx.send(MonitorControl::Refresh);
-                    }
-                },
-                message = monitor_rx.recv() => match message {
-                    Some(MonitorMessage::State(state)) => self.change_state(state),
-                    Some(MonitorMessage::Failed(error)) => {
-                        tracing::warn!(%error, "pulse microphone monitor failed");
-                        self.change_state(State::default());
-                        stop_monitor(control_tx, monitor).await;
-                        return Ok(RunOutcome::RetryAfterDelay);
-                    }
-                    None => {
-                        self.change_state(State::default());
-                        stop_monitor(control_tx, monitor).await;
-                        return Ok(RunOutcome::RetryAfterDelay);
+                    };
+
+                    match command {
+                        ServiceCommand::Control(Control::Shutdown) => {
+                            let _ = sub.kill().await;
+                            return Ok(RunOutcome::Cancelled);
+                        }
+                        ServiceCommand::Control(Control::Start(_) | Control::Reconfigure(_))
+                        | ServiceCommand::Command(Command::Refresh) => {
+                            self.refresh(&client).await;
+                        }
                     }
                 }
+                line = lines.next_line() => match line {
+                    Ok(Some(line)) if should_refresh(&line) => {
+                        self.refresh(&client).await;
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        let _ = sub.kill().await;
+                        return Ok(RunOutcome::Restart);
+                    }
+                    Err(error) => {
+                        let _ = sub.kill().await;
+                        return Err(error.into());
+                    }
+                }
+            }
+        }
+    }
+
+    async fn refresh(&self, client: &MicrophoneClient) {
+        match client.fetch_state().await {
+            Ok(state) => self.change_state(state),
+            Err(error) => {
+                tracing::warn!(%error, "failed to refresh microphone state");
+                self.change_state(State::default());
             }
         }
     }
@@ -163,189 +167,71 @@ impl MicrophoneService {
     }
 }
 
-async fn stop_monitor(
-    control_tx: std_mpsc::Sender<MonitorControl>,
-    monitor: thread::JoinHandle<()>,
-) {
-    let _ = control_tx.send(MonitorControl::Shutdown);
-    let _ = tokio::task::spawn_blocking(move || monitor.join()).await;
-}
-
-fn run_pulse_monitor(
-    state_tx: mpsc::UnboundedSender<MonitorMessage>,
-    control_rx: std_mpsc::Receiver<MonitorControl>,
-) -> anyhow::Result<()> {
-    let mut proplist =
-        PulseProplist::new().ok_or_else(|| anyhow::anyhow!("failed to create pulse proplist"))?;
-    proplist
-        .set_str(
-            pulse::proplist::properties::APPLICATION_NAME,
-            "glimpse-shell",
-        )
-        .map_err(|()| anyhow::anyhow!("failed to set pulse application name"))?;
-
-    let mut mainloop =
-        PulseMainloop::new().ok_or_else(|| anyhow::anyhow!("failed to create pulse mainloop"))?;
-    let mut context =
-        PulseContext::new_with_proplist(&mainloop, "glimpse-shell-microphone-monitor", &proplist)
-            .ok_or_else(|| anyhow::anyhow!("failed to create pulse context"))?;
-    context
-        .connect(None, PulseContextFlagSet::NOFLAGS, None)
-        .map_err(|error| anyhow::anyhow!("failed to connect to pulse: {error:?}"))?;
-    wait_for_pulse_context(
-        &mut mainloop,
-        &context,
-        Instant::now() + PULSE_QUERY_TIMEOUT,
-    )?;
-
-    let pending_refresh = Rc::new(Cell::new(false));
-    let pending_refresh_ref = Rc::clone(&pending_refresh);
-    context.set_subscribe_callback(Some(Box::new(move |facility, operation, _index| {
-        if facility == Some(Facility::SourceOutput)
-            && matches!(
-                operation,
-                Some(Operation::New | Operation::Changed | Operation::Removed)
-            )
-        {
-            pending_refresh_ref.set(true);
-        }
-    })));
-    let subscribe = context.subscribe(InterestMaskSet::SOURCE_OUTPUT, |_| {});
-    wait_for_pulse_operation(
-        &mut mainloop,
-        &subscribe,
-        Instant::now() + PULSE_QUERY_TIMEOUT,
-    )?;
-
-    publish_usages(&mut mainloop, &context, &state_tx)?;
-
-    loop {
-        match control_rx.try_recv() {
-            Ok(MonitorControl::Refresh) => pending_refresh.set(true),
-            Ok(MonitorControl::Shutdown) => break,
-            Err(std_mpsc::TryRecvError::Empty) => {}
-            Err(std_mpsc::TryRecvError::Disconnected) => break,
-        }
-
-        iterate_pulse(&mut mainloop)?;
-
-        if pending_refresh.replace(false) {
-            publish_usages(&mut mainloop, &context, &state_tx)?;
-        }
+impl MicrophoneClient {
+    async fn available(&self) -> bool {
+        TokioCommand::new("pactl")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .is_ok_and(|status| status.success())
     }
 
-    context.disconnect();
-    Ok(())
-}
-
-fn publish_usages(
-    mainloop: &mut PulseMainloop,
-    context: &PulseContext,
-    state_tx: &mpsc::UnboundedSender<MonitorMessage>,
-) -> anyhow::Result<()> {
-    state_tx
-        .send(MonitorMessage::State(State {
+    async fn fetch_state(&self) -> anyhow::Result<State> {
+        Ok(State {
             available: true,
-            usages: fetch_microphone_usages(mainloop, context)?,
-        }))
-        .map_err(|error| anyhow::anyhow!("failed to publish microphone state: {error}"))
+            usages: parse_microphone_usages(&pactl_json(&["list", "source-outputs"]).await?),
+        })
+    }
 }
 
-fn fetch_microphone_usages(
-    mainloop: &mut PulseMainloop,
-    context: &PulseContext,
-) -> anyhow::Result<Vec<MicrophoneUsage>> {
-    let done = Rc::new(Cell::new(false));
-    let usages = Rc::new(RefCell::new(Vec::new()));
-    let failed = Rc::new(Cell::new(false));
-    let done_ref = Rc::clone(&done);
-    let usages_ref = Rc::clone(&usages);
-    let failed_ref = Rc::clone(&failed);
+fn should_refresh(line: &str) -> bool {
+    let line = line.to_ascii_lowercase();
+    line.contains("source-output") || line.contains("source output")
+}
 
-    let operation = context
-        .introspect()
-        .get_source_output_info_list(move |result| match result {
-            ListResult::Item(info) => {
-                if let Some(usage) = microphone_usage_from_pulse_info(
-                    u64::from(info.index),
-                    |key| info.proplist.get_str(key),
-                    info.name.as_deref(),
-                ) {
-                    usages_ref.borrow_mut().push(usage);
-                }
-            }
-            ListResult::End => done_ref.set(true),
-            ListResult::Error => {
-                failed_ref.set(true);
-                done_ref.set(true);
-            }
-        });
+async fn pactl_json(args: &[&str]) -> anyhow::Result<serde_json::Value> {
+    let output = TokioCommand::new("pactl")
+        .args(["--format", "json"])
+        .args(args)
+        .env("LC_NUMERIC", "C")
+        .stderr(Stdio::null())
+        .output()
+        .await?;
 
-    wait_for_pulse_operation(mainloop, &operation, Instant::now() + PULSE_QUERY_TIMEOUT)?;
-
-    if failed.get() {
-        return Err(anyhow::anyhow!("pulse source output query failed"));
+    if !output.status.success() {
+        return Err(anyhow::anyhow!("pactl {} failed", args.join(" ")));
     }
 
-    let mut usages = usages.borrow().clone();
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn parse_microphone_usages(data: &serde_json::Value) -> Vec<MicrophoneUsage> {
+    let Some(outputs) = data.as_array() else {
+        return Vec::new();
+    };
+
+    let mut usages = outputs
+        .iter()
+        .filter_map(|output| {
+            let index = output["index"].as_u64()?;
+            let props = &output["properties"];
+            microphone_usage_from_pactl_info(
+                index,
+                |key| json_string(props, key),
+                output["name"].as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+
     usages.sort_by(|left, right| {
         (left.app_name.as_str(), left.index).cmp(&(right.app_name.as_str(), right.index))
     });
-    Ok(usages)
+    usages
 }
 
-fn wait_for_pulse_context(
-    mainloop: &mut PulseMainloop,
-    context: &PulseContext,
-    deadline: Instant,
-) -> anyhow::Result<()> {
-    loop {
-        if Instant::now() >= deadline {
-            return Err(anyhow::anyhow!("pulse context connection timed out"));
-        }
-        iterate_pulse(mainloop)?;
-
-        match context.get_state() {
-            PulseContextState::Ready => return Ok(()),
-            PulseContextState::Failed | PulseContextState::Terminated => {
-                return Err(anyhow::anyhow!("pulse context failed"));
-            }
-            _ => {}
-        }
-    }
-}
-
-fn wait_for_pulse_operation<T: ?Sized>(
-    mainloop: &mut PulseMainloop,
-    operation: &pulse::operation::Operation<T>,
-    deadline: Instant,
-) -> anyhow::Result<()> {
-    while operation.get_state() == PulseOperationState::Running {
-        if Instant::now() >= deadline {
-            return Err(anyhow::anyhow!("pulse operation timed out"));
-        }
-        iterate_pulse(mainloop)?;
-    }
-
-    match operation.get_state() {
-        PulseOperationState::Done => Ok(()),
-        PulseOperationState::Cancelled => Err(anyhow::anyhow!("pulse operation cancelled")),
-        PulseOperationState::Running => unreachable!("running pulse operation loop exited"),
-    }
-}
-
-fn iterate_pulse(mainloop: &mut PulseMainloop) -> anyhow::Result<()> {
-    match mainloop.iterate(false) {
-        PulseIterateResult::Success(_) => {
-            thread::sleep(PULSE_ITERATION_PAUSE);
-            Ok(())
-        }
-        PulseIterateResult::Quit(retval) => Err(anyhow::anyhow!("pulse mainloop quit: {retval:?}")),
-        PulseIterateResult::Err(error) => Err(anyhow::anyhow!("pulse mainloop error: {error:?}")),
-    }
-}
-
-fn microphone_usage_from_pulse_info(
+fn microphone_usage_from_pactl_info(
     index: u64,
     prop: impl Fn(&str) -> Option<String>,
     stream_name: Option<&str>,
@@ -364,6 +250,13 @@ fn microphone_usage_from_pulse_info(
         app_icon: first_non_empty_string(&[prop("application.icon_name")])
             .unwrap_or_else(|| "application-x-executable-symbolic".into()),
     })
+}
+
+fn json_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value[key]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn is_ignored_microphone_client(app_id: Option<&str>, app_name: &str) -> bool {
@@ -386,8 +279,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_recording_apps_from_pulse_source_outputs() {
-        let usage = microphone_usage_from_pulse_info(
+    fn maps_recording_apps_from_source_outputs() {
+        let usage = microphone_usage_from_pactl_info(
             7,
             |key| match key {
                 "application.name" => Some("Telegram".into()),
@@ -408,9 +301,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_source_outputs_from_pactl_json() {
+        let usages = parse_microphone_usages(&serde_json::json!([
+            {
+                "index": 8,
+                "name": "record stream",
+                "properties": {
+                    "application.name": "Firefox",
+                    "application.icon_name": "firefox"
+                }
+            }
+        ]));
+
+        assert_eq!(
+            usages,
+            vec![MicrophoneUsage {
+                index: 8,
+                app_name: "Firefox".into(),
+                app_icon: "firefox".into(),
+            }]
+        );
+    }
+
+    #[test]
     fn ignores_volume_control_source_outputs() {
         assert_eq!(
-            microphone_usage_from_pulse_info(
+            microphone_usage_from_pactl_info(
                 8,
                 |key| match key {
                     "application.id" => Some("org.PulseAudio.pavucontrol".into()),
@@ -421,5 +337,12 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn should_refresh_only_for_source_output_events() {
+        assert!(should_refresh("Event 'remove' on source-output #12"));
+        assert!(should_refresh("Event 'new' on source output #12"));
+        assert!(!should_refresh("Event 'change' on sink #1"));
     }
 }

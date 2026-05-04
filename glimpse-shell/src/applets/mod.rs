@@ -8,6 +8,7 @@ pub mod mpris;
 pub mod network;
 pub mod notifications;
 pub mod pager;
+pub mod privacy;
 pub mod session;
 pub mod tray;
 pub mod weather;

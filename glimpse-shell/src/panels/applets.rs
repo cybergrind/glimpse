@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::{
     applets::{
         audio, battery, bluetooth, clock, exec, keyboard, mpris, network, notifications, pager,
-        session, tray, weather,
+        privacy, session, tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -49,6 +49,7 @@ pub enum AppletController {
     Network(Controller<network::Applet>),
     Notifications(Controller<notifications::Applet>),
     Pager(Controller<pager::Applet>),
+    Privacy(Controller<privacy::Applet>),
     Session(Controller<session::Applet>),
     Tray(Controller<tray::Applet>),
     Weather(Controller<weather::Applet>),
@@ -67,6 +68,7 @@ impl AppletController {
             Self::Network(_) => AppletType::Network,
             Self::Notifications(_) => AppletType::Notifications,
             Self::Pager(_) => AppletType::Pager,
+            Self::Privacy(_) => AppletType::Privacy,
             Self::Session(_) => AppletType::Session,
             Self::Tray(_) => AppletType::Tray,
             Self::Weather(_) => AppletType::Weather,
@@ -85,6 +87,7 @@ impl AppletController {
             Self::Network(controller) => controller.widget().clone().upcast(),
             Self::Notifications(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
+            Self::Privacy(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
             Self::Tray(controller) => controller.widget().clone().upcast(),
             Self::Weather(controller) => controller.widget().clone().upcast(),
@@ -140,6 +143,11 @@ impl AppletController {
             }
             Self::Pager(controller) => {
                 controller.emit(pager::Input::Reconfigure(pager::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Privacy(controller) => {
+                controller.emit(privacy::Input::Reconfigure(privacy::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -251,6 +259,17 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(pager::Init {
                     service: services.compositor.clone(),
                     config: pager::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Privacy => Some(AppletController::Privacy(
+            privacy::Applet::builder()
+                .launch(privacy::Init {
+                    microphone: services.microphone.clone(),
+                    webcam: services.webcam.clone(),
+                    compositor: services.compositor.clone(),
+                    geoclue: services.geoclue.clone(),
+                    config: privacy::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -603,6 +622,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "pager");
         assert_eq!(entries[0].applet_type, AppletType::Pager);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_privacy_builtin_name() {
+        let entries = collect_applets(PanelSection::Right, &["privacy".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "privacy");
+        assert_eq!(entries[0].applet_type, AppletType::Privacy);
         assert!(entries[0].config.is_none());
     }
 

@@ -50,6 +50,7 @@ impl Default for PanelConfig {
             right: vec![
                 "tray".into(),
                 "keyboard".into(),
+                "privacy".into(),
                 "bluetooth".into(),
                 "network".into(),
                 "audio".into(),
@@ -73,6 +74,7 @@ pub enum AppletType {
     Network,
     Notifications,
     Pager,
+    Privacy,
     Session,
     Tray,
     Weather,
@@ -91,6 +93,7 @@ impl AppletType {
             "network" => Some(Self::Network),
             "notifications" => Some(Self::Notifications),
             "pager" => Some(Self::Pager),
+            "privacy" => Some(Self::Privacy),
             "session" => Some(Self::Session),
             "tray" => Some(Self::Tray),
             "weather" => Some(Self::Weather),

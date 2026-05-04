@@ -919,6 +919,10 @@ popover.popover-size-xlarge {
     color: var(--color-warning);
 }
 
+.privacy-screen-indicator {
+    color: var(--color-danger);
+}
+
 /* Network popover */
 
 .network-popover .section-block__header,

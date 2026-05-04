@@ -24,3 +24,4 @@ var/
 !var/sysstats/**
 var/sysstats/sysstats-applet
 config.toml
+.envrc
