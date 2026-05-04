@@ -106,7 +106,7 @@ Start it together with `glimpse-shell` for shell-based sessions. Do not run it a
 
 ## Arch Linux PKGBUILD notes
 
-The AUR package is `glimpse` and consumes GitHub release binaries. It does not compile Rust code on user machines. Release archives are named:
+The AUR package is `glimpse-desktop-bin` and consumes GitHub release binaries. It does not compile Rust code on user machines. Release archives are named:
 
 ```text
 glimpse-<version>-x86_64.tar.zst
@@ -127,7 +127,7 @@ Local release helpers:
 ```bash
 just binary-package      # Build dist/glimpse-<version>-x86_64.tar.zst
 just github-release      # Upload the local archive to the matching GitHub release
-just aur-publish         # Publish PKGBUILD + .SRCINFO to ssh://aur@aur.archlinux.org/glimpse.git
+just aur-publish         # Publish PKGBUILD + .SRCINFO to ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git
 just release-local       # Tag, push, upload release asset, then publish AUR metadata
 ```
 

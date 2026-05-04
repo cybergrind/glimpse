@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     env:
-      AUR_PKG: glimpse
-      AUR_REMOTE: ssh://aur@aur.archlinux.org/glimpse.git
+      AUR_PKG: glimpse-desktop-bin
+      AUR_REMOTE: ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git
       AUR_KEY_SET: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
     steps:
       - name: Install build and release dependencies

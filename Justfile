@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-aur_pkg := "glimpse"
-aur_remote := "ssh://aur@aur.archlinux.org/glimpse.git"
+aur_pkg := "glimpse-desktop-bin"
+aur_remote := "ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git"
 github_repo := "alex-oleshkevich/glimpse"
 
 default:
