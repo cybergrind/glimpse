@@ -105,7 +105,7 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            aur@aur.archlinux.org help >/dev/null
+            aur@aur.archlinux.org help >/dev/null 2>&1
 
       - name: Publish AUR package
         if: env.ACT != 'true' && env.AUR_KEY_SET == 'true'
@@ -119,6 +119,7 @@ jobs:
           cd "$tmpdir"
           useradd -m builder
           chown -R builder:builder "$tmpdir"
+          git config --global --add safe.directory "$tmpdir"
           runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
           git add PKGBUILD .SRCINFO
           if git diff --cached --quiet; then
