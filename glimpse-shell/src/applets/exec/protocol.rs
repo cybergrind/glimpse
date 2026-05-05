@@ -207,6 +207,17 @@ pub struct SectionNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollapsibleSectionNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    pub title: String,
+    #[serde(default)]
+    pub expanded: bool,
+    #[serde(default)]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RowNode {
     #[serde(flatten)]
     pub common: CommonProps,
@@ -217,6 +228,34 @@ pub struct RowNode {
     pub meta: String,
     #[serde(default)]
     pub icon: Option<Icon>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionMenuItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub icon: Option<Icon>,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub checked: Option<bool>,
+    #[serde(default)]
+    pub selectable: Option<bool>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionMenuNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub header: Option<String>,
+    #[serde(default)]
+    pub items: Vec<ActionMenuItemNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,6 +292,16 @@ pub struct BadgeNode {
 pub struct StatusDotNode {
     #[serde(flatten)]
     pub common: CommonProps,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceStatusNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -413,11 +462,14 @@ pub enum TreeNode {
     Hero(HeroNode),
     Card(CardNode),
     Section(SectionNode),
+    CollapsibleSection(CollapsibleSectionNode),
+    ActionMenu(ActionMenuNode),
     Row(RowNode),
     DetailGrid(DetailGridNode),
     EmptyState(EmptyStateNode),
     Badge(BadgeNode),
     StatusDot(StatusDotNode),
+    DeviceStatus(DeviceStatusNode),
     Box(BoxNode),
     Grid(GridNode),
     Scroll(ScrollNode),

@@ -226,6 +226,24 @@ func NewSection(title string, children []TreeNode) TreeNode {
 	return TreeNode{Type: "section", Data: Section{Title: title, Children: children}}
 }
 
+type CollapsibleSection struct {
+	CommonProps
+	Title    string     `json:"title"`
+	Expanded bool       `json:"expanded"`
+	Children []TreeNode `json:"children"`
+}
+
+func NewCollapsibleSection(title string, expanded bool, children []TreeNode) TreeNode {
+	return TreeNode{
+		Type: "collapsible_section",
+		Data: CollapsibleSection{
+			Title:    title,
+			Expanded: expanded,
+			Children: children,
+		},
+	}
+}
+
 type Row struct {
 	CommonProps
 	Title    string `json:"title"`
@@ -236,6 +254,31 @@ type Row struct {
 
 func NewRow(id string, title string) TreeNode {
 	return TreeNode{Type: "row", Data: Row{CommonProps: CommonProps{ID: id}, Title: title}}
+}
+
+type ActionMenuItem struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Icon       *Icon  `json:"icon,omitempty"`
+	Visible    bool   `json:"visible"`
+	Checked    *bool  `json:"checked,omitempty"`
+	Selectable *bool  `json:"selectable,omitempty"`
+}
+
+type ActionMenu struct {
+	CommonProps
+	Header string           `json:"header,omitempty"`
+	Items  []ActionMenuItem `json:"items"`
+}
+
+func NewActionMenu(header string, items []ActionMenuItem) TreeNode {
+	return TreeNode{
+		Type: "action_menu",
+		Data: ActionMenu{
+			Header: header,
+			Items:  items,
+		},
+	}
 }
 
 type DetailGridItem struct {
@@ -277,6 +320,16 @@ type StatusDot struct {
 
 func NewStatusDot() TreeNode {
 	return TreeNode{Type: "status_dot", Data: StatusDot{}}
+}
+
+type DeviceStatus struct {
+	CommonProps
+	Label string `json:"label,omitempty"`
+	Busy  bool   `json:"busy,omitempty"`
+}
+
+func NewDeviceStatus(label string, busy bool) TreeNode {
+	return TreeNode{Type: "device_status", Data: DeviceStatus{Label: label, Busy: busy}}
 }
 
 func BoxVertical(children []TreeNode, spacing int) TreeNode {

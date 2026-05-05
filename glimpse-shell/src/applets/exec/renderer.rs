@@ -9,6 +9,8 @@ use crate::components::{
     action_row::{ActionRow, ActionRowInit},
     badge::BadgeView,
     card_surface::CardSurface,
+    collapsible_section::CollapsibleSectionView,
+    device_status::DeviceStatusView,
     empty_state::EmptyStateView,
     hero::HeroView,
     key_value_grid::{KeyValueItem, static_key_value_grid},
@@ -17,10 +19,11 @@ use crate::components::{
 };
 
 use super::protocol::{
-    AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode, CheckboxNode, CommonProps,
-    DetailGridNode, DropdownNode, EmptyStateNode, EventKind, EventPayload, EventSource, GridNode,
-    HeroNode, Icon, IconNode, ImageNode, LabelNode, OrientationValue, ProgressNode, RowNode,
-    ScaleNode, ScrollNode, SectionNode, SeparatorNode, StatusDotNode, SwitchNode, TreeNode,
+    ActionMenuNode, AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode, CheckboxNode,
+    CollapsibleSectionNode, CommonProps, DetailGridNode, DeviceStatusNode, DropdownNode,
+    EmptyStateNode, EventKind, EventPayload, EventSource, GridNode, HeroNode, Icon, IconNode,
+    ImageNode, LabelNode, OrientationValue, ProgressNode, RowNode, ScaleNode, ScrollNode,
+    SectionNode, SeparatorNode, StatusDotNode, SwitchNode, TreeNode,
 };
 
 pub type EventSink = Rc<dyn Fn(EventPayload)>;
@@ -40,11 +43,14 @@ impl RenderCatalog {
             TreeNode::Hero(data) => self.render_hero(data),
             TreeNode::Card(data) => self.render_card(data),
             TreeNode::Section(data) => self.render_section(data),
+            TreeNode::CollapsibleSection(data) => self.render_collapsible_section(data),
+            TreeNode::ActionMenu(data) => self.render_action_menu(data),
             TreeNode::Row(data) => self.render_row(data),
             TreeNode::DetailGrid(data) => Ok(self.render_detail_grid(data).upcast()),
             TreeNode::EmptyState(data) => Ok(self.render_empty_state(data).upcast()),
             TreeNode::Badge(data) => Ok(self.render_badge(data).upcast()),
             TreeNode::StatusDot(data) => Ok(self.render_status_dot(data).upcast()),
+            TreeNode::DeviceStatus(data) => Ok(self.render_device_status(data).upcast()),
             TreeNode::Box(data) => self.render_box(data),
             TreeNode::Grid(data) => self.render_grid(data),
             TreeNode::Scroll(data) => self.render_scroll(data),
@@ -103,6 +109,36 @@ impl RenderCatalog {
         Ok(root.upcast())
     }
 
+    fn render_collapsible_section(
+        &self,
+        data: &CollapsibleSectionNode,
+    ) -> Result<gtk::Widget, RenderError> {
+        let section = CollapsibleSectionView::init(());
+        section.title.set_label(&data.title);
+        section.content.set_visible(data.expanded);
+        section.chevron.set_icon_name(Some(if data.expanded {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        }));
+        for child in &data.children {
+            section.content.append(&self.render(child)?);
+        }
+        let content = section.content.clone();
+        let chevron = section.chevron.clone();
+        section.button.connect_clicked(move |_| {
+            let expanded = !content.is_visible();
+            content.set_visible(expanded);
+            chevron.set_icon_name(Some(if expanded {
+                "pan-down-symbolic"
+            } else {
+                "pan-end-symbolic"
+            }));
+        });
+        apply_common_props(section.as_ref(), &data.common);
+        Ok(section.as_ref().clone().upcast())
+    }
+
     fn render_row(&self, data: &RowNode) -> Result<gtk::Widget, RenderError> {
         let row = ActionRow::init(ActionRowInit {
             title: data.title.clone(),
@@ -123,6 +159,54 @@ impl RenderCatalog {
             connect_click(&row.button, self.event.clone(), id.clone());
         }
         Ok(row.as_ref().clone().upcast())
+    }
+
+    fn render_action_menu(&self, data: &ActionMenuNode) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("action-menu");
+        apply_common_props(&root, &data.common);
+
+        if let Some(header) = &data.header {
+            let header_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            header_box.add_css_class("action-menu__header");
+
+            let title = gtk::Label::new(Some(header));
+            title.set_halign(gtk::Align::Start);
+            title.add_css_class("action-menu__title");
+            header_box.append(&title);
+            root.append(&header_box);
+        }
+
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.add_css_class("action-menu__body");
+        for item in &data.items {
+            if !item.visible {
+                continue;
+            }
+            let selectable = item.selectable.unwrap_or(item.checked.is_some());
+            let checked = item.checked.unwrap_or(false);
+            let row = ActionRow::init(ActionRowInit {
+                title: item.label.clone(),
+                subtitle: String::new(),
+                meta: String::new(),
+                icon: icon_name(&item.icon),
+                visible: true,
+                selectable,
+            });
+            if checked {
+                row.as_ref().add_css_class("is-checked");
+                row.as_ref().add_css_class("is-selected");
+            }
+            if let Some(icon) = &item.icon {
+                apply_icon_to_image(&row.icon, icon);
+                row.icon.set_visible(true);
+            }
+            connect_click(&row.button, self.event.clone(), item.id.clone());
+            body.append(row.as_ref());
+        }
+        root.set_visible(data.items.iter().any(|item| item.visible));
+        root.append(&body);
+        Ok(root.upcast())
     }
 
     fn render_detail_grid(&self, data: &DetailGridNode) -> gtk::Box {
@@ -160,6 +244,19 @@ impl RenderCatalog {
         let dot = StatusDotView::init(());
         apply_common_props(dot.as_ref(), &data.common);
         dot.as_ref().clone()
+    }
+
+    fn render_device_status(&self, data: &DeviceStatusNode) -> gtk::Box {
+        let status = DeviceStatusView::init(());
+        status.set_visible(data.busy || !data.label.is_empty());
+        status.spinner.set_visible(data.busy);
+        status.spinner.set_spinning(data.busy);
+        status
+            .label
+            .set_visible(!data.busy && !data.label.is_empty());
+        status.label.set_label(&data.label);
+        apply_common_props(status.as_ref(), &data.common);
+        status.as_ref().clone()
     }
 
     fn render_box(&self, data: &BoxNode) -> Result<gtk::Widget, RenderError> {
