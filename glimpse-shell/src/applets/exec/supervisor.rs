@@ -36,6 +36,7 @@ pub async fn run(
             .args(config.command.iter().skip(1))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
         {
             Ok(child) => child,
@@ -63,6 +64,14 @@ pub async fn run(
             continue;
         };
 
+        let Some(stderr) = child.stderr.take() else {
+            tracing::warn!(applet = %name, "exec applet child has no stderr");
+            let _ = out.send(Input::ChildExited);
+            let _ = child.kill().await;
+            tokio::time::sleep(Duration::from_millis(config.restart_delay_ms)).await;
+            continue;
+        };
+
         if let Err(error) = write_panel_command(
             &mut stdin,
             &PanelCommand::Init(InitPayload {
@@ -76,6 +85,8 @@ pub async fn run(
         }
 
         let mut lines = BufReader::new(stdout).lines();
+        let mut stderr_lines = BufReader::new(stderr).lines();
+        let mut stderr_open = true;
 
         let exit = loop {
             tokio::select! {
@@ -111,6 +122,20 @@ pub async fn run(
                     Err(error) => {
                         tracing::warn!(%error, applet = %name, "exec applet stdout read failed");
                         break ChildLoopExit::ProtocolEnded;
+                    }
+                },
+                line = stderr_lines.next_line(), if stderr_open => match line {
+                    Ok(Some(line)) => {
+                        if !line.is_empty() {
+                            tracing::warn!(stderr = %line, applet = %name, "exec applet child stderr");
+                        }
+                    }
+                    Ok(None) => {
+                        stderr_open = false;
+                    }
+                    Err(error) => {
+                        stderr_open = false;
+                        tracing::warn!(%error, applet = %name, "exec applet stderr read failed");
                     }
                 },
             }
@@ -193,7 +218,7 @@ mod tests {
                 command: vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    r#"printf 'status {"items":[{"id":"fast","label":"ok"}]}\n'"#.into(),
+                    r#"printf 'diagnostic\n' >&2; printf 'status {"items":[{"id":"fast","label":"ok"}]}\n'"#.into(),
                 ],
                 restart_delay_ms: 60_000,
                 options: serde_json::json!({}),

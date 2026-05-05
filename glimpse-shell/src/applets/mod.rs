@@ -4,6 +4,7 @@ pub mod bluetooth;
 pub mod brightness;
 pub mod clipboard;
 pub mod clock;
+pub mod command;
 pub mod exec;
 pub mod keyboard;
 pub mod mpris;

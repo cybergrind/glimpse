@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, brightness, clipboard, clock, exec, keyboard, mpris, network,
-        notifications, pager, privacy, session, tray, weather,
+        audio, battery, bluetooth, brightness, clipboard, clock, command, exec, keyboard, mpris,
+        network, notifications, pager, privacy, session, tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -45,6 +45,7 @@ pub enum AppletController {
     Brightness(Controller<brightness::Applet>),
     Clipboard(Controller<clipboard::Applet>),
     Clock(Controller<clock::Applet>),
+    Command(Controller<command::Applet>),
     Exec(Controller<exec::Applet>),
     Keyboard(Controller<keyboard::Applet>),
     Mpris(Controller<mpris::Applet>),
@@ -66,6 +67,7 @@ impl AppletController {
             Self::Brightness(_) => AppletType::Brightness,
             Self::Clipboard(_) => AppletType::Clipboard,
             Self::Clock(_) => AppletType::Clock,
+            Self::Command(_) => AppletType::Command,
             Self::Exec(_) => AppletType::Exec,
             Self::Keyboard(_) => AppletType::Keyboard,
             Self::Mpris(_) => AppletType::Mpris,
@@ -87,6 +89,7 @@ impl AppletController {
             Self::Brightness(controller) => controller.widget().clone().upcast(),
             Self::Clipboard(controller) => controller.widget().clone().upcast(),
             Self::Clock(controller) => controller.widget().clone().upcast(),
+            Self::Command(controller) => controller.widget().clone().upcast(),
             Self::Exec(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
             Self::Mpris(controller) => controller.widget().clone().upcast(),
@@ -129,6 +132,11 @@ impl AppletController {
             }
             Self::Clock(controller) => {
                 controller.emit(clock::Input::Reconfigure(clock::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Command(controller) => {
+                controller.emit(command::Input::Reconfigure(command::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -239,6 +247,21 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 })
                 .detach(),
         )),
+        AppletType::Command => {
+            let config = command::Config::from_raw(&blueprint.config);
+            if !command::Applet::can_launch(&config) {
+                tracing::warn!(name = %blueprint.name, "command applet requires an icon or label");
+                return None;
+            }
+            Some(AppletController::Command(
+                command::Applet::builder()
+                    .launch(command::Init {
+                        name: blueprint.name,
+                        config,
+                    })
+                    .detach(),
+            ))
+        }
         AppletType::Exec => {
             let config = exec::Config::from_raw(&blueprint.config);
             if !exec::Applet::can_launch(&config) {
@@ -621,6 +644,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "clock");
         assert_eq!(entries[0].applet_type, AppletType::Clock);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_command_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["command".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "command");
+        assert_eq!(entries[0].applet_type, AppletType::Command);
         assert!(entries[0].config.is_none());
     }
 
