@@ -8,18 +8,18 @@ use crate::services::{
     geoclue,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocationError {
     Unavailable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Coordinates {
     pub latitude: f64,
     pub longitude: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum State {
     Unknown,
     Ready(Coordinates),
@@ -109,10 +109,19 @@ impl LocationService {
         )
     }
 
-    fn change_state(&self, state: State) {
-        if let Err(err) = self.state_tx.send(state) {
-            tracing::error!("failed to send new state: {:?}", err);
-        }
+    pub fn new_standalone() -> (Self, LocationHandle) {
+        Self::new(inactive_geoclue_handle())
+    }
+
+    fn change_state(&self, state: State) -> bool {
+        self.state_tx.send_if_modified(|current| {
+            if *current == state {
+                false
+            } else {
+                *current = state;
+                true
+            }
+        })
     }
 
     pub async fn run(mut self, cancel: CancellationToken) {
@@ -128,13 +137,15 @@ impl LocationService {
                 provider_message = recv_from_provider(&mut lifecycle) => match provider_message {
                     Some(provider_message) => match provider_message {
                         ProviderMessage::Value(coordinates) => {
-                            tracing::debug!("location received: {:?}", coordinates);
-                            self.change_state(State::Ready(coordinates));
+                            if self.change_state(State::Ready(coordinates.clone())) {
+                                tracing::debug!("location received: {:?}", coordinates);
+                            }
                             lifecycle
                         },
                         ProviderMessage::Unavailable(err) => {
-                            tracing::debug!("location service degraded: {:?}", err);
-                            self.change_state(State::Degraded(err));
+                            if self.change_state(State::Degraded(err.clone())) {
+                                tracing::debug!("location service degraded: {:?}", err);
+                            }
                             lifecycle
                         },
                     },
@@ -191,6 +202,12 @@ impl LocationService {
 
         tracing::debug!("location service quit");
     }
+}
+
+fn inactive_geoclue_handle() -> geoclue::GeoClueHandle {
+    let (_state_tx, state_rx) = watch::channel(geoclue::State::default());
+    let (command_tx, _command_rx) = mpsc::channel(1);
+    ServiceHandle::new(state_rx, command_tx)
 }
 
 async fn shutdown_task(state: Lifecycle) {

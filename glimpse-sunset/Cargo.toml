@@ -1,0 +1,18 @@
+[package]
+name = "glimpse-sunset"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1"
+glimpse-core = { path = "../glimpse-core" }
+tokio = { workspace = true, features = ["macros", "signal"] }
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+wayland-client = "0.31.12"
+wayland-protocols-wlr = { version = "0.3.9", features = ["client"] }
+zbus.workspace = true

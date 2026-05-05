@@ -11,6 +11,7 @@ pub mod location;
 pub mod microphone;
 pub mod mpris;
 pub mod network;
+pub mod night_light;
 pub mod notifications;
 pub mod power;
 pub mod session;

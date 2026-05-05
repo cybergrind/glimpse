@@ -116,7 +116,7 @@ impl Hyprland {
             fullscreen: true,
             floating: true,
             window_titles: true,
-            night_light: false,
+            night_light: true,
             screencast_state: ScreencastStateCapability::ActiveKind,
             screencast_control: ScreencastControlCapability::None,
         }

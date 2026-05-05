@@ -496,4 +496,10 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn gamma_capable_wayland_compositors_advertise_night_light() {
+        assert!(Compositor::Niri(Niri).capabilities().night_light);
+        assert!(Compositor::Hyprland(Hyprland).capabilities().night_light);
+    }
 }

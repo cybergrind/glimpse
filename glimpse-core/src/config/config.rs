@@ -10,8 +10,8 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::{
-    AppletConfig, BackdropConfig, BackgroundSettings, LocationConfig, PanelConfig, ThemeConfig,
-    ThemeMode, WallpaperConfig, wallpaper_spec,
+    AppletConfig, BackdropConfig, BackgroundSettings, LocationConfig, NightLightConfig,
+    PanelConfig, ThemeConfig, ThemeMode, WallpaperConfig, wallpaper_spec,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -23,6 +23,8 @@ pub struct Config {
     pub applets: HashMap<String, AppletConfig>,
     pub wallpaper: WallpaperConfig,
     pub backdrop: BackdropConfig,
+    #[serde(default)]
+    pub night_light: NightLightConfig,
 }
 
 impl Config {
@@ -119,7 +121,43 @@ impl Default for Config {
             applets: HashMap::new(),
             wallpaper: WallpaperConfig::default(),
             backdrop: BackdropConfig::default(),
+            night_light: NightLightConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod night_light_config_tests {
+    use crate::{Config, NightLightSchedule};
+
+    #[test]
+    fn default_config_includes_disabled_night_light() {
+        let config = Config::default();
+
+        assert_eq!(config.night_light.temperature, 4200);
+        assert_eq!(config.night_light.schedule, NightLightSchedule::Off);
+        assert_eq!(config.night_light.transition_minutes, 15);
+    }
+
+    #[test]
+    fn config_parses_night_light_block() {
+        let config = Config::from_toml_str(
+            r#"
+[night_light]
+temperature = 4200
+schedule = "schedule"
+start_time = "18:00"
+end_time = "06:30"
+transition_minutes = 75
+"#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(config.night_light.temperature, 4200);
+        assert_eq!(config.night_light.schedule, NightLightSchedule::Schedule);
+        assert_eq!(config.night_light.start_time.as_deref(), Some("18:00"));
+        assert_eq!(config.night_light.end_time.as_deref(), Some("06:30"));
+        assert_eq!(config.night_light.transition_minutes, 75);
     }
 }
 

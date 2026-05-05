@@ -1280,6 +1280,7 @@ dependencies = [
  "secret-service",
  "serde",
  "serde_json",
+ "sunrise",
  "system-tray",
  "tokio",
  "tokio-util",
@@ -1334,6 +1335,23 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "glimpse-sunset"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "glimpse-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wayland-client",
+ "wayland-protocols-wlr",
+ "zbus",
 ]
 
 [[package]]
