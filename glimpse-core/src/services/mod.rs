@@ -8,6 +8,7 @@ pub mod clock;
 pub mod compositor;
 pub mod framework;
 pub mod geoclue;
+pub mod idle;
 pub mod location;
 pub mod microphone;
 pub mod mpris;

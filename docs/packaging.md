@@ -6,6 +6,7 @@
 |--------|-------------|------------|
 | `glimpse-panel` | Wayland status panel | `/usr/bin/glimpse-panel` |
 | `glimpse-shell` | Wayland shell | `/usr/bin/glimpse-shell` |
+| `glimpse-idle` | Wayland idle daemon | `/usr/bin/glimpse-idle` |
 | `glimpse-sunset` | Wayland night-light daemon | `/usr/bin/glimpse-sunset` |
 | `glimpse-wallpaper` | Wayland wallpaper and backdrop daemon | `/usr/bin/glimpse-wallpaper` |
 
@@ -122,18 +123,82 @@ systemctl --user enable --now glimpse-sunset.service
 
 Do not run `glimpse-sunset` alongside the old panel-owned night-light service because Wayland gamma control has one owner per output.
 
+### User service for glimpse-idle
+
+```ini
+# ~/.config/systemd/user/glimpse-idle.service
+[Unit]
+Description=Glimpse idle
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpse-idle
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+**Note:** The packaged unit is a user service installed to `/usr/lib/systemd/user/glimpse-idle.service`.
+It is standalone and is not wanted by `glimpse-shell.service`. Enable it explicitly:
+
+```bash
+systemctl --user enable --now glimpse-idle.service
+```
+
+`glimpse-idle` consumes Wayland idle notifications and runs listener shell commands from `[idle]`.
+Do not run it alongside another idle policy daemon such as `hypridle` or `swayidle` unless their timeouts and commands are intentionally coordinated.
+
 ## Configuration
 
 | File | Location |
 |------|----------|
 | Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./panel.toml` |
-| Shell, wallpaper, and sunset config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
+| Shell, wallpaper, sunset, and idle config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
 | Built-in structure/theme layers | embedded in `glimpse-panel` binary |
 
 `glimpse-wallpaper` enables the optional backdrop by default. If `[backdrop]` is omitted, the daemon uses `wallpaper.path` for the backdrop image and applies the default `blur_radius = 24`.
 
 `glimpse-sunset` reads the shared `[night_light]` block. `schedule = "off"` disables gamma changes, `schedule = "schedule"` uses `start_time`/`end_time`, and `schedule = "automatic"` uses the shared location service. Configure static coordinates under `[location]` when GeoClue is unavailable or undesired.
+
+`glimpse-idle` reads the shared `[idle]` block. If it is omitted, the daemon starts with no listener policies, so it does not lock, blank displays, suspend, or run shell commands until listeners are configured:
+
+```toml
+[idle]
+enabled = true
+respect_inhibitors = true
+
+[idle.profiles.ac]
+listeners = []
+
+[idle.profiles.battery]
+listeners = []
+```
+
+Example Niri policy:
+
+```toml
+[idle.profiles.ac]
+listeners = [
+  { timeout = 300, on_idle = "loginctl lock-session" },
+  { timeout = 600, on_idle = "niri msg action power-off-monitors", on_resume = "niri msg action power-on-monitors" },
+  { timeout = 1800, on_idle = "systemctl suspend" },
+]
+
+[idle.profiles.battery]
+listeners = [
+  { timeout = 300, on_idle = "loginctl lock-session" },
+  { timeout = 600, on_idle = "niri msg action power-off-monitors", on_resume = "niri msg action power-on-monitors" },
+  { timeout = 900, on_idle = "systemctl suspend" },
+]
+```
+
+Each listener command is executed through `/bin/sh -c`. `on_resume` runs only after that listener has fired `on_idle`.
+Set `respect_inhibitors` on a listener to override the global value.
 
 ## Arch Linux PKGBUILD notes
 
@@ -148,9 +213,11 @@ Each archive contains the final `/usr` tree:
 ```text
 usr/bin/glimpse-panel
 usr/bin/glimpse-shell
+usr/bin/glimpse-idle
 usr/bin/glimpse-sunset
 usr/bin/glimpse-wallpaper
 usr/lib/systemd/user/glimpse-shell.service
+usr/lib/systemd/user/glimpse-idle.service
 usr/lib/systemd/user/glimpse-sunset.service
 usr/lib/systemd/user/glimpse-wallpaper.service
 ```
@@ -174,12 +241,14 @@ The source repository `PKGBUILD` keeps `b2sums_x86_64=('SKIP')` as a template. T
 # Build
 cargo build --release -p glimpse --bin glimpse-panel --no-default-features
 cargo build --release -p glimpse-shell
+cargo build --release -p glimpse-idle
 cargo build --release -p glimpse-sunset
 cargo build --release -p glimpse-wallpaper
 
 # Install binary
 install -Dm755 target/release/glimpse-panel "$pkgdir/usr/bin/glimpse-panel"
 install -Dm755 target/release/glimpse-shell "$pkgdir/usr/bin/glimpse-shell"
+install -Dm755 target/release/glimpse-idle "$pkgdir/usr/bin/glimpse-idle"
 install -Dm755 target/release/glimpse-sunset "$pkgdir/usr/bin/glimpse-sunset"
 install -Dm755 target/release/glimpse-wallpaper "$pkgdir/usr/bin/glimpse-wallpaper"
 
@@ -189,6 +258,7 @@ install -Dm644 data/io.glimpse.battery.policy "$pkgdir/usr/share/polkit-1/action
 
 # Systemd user service
 install -Dm644 data/glimpse-shell.service "$pkgdir/usr/lib/systemd/user/glimpse-shell.service"
+install -Dm644 data/glimpse-idle.service "$pkgdir/usr/lib/systemd/user/glimpse-idle.service"
 install -Dm644 data/glimpse-sunset.service "$pkgdir/usr/lib/systemd/user/glimpse-sunset.service"
 install -Dm644 data/glimpse-wallpaper.service "$pkgdir/usr/lib/systemd/user/glimpse-wallpaper.service"
 ```

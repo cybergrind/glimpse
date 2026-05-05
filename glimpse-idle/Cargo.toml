@@ -1,0 +1,16 @@
+[package]
+name = "glimpse-idle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+glimpse-core = { path = "../glimpse-core" }
+tokio = { workspace = true, features = ["macros", "signal"] }
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+zbus.workspace = true

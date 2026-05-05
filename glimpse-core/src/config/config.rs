@@ -10,7 +10,7 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::{
-    AppletConfig, BackdropConfig, BackgroundSettings, LocationConfig, NightLightConfig,
+    AppletConfig, BackdropConfig, BackgroundSettings, IdleConfig, LocationConfig, NightLightConfig,
     PanelConfig, ThemeConfig, ThemeMode, WallpaperConfig, wallpaper_spec,
 };
 
@@ -25,6 +25,8 @@ pub struct Config {
     pub backdrop: BackdropConfig,
     #[serde(default)]
     pub night_light: NightLightConfig,
+    #[serde(default)]
+    pub idle: IdleConfig,
 }
 
 impl Config {
@@ -68,18 +70,22 @@ impl Config {
 
     pub fn load_from_file(path: &Path) -> Self {
         tracing::info!("loading configuration from {}", path.display());
-        match fs::read_to_string(path) {
-            Ok(content) => match Self::from_toml_str(&content) {
-                Ok(config) => config,
-                Err(err) => {
-                    tracing::error!("failed to parse config: {}", err);
-                    Self::default()
-                }
-            },
+        match Self::try_load_from_file(path) {
+            Ok(config) => config,
             Err(err) => {
-                tracing::error!("failed to read configuration file: {}", err);
+                tracing::error!("failed to load configuration: {}", err);
                 Self::default()
             }
+        }
+    }
+
+    pub fn try_load_from_file(path: &Path) -> Result<Self, String> {
+        match fs::read_to_string(path) {
+            Ok(content) => match Self::from_toml_str(&content) {
+                Ok(config) => Ok(config),
+                Err(err) => Err(format!("failed to parse config: {err}")),
+            },
+            Err(err) => Err(format!("failed to read configuration file: {err}")),
         }
     }
 
@@ -122,6 +128,7 @@ impl Default for Config {
             wallpaper: WallpaperConfig::default(),
             backdrop: BackdropConfig::default(),
             night_light: NightLightConfig::default(),
+            idle: IdleConfig::default(),
         }
     }
 }
@@ -158,6 +165,50 @@ transition_minutes = 75
         assert_eq!(config.night_light.start_time.as_deref(), Some("18:00"));
         assert_eq!(config.night_light.end_time.as_deref(), Some("06:30"));
         assert_eq!(config.night_light.transition_minutes, 75);
+    }
+}
+
+#[cfg(test)]
+mod idle_config_tests {
+    use crate::Config;
+
+    #[test]
+    fn default_config_includes_idle_without_listener_policies() {
+        let config = Config::default();
+
+        assert!(config.idle.enabled);
+        assert!(config.idle.respect_inhibitors);
+        assert!(config.idle.profiles.ac.listeners.is_empty());
+        assert!(config.idle.profiles.battery.listeners.is_empty());
+    }
+
+    #[test]
+    fn config_parses_idle_block() {
+        let config = Config::from_toml_str(
+            r#"
+[idle]
+enabled = true
+respect_inhibitors = false
+
+[idle.profiles.ac]
+listeners = [
+  { timeout = 60, on_idle = "one", on_resume = "two", respect_inhibitors = true },
+]
+
+[idle.profiles.battery]
+listeners = [
+  { timeout = 30, on_idle = "three" },
+]
+"#,
+        )
+        .expect("config should parse");
+
+        assert!(!config.idle.respect_inhibitors);
+        assert_eq!(config.idle.profiles.ac.listeners[0].timeout, 60);
+        assert_eq!(
+            config.idle.profiles.ac.listeners[0].respect_inhibitors,
+            Some(true)
+        );
     }
 }
 
@@ -292,9 +343,22 @@ fn file_change_handler(
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
                 if event.paths.contains(&config_file) {
-                    let config = Config::load_from_file(&config_file);
-                    if let Err(err) = sender.try_send(ConfigEvent::Changed(config)) {
-                        tracing::error!("failed to broadcast config change to the app: {}", err);
+                    match Config::try_load_from_file(&config_file) {
+                        Ok(config) => {
+                            if let Err(err) = sender.try_send(ConfigEvent::Changed(config)) {
+                                tracing::error!(
+                                    "failed to broadcast config change to the app: {}",
+                                    err
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                "failed to reload config from {}: {}",
+                                config_file.display(),
+                                err
+                            );
+                        }
                     }
                 }
             }

@@ -4,6 +4,7 @@ members = [
     "glimpse",
     "glimpse-core",
     "glimpse-settings",
+    "glimpse-idle",
     "glimpse-shell",
     "glimpse-sunset",
     "glimpse-wallpaper",
@@ -41,6 +42,8 @@ gio = "0.20"
 css-color = "0.2"
 tokio-util = "0.7"
 wl-clipboard-rs = "0.9"
+wayland-client = "0.31.14"
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
 
 [profile.release]
 lto = "thin"

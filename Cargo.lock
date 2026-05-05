@@ -1298,6 +1298,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "glimpse-idle"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "glimpse-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-client",
+ "wayland-protocols",
+ "zbus",
+]
+
+[[package]]
 name = "glimpse-settings"
 version = "0.2.0"
 dependencies = [

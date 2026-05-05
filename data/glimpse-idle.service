@@ -1,0 +1,13 @@
+[Unit]
+Description=Glimpse idle
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpse-idle
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
