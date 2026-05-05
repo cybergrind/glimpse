@@ -501,13 +501,13 @@ fn connect_throttled_scale(
             let last_sent = last_sent.clone();
             let pending = pending.clone();
             let pending_value = pending_value.clone();
-            let sender = sender.clone();
+            let sender = sender.input_sender().clone();
             let delay = VOLUME_COMMAND_INTERVAL.saturating_sub(now.duration_since(last_sent.get()));
             glib::timeout_add_local_once(delay, move || {
                 if pending.get() {
                     pending.set(false);
                     last_sent.set(Instant::now());
-                    sender.input(PopoverInput::Command(make_command(pending_value.get())));
+                    let _ = sender.send(PopoverInput::Command(make_command(pending_value.get())));
                 }
             });
         }

@@ -170,10 +170,15 @@ impl SimpleComponent for Applet {
 
         let service = model.service.clone();
         let cancel = model.brightness_cancel.clone();
-        let subscription_sender = sender.clone();
+        let subscription_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             let mut sub = service.subscribe();
-            subscription_sender.input(Input::ServiceStateChanged(sub.borrow().clone()));
+            if subscription_sender
+                .send(Input::ServiceStateChanged(sub.borrow().clone()))
+                .is_err()
+            {
+                return;
+            }
 
             loop {
                 tokio::select! {
@@ -183,7 +188,12 @@ impl SimpleComponent for Applet {
                             break;
                         }
 
-                        subscription_sender.input(Input::ServiceStateChanged(sub.borrow().clone()));
+                        if subscription_sender
+                            .send(Input::ServiceStateChanged(sub.borrow().clone()))
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
             }
@@ -191,10 +201,15 @@ impl SimpleComponent for Applet {
 
         let compositor = model.compositor.clone();
         let cancel = model.compositor_cancel.clone();
-        let compositor_sender = sender.clone();
+        let compositor_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             let mut sub = compositor.subscribe();
-            compositor_sender.input(Input::CompositorStateChanged(sub.borrow().clone()));
+            if compositor_sender
+                .send(Input::CompositorStateChanged(sub.borrow().clone()))
+                .is_err()
+            {
+                return;
+            }
 
             loop {
                 tokio::select! {
@@ -204,7 +219,12 @@ impl SimpleComponent for Applet {
                             break;
                         }
 
-                        compositor_sender.input(Input::CompositorStateChanged(sub.borrow().clone()));
+                        if compositor_sender
+                            .send(Input::CompositorStateChanged(sub.borrow().clone()))
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
             }

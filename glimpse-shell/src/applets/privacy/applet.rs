@@ -259,7 +259,7 @@ impl Applet {
 
         let cancel = CancellationToken::new();
         let child_cancel = cancel.clone();
-        let sender = sender.clone();
+        let sender = sender.input_sender().clone();
 
         relm4::spawn(async move {
             let mut tick = tokio::time::interval(SCREEN_RECORDING_TICK);
@@ -267,7 +267,11 @@ impl Applet {
             loop {
                 tokio::select! {
                     _ = child_cancel.cancelled() => break,
-                    _ = tick.tick() => sender.input(Input::ScreenElapsedTick),
+                    _ = tick.tick() => {
+                        if sender.send(Input::ScreenElapsedTick).is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         });
@@ -449,13 +453,33 @@ fn spawn_subscriptions(model: &Applet, sender: &ComponentSender<Applet>) {
     let mut compositor = model.compositor.subscribe();
     let mut geoclue = model.geoclue.subscribe();
     let cancel = model.subscription_cancel.clone();
-    let sender = sender.clone();
+    let sender = sender.input_sender().clone();
 
     relm4::spawn(async move {
-        sender.input(Input::MicrophoneStateChanged(microphone.borrow().clone()));
-        sender.input(Input::WebcamStateChanged(webcam.borrow().clone()));
-        sender.input(Input::CompositorStateChanged(compositor.borrow().clone()));
-        sender.input(Input::GeoClueStateChanged(geoclue.borrow().clone()));
+        if sender
+            .send(Input::MicrophoneStateChanged(microphone.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
+        if sender
+            .send(Input::WebcamStateChanged(webcam.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
+        if sender
+            .send(Input::CompositorStateChanged(compositor.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
+        if sender
+            .send(Input::GeoClueStateChanged(geoclue.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
 
         loop {
             tokio::select! {
@@ -464,25 +488,45 @@ fn spawn_subscriptions(model: &Applet, sender: &ComponentSender<Applet>) {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::MicrophoneStateChanged(microphone.borrow().clone()));
+                    if sender
+                        .send(Input::MicrophoneStateChanged(microphone.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
                 changed = webcam.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::WebcamStateChanged(webcam.borrow().clone()));
+                    if sender
+                        .send(Input::WebcamStateChanged(webcam.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
                 changed = compositor.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::CompositorStateChanged(compositor.borrow().clone()));
+                    if sender
+                        .send(Input::CompositorStateChanged(compositor.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
                 changed = geoclue.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::GeoClueStateChanged(geoclue.borrow().clone()));
+                    if sender
+                        .send(Input::GeoClueStateChanged(geoclue.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }

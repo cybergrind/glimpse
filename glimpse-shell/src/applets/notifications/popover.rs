@@ -194,11 +194,11 @@ impl SimpleComponent for Popover {
         });
 
         let refresh_timer = glib::timeout_add_seconds_local(60, {
-            let sender = _sender.clone();
+            let sender = _sender.input_sender().clone();
             let root = widgets.root.clone();
             move || {
                 if root.is_visible() {
-                    sender.input(PopoverInput::RefreshTimes);
+                    let _ = sender.send(PopoverInput::RefreshTimes);
                 }
                 glib::ControlFlow::Continue
             }

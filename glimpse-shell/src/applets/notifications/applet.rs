@@ -379,13 +379,24 @@ fn subscribe_services(model: &Applet, sender: ComponentSender<Applet>) {
     let service = model.service.clone();
     let compositor = model.compositor.clone();
     let cancel = model.subscription_cancel.clone();
+    let sender = sender.input_sender().clone();
     relm4::spawn(async move {
         let mut notifications = service.subscribe();
         let mut compositor_state = compositor.subscribe();
-        sender.input(Input::ServiceStateChanged(notifications.borrow().clone()));
-        sender.input(Input::CompositorStateChanged(
-            compositor_state.borrow().clone(),
-        ));
+        if sender
+            .send(Input::ServiceStateChanged(notifications.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
+        if sender
+            .send(Input::CompositorStateChanged(
+                compositor_state.borrow().clone(),
+            ))
+            .is_err()
+        {
+            return;
+        }
 
         loop {
             tokio::select! {
@@ -394,13 +405,23 @@ fn subscribe_services(model: &Applet, sender: ComponentSender<Applet>) {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::ServiceStateChanged(notifications.borrow().clone()));
+                    if sender
+                        .send(Input::ServiceStateChanged(notifications.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
                 changed = compositor_state.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::CompositorStateChanged(compositor_state.borrow().clone()));
+                    if sender
+                        .send(Input::CompositorStateChanged(compositor_state.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }

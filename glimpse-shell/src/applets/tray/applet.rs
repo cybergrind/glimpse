@@ -160,10 +160,15 @@ impl Component for Applet {
 
         let service = model.service.clone();
         let cancel = model.subscription_cancel.clone();
-        let subscription_sender = sender.clone();
+        let subscription_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             let mut sub = service.subscribe();
-            subscription_sender.input(Input::ServiceStateChanged(sub.borrow().clone()));
+            if subscription_sender
+                .send(Input::ServiceStateChanged(sub.borrow().clone()))
+                .is_err()
+            {
+                return;
+            }
 
             loop {
                 tokio::select! {
@@ -173,12 +178,17 @@ impl Component for Applet {
                             break;
                         }
 
-                        subscription_sender.input(Input::ServiceStateChanged(sub.borrow().clone()));
+                        if subscription_sender
+                            .send(Input::ServiceStateChanged(sub.borrow().clone()))
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
             }
 
-            subscription_sender.input(Input::Unavailable);
+            let _ = subscription_sender.send(Input::Unavailable);
         });
 
         let widgets = view_output!();

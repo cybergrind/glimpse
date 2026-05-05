@@ -71,13 +71,15 @@ impl SimpleComponent for App {
             watch_for_config_changes(config_tx).await;
         });
 
-        let config_sender = sender.clone();
+        let config_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             loop {
                 match config_rx.recv().await {
                     Some(message) => match message {
                         ConfigEvent::Changed(config) => {
-                            let _ = config_sender.input(Input::ConfigChanged(config));
+                            if config_sender.send(Input::ConfigChanged(config)).is_err() {
+                                break;
+                            }
                         }
                     },
                     None => break,
@@ -86,10 +88,10 @@ impl SimpleComponent for App {
         });
 
         if let Some(display) = gdk::Display::default() {
-            let monitor_sender = sender.clone();
-            let _ = monitor_sender.input(Input::MonitorsChanged);
+            let monitor_sender = sender.input_sender().clone();
+            let _ = monitor_sender.send(Input::MonitorsChanged);
             display.monitors().connect_items_changed(move |_, _, _, _| {
-                let _ = monitor_sender.input(Input::MonitorsChanged);
+                let _ = monitor_sender.send(Input::MonitorsChanged);
             });
         }
 
@@ -100,10 +102,12 @@ impl SimpleComponent for App {
             theme::watch_user_themes(theme_tx).await;
         });
 
-        let theme_sender = sender.clone();
+        let theme_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             while theme_rx.recv().await.is_some() {
-                let _ = theme_sender.input(Input::ThemeReload);
+                if theme_sender.send(Input::ThemeReload).is_err() {
+                    break;
+                }
             }
         });
 

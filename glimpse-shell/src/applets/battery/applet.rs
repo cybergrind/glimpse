@@ -195,10 +195,15 @@ impl SimpleComponent for Applet {
 
         let service = model.service.clone();
         let cancel = model.subscription_cancel.clone();
-        let subscription_sender = sender.clone();
+        let subscription_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             let mut sub = service.subscribe();
-            subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+            if subscription_sender
+                .send(Input::BatteryStateChanged(sub.borrow().clone()))
+                .is_err()
+            {
+                return;
+            }
 
             loop {
                 tokio::select! {
@@ -208,7 +213,12 @@ impl SimpleComponent for Applet {
                             break;
                         }
 
-                        subscription_sender.input(Input::BatteryStateChanged(sub.borrow().clone()));
+                        if subscription_sender
+                            .send(Input::BatteryStateChanged(sub.borrow().clone()))
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
             }
@@ -216,10 +226,15 @@ impl SimpleComponent for Applet {
 
         let service = model.power_service.clone();
         let cancel = model.subscription_cancel.clone();
-        let subscription_sender = sender.clone();
+        let subscription_sender = sender.input_sender().clone();
         relm4::spawn(async move {
             let mut sub = service.subscribe();
-            subscription_sender.input(Input::PowerStateChanged(sub.borrow().clone()));
+            if subscription_sender
+                .send(Input::PowerStateChanged(sub.borrow().clone()))
+                .is_err()
+            {
+                return;
+            }
 
             loop {
                 tokio::select! {
@@ -229,7 +244,12 @@ impl SimpleComponent for Applet {
                             break;
                         }
 
-                        subscription_sender.input(Input::PowerStateChanged(sub.borrow().clone()));
+                        if subscription_sender
+                            .send(Input::PowerStateChanged(sub.borrow().clone()))
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
             }

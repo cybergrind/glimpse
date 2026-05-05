@@ -245,10 +245,15 @@ fn subscribe_clock(
     sender: &ComponentSender<Applet>,
 ) {
     let service = service.clone();
-    let sender = sender.clone();
+    let sender = sender.input_sender().clone();
     relm4::spawn(async move {
         let mut sub = service.subscribe();
-        sender.input(Input::ClockStateChanged(sub.borrow().clone()));
+        if sender
+            .send(Input::ClockStateChanged(sub.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
@@ -256,7 +261,12 @@ fn subscribe_clock(
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::ClockStateChanged(sub.borrow().clone()));
+                    if sender
+                        .send(Input::ClockStateChanged(sub.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -269,10 +279,15 @@ fn subscribe_calendar(
     sender: &ComponentSender<Applet>,
 ) {
     let service = service.clone();
-    let sender = sender.clone();
+    let sender = sender.input_sender().clone();
     relm4::spawn(async move {
         let mut sub = service.subscribe();
-        sender.input(Input::CalendarStateChanged(sub.borrow().clone()));
+        if sender
+            .send(Input::CalendarStateChanged(sub.borrow().clone()))
+            .is_err()
+        {
+            return;
+        }
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
@@ -280,7 +295,12 @@ fn subscribe_calendar(
                     if changed.is_err() {
                         break;
                     }
-                    sender.input(Input::CalendarStateChanged(sub.borrow().clone()));
+                    if sender
+                        .send(Input::CalendarStateChanged(sub.borrow().clone()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }
