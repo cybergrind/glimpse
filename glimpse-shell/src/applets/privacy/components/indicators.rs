@@ -28,12 +28,28 @@ impl WidgetTemplate for PrivacyIndicators {
             },
 
             #[name = "screen"]
-            gtk::Image {
-                add_css_class: "privacy-indicator",
+            gtk::Box {
+                add_css_class: "privacy-recording-pill",
                 add_css_class: "privacy-screen-indicator",
-                set_icon_name: Some("video-display-symbolic"),
-                set_pixel_size: 16,
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 4,
+                set_valign: gtk::Align::Center,
                 set_visible: false,
+
+                gtk::Image {
+                    add_css_class: "privacy-recording-icon",
+                    add_css_class: "privacy-screen-indicator",
+                    set_icon_name: Some("media-record-symbolic"),
+                    set_pixel_size: 16,
+                },
+
+                #[name = "screen_elapsed"]
+                gtk::Label {
+                    add_css_class: "privacy-recording-label",
+                    add_css_class: "privacy-screen-indicator",
+                    set_label: "0:00",
+                    set_valign: gtk::Align::Center,
+                },
             },
 
             #[name = "location"]
@@ -66,8 +82,10 @@ mod tests {
         assert!(!indicators.camera.is_visible());
         assert!(indicators.camera.has_css_class("privacy-indicator"));
         assert!(!indicators.screen.is_visible());
-        assert!(indicators.screen.has_css_class("privacy-indicator"));
+        assert!(indicators.screen.has_css_class("privacy-recording-pill"));
         assert!(indicators.screen.has_css_class("privacy-screen-indicator"));
+        assert_eq!(indicators.screen.spacing(), 4);
+        assert_eq!(indicators.screen_elapsed.label(), "0:00");
         assert!(!indicators.location.is_visible());
         assert!(indicators.location.has_css_class("privacy-indicator"));
     }

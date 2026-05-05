@@ -1,5 +1,7 @@
 #![allow(unused_assignments)]
 
+use std::time::{Duration, Instant};
+
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
     gtk::{self, prelude::*},
@@ -19,6 +21,8 @@ use crate::{
 };
 
 use super::{components::indicators::PrivacyIndicators, format};
+
+const SCREEN_RECORDING_TICK: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -49,6 +53,8 @@ pub struct Applet {
     compositor: CompositorHandle,
     geoclue: GeoClueHandle,
     subscription_cancel: CancellationToken,
+    screen_elapsed_started_at: Option<Instant>,
+    screen_elapsed_cancel: Option<CancellationToken>,
 }
 
 #[derive(Debug)]
@@ -66,6 +72,7 @@ pub enum Input {
     WebcamStateChanged(WebcamState),
     CompositorStateChanged(CompositorState),
     GeoClueStateChanged(GeoClueState),
+    ScreenElapsedTick,
     Reconfigure(Config),
     Activate,
 }
@@ -118,6 +125,12 @@ impl SimpleComponent for Applet {
                 },
 
                 #[template_child]
+                screen_elapsed {
+                    #[watch]
+                    set_label: &model.view.screen_elapsed,
+                },
+
+                #[template_child]
                 location {
                     #[watch]
                     set_visible: model.view.location_visible,
@@ -138,7 +151,7 @@ impl SimpleComponent for Applet {
             &init.geoclue.snapshot(),
         );
         let view = view_from_state(&state);
-        let model = Applet {
+        let mut model = Applet {
             config: init.config,
             state,
             view,
@@ -147,7 +160,15 @@ impl SimpleComponent for Applet {
             compositor: init.compositor,
             geoclue: init.geoclue,
             subscription_cancel: CancellationToken::new(),
+            screen_elapsed_started_at: None,
+            screen_elapsed_cancel: None,
         };
+
+        if !model.state.screencasts.is_empty() {
+            model.start_screen_elapsed(&sender);
+            model.update_screen_elapsed();
+            model.sync_view();
+        }
 
         spawn_subscriptions(&model, &sender);
 
@@ -164,21 +185,28 @@ impl SimpleComponent for Applet {
                 }
             }
             Input::WebcamStateChanged(state) => {
-                if self.state.webcams != state.usages {
-                    self.state.webcams = state.usages;
+                let screencasts = combined_active_screencasts(&state, &self.compositor.snapshot());
+                let changed = self.state.webcams != state.usages;
+                self.state.webcams = state.usages;
+                let screencasts_changed = self.set_screencasts(screencasts, &_sender);
+                if changed || screencasts_changed {
                     self.sync_view();
                 }
             }
             Input::CompositorStateChanged(state) => {
-                let screencasts = active_screencasts(&state);
-                if self.state.screencasts != screencasts {
-                    self.state.screencasts = screencasts;
+                let screencasts = combined_active_screencasts(&self.webcam.snapshot(), &state);
+                if self.set_screencasts(screencasts, &_sender) {
                     self.sync_view();
                 }
             }
             Input::GeoClueStateChanged(state) => {
                 if self.state.location_in_use != state.in_use {
                     self.state.location_in_use = state.in_use;
+                    self.sync_view();
+                }
+            }
+            Input::ScreenElapsedTick => {
+                if self.update_screen_elapsed() {
                     self.sync_view();
                 }
             }
@@ -201,6 +229,72 @@ impl Applet {
         if self.view != view {
             self.view = view;
         }
+    }
+
+    fn set_screencasts(
+        &mut self,
+        screencasts: Vec<glimpse_core::compositors::ScreencastSession>,
+        sender: &ComponentSender<Self>,
+    ) -> bool {
+        if self.state.screencasts == screencasts {
+            return false;
+        }
+
+        let had_screencasts = !self.state.screencasts.is_empty();
+        let has_screencasts = !screencasts.is_empty();
+        self.state.screencasts = screencasts;
+
+        match (had_screencasts, has_screencasts) {
+            (false, true) => self.start_screen_elapsed(sender),
+            (true, false) => self.stop_screen_elapsed(),
+            _ => {}
+        }
+
+        self.update_screen_elapsed();
+        true
+    }
+
+    fn start_screen_elapsed(&mut self, sender: &ComponentSender<Self>) {
+        self.screen_elapsed_started_at = Some(Instant::now());
+
+        let cancel = CancellationToken::new();
+        let child_cancel = cancel.clone();
+        let sender = sender.clone();
+
+        relm4::spawn(async move {
+            let mut tick = tokio::time::interval(SCREEN_RECORDING_TICK);
+            tick.tick().await;
+            loop {
+                tokio::select! {
+                    _ = child_cancel.cancelled() => break,
+                    _ = tick.tick() => sender.input(Input::ScreenElapsedTick),
+                }
+            }
+        });
+
+        self.screen_elapsed_cancel = Some(cancel);
+    }
+
+    fn stop_screen_elapsed(&mut self) {
+        if let Some(cancel) = self.screen_elapsed_cancel.take() {
+            cancel.cancel();
+        }
+        self.screen_elapsed_started_at = None;
+        self.state.screen_elapsed_seconds = 0;
+    }
+
+    fn update_screen_elapsed(&mut self) -> bool {
+        let Some(started_at) = self.screen_elapsed_started_at else {
+            return false;
+        };
+
+        let elapsed = started_at.elapsed().as_secs();
+        if self.state.screen_elapsed_seconds == elapsed {
+            return false;
+        }
+
+        self.state.screen_elapsed_seconds = elapsed;
+        true
     }
 
     fn stop_stoppable_screencasts(&self) {
@@ -234,6 +328,9 @@ impl Applet {
 impl Drop for Applet {
     fn drop(&mut self) {
         self.subscription_cancel.cancel();
+        if let Some(cancel) = self.screen_elapsed_cancel.take() {
+            cancel.cancel();
+        }
     }
 }
 
@@ -242,6 +339,7 @@ struct PrivacyState {
     microphones: Vec<glimpse_core::services::microphone::MicrophoneUsage>,
     webcams: Vec<glimpse_core::services::webcam::WebcamUsage>,
     screencasts: Vec<glimpse_core::compositors::ScreencastSession>,
+    screen_elapsed_seconds: u64,
     location_in_use: bool,
 }
 
@@ -255,7 +353,8 @@ impl PrivacyState {
         Self {
             microphones: microphone.usages.clone(),
             webcams: webcam.usages.clone(),
-            screencasts: active_screencasts(compositor),
+            screencasts: combined_active_screencasts(webcam, compositor),
+            screen_elapsed_seconds: 0,
             location_in_use: geoclue.in_use,
         }
     }
@@ -267,6 +366,7 @@ struct View {
     microphone_visible: bool,
     camera_visible: bool,
     screen_visible: bool,
+    screen_elapsed: String,
     location_visible: bool,
     tooltip: String,
 }
@@ -282,6 +382,7 @@ fn view_from_state(state: &PrivacyState) -> View {
         microphone_visible,
         camera_visible,
         screen_visible,
+        screen_elapsed: format::elapsed(state.screen_elapsed_seconds),
         location_visible,
         tooltip: format::tooltip(
             &state.microphones,
@@ -301,6 +402,35 @@ fn active_screencasts(
         .filter(|session| session.active)
         .cloned()
         .collect()
+}
+
+fn combined_active_screencasts(
+    webcam: &WebcamState,
+    compositor: &CompositorState,
+) -> Vec<glimpse_core::compositors::ScreencastSession> {
+    let mut screencasts = active_screencasts(compositor);
+    for session in webcam.screencasts.iter().filter(|session| session.active) {
+        if screencasts
+            .iter()
+            .any(|existing| equivalent_screencast(existing, session))
+        {
+            continue;
+        }
+        screencasts.push(session.clone());
+    }
+    screencasts.sort_by(|left, right| left.id.cmp(&right.id));
+    screencasts
+}
+
+fn equivalent_screencast(
+    left: &glimpse_core::compositors::ScreencastSession,
+    right: &glimpse_core::compositors::ScreencastSession,
+) -> bool {
+    left.id == right.id
+        || (left.kind == right.kind
+            && left.kind == glimpse_core::compositors::ScreencastKind::PipeWire
+            && left.target == right.target
+            && left.client_pid == right.client_pid)
 }
 
 fn stoppable_screencast_id(
@@ -387,6 +517,7 @@ mod tests {
             microphones: vec![microphone()],
             webcams: vec![webcam()],
             screencasts: vec![screencast(true)],
+            screen_elapsed_seconds: 65,
             location_in_use: true,
         };
         let view = view_from_state(&state);
@@ -395,6 +526,7 @@ mod tests {
         assert!(view.microphone_visible);
         assert!(view.camera_visible);
         assert!(view.screen_visible);
+        assert_eq!(view.screen_elapsed, "1:05");
         assert!(view.location_visible);
         assert!(view.tooltip.contains("Microphone: Telegram"));
     }
@@ -407,6 +539,46 @@ mod tests {
         };
 
         assert_eq!(active_screencasts(&state).len(), 1);
+    }
+
+    #[test]
+    fn combined_active_screencasts_uses_pipewire_fallback_without_duplicates() {
+        let pipewire = ScreencastSession {
+            id: "pipewire-screen-capture:10:21".into(),
+            kind: ScreencastKind::PipeWire,
+            target: ScreencastTarget::Unknown,
+            active: true,
+            pipewire_node: Some(21),
+            session_id: None,
+            client_pid: None,
+            stoppable: false,
+        };
+        let webcam = WebcamState {
+            screencasts: vec![pipewire.clone()],
+            ..WebcamState::default()
+        };
+        let compositor = CompositorState::default();
+
+        assert_eq!(
+            combined_active_screencasts(&webcam, &compositor),
+            vec![pipewire]
+        );
+
+        let compositor = CompositorState {
+            screencasts: vec![ScreencastSession {
+                id: "portal-screen-capture:webrtc".into(),
+                kind: ScreencastKind::PipeWire,
+                target: ScreencastTarget::Unknown,
+                active: true,
+                pipewire_node: None,
+                session_id: None,
+                client_pid: None,
+                stoppable: false,
+            }],
+            ..CompositorState::default()
+        };
+
+        assert_eq!(combined_active_screencasts(&webcam, &compositor).len(), 1);
     }
 
     #[test]

@@ -923,6 +923,11 @@ popover.popover-size-xlarge {
     color: var(--color-danger);
 }
 
+.privacy-recording-label {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
 /* Network popover */
 
 .network-popover .section-block__header,

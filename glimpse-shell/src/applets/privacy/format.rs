@@ -43,6 +43,10 @@ pub fn tooltip(
     lines.join("\n")
 }
 
+pub fn elapsed(seconds: u64) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
 fn app_list<T>(items: &[T], app_name: impl Fn(&T) -> &str) -> String {
     let mut names = Vec::new();
 
@@ -95,6 +99,13 @@ mod tests {
     #[test]
     fn tooltip_is_empty_without_active_sources() {
         assert_eq!(tooltip(&[], &[], &[], false), "");
+    }
+
+    #[test]
+    fn elapsed_uses_clock_style_minutes_and_seconds() {
+        assert_eq!(elapsed(0), "0:00");
+        assert_eq!(elapsed(9), "0:09");
+        assert_eq!(elapsed(65), "1:05");
     }
 
     fn microphone(app_name: &str) -> MicrophoneUsage {

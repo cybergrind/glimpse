@@ -19,7 +19,10 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
+use crate::{
+    compositors::{ScreencastKind, ScreencastSession, ScreencastTarget},
+    services::framework::{Control, ServiceCommand, ServiceHandle},
+};
 
 const COMMAND_QUEUE_SIZE: usize = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
@@ -37,6 +40,7 @@ pub struct WebcamUsage {
 pub struct State {
     pub available: bool,
     pub usages: Vec<WebcamUsage>,
+    pub screencasts: Vec<ScreencastSession>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +292,7 @@ fn publish_graph(
     let _ = state_tx.send(MonitorMessage::State(State {
         available: true,
         usages: graph.borrow().usages(),
+        screencasts: graph.borrow().screencasts(),
     }));
 }
 
@@ -450,6 +455,45 @@ impl PipeWireGraph {
         usages
     }
 
+    fn screencasts(&self) -> Vec<ScreencastSession> {
+        let mut screencasts = Vec::new();
+        let mut seen = HashSet::new();
+
+        for link in self.links.values().filter(|link| link.active) {
+            let Some(output) = self.nodes.get(&link.output_node) else {
+                continue;
+            };
+            let Some(input) = self.nodes.get(&link.input_node) else {
+                continue;
+            };
+            if !is_screencast_output_node(&output.props) || !is_video_consumer_node(&input.props) {
+                continue;
+            }
+
+            let id = format!(
+                "pipewire-screen-capture:{}:{}",
+                link.output_node, link.input_node
+            );
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+
+            screencasts.push(ScreencastSession {
+                id,
+                session_id: None,
+                kind: ScreencastKind::PipeWire,
+                target: ScreencastTarget::Unknown,
+                active: true,
+                pipewire_node: Some(link.input_node),
+                client_pid: None,
+                stoppable: false,
+            });
+        }
+
+        screencasts.sort_by(|left, right| left.id.cmp(&right.id));
+        screencasts
+    }
+
     fn camera_nodes(&self) -> HashMap<u32, String> {
         self.nodes
             .iter()
@@ -550,12 +594,40 @@ fn is_camera_node(props: &Props) -> bool {
     let media_role = prop(props, "media.role").unwrap_or("");
     let object_path = prop(props, "object.path").unwrap_or("");
     let node_name = prop(props, "node.name").unwrap_or("");
+    let device_api = prop(props, "device.api").unwrap_or("");
+    let factory_name = prop(props, "factory.name").unwrap_or("");
 
     media_class == "Video/Source"
         && (media_role == "Camera"
             || object_path.starts_with("v4l2:")
+            || prop(props, "api.v4l2.path").is_some()
             || node_name.starts_with("v4l2_")
-            || node_name.starts_with("v4l2_input"))
+            || node_name.starts_with("v4l2_input")
+            || matches!(device_api, "v4l2" | "libcamera")
+            || factory_name.contains("v4l2")
+            || factory_name.contains("libcamera"))
+}
+
+fn is_screencast_output_node(props: &Props) -> bool {
+    let media_class = prop(props, "media.class").unwrap_or("");
+    if media_class != "Stream/Output/Video" {
+        return false;
+    }
+
+    let node_name = prop(props, "node.name").unwrap_or("");
+    let app_name = prop(props, "application.name").unwrap_or("");
+    let binary = prop(props, "application.process.binary").unwrap_or("");
+    let text = format!("{node_name} {app_name} {binary}").to_ascii_lowercase();
+
+    text.contains("niri")
+        || text.contains("hyprland")
+        || text.contains("xdg-desktop-portal")
+        || text.contains("screencast")
+        || text.contains("screen")
+}
+
+fn is_video_consumer_node(props: &Props) -> bool {
+    matches!(prop(props, "media.class"), Some("Stream/Input/Video"))
 }
 
 fn prop<'a>(props: &'a Props, name: &str) -> Option<&'a str> {
@@ -657,6 +729,76 @@ mod tests {
                 pipewire_node: Some(10),
             }]
         );
+    }
+
+    #[test]
+    fn identifies_libcamera_video_source_as_camera() {
+        assert!(is_camera_node(&props(&[
+            ("media.class", "Video/Source"),
+            ("device.api", "libcamera"),
+            ("node.description", "Integrated Camera"),
+        ])));
+    }
+
+    #[test]
+    fn renders_screencast_usage_from_active_pipewire_video_stream() {
+        let mut graph = PipeWireGraph::default();
+        graph.update_node(
+            10,
+            props(&[
+                ("media.class", "Stream/Output/Video"),
+                ("node.name", "niri"),
+            ]),
+            true,
+        );
+        graph.update_node(
+            21,
+            props(&[
+                ("media.class", "Stream/Input/Video"),
+                ("node.name", "chrome"),
+                ("client.id", "20"),
+            ]),
+            true,
+        );
+        graph.update_link(30, 10, 21, true);
+
+        assert_eq!(
+            graph.screencasts(),
+            vec![ScreencastSession {
+                id: "pipewire-screen-capture:10:21".into(),
+                session_id: None,
+                kind: ScreencastKind::PipeWire,
+                target: ScreencastTarget::Unknown,
+                active: true,
+                pipewire_node: Some(21),
+                client_pid: None,
+                stoppable: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn renders_screencast_usage_from_active_video_link_before_input_runs() {
+        let mut graph = PipeWireGraph::default();
+        graph.update_node(
+            10,
+            props(&[
+                ("media.class", "Stream/Output/Video"),
+                ("node.name", "niri"),
+            ]),
+            true,
+        );
+        graph.update_node(
+            21,
+            props(&[
+                ("media.class", "Stream/Input/Video"),
+                ("node.name", "chrome"),
+            ]),
+            false,
+        );
+        graph.update_link(30, 10, 21, true);
+
+        assert_eq!(graph.screencasts().len(), 1);
     }
 
     fn props(items: &[(&str, &str)]) -> Props {

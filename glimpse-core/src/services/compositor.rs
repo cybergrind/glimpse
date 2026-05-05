@@ -20,6 +20,9 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 const REFRESH_DEBOUNCE: Duration = Duration::from_millis(40);
 const DIRECT_SCREENCAST_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const DIRECT_SCREENCAST_ID_PREFIX: &str = "direct-screen-capture:";
+const PORTAL_SCREENCAST_ID_PREFIX: &str = "portal-screen-capture:";
+const PORTAL_DESKTOP_DESTINATION: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_SESSION_ROOT: &str = "/org/freedesktop/portal/desktop/session";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
@@ -119,7 +122,7 @@ impl CompositorService {
         let mut direct_screencast_tick = interval(DIRECT_SCREENCAST_REFRESH_INTERVAL);
         direct_screencast_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         direct_screencast_tick.tick().await;
-        self.refresh_direct_screencasts().await;
+        self.refresh_external_screencasts().await;
 
         loop {
             tokio::select! {
@@ -156,7 +159,7 @@ impl CompositorService {
                     None => return Ok(RunOutcome::RetryAfterDelay),
                 },
                 _ = direct_screencast_tick.tick() => {
-                    self.refresh_direct_screencasts().await;
+                    self.refresh_external_screencasts().await;
                 },
                 command = self.command_rx.recv() => match command {
                     Some(ServiceCommand::Command(command)) => {
@@ -432,20 +435,25 @@ impl CompositorService {
         }
     }
 
-    async fn refresh_direct_screencasts(&self) {
-        match tokio::task::spawn_blocking(scan_direct_screencasts).await {
-            Ok(screencasts) => {
-                self.state_tx.send_if_modified(|state| {
-                    apply_direct_screencasts(&mut state.screencasts, screencasts)
-                });
-            }
+    async fn refresh_external_screencasts(&self) {
+        let mut screencasts = match tokio::task::spawn_blocking(scan_direct_screencasts).await {
+            Ok(screencasts) => screencasts,
             Err(error) => {
                 tracing::warn!(?error, "failed to scan direct screencast usage");
-                self.state_tx.send_if_modified(|state| {
-                    apply_direct_screencasts(&mut state.screencasts, Vec::new())
-                });
+                Vec::new()
+            }
+        };
+
+        match scan_portal_screencasts().await {
+            Ok(portal_screencasts) => screencasts.extend(portal_screencasts),
+            Err(error) => {
+                tracing::debug!(%error, "failed to scan portal screencast usage");
             }
         }
+
+        self.state_tx.send_if_modified(|state| {
+            apply_direct_screencasts(&mut state.screencasts, screencasts)
+        });
     }
 }
 
@@ -685,7 +693,72 @@ fn is_direct_screencast_process(name: &str) -> bool {
 }
 
 fn is_direct_screencast(id: &str) -> bool {
-    id.starts_with(DIRECT_SCREENCAST_ID_PREFIX)
+    id.starts_with(DIRECT_SCREENCAST_ID_PREFIX) || id.starts_with(PORTAL_SCREENCAST_ID_PREFIX)
+}
+
+async fn scan_portal_screencasts() -> anyhow::Result<Vec<ScreencastSession>> {
+    let connection = zbus::Connection::session().await?;
+    let mut sessions = Vec::new();
+    for path in portal_session_leaf_paths(&connection).await? {
+        let Some(name) = path.rsplit('/').next() else {
+            continue;
+        };
+        if !is_portal_screencast_session_name(name) {
+            continue;
+        }
+        sessions.push(ScreencastSession {
+            id: format!("{PORTAL_SCREENCAST_ID_PREFIX}{name}"),
+            session_id: Some(path),
+            kind: ScreencastKind::PipeWire,
+            target: ScreencastTarget::Unknown,
+            active: true,
+            pipewire_node: None,
+            client_pid: None,
+            stoppable: false,
+        });
+    }
+    sessions.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(sessions)
+}
+
+async fn portal_session_leaf_paths(connection: &zbus::Connection) -> anyhow::Result<Vec<String>> {
+    let mut leaves = Vec::new();
+    let top_level = introspect_child_node_names(connection, PORTAL_SESSION_ROOT).await?;
+    for account in top_level {
+        let account_path = format!("{PORTAL_SESSION_ROOT}/{account}");
+        let children = introspect_child_node_names(connection, &account_path).await?;
+        for child in children {
+            leaves.push(format!("{account_path}/{child}"));
+        }
+    }
+    Ok(leaves)
+}
+
+async fn introspect_child_node_names(
+    connection: &zbus::Connection,
+    path: &str,
+) -> anyhow::Result<Vec<String>> {
+    let proxy = zbus::fdo::IntrospectableProxy::builder(connection)
+        .destination(PORTAL_DESKTOP_DESTINATION)?
+        .path(path)?
+        .build()
+        .await?;
+    Ok(child_node_names(&proxy.introspect().await?))
+}
+
+fn child_node_names(xml: &str) -> Vec<String> {
+    xml.match_indices("<node ")
+        .filter_map(|(index, _)| {
+            let rest = &xml[index..];
+            let name = rest.split_once("name=\"")?.1.split_once('"')?.0;
+            (!name.is_empty()).then(|| name.to_owned())
+        })
+        .collect()
+}
+
+fn is_portal_screencast_session_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("webrtc") || name.contains("screencast") || name.contains("screen_cast")
 }
 
 #[cfg(test)]
@@ -846,6 +919,32 @@ mod tests {
         assert!(is_direct_screencast_process("obs"));
         assert!(!is_direct_screencast_process("firefox"));
         assert!(!is_direct_screencast_process("pipewire"));
+    }
+
+    #[test]
+    fn parses_portal_session_child_nodes() {
+        let xml = r#"
+            <node>
+              <interface name="org.freedesktop.DBus.Introspectable"/>
+              <node name="1_803571"/>
+              <node name="1_803688"/>
+            </node>
+        "#;
+
+        assert_eq!(
+            child_node_names(xml),
+            vec!["1_803571".to_string(), "1_803688".to_string()]
+        );
+    }
+
+    #[test]
+    fn identifies_portal_webrtc_screen_sessions() {
+        assert!(is_portal_screencast_session_name(
+            "webrtc_session1227734951"
+        ));
+        assert!(is_portal_screencast_session_name("screen_cast123"));
+        assert!(!is_portal_screencast_session_name("gtk1810709476"));
+        assert!(!is_portal_screencast_session_name("tdesktop2568826995"));
     }
 
     fn window(id: usize, focused: bool, workspace: Option<usize>) -> Window {
