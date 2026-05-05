@@ -79,7 +79,7 @@ impl SimpleComponent for Popover {
                     },
 
                     #[local_ref]
-                    primary_widget -> gtk::Grid {},
+                    primary_widget -> gtk::Box {},
 
                     #[name = "sections_separator"]
                     gtk::Separator {

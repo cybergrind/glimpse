@@ -18,6 +18,7 @@ use crate::{
     },
     services::notifications::model::NotificationEntry,
 };
+use glimpse_core::services::notifications::model::State as NotificationState;
 
 use super::{
     components::{
@@ -175,7 +176,7 @@ impl SimpleComponent for Popover {
         widgets
             .hero
             .icon
-            .set_icon_name(Some("notifications-symbolic"));
+            .set_icon_name(Some(notification_popover_icon_name(false)));
         widgets.hero.title.set_label("Notifications");
         widgets.hero.subtitle.set_label("No notifications");
         widgets.hero.trailing.set_visible(true);
@@ -268,11 +269,8 @@ impl Popover {
         let mut previous: Option<gtk::Widget> = None;
         self.empty.set_visible(self.notifications.is_empty());
         self.scroller.set_visible(!self.notifications.is_empty());
-        self.hero_icon.set_icon_name(Some(if self.dnd {
-            "notifications-disabled-symbolic"
-        } else {
-            "notifications-symbolic"
-        }));
+        self.hero_icon
+            .set_icon_name(Some(notification_popover_icon_name(self.dnd)));
         let subtitle = if self.dnd {
             "Do Not Disturb".into()
         } else {
@@ -688,6 +686,13 @@ fn notification_icon_name(notification: &NotificationEntry) -> &str {
     }
 }
 
+fn notification_popover_icon_name(dnd: bool) -> &'static str {
+    format::icon_name(&NotificationState {
+        dnd,
+        ..Default::default()
+    })
+}
+
 fn load_notification_image(notification: &NotificationEntry) -> Option<gdk::Texture> {
     let image = notification.image.as_deref()?.trim();
     if image.is_empty() {
@@ -755,5 +760,17 @@ mod tests {
         assert!(row.summary_label.has_css_class("notification-summary"));
         assert!(row.body_label.has_css_class("notification-body"));
         assert!(row.actions_box.has_css_class("notification-actions"));
+    }
+
+    #[test]
+    fn popover_uses_available_notification_icon_names() {
+        assert_eq!(
+            notification_popover_icon_name(false),
+            "preferences-system-notifications-symbolic"
+        );
+        assert_eq!(
+            notification_popover_icon_name(true),
+            "notifications-disabled-symbolic"
+        );
     }
 }

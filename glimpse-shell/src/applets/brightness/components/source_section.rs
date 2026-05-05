@@ -68,48 +68,64 @@ impl SimpleComponent for SourceControl {
     type Output = Command;
 
     view! {
-        root = gtk::Grid {
+        root = gtk::Box {
             add_css_class: "brightness-control",
-            set_column_spacing: 8,
-            set_row_spacing: 4,
+            set_orientation: gtk::Orientation::Vertical,
+            set_spacing: 0,
             set_valign: gtk::Align::Center,
             #[watch]
             set_sensitive: model.source.writable,
             #[watch]
             set_tooltip_text: Some(&format!("{} - {}%", model.source.name, model.source.percent)),
 
-            attach[0, 1, 1, 1] = &gtk::Image {
-                add_css_class: "brightness-control__icon",
-                set_pixel_size: 16,
-                set_halign: gtk::Align::Center,
-                set_valign: gtk::Align::Center,
-                #[watch]
-                set_icon_name: Some(&model.source.icon),
-            },
-
-            attach[1, 0, 1, 1] = &gtk::Label {
-                add_css_class: "brightness-control__name",
-                set_halign: gtk::Align::Start,
-                set_xalign: 0.0,
-                set_hexpand: true,
-                set_ellipsize: gtk::pango::EllipsizeMode::End,
-                #[watch]
-                set_label: &model.source.name,
-            },
-
-            #[name = "scale"]
-            attach[1, 1, 1, 1] = &gtk::Scale {
-                add_css_class: "brightness-control__scale",
+            gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_draw_value: false,
-                set_hexpand: true,
+                set_spacing: 8,
+
+                gtk::Box {
+                    add_css_class: "brightness-control__icon-ghost",
+                },
+
+                gtk::Label {
+                    add_css_class: "brightness-control__name",
+                    set_halign: gtk::Align::Start,
+                    set_xalign: 0.0,
+                    set_hexpand: true,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    #[watch]
+                    set_label: &model.source.name,
+                },
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
                 set_valign: gtk::Align::Center,
-                set_range: (0.0, 100.0),
-                set_increments: (1.0, 10.0),
-                set_digits: 0,
-                connect_change_value[sender] => move |_, _, value| {
-                    sender.input(SourceControlInput::SetPercent(value));
-                    glib::Propagation::Stop
+                set_spacing: 8,
+
+                gtk::Image {
+                    add_css_class: "brightness-control__icon",
+                    add_css_class: "brightness-control__icon-slot",
+                    set_pixel_size: 16,
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                    #[watch]
+                    set_icon_name: Some(&model.source.icon),
+                },
+
+                #[name = "scale"]
+                gtk::Scale {
+                    add_css_class: "brightness-control__scale",
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_draw_value: false,
+                    set_hexpand: true,
+                    set_valign: gtk::Align::Center,
+                    set_range: (0.0, 100.0),
+                    set_increments: (1.0, 10.0),
+                    set_digits: 0,
+                    connect_change_value[sender] => move |_, _, value| {
+                        sender.input(SourceControlInput::SetPercent(value));
+                        glib::Propagation::Stop
+                    },
                 },
             },
         }
@@ -265,7 +281,7 @@ impl FactoryComponent for SourceRowItem {
     type Output = Command;
     type CommandOutput = ();
     type ParentWidget = gtk::Box;
-    type Root = gtk::Grid;
+    type Root = gtk::Box;
     type Widgets = ();
     type Index = DynamicIndex;
 

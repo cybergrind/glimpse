@@ -991,6 +991,14 @@ popover.popover-size-xlarge {
     padding: 0;
 }
 
+.brightness-popover .brightness-control__icon-ghost {
+    min-width: 28px;
+}
+
+.brightness-popover .brightness-control__icon-slot {
+    min-width: 16px;
+}
+
 .brightness-popover .brightness-control__name {
     font-weight: var(--font-weight-medium);
 }

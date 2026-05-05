@@ -8,29 +8,24 @@ use crate::{
     compositors::{CompositorCapabilities, CompositorType},
     services::{
         framework::{Control, ServiceCommand, ServiceHandle},
-        location,
+        solar,
     },
 };
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use self::{
-    scheduler::{
-        ManualScheduleWindow, SolarScheduleWindow, evaluate_automatic_schedule,
-        evaluate_manual_schedule, interpolate_temperature,
-    },
-    solar::solar_times_for_coordinates,
+use self::scheduler::{
+    ManualScheduleWindow, SolarScheduleWindow, evaluate_automatic_schedule,
+    evaluate_manual_schedule, interpolate_temperature,
 };
 
 mod scheduler;
-mod solar;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 const APPLY_TRANSITION_DURATION: Duration = Duration::from_millis(1500);
 const APPLY_TRANSITION_STEP: Duration = Duration::from_millis(100);
 const COMMAND_QUEUE_SIZE: usize = 8;
-const LOCATION_UNAVAILABLE_MESSAGE: &str =
-    "location coordinates are unavailable for automatic night light";
+const SOLAR_UNAVAILABLE_MESSAGE: &str = "solar times are unavailable for automatic night light";
 
 type ServiceError = Box<dyn Error + Send + Sync>;
 type ServiceResult<T> = Result<T, ServiceError>;
@@ -78,7 +73,7 @@ pub type NightLightHandle = ServiceHandle<State, Command>;
 
 pub struct NightLightService {
     backend: Box<dyn NightLightBackend>,
-    location: location::LocationHandle,
+    solar: solar::SolarHandle,
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
 }
@@ -86,7 +81,7 @@ pub struct NightLightService {
 impl NightLightService {
     pub fn new(
         backend: Box<dyn NightLightBackend>,
-        location: location::LocationHandle,
+        solar: solar::SolarHandle,
     ) -> (Self, NightLightHandle) {
         let (state_tx, state_rx) = watch::channel(initial_state(&*backend));
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
@@ -94,7 +89,7 @@ impl NightLightService {
         (
             Self {
                 backend,
-                location,
+                solar,
                 state_tx,
                 command_rx,
             },
@@ -105,7 +100,7 @@ impl NightLightService {
     pub async fn run(mut self, cancel: CancellationToken) {
         tracing::debug!("night light service started");
         let mut interval = tokio::time::interval(REFRESH_INTERVAL);
-        let mut location_rx = self.location.subscribe();
+        let mut solar_rx = self.solar.subscribe();
 
         loop {
             tokio::select! {
@@ -116,9 +111,9 @@ impl NightLightService {
                 _ = interval.tick() => {
                     self.refresh_from_current_state().await;
                 }
-                changed = location_rx.changed() => {
+                changed = solar_rx.changed() => {
                     if changed.is_err() {
-                        self.set_error_health("location service subscription closed");
+                        self.set_error_health("solar service subscription closed");
                         break;
                     }
                     self.refresh_from_current_state().await;
@@ -153,15 +148,15 @@ impl NightLightService {
     async fn apply_config(&mut self, config: NightLightConfig) {
         if let Err(error) = apply_config(
             &mut *self.backend,
-            &self.location,
+            &self.solar,
             &self.state_tx,
             config.clone(),
         )
         .await
         {
             let error_message = error.to_string();
-            if error_message == LOCATION_UNAVAILABLE_MESSAGE {
-                tracing::debug!("night light service: waiting for location coordinates");
+            if error_message == SOLAR_UNAVAILABLE_MESSAGE {
+                tracing::debug!("night light service: waiting for solar times");
             } else {
                 tracing::warn!(error = %error, "night light service: apply failed");
             }
@@ -173,7 +168,7 @@ impl NightLightService {
                     true
                 }
             });
-            if error_message != LOCATION_UNAVAILABLE_MESSAGE {
+            if error_message != SOLAR_UNAVAILABLE_MESSAGE {
                 apply_error_health(&self.state_tx, error.as_ref());
             }
         }
@@ -231,7 +226,7 @@ fn apply_error_health(state_tx: &watch::Sender<State>, error: &dyn Error) {
 
 async fn apply_config(
     backend: &mut dyn NightLightBackend,
-    location: &location::LocationHandle,
+    solar: &solar::SolarHandle,
     state_tx: &watch::Sender<State>,
     config: NightLightConfig,
 ) -> ServiceResult<()> {
@@ -252,7 +247,7 @@ async fn apply_config(
         return Ok(());
     }
 
-    let (phase, effective_temperature) = resolve_effective_temperature(&config, location).await?;
+    let (phase, effective_temperature) = resolve_effective_temperature(&config, solar).await?;
 
     apply_temperature_transition(
         backend,
@@ -280,7 +275,7 @@ async fn apply_config(
 
 async fn resolve_effective_temperature(
     config: &NightLightConfig,
-    location: &location::LocationHandle,
+    solar: &solar::SolarHandle,
 ) -> ServiceResult<(NightLightPhase, u32)> {
     match config.schedule {
         NightLightSchedule::Off => Ok((NightLightPhase::Disabled, DAYLIGHT_TEMPERATURE_KELVIN)),
@@ -315,13 +310,10 @@ async fn resolve_effective_temperature(
             Ok((evaluation.phase, effective))
         }
         NightLightSchedule::Automatic => {
-            let coordinates = resolve_coordinates(location).await?;
-            let solar_times =
-                solar_times_for_coordinates(coordinates.latitude, coordinates.longitude)
-                    .map_err(|error| -> ServiceError { error.into() })?;
+            let snapshot = resolve_solar_snapshot(solar)?;
             let window = SolarScheduleWindow::new(
-                &solar_times.sunset,
-                &solar_times.sunrise,
+                &snapshot.times.sunset,
+                &snapshot.times.sunrise,
                 config.transition_minutes,
             )
             .map_err(service_error)?;
@@ -333,10 +325,10 @@ async fn resolve_effective_temperature(
                 evaluation.night_progress,
             );
             tracing::debug!(
-                latitude = coordinates.latitude,
-                longitude = coordinates.longitude,
-                sunrise = %solar_times.sunrise,
-                sunset = %solar_times.sunset,
+                latitude = snapshot.coordinates.latitude,
+                longitude = snapshot.coordinates.longitude,
+                sunrise = %snapshot.times.sunrise,
+                sunset = %snapshot.times.sunset,
                 now,
                 transition_minutes = config.transition_minutes,
                 phase = ?evaluation.phase,
@@ -358,27 +350,20 @@ fn publish_state_if_changed(state_tx: &watch::Sender<State>, next_state: State) 
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Coordinates {
-    latitude: f64,
-    longitude: f64,
-}
-
-async fn resolve_coordinates(location: &location::LocationHandle) -> ServiceResult<Coordinates> {
-    match location.snapshot() {
-        location::State::Ready(coordinates) => {
+fn resolve_solar_snapshot(solar: &solar::SolarHandle) -> ServiceResult<solar::Snapshot> {
+    match solar.snapshot() {
+        solar::State::Ready(snapshot) => {
             tracing::debug!(
-                latitude = coordinates.latitude,
-                longitude = coordinates.longitude,
-                "night light service: using location service coordinates"
+                latitude = snapshot.coordinates.latitude,
+                longitude = snapshot.coordinates.longitude,
+                sunrise = %snapshot.times.sunrise,
+                sunset = %snapshot.times.sunset,
+                "night light service: using solar service times"
             );
-            Ok(Coordinates {
-                latitude: coordinates.latitude,
-                longitude: coordinates.longitude,
-            })
+            Ok(snapshot)
         }
-        location::State::Unknown | location::State::Refreshing | location::State::Degraded(_) => {
-            Err(service_error(LOCATION_UNAVAILABLE_MESSAGE))
+        solar::State::Unknown | solar::State::Degraded { .. } => {
+            Err(service_error(SOLAR_UNAVAILABLE_MESSAGE))
         }
     }
 }
@@ -501,7 +486,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{
-        Coordinates, LOCATION_UNAVAILABLE_MESSAGE, NightLightBackend, State, resolve_coordinates,
+        NightLightBackend, SOLAR_UNAVAILABLE_MESSAGE, State, resolve_solar_snapshot,
         transition_temperatures,
     };
     use crate::{
@@ -509,7 +494,7 @@ mod tests {
         compositors::{CompositorCapabilities, CompositorType},
         services::{
             framework::{Control, ServiceCommand, ServiceHandle},
-            location,
+            solar,
         },
     };
     use async_trait::async_trait;
@@ -549,10 +534,10 @@ mod tests {
         }
     }
 
-    fn location_handle(initial: location::State) -> location::LocationHandle {
-        let (_state_tx, state_rx) = watch::channel(initial);
+    fn solar_handle(initial: solar::State) -> (watch::Sender<solar::State>, solar::SolarHandle) {
+        let (state_tx, state_rx) = watch::channel(initial);
         let (command_tx, _command_rx) = mpsc::channel(4);
-        ServiceHandle::new(state_rx, command_tx)
+        (state_tx, ServiceHandle::new(state_rx, command_tx))
     }
 
     #[test]
@@ -565,49 +550,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn location_service_coordinates_are_used_for_automatic_schedule() {
-        let location = location_handle(location::State::Ready(location::Coordinates {
-            latitude: 40.7128,
-            longitude: -74.006,
+    async fn solar_service_times_are_used_for_automatic_schedule() {
+        let (_solar_tx, solar) = solar_handle(solar::State::Ready(solar::Snapshot {
+            coordinates: crate::services::location::Coordinates {
+                latitude: 40.7128,
+                longitude: -74.006,
+            },
+            date: chrono::Local::now().date_naive(),
+            times: solar::SolarTimes {
+                sunrise: "06:00".into(),
+                sunset: "18:00".into(),
+            },
         }));
 
-        let coordinates = resolve_coordinates(&location).await.expect("coordinates");
+        let snapshot = resolve_solar_snapshot(&solar).expect("solar snapshot");
 
-        assert_eq!(
-            coordinates,
-            Coordinates {
-                latitude: 40.7128,
-                longitude: -74.006
-            }
-        );
+        assert_eq!(snapshot.times.sunrise, "06:00");
+        assert_eq!(snapshot.times.sunset, "18:00");
     }
 
     #[tokio::test]
-    async fn unavailable_location_waits_for_location_service_update() {
-        let (_state_tx, state_rx) = watch::channel(location::State::Unknown);
-        let (command_tx, mut command_rx) = mpsc::channel(4);
-        let location = ServiceHandle::new(state_rx, command_tx);
+    async fn unavailable_solar_times_waits_for_solar_service_update() {
+        let (_solar_tx, solar) = solar_handle(solar::State::Unknown);
 
-        let error = resolve_coordinates(&location)
-            .await
-            .expect_err("coordinates should be unavailable");
+        let error = resolve_solar_snapshot(&solar).expect_err("solar times should be unavailable");
 
-        assert_eq!(error.to_string(), LOCATION_UNAVAILABLE_MESSAGE);
-        assert!(command_rx.try_recv().is_err());
+        assert_eq!(error.to_string(), SOLAR_UNAVAILABLE_MESSAGE);
     }
 
     #[tokio::test]
     async fn service_accepts_start_control_config() {
         let log = Arc::new(Mutex::new(BackendLog::default()));
         let backend = Box::new(MockBackend { log: log.clone() });
-        let (_location_state_tx, location_state_rx) =
-            watch::channel(location::State::Ready(location::Coordinates {
+        let (_solar_tx, solar) = solar_handle(solar::State::Ready(solar::Snapshot {
+            coordinates: crate::services::location::Coordinates {
                 latitude: 52.2298,
                 longitude: 21.0118,
-            }));
-        let (location_command_tx, _location_command_rx) = mpsc::channel(4);
-        let location = ServiceHandle::new(location_state_rx, location_command_tx);
-        let (service, handle) = super::NightLightService::new(backend, location);
+            },
+            date: chrono::Local::now().date_naive(),
+            times: solar::SolarTimes {
+                sunrise: "06:00".into(),
+                sunset: "18:00".into(),
+            },
+        }));
+        let (service, handle) = super::NightLightService::new(backend, solar);
         let config = Config {
             night_light: NightLightConfig::default(),
             ..Config::default()

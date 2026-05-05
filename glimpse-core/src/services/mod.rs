@@ -15,6 +15,7 @@ pub mod night_light;
 pub mod notifications;
 pub mod power;
 pub mod session;
+pub mod solar;
 pub mod tray;
 pub mod weather;
 pub mod webcam;
