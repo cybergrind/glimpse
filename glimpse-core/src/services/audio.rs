@@ -2,14 +2,18 @@ use std::process::Stdio;
 
 use serde::Serialize;
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
     process::Command as TokioCommand,
     sync::{mpsc, watch},
-    time::{Duration, sleep},
+    time::{Duration, Instant, sleep},
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
+use crate::services::{
+    audio_events::{self, Event as AudioEvent},
+    framework::{Control, ServiceCommand, ServiceHandle},
+};
+
+const REFRESH_DEBOUNCE: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AudioDevice {
@@ -74,18 +78,18 @@ pub type AudioHandle = ServiceHandle<State, Command>;
 pub struct AudioService {
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
+    events: audio_events::AudioEventsHandle,
 }
 
 enum RunOutcome {
     Cancelled,
-    Restart,
     RetryAfterDelay,
 }
 
 struct AudioClient;
 
 impl AudioService {
-    pub fn new() -> (Self, AudioHandle) {
+    pub fn new(events: audio_events::AudioEventsHandle) -> (Self, AudioHandle) {
         let (state_tx, state_rx) = watch::channel(State::default());
         let (command_tx, command_rx) = mpsc::channel(16);
 
@@ -93,6 +97,7 @@ impl AudioService {
             Self {
                 state_tx,
                 command_rx,
+                events,
             },
             ServiceHandle::new(state_rx, command_tx),
         )
@@ -110,7 +115,6 @@ impl AudioService {
 
             match outcome {
                 RunOutcome::Cancelled => break,
-                RunOutcome::Restart => continue,
                 RunOutcome::RetryAfterDelay => {
                     tokio::select! {
                         _ = cancel.cancelled() => break,
@@ -123,55 +127,46 @@ impl AudioService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         let client = AudioClient;
-        if !client.available().await {
-            tracing::warn!("audio service unavailable: pactl is not available");
-            self.change_state(State::default());
+        if !self.refresh(&client).await {
             return Ok(RunOutcome::RetryAfterDelay);
         }
-
-        self.refresh(&client).await;
-
-        let mut sub = TokioCommand::new("pactl")
-            .arg("subscribe")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let stdout = sub
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("pactl subscribe did not expose stdout"))?;
-        let mut lines = BufReader::new(stdout).lines();
+        let mut events = self.events.subscribe();
+        let refresh_timer = sleep(Duration::MAX);
+        tokio::pin!(refresh_timer);
+        let mut refresh_pending = false;
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    let _ = sub.kill().await;
                     return Ok(RunOutcome::Cancelled);
                 }
                 command = self.command_rx.recv() => {
                     let Some(command) = command else {
-                        let _ = sub.kill().await;
                         return Ok(RunOutcome::Cancelled);
                     };
 
                     if self.handle_command(command, &client).await? {
-                        let _ = sub.kill().await;
                         return Ok(RunOutcome::Cancelled);
                     }
-                }
-                line = lines.next_line() => match line {
-                    Ok(Some(line)) if should_refresh(&line) => {
-                        self.refresh(&client).await;
+                },
+                changed = events.changed() => match changed {
+                    Ok(()) => {
+                        let event_state = events.borrow().clone();
+                        if !event_state.available {
+                            refresh_pending = false;
+                            self.change_state(State::default());
+                        } else if event_state.event.is_none() || should_refresh(event_state.event) {
+                            if !refresh_pending {
+                                refresh_pending = true;
+                                refresh_timer.as_mut().reset(Instant::now() + REFRESH_DEBOUNCE);
+                            }
+                        }
                     }
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        let _ = sub.kill().await;
-                        return Ok(RunOutcome::Restart);
-                    }
-                    Err(error) => {
-                        let _ = sub.kill().await;
-                        return Err(error.into());
-                    }
+                    Err(_) => return Ok(RunOutcome::RetryAfterDelay),
+                },
+                _ = &mut refresh_timer, if refresh_pending => {
+                    refresh_pending = false;
+                    self.refresh(&client).await;
                 }
             }
         }
@@ -201,12 +196,16 @@ impl AudioService {
         }
     }
 
-    async fn refresh(&self, client: &AudioClient) {
+    async fn refresh(&self, client: &AudioClient) -> bool {
         match client.fetch_state().await {
-            Ok(state) => self.change_state(state),
+            Ok(state) => {
+                self.change_state(state);
+                true
+            }
             Err(error) => {
                 tracing::warn!(%error, "failed to refresh audio state");
                 self.change_state(State::default());
+                false
             }
         }
     }
@@ -223,30 +222,14 @@ impl AudioService {
 }
 
 impl AudioClient {
-    async fn available(&self) -> bool {
-        TokioCommand::new("pactl")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .is_ok_and(|status| status.success())
-    }
-
     async fn fetch_state(&self) -> anyhow::Result<State> {
-        let (default_sink, default_source, sinks, sources, sink_inputs) = tokio::join!(
-            pactl_text(&["get-default-sink"]),
-            pactl_text(&["get-default-source"]),
-            pactl_json(&["list", "sinks"]),
-            pactl_json(&["list", "sources"]),
-            pactl_json(&["list", "sink-inputs"]),
-        );
+        let data = pactl_json(&["list"]).await?;
 
         Ok(State {
             available: true,
-            outputs: parse_outputs(&default_sink.unwrap_or_default(), &sinks?),
-            inputs: parse_inputs(&default_source.unwrap_or_default(), &sources?),
-            streams: parse_streams(&sink_inputs?),
+            outputs: parse_outputs(&data["sinks"]),
+            inputs: parse_inputs(&data["sources"]),
+            streams: parse_streams(&data["sink_inputs"]),
         })
     }
 
@@ -292,8 +275,11 @@ pub fn volume_icon(volume: u32, muted: bool) -> &'static str {
     }
 }
 
-fn should_refresh(line: &str) -> bool {
-    line.contains("sink") || line.contains("source") || line.contains("server")
+fn should_refresh(event: Option<AudioEvent>) -> bool {
+    matches!(
+        event,
+        Some(AudioEvent::Sink | AudioEvent::Source | AudioEvent::SinkInput | AudioEvent::Server)
+    )
 }
 
 async fn run_pactl(args: &[&str]) -> anyhow::Result<()> {
@@ -308,16 +294,6 @@ async fn run_pactl(args: &[&str]) -> anyhow::Result<()> {
     } else {
         Err(anyhow::anyhow!("pactl {} failed", args[0]))
     }
-}
-
-async fn pactl_text(args: &[&str]) -> anyhow::Result<String> {
-    let output = TokioCommand::new("pactl").args(args).output().await?;
-
-    if !output.status.success() {
-        return Err(anyhow::anyhow!("pactl {} failed", args.join(" ")));
-    }
-
-    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
 async fn pactl_json(args: &[&str]) -> anyhow::Result<serde_json::Value> {
@@ -336,12 +312,12 @@ async fn pactl_json(args: &[&str]) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-fn parse_outputs(default_name: &str, data: &serde_json::Value) -> Vec<AudioDevice> {
-    parse_devices(default_name, data, DeviceKind::Output)
+fn parse_outputs(data: &serde_json::Value) -> Vec<AudioDevice> {
+    parse_devices(data, DeviceKind::Output)
 }
 
-fn parse_inputs(default_name: &str, data: &serde_json::Value) -> Vec<AudioDevice> {
-    parse_devices(default_name, data, DeviceKind::Input)
+fn parse_inputs(data: &serde_json::Value) -> Vec<AudioDevice> {
+    parse_devices(data, DeviceKind::Input)
 }
 
 #[derive(Clone, Copy)]
@@ -350,16 +326,12 @@ enum DeviceKind {
     Input,
 }
 
-fn parse_devices(
-    default_name: &str,
-    data: &serde_json::Value,
-    device_kind: DeviceKind,
-) -> Vec<AudioDevice> {
+fn parse_devices(data: &serde_json::Value, device_kind: DeviceKind) -> Vec<AudioDevice> {
     let Some(devices) = data.as_array() else {
         return Vec::new();
     };
 
-    devices
+    let mut parsed = devices
         .iter()
         .filter_map(|device| {
             let name = device["name"].as_str()?;
@@ -384,11 +356,17 @@ fn parse_devices(
                 description,
                 volume: parse_volume(&device["volume"]),
                 muted: device["mute"].as_bool().unwrap_or(false),
-                is_default: name == default_name,
+                is_default: false,
                 icon_name: resolve_icon(raw_icon, form_factor, device_kind),
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    if let Some(first) = parsed.first_mut() {
+        first.is_default = true;
+    }
+
+    parsed
 }
 
 fn parse_streams(data: &serde_json::Value) -> Vec<AudioStream> {
@@ -491,12 +469,20 @@ mod tests {
             }
         ]);
 
-        let outputs = parse_outputs("alsa_output.pci", &data);
+        let outputs = parse_outputs(&data);
 
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].description, "Speakers");
         assert_eq!(outputs[0].volume, 42);
         assert!(outputs[0].is_default);
         assert_eq!(outputs[0].icon_name, "audio-speakers-symbolic");
+    }
+
+    #[test]
+    fn should_refresh_ignores_microphone_capture_events() {
+        assert!(!should_refresh(Some(AudioEvent::SourceOutput)));
+        assert!(should_refresh(Some(AudioEvent::Source)));
+        assert!(should_refresh(Some(AudioEvent::SinkInput)));
+        assert!(!should_refresh(None));
     }
 }

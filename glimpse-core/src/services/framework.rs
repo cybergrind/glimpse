@@ -5,9 +5,9 @@ use crate::Config;
 use crate::{
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, brightness, calendar_events, clipboard, clock, compositor,
-        geoclue, location, microphone, mpris, network, notifications, power, session, tray,
-        weather, webcam,
+        audio, audio_events, battery, bluetooth, brightness, calendar_events, clipboard, clock,
+        compositor, geoclue, location, microphone, mpris, network, notifications, power, session,
+        tray, weather, webcam,
     },
 };
 
@@ -113,6 +113,7 @@ impl RunningService {
 #[derive(Clone)]
 pub struct Services {
     pub audio: ServiceHandle<audio::State, audio::Command>,
+    pub audio_events: audio_events::AudioEventsHandle,
     pub clock: clock::ClockHandle,
     pub calendar_events: calendar_events::CalendarEventsHandle,
     pub geoclue: geoclue::GeoClueHandle,
@@ -142,6 +143,7 @@ impl Services {
             control,
             [
                 audio,
+                audio_events,
                 clock,
                 calendar_events,
                 geoclue,
@@ -175,7 +177,10 @@ impl ServiceRuntime {
         let session_dbus = dbus.session;
         let system_dbus = dbus.system;
 
-        let (audio_service, audio) = audio::AudioService::new();
+        let (audio_events_service, audio_events) = audio_events::AudioEventsService::new();
+        let audio_events_service = spawn_service(|cancel| audio_events_service.run(cancel));
+
+        let (audio_service, audio) = audio::AudioService::new(audio_events.clone());
         let audio_service = spawn_service(|cancel| audio_service.run(cancel));
 
         let (clock_service, clock) = clock::ClockService::new();
@@ -191,7 +196,8 @@ impl ServiceRuntime {
         let (location_service, location) = location::LocationService::new(geoclue.clone());
         let location_service = spawn_service(|cancel| location_service.run(cancel));
 
-        let (microphone_service, microphone) = microphone::MicrophoneService::new();
+        let (microphone_service, microphone) =
+            microphone::MicrophoneService::new(audio_events.clone());
         let microphone_service = spawn_service(|cancel| microphone_service.run(cancel));
 
         let (mpris_service, mpris) = mpris::MprisService::new(session_dbus.clone());
@@ -236,6 +242,7 @@ impl ServiceRuntime {
         let webcam_service = spawn_service(|cancel| webcam_service.run(cancel));
 
         let running_services = vec![
+            audio_events_service,
             audio_service,
             clock_service,
             calendar_events_service,
@@ -258,6 +265,7 @@ impl ServiceRuntime {
         ];
         let handles = Services {
             audio,
+            audio_events,
             clock,
             calendar_events,
             geoclue,

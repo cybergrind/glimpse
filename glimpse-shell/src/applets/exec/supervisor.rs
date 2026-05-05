@@ -1,4 +1,7 @@
-use std::{process::Stdio, time::Duration};
+use std::{
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -10,6 +13,9 @@ use super::{
     applet::{Config, Input},
     protocol::{ChildCommand, InitPayload, PanelCommand, parse_child_line},
 };
+
+const STDERR_LOG_WINDOW: Duration = Duration::from_secs(10);
+const STDERR_LOG_LIMIT: usize = 20;
 
 #[derive(Debug)]
 pub enum Control {
@@ -87,6 +93,7 @@ pub async fn run(
         let mut lines = BufReader::new(stdout).lines();
         let mut stderr_lines = BufReader::new(stderr).lines();
         let mut stderr_open = true;
+        let mut stderr_limiter = StderrLogLimiter::default();
 
         let exit = loop {
             tokio::select! {
@@ -127,13 +134,15 @@ pub async fn run(
                 line = stderr_lines.next_line(), if stderr_open => match line {
                     Ok(Some(line)) => {
                         if !line.is_empty() {
-                            tracing::warn!(stderr = %line, applet = %name, "exec applet child stderr");
+                            stderr_limiter.log(&name, &line);
                         }
                     }
                     Ok(None) => {
+                        stderr_limiter.flush(&name);
                         stderr_open = false;
                     }
                     Err(error) => {
+                        stderr_limiter.flush(&name);
                         stderr_open = false;
                         tracing::warn!(%error, applet = %name, "exec applet stderr read failed");
                     }
@@ -141,6 +150,7 @@ pub async fn run(
             }
         };
 
+        stderr_limiter.flush(&name);
         finish_child(&mut child, &name).await;
 
         let _ = out.send(Input::ChildExited);
@@ -149,6 +159,50 @@ pub async fn run(
         }
         if matches!(exit, ChildLoopExit::ProtocolEnded) {
             tokio::time::sleep(Duration::from_millis(config.restart_delay_ms)).await;
+        }
+    }
+}
+
+struct StderrLogLimiter {
+    window_started: Instant,
+    emitted: usize,
+    suppressed: usize,
+}
+
+impl Default for StderrLogLimiter {
+    fn default() -> Self {
+        Self {
+            window_started: Instant::now(),
+            emitted: 0,
+            suppressed: 0,
+        }
+    }
+}
+
+impl StderrLogLimiter {
+    fn log(&mut self, applet: &str, line: &str) {
+        if self.window_started.elapsed() >= STDERR_LOG_WINDOW {
+            self.flush(applet);
+            self.window_started = Instant::now();
+            self.emitted = 0;
+        }
+
+        if self.emitted < STDERR_LOG_LIMIT {
+            self.emitted += 1;
+            tracing::warn!(stderr = %line, applet = %applet, "exec applet child stderr");
+        } else {
+            self.suppressed += 1;
+        }
+    }
+
+    fn flush(&mut self, applet: &str) {
+        if self.suppressed > 0 {
+            tracing::warn!(
+                applet = %applet,
+                suppressed = self.suppressed,
+                "exec applet child stderr lines suppressed"
+            );
+            self.suppressed = 0;
         }
     }
 }

@@ -2,17 +2,20 @@ use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
     process::Command as TokioCommand,
     sync::{mpsc, watch},
-    time::{Duration, sleep},
+    time::{Duration, Instant, sleep},
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
+use crate::services::{
+    audio_events::{self, Event as AudioEvent},
+    framework::{Control, ServiceCommand, ServiceHandle},
+};
 
 const COMMAND_QUEUE_SIZE: usize = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+const REFRESH_DEBOUNCE: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MicrophoneUsage {
@@ -37,18 +40,18 @@ pub type MicrophoneHandle = ServiceHandle<State, Command>;
 pub struct MicrophoneService {
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
+    events: audio_events::AudioEventsHandle,
 }
 
 enum RunOutcome {
     Cancelled,
-    Restart,
     RetryAfterDelay,
 }
 
 struct MicrophoneClient;
 
 impl MicrophoneService {
-    pub fn new() -> (Self, MicrophoneHandle) {
+    pub fn new(events: audio_events::AudioEventsHandle) -> (Self, MicrophoneHandle) {
         let (state_tx, state_rx) = watch::channel(State::default());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
 
@@ -56,6 +59,7 @@ impl MicrophoneService {
             Self {
                 state_tx,
                 command_rx,
+                events,
             },
             ServiceHandle::new(state_rx, command_tx),
         )
@@ -73,7 +77,6 @@ impl MicrophoneService {
 
             match outcome {
                 RunOutcome::Cancelled => break,
-                RunOutcome::Restart => continue,
                 RunOutcome::RetryAfterDelay => {
                     tokio::select! {
                         _ = cancel.cancelled() => break,
@@ -86,40 +89,26 @@ impl MicrophoneService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         let client = MicrophoneClient;
-        if !client.available().await {
-            tracing::warn!("microphone service unavailable: pactl is not available");
-            self.change_state(State::default());
+        if !self.refresh(&client).await {
             return Ok(RunOutcome::RetryAfterDelay);
         }
-
-        self.refresh(&client).await;
-
-        let mut sub = TokioCommand::new("pactl")
-            .arg("subscribe")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let stdout = sub
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("pactl subscribe did not expose stdout"))?;
-        let mut lines = BufReader::new(stdout).lines();
+        let mut events = self.events.subscribe();
+        let refresh_timer = sleep(Duration::MAX);
+        tokio::pin!(refresh_timer);
+        let mut refresh_pending = false;
 
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    let _ = sub.kill().await;
                     return Ok(RunOutcome::Cancelled);
                 }
                 command = self.command_rx.recv() => {
                     let Some(command) = command else {
-                        let _ = sub.kill().await;
                         return Ok(RunOutcome::Cancelled);
                     };
 
                     match command {
                         ServiceCommand::Control(Control::Shutdown) => {
-                            let _ = sub.kill().await;
                             return Ok(RunOutcome::Cancelled);
                         }
                         ServiceCommand::Control(Control::Start(_) | Control::Reconfigure(_))
@@ -127,31 +116,40 @@ impl MicrophoneService {
                             self.refresh(&client).await;
                         }
                     }
-                }
-                line = lines.next_line() => match line {
-                    Ok(Some(line)) if should_refresh(&line) => {
-                        self.refresh(&client).await;
+                },
+                changed = events.changed() => match changed {
+                    Ok(()) => {
+                        let event_state = events.borrow().clone();
+                        if !event_state.available {
+                            refresh_pending = false;
+                            self.change_state(State::default());
+                        } else if event_state.event.is_none() || should_refresh(event_state.event) {
+                            if !refresh_pending {
+                                refresh_pending = true;
+                                refresh_timer.as_mut().reset(Instant::now() + REFRESH_DEBOUNCE);
+                            }
+                        }
                     }
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        let _ = sub.kill().await;
-                        return Ok(RunOutcome::Restart);
-                    }
-                    Err(error) => {
-                        let _ = sub.kill().await;
-                        return Err(error.into());
-                    }
+                    Err(_) => return Ok(RunOutcome::RetryAfterDelay),
+                },
+                _ = &mut refresh_timer, if refresh_pending => {
+                    refresh_pending = false;
+                    self.refresh(&client).await;
                 }
             }
         }
     }
 
-    async fn refresh(&self, client: &MicrophoneClient) {
+    async fn refresh(&self, client: &MicrophoneClient) -> bool {
         match client.fetch_state().await {
-            Ok(state) => self.change_state(state),
+            Ok(state) => {
+                self.change_state(state);
+                true
+            }
             Err(error) => {
                 tracing::warn!(%error, "failed to refresh microphone state");
                 self.change_state(State::default());
+                false
             }
         }
     }
@@ -168,27 +166,17 @@ impl MicrophoneService {
 }
 
 impl MicrophoneClient {
-    async fn available(&self) -> bool {
-        TokioCommand::new("pactl")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .is_ok_and(|status| status.success())
-    }
-
     async fn fetch_state(&self) -> anyhow::Result<State> {
+        let data = pactl_json(&["list"]).await?;
         Ok(State {
             available: true,
-            usages: parse_microphone_usages(&pactl_json(&["list", "source-outputs"]).await?),
+            usages: parse_microphone_usages(&data["source_outputs"]),
         })
     }
 }
 
-fn should_refresh(line: &str) -> bool {
-    let line = line.to_ascii_lowercase();
-    line.contains("source-output") || line.contains("source output")
+fn should_refresh(event: Option<AudioEvent>) -> bool {
+    matches!(event, Some(AudioEvent::SourceOutput))
 }
 
 async fn pactl_json(args: &[&str]) -> anyhow::Result<serde_json::Value> {
@@ -341,8 +329,9 @@ mod tests {
 
     #[test]
     fn should_refresh_only_for_source_output_events() {
-        assert!(should_refresh("Event 'remove' on source-output #12"));
-        assert!(should_refresh("Event 'new' on source output #12"));
-        assert!(!should_refresh("Event 'change' on sink #1"));
+        assert!(should_refresh(Some(AudioEvent::SourceOutput)));
+        assert!(!should_refresh(Some(AudioEvent::Source)));
+        assert!(!should_refresh(Some(AudioEvent::Sink)));
+        assert!(!should_refresh(None));
     }
 }

@@ -248,8 +248,10 @@ impl Applet {
     }
 
     fn sync_popover(&self) {
-        self.popover
-            .emit(PopoverInput::SetRoot(self.root_node.clone()));
+        if self.popover_open {
+            self.popover
+                .emit(PopoverInput::SetRoot(self.root_node.clone()));
+        }
     }
 
     fn rebuild_status_if_needed(&mut self, sender: &ComponentSender<Self>) {
@@ -258,11 +260,9 @@ impl Applet {
             return;
         }
 
-        while let Some(child) = self.status_box.first_child() {
-            self.status_box.remove(&child);
-        }
         let mut existing = std::mem::take(&mut self.status_items);
         let mut next = Vec::with_capacity(self.status.len());
+        let mut previous: Option<gtk::Widget> = None;
         for (index, item) in self.status.iter().enumerate() {
             let key = status_item_key(index, item);
             let controller =
@@ -281,8 +281,13 @@ impl Applet {
                         })
                         .forward(sender.input_sender(), Input::StatusItemOutput)
                 };
-            self.status_box.append(controller.widget());
+            let widget = controller.widget().clone().upcast::<gtk::Widget>();
+            place_status_widget(&self.status_box, &widget, previous.as_ref());
+            previous = Some(widget);
             next.push(RenderedStatusItem { key, controller });
+        }
+        for rendered in existing {
+            detach_status_widget(rendered.controller.widget());
         }
         self.status_items = next;
 
@@ -295,6 +300,29 @@ impl Applet {
         if let Err(error) = self.outbound_tx.try_send(PanelCommand::Event(event)) {
             tracing::warn!(%error, applet = %self.name, "exec applet failed to queue event");
         }
+    }
+}
+
+fn place_status_widget(container: &gtk::Box, widget: &gtk::Widget, sibling: Option<&gtk::Widget>) {
+    match widget.parent() {
+        Some(parent) if parent == container.clone().upcast::<gtk::Widget>() => {
+            container.reorder_child_after(widget, sibling);
+        }
+        Some(_) => {
+            detach_status_widget(widget);
+            container.insert_child_after(widget, sibling);
+        }
+        None => {
+            container.insert_child_after(widget, sibling);
+        }
+    }
+}
+
+fn detach_status_widget(widget: &impl IsA<gtk::Widget>) {
+    if let Some(parent) = widget.as_ref().parent()
+        && let Ok(parent) = parent.downcast::<gtk::Box>()
+    {
+        parent.remove(widget);
     }
 }
 

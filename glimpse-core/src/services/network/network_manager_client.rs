@@ -1031,7 +1031,74 @@ fn is_network_manager_message(message: &zbus::message::Message) -> bool {
     let Some(path) = header.path() else {
         return false;
     };
-    path.as_str().starts_with("/org/freedesktop/NetworkManager")
+    if !path.as_str().starts_with("/org/freedesktop/NetworkManager") {
+        return false;
+    }
+
+    let Some(member) = header.member() else {
+        return true;
+    };
+    if member.as_str() != "PropertiesChanged" {
+        return true;
+    }
+
+    match message
+        .body()
+        .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+    {
+        Ok((interface, changed, invalidated)) => network_properties_are_relevant(
+            &interface,
+            changed.keys().map(String::as_str),
+            invalidated.iter().map(String::as_str),
+        ),
+        Err(error) => {
+            tracing::debug!(%error, "network: failed to inspect properties changed body");
+            true
+        }
+    }
+}
+
+fn network_properties_are_relevant<'a>(
+    interface: &str,
+    changed: impl Iterator<Item = &'a str>,
+    invalidated: impl Iterator<Item = &'a str>,
+) -> bool {
+    changed
+        .chain(invalidated)
+        .any(|property| network_property_is_relevant(interface, property))
+}
+
+fn network_property_is_relevant(interface: &str, property: &str) -> bool {
+    match interface {
+        "org.freedesktop.NetworkManager" => matches!(
+            property,
+            "Connectivity"
+                | "NetworkingEnabled"
+                | "WirelessEnabled"
+                | "WirelessHardwareEnabled"
+                | "Metered"
+                | "PrimaryConnection"
+                | "ActiveConnections"
+        ),
+        "org.freedesktop.NetworkManager.Device" => {
+            matches!(property, "State" | "StateReason" | "Interface" | "Managed")
+        }
+        "org.freedesktop.NetworkManager.Device.Wired" => {
+            matches!(property, "Speed" | "Carrier")
+        }
+        "org.freedesktop.NetworkManager.Device.Wireless" => {
+            matches!(property, "Bitrate" | "ActiveAccessPoint" | "AccessPoints")
+        }
+        "org.freedesktop.NetworkManager.AccessPoint" => matches!(
+            property,
+            "Ssid" | "Strength" | "Frequency" | "Flags" | "WpaFlags" | "RsnFlags"
+        ),
+        "org.freedesktop.NetworkManager.Connection.Active" => matches!(
+            property,
+            "Id" | "Uuid" | "Type" | "State" | "StateReason" | "Vpn" | "Devices"
+        ),
+        _ => false,
+    }
 }
 
 fn is_real_path(path: &str) -> bool {
@@ -1104,5 +1171,25 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn network_property_filter_ignores_irrelevant_property_changes() {
+        assert!(network_property_is_relevant(
+            "org.freedesktop.NetworkManager.AccessPoint",
+            "Strength"
+        ));
+        assert!(network_property_is_relevant(
+            "org.freedesktop.NetworkManager",
+            "PrimaryConnection"
+        ));
+        assert!(!network_property_is_relevant(
+            "org.freedesktop.NetworkManager.Device.Statistics",
+            "RxBytes"
+        ));
+        assert!(!network_property_is_relevant(
+            "org.freedesktop.DBus.Introspectable",
+            "Anything"
+        ));
     }
 }

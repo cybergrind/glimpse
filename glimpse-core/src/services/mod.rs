@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod audio_events;
 pub mod battery;
 pub mod bluetooth;
 pub mod brightness;

@@ -1,12 +1,16 @@
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Context, bail};
 use futures_util::{StreamExt, future};
 use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
-use zbus::{MatchRule, MessageStream, message::Type, zvariant::ObjectPath};
+use zbus::{
+    MatchRule, MessageStream,
+    message::Type,
+    zvariant::{ObjectPath, OwnedValue},
+};
 
 use crate::dbus::bluez::{Adapter1Proxy, Battery1Proxy, Device1Proxy};
 
@@ -625,7 +629,69 @@ fn is_bluez_properties_changed(message: &zbus::message::Message) -> bool {
     let Some(path) = header.path() else {
         return false;
     };
-    path.as_str().starts_with("/org/bluez")
+    if !path.as_str().starts_with("/org/bluez") {
+        return false;
+    }
+
+    match message
+        .body()
+        .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+    {
+        Ok((interface, changed, invalidated)) => bluez_properties_are_relevant(
+            &interface,
+            changed.keys().map(String::as_str),
+            invalidated.iter().map(String::as_str),
+        ),
+        Err(error) => {
+            tracing::debug!(%error, "bluetooth: failed to inspect properties changed body");
+            true
+        }
+    }
+}
+
+fn bluez_properties_are_relevant<'a>(
+    interface: &str,
+    changed: impl Iterator<Item = &'a str>,
+    invalidated: impl Iterator<Item = &'a str>,
+) -> bool {
+    changed
+        .chain(invalidated)
+        .any(|property| bluez_property_is_relevant(interface, property))
+}
+
+fn bluez_property_is_relevant(interface: &str, property: &str) -> bool {
+    match interface {
+        "org.bluez.Adapter1" => matches!(
+            property,
+            "Address"
+                | "Powered"
+                | "Discovering"
+                | "Discoverable"
+                | "Pairable"
+                | "AddressType"
+                | "Class"
+                | "DiscoverableTimeout"
+                | "PairableTimeout"
+                | "Modalias"
+                | "Roles"
+                | "UUIDs"
+        ),
+        "org.bluez.Device1" => matches!(
+            property,
+            "Address"
+                | "Name"
+                | "Alias"
+                | "Icon"
+                | "Paired"
+                | "Connected"
+                | "Trusted"
+                | "RSSI"
+                | "Class"
+                | "Appearance"
+        ),
+        "org.bluez.Battery1" => property == "Percentage",
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -660,5 +726,22 @@ mod tests {
             ),
             BluetoothChangeReason::Mixed
         );
+    }
+
+    #[test]
+    fn bluez_property_filter_ignores_irrelevant_property_changes() {
+        assert!(bluez_property_is_relevant("org.bluez.Device1", "Connected"));
+        assert!(bluez_property_is_relevant(
+            "org.bluez.Battery1",
+            "Percentage"
+        ));
+        assert!(!bluez_property_is_relevant(
+            "org.bluez.Device1",
+            "ServicesResolved"
+        ));
+        assert!(!bluez_property_is_relevant(
+            "org.freedesktop.DBus.Introspectable",
+            "Anything"
+        ));
     }
 }
