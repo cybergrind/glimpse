@@ -35,6 +35,7 @@ system-tray = "0.8.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 dirs = "5"
 anyhow = "1"
+async-trait = "0.1"
 gio = "0.20"
 css-color = "0.2"
 tokio-util = "0.7"

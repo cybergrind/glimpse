@@ -987,16 +987,16 @@ popover.popover-size-xlarge {
     --popover-min-width: var(--popover-medium-width);
 }
 
-.brightness-popover .brightness-row {
-    margin-bottom: 10px;
+.brightness-popover .brightness-source-section {
+    padding: 0;
 }
 
-.brightness-popover .brightness-row-name {
+.brightness-popover .brightness-control__name {
     font-weight: var(--font-weight-medium);
 }
 
-.brightness-popover .brightness-row-scale,
-.brightness-popover .brightness-row scale {
+.brightness-popover .brightness-control__scale,
+.brightness-popover .brightness-control scale {
     min-width: 220px;
 }
 

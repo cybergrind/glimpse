@@ -72,8 +72,14 @@ impl WeatherService {
                         abort_fetch(fetch);
                         break;
                     }
-                    Some(ServiceCommand::Control(Control::Start(_)))
-                    | Some(ServiceCommand::Control(Control::Reconfigure(_))) => {}
+                    Some(ServiceCommand::Control(Control::Start(_))) => {}
+                    Some(ServiceCommand::Control(Control::Reconfigure(_))) => {
+                        if uses_location_service(&config) {
+                            abort_fetch(fetch.take());
+                            refresh_scheduled = false;
+                            request_location_refresh(&self.location).await;
+                        }
+                    }
                 },
                 result = async {
                     let Some(fetch) = fetch.as_mut() else {
@@ -106,8 +112,9 @@ impl WeatherService {
                     fetch = self.start_fetch(config.clone());
                     refresh_scheduled = false;
                 }
-                changed = location_rx.changed(), if fetch.is_none() && uses_location_service(&config) => {
-                    if changed.is_ok() && matches!(*location_rx.borrow(), location::State::Ready(_)) {
+                changed = location_rx.changed(), if uses_location_service(&config) => {
+                    if changed.is_ok() && should_refetch_for_location_change(&config, &location_rx.borrow()) {
+                        abort_fetch(fetch.take());
                         fetch = self.start_fetch(config.clone());
                         refresh_scheduled = false;
                     }
@@ -220,6 +227,10 @@ fn uses_location_service(config: &Option<Config>) -> bool {
         .is_some_and(|config| configured_city(config).is_none())
 }
 
+fn should_refetch_for_location_change(config: &Option<Config>, state: &location::State) -> bool {
+    uses_location_service(config) && matches!(state, location::State::Ready(_))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +257,31 @@ mod tests {
             ..Config::default()
         })));
         assert!(!uses_location_service(&None));
+    }
+
+    #[test]
+    fn location_change_refetches_only_for_ready_location_service_config() {
+        let config = Some(Config::default());
+        assert!(should_refetch_for_location_change(
+            &config,
+            &LocationState::Ready(Coordinates {
+                latitude: 52.2298,
+                longitude: 21.0118,
+            })
+        ));
+        assert!(!should_refetch_for_location_change(
+            &config,
+            &LocationState::Refreshing
+        ));
+        assert!(!should_refetch_for_location_change(
+            &Some(Config {
+                city_name: "Warsaw, PL".into(),
+                ..Config::default()
+            }),
+            &LocationState::Ready(Coordinates {
+                latitude: 52.2298,
+                longitude: 21.0118,
+            })
+        ));
     }
 }

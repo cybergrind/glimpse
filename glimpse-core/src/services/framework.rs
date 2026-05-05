@@ -5,8 +5,8 @@ use crate::Config;
 use crate::{
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, calendar_events, clock, compositor, geoclue, location,
-        microphone, mpris, network, notifications, power, session, tray, weather, webcam,
+        audio, battery, bluetooth, brightness, calendar_events, clock, compositor, geoclue,
+        location, microphone, mpris, network, notifications, power, session, tray, weather, webcam,
     },
 };
 
@@ -119,6 +119,7 @@ pub struct Services {
     pub microphone: microphone::MicrophoneHandle,
     pub mpris: mpris::MprisHandle,
     pub battery: ServiceHandle<battery::State, battery::Command>,
+    pub brightness: brightness::BrightnessHandle,
     pub power: ServiceHandle<power::State, power::Command>,
     pub bluetooth: ServiceHandle<bluetooth::State, bluetooth::Command>,
     pub network: network::NetworkHandle,
@@ -146,6 +147,7 @@ impl Services {
                 microphone,
                 mpris,
                 battery,
+                brightness,
                 power,
                 bluetooth,
                 network,
@@ -195,6 +197,10 @@ impl ServiceRuntime {
         let (battery_service, battery) = battery::BatteryService::new(system_dbus.clone());
         let battery_service = spawn_service(|cancel| battery_service.run(cancel));
 
+        let (brightness_service, brightness) =
+            brightness::BrightnessService::new(system_dbus.clone());
+        let brightness_service = spawn_service(|cancel| brightness_service.run(cancel));
+
         let (power_service, power) = power::PowerService::new(system_dbus.clone());
         let power_service = spawn_service(|cancel| power_service.run(cancel));
 
@@ -232,6 +238,7 @@ impl ServiceRuntime {
             microphone_service,
             mpris_service,
             battery_service,
+            brightness_service,
             power_service,
             bluetooth_service,
             network_service,
@@ -251,6 +258,7 @@ impl ServiceRuntime {
             microphone,
             mpris,
             battery,
+            brightness,
             power,
             bluetooth,
             network,

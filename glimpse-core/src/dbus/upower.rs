@@ -12,6 +12,17 @@ pub trait UPower {
 }
 
 #[zbus::proxy(
+    interface = "org.freedesktop.UPower.KbdBacklight",
+    default_service = "org.freedesktop.UPower",
+    default_path = "/org/freedesktop/UPower/KbdBacklight"
+)]
+pub trait UPowerKbdBacklight {
+    fn get_brightness(&self) -> zbus::Result<i32>;
+    fn get_max_brightness(&self) -> zbus::Result<i32>;
+    fn set_brightness(&self, value: i32) -> zbus::Result<()>;
+}
+
+#[zbus::proxy(
     interface = "org.freedesktop.UPower.Device",
     default_service = "org.freedesktop.UPower",
     default_path = "/org/freedesktop/UPower/devices/line_power_AC"

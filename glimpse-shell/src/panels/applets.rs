@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, clock, exec, keyboard, mpris, network, notifications, pager,
-        privacy, session, tray, weather,
+        audio, battery, bluetooth, brightness, clock, exec, keyboard, mpris, network,
+        notifications, pager, privacy, session, tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -42,6 +42,7 @@ pub enum AppletController {
     Audio(Controller<audio::Applet>),
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
+    Brightness(Controller<brightness::Applet>),
     Clock(Controller<clock::Applet>),
     Exec(Controller<exec::Applet>),
     Keyboard(Controller<keyboard::Applet>),
@@ -61,6 +62,7 @@ impl AppletController {
             Self::Audio(_) => AppletType::Audio,
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
+            Self::Brightness(_) => AppletType::Brightness,
             Self::Clock(_) => AppletType::Clock,
             Self::Exec(_) => AppletType::Exec,
             Self::Keyboard(_) => AppletType::Keyboard,
@@ -80,6 +82,7 @@ impl AppletController {
             Self::Audio(controller) => controller.widget().clone().upcast(),
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
+            Self::Brightness(controller) => controller.widget().clone().upcast(),
             Self::Clock(controller) => controller.widget().clone().upcast(),
             Self::Exec(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
@@ -110,6 +113,11 @@ impl AppletController {
                 controller.emit(bluetooth::Input::Reconfigure(bluetooth::Config::from_raw(
                     &config.cloned(),
                 )));
+            }
+            Self::Brightness(controller) => {
+                controller.emit(brightness::Input::Reconfigure(
+                    brightness::Config::from_raw(&config.cloned()),
+                ));
             }
             Self::Clock(controller) => {
                 controller.emit(clock::Input::Reconfigure(clock::Config::from_raw(
@@ -194,6 +202,15 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(bluetooth::Init {
                     service: services.bluetooth.clone(),
                     config: bluetooth::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Brightness => Some(AppletController::Brightness(
+            brightness::Applet::builder()
+                .launch(brightness::Init {
+                    service: services.brightness.clone(),
+                    compositor: services.compositor.clone(),
+                    config: brightness::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -558,6 +575,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "bluetooth");
         assert_eq!(entries[0].applet_type, AppletType::Bluetooth);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_brightness_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["brightness".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "brightness");
+        assert_eq!(entries[0].applet_type, AppletType::Brightness);
         assert!(entries[0].config.is_none());
     }
 

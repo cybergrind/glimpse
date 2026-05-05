@@ -291,7 +291,7 @@ impl BatteryService {
         let upower = UPowerProxy::new(&self.conn).await?;
         let device_paths = upower.enumerate_devices().await?;
 
-        tracing::info!(
+        tracing::debug!(
             devices = device_paths.len(),
             on_battery,
             "battery: enumerating UPower devices"
