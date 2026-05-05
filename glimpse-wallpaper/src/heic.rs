@@ -1,6 +1,6 @@
 use anyhow::Context;
 use image::{ImageBuffer, RgbaImage};
-use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+use libheif_rs::{ColorSpace, HeifContext, ImageHandle, LibHeif, RgbChroma};
 
 pub struct DecodedHeic {
     pub width: i32,
@@ -30,11 +30,44 @@ pub fn decode(path: &std::path::Path) -> anyhow::Result<DecodedHeic> {
     let ctx = HeifContext::read_from_file(path.to_str().context("non-UTF-8 path")?)?;
     let lib = LibHeif::new();
     let handle = ctx.primary_image_handle()?;
-    let image = lib.decode(&handle, ColorSpace::Rgb(RgbChroma::Rgba), None)?;
+    decode_handle(&lib, &handle)
+}
+
+pub fn decode_thumbnail(path: &std::path::Path) -> anyhow::Result<Option<DecodedHeic>> {
+    let ctx = HeifContext::read_from_file(path.to_str().context("non-UTF-8 path")?)?;
+    let lib = LibHeif::new();
+    let handle = ctx.primary_image_handle()?;
+    let thumbnail_count = handle.number_of_thumbnails();
+    if thumbnail_count == 0 {
+        return Ok(None);
+    }
+
+    let mut ids = vec![0; thumbnail_count];
+    let actual_count = handle.thumbnail_ids(&mut ids);
+    ids.truncate(actual_count);
+
+    let mut best = None;
+    for id in ids {
+        let thumbnail = handle.thumbnail(id)?;
+        let area = thumbnail.width() as u64 * thumbnail.height() as u64;
+        if best
+            .as_ref()
+            .is_none_or(|(best_area, _): &(u64, ImageHandle)| area > *best_area)
+        {
+            best = Some((area, thumbnail));
+        }
+    }
+
+    best.map(|(_, thumbnail)| decode_handle(&lib, &thumbnail))
+        .transpose()
+}
+
+fn decode_handle(lib: &LibHeif, handle: &ImageHandle) -> anyhow::Result<DecodedHeic> {
+    let image = lib.decode(handle, ColorSpace::Rgb(RgbChroma::Rgba), None)?;
 
     let plane = image.planes().interleaved.context("no interleaved plane")?;
-    let width = handle.width();
-    let height = handle.height();
+    let width = image.width();
+    let height = image.height();
     let row_bytes = (width * 4) as usize;
     let mut packed = Vec::with_capacity(row_bytes * height as usize);
     for row in 0..height as usize {

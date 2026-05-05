@@ -9,6 +9,8 @@ use relm4::{
 };
 use tracing_subscriber::EnvFilter;
 
+const GTK_APPLICATION_ID_ENV: &str = "GLIMPSE_WALLPAPER_APP_ID";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if let Some(output) = version_output(std::env::args()) {
@@ -26,9 +28,11 @@ async fn main() -> anyhow::Result<()> {
     RELM_THREADS.set(threads).ok();
     tracing::debug!(threads, "configured Relm4 worker threads");
 
-    let _single_instance = match WallpaperRuntime::acquire_single_instance().await {
+    let app_id = gtk_application_id();
+    let _single_instance = match WallpaperRuntime::acquire_single_instance_with_name(&app_id).await
+    {
         Ok(guard) => {
-            tracing::info!("acquired single-instance D-Bus name");
+            tracing::info!(app_id, "acquired single-instance D-Bus name");
             guard
         }
         Err(err) => {
@@ -46,17 +50,25 @@ async fn main() -> anyhow::Result<()> {
         "resolved startup configuration"
     );
     let gtk_app = gtk::Application::builder()
-        .application_id(GTK_APPLICATION_ID)
+        .application_id(&app_id)
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
     let _app_hold = gtk_app.hold();
-    tracing::debug!(app_id = GTK_APPLICATION_ID, "starting GTK application");
+    tracing::debug!(app_id, "starting GTK application");
     let app = RelmApp::from_app(gtk_app);
     app.visible_on_activate(false)
         .run::<WallpaperAppModel>(AppInit { config });
     tracing::info!("glimpse-wallpaper stopped");
 
     Ok(())
+}
+
+fn gtk_application_id() -> String {
+    gtk_application_id_from_env(std::env::var(GTK_APPLICATION_ID_ENV).ok())
+}
+
+fn gtk_application_id_from_env(value: Option<String>) -> String {
+    value.unwrap_or_else(|| GTK_APPLICATION_ID.into())
 }
 
 fn log_filter() -> EnvFilter {
@@ -97,7 +109,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_glimpse_log_filter, version_output};
+    use super::{gtk_application_id_from_env, normalized_glimpse_log_filter, version_output};
 
     #[test]
     fn bare_glimpse_log_level_keeps_relm4_quiet() {
@@ -115,6 +127,19 @@ mod tests {
 
         assert!(filter.contains("info"));
         assert!(filter.contains("relm4=debug"));
+    }
+
+    #[test]
+    fn wallpaper_app_id_defaults_to_runtime_constant() {
+        assert_eq!(gtk_application_id_from_env(None), super::GTK_APPLICATION_ID);
+    }
+
+    #[test]
+    fn wallpaper_app_id_can_be_overridden_from_env() {
+        assert_eq!(
+            gtk_application_id_from_env(Some("me.aresa.GlimpseWallpaper.TestApp".into())),
+            "me.aresa.GlimpseWallpaper.TestApp"
+        );
     }
 
     #[test]

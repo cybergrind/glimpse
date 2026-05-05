@@ -53,6 +53,12 @@ impl WallpaperRuntime {
         acquire_dbus_name(APP_ID).await
     }
 
+    pub async fn acquire_single_instance_with_name(
+        name: impl Into<String>,
+    ) -> anyhow::Result<InstanceGuard> {
+        acquire_dbus_name(name.into()).await
+    }
+
     pub async fn acquire_single_instance_for_testing(
         name: &str,
     ) -> anyhow::Result<TestInstanceGuard> {
@@ -83,11 +89,12 @@ impl ImageLoadResult {
 }
 
 pub struct InstanceGuard {
-    _name: &'static str,
+    _name: String,
     _connection: zbus::Connection,
 }
 
-async fn acquire_dbus_name(name: &'static str) -> anyhow::Result<InstanceGuard> {
+async fn acquire_dbus_name(name: impl Into<String>) -> anyhow::Result<InstanceGuard> {
+    let name = name.into();
     tracing::debug!(name, "connecting to session D-Bus");
     let connection = zbus::Connection::session()
         .await
@@ -95,7 +102,7 @@ async fn acquire_dbus_name(name: &'static str) -> anyhow::Result<InstanceGuard> 
     let proxy = DBusProxy::new(&connection)
         .await
         .context("create session D-Bus proxy")?;
-    let well_known_name = zbus::names::WellKnownName::try_from(name)
+    let well_known_name = zbus::names::WellKnownName::try_from(name.as_str())
         .with_context(|| format!("validate D-Bus name {name}"))?;
     let reply = proxy
         .request_name(well_known_name, RequestNameFlags::DoNotQueue.into())

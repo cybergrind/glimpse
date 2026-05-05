@@ -200,6 +200,8 @@ impl WallpaperAppModel {
                 "reconciling wallpaper surfaces"
             );
         }
+        self.reconcile_backdrop_windows(&monitors, spec, force_image_reload);
+
         let mut existing_wallpaper = std::mem::take(&mut self.wallpaper_windows);
         let mut next_wallpaper = HashMap::new();
 
@@ -210,6 +212,7 @@ impl WallpaperAppModel {
                     tracing::debug!(monitor = %key, "reconfiguring wallpaper surface");
                     controller.emit(WallpaperWindowInput::Reconfigure {
                         spec: spec.clone(),
+                        target_size: monitor_target_size(monitor),
                         force_image_reload,
                     });
                     controller
@@ -228,7 +231,6 @@ impl WallpaperAppModel {
         }
         self.wallpaper_windows = next_wallpaper;
 
-        self.reconcile_backdrop_windows(&monitors, spec, force_image_reload);
         if !self.ready_logged {
             tracing::info!(
                 wallpaper_surfaces = self.wallpaper_windows.len(),
@@ -268,6 +270,7 @@ impl WallpaperAppModel {
                     tracing::debug!(monitor = %key, "reconfiguring backdrop surface");
                     controller.emit(BackdropWindowInput::Reconfigure {
                         backdrop: spec.backdrop.clone(),
+                        target_size: monitor_target_size(monitor),
                         force_image_reload,
                     });
                     controller
@@ -413,6 +416,11 @@ fn connector_name(monitor: &gdk::Monitor) -> String {
         .unwrap_or_else(|| format!("{:?}", monitor.geometry()))
 }
 
+fn monitor_target_size(monitor: &gdk::Monitor) -> (i32, i32) {
+    let geometry = monitor.geometry();
+    (geometry.width(), geometry.height())
+}
+
 fn backdrop_label(backdrop: &ResolvedBackdropSpec) -> &'static str {
     match backdrop {
         ResolvedBackdropSpec::Disabled => "disabled",
@@ -430,12 +438,14 @@ pub struct WallpaperWindowInit {
 pub struct WallpaperWindow {
     color: Controller<ColorLayer>,
     image: Controller<ImageLayer>,
+    target_size: (i32, i32),
 }
 
 #[derive(Debug)]
 pub enum WallpaperWindowInput {
     Reconfigure {
         spec: ResolvedWallpaperSpec,
+        target_size: (i32, i32),
         force_image_reload: bool,
     },
 }
@@ -468,6 +478,7 @@ impl SimpleComponent for WallpaperWindow {
             image = init.spec.image.as_ref().map(|image| image.path.display().to_string()).as_deref().unwrap_or("<none>"),
             "presenting wallpaper surface"
         );
+        let target_size = monitor_target_size(&init.monitor);
 
         let color = ColorLayer::builder()
             .launch(init.spec.color.clone())
@@ -477,7 +488,7 @@ impl SimpleComponent for WallpaperWindow {
                 image: init.spec.image.clone(),
                 transition_ms: init.spec.transition_ms,
                 blur_radius: None,
-                target_size: None,
+                target_size: Some(target_size),
             })
             .detach();
 
@@ -488,7 +499,11 @@ impl SimpleComponent for WallpaperWindow {
         widgets.overlay.add_overlay(&image_widget);
         root.present();
 
-        let model = WallpaperWindow { color, image };
+        let model = WallpaperWindow {
+            color,
+            image,
+            target_size,
+        };
         ComponentParts { model, widgets }
     }
 
@@ -496,15 +511,17 @@ impl SimpleComponent for WallpaperWindow {
         match msg {
             WallpaperWindowInput::Reconfigure {
                 spec,
+                target_size,
                 force_image_reload,
             } => {
+                self.target_size = target_size;
                 self.color.emit(ColorLayerInput::SetColor(spec.color));
                 self.image.emit(ImageLayerInput::Reconfigure {
                     init: ImageLayerInit {
                         image: spec.image,
                         transition_ms: spec.transition_ms,
                         blur_radius: None,
-                        target_size: None,
+                        target_size: Some(self.target_size),
                     },
                     force_reload: force_image_reload,
                 });
@@ -528,6 +545,7 @@ pub struct BackdropWindow {
 pub enum BackdropWindowInput {
     Reconfigure {
         backdrop: ResolvedBackdropSpec,
+        target_size: (i32, i32),
         force_image_reload: bool,
     },
 }
@@ -550,8 +568,7 @@ impl SimpleComponent for BackdropWindow {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         setup_layer_window(&root, &init.monitor, BACKDROP_NAMESPACE);
-        let geometry = init.monitor.geometry();
-        let target_size = (geometry.width(), geometry.height());
+        let target_size = monitor_target_size(&init.monitor);
         tracing::info!(
             monitor = %connector_name(&init.monitor),
             target_width = target_size.0,
@@ -574,8 +591,10 @@ impl SimpleComponent for BackdropWindow {
         match msg {
             BackdropWindowInput::Reconfigure {
                 backdrop,
+                target_size,
                 force_image_reload,
             } => {
+                self.target_size = target_size;
                 self.image.emit(ImageLayerInput::Reconfigure {
                     init: backdrop_image_init(backdrop, Some(self.target_size)),
                     force_reload: force_image_reload,
@@ -690,6 +709,7 @@ struct ImageLayer {
     request_id: u64,
     current: ImageLayerInit,
     active_slot: PictureSlot,
+    has_paintable: bool,
     front_picture: gtk::Picture,
     back_picture: gtk::Picture,
 }
@@ -703,6 +723,14 @@ enum ImageLayerInput {
     Loaded {
         request_id: u64,
         result: Result<DecodedImage, String>,
+    },
+    PreviewLoaded {
+        request_id: u64,
+        result: Result<Option<DecodedImage>, String>,
+    },
+    ClearHidden {
+        request_id: u64,
+        slot: PictureSlot,
     },
 }
 
@@ -777,13 +805,14 @@ impl Component for ImageLayer {
         let back_picture = gtk::Picture::new();
         let widgets = view_output!();
         root.set_transition_duration(init.transition_ms);
-        root.set_visible(init.image.is_some());
+        root.set_visible(false);
         root.set_visible_child(&back_picture);
 
         let model = ImageLayer {
             request_id: 0,
             current: init.clone(),
             active_slot: PictureSlot::Back,
+            has_paintable: false,
             front_picture,
             back_picture,
         };
@@ -814,11 +843,12 @@ impl Component for ImageLayer {
                 if transition_changed {
                     root.set_transition_duration(next.transition_ms);
                 }
-                root.set_visible(next.image.is_some());
+                root.set_visible(next.image.is_some() && self.has_paintable);
                 if next.image.is_none() {
                     self.request_id += 1;
                     self.front_picture.set_paintable(None::<&gdk::Paintable>);
                     self.back_picture.set_paintable(None::<&gdk::Paintable>);
+                    self.has_paintable = false;
                     return;
                 }
                 if start_image_load {
@@ -827,6 +857,7 @@ impl Component for ImageLayer {
                     spawn_image_load(
                         self.request_id,
                         image.path,
+                        image.fit,
                         next.blur_radius,
                         next.target_size,
                         sender.input_sender().clone(),
@@ -856,9 +887,48 @@ impl Component for ImageLayer {
                         picture.set_paintable(Some(&decoded.into_texture()));
                         root.set_visible(true);
                         root.set_visible_child(picture);
+                        let previous_slot = self.active_slot;
                         self.active_slot = next_slot;
+                        self.has_paintable = true;
+                        schedule_hidden_slot_clear(
+                            self.request_id,
+                            previous_slot,
+                            self.current.transition_ms,
+                            sender.input_sender().clone(),
+                        );
                     }
                     Err(error) => tracing::warn!("failed to load wallpaper image: {error}"),
+                }
+            }
+            ImageLayerInput::PreviewLoaded { request_id, result } => {
+                if request_id != self.request_id || self.has_paintable {
+                    return;
+                }
+                match result {
+                    Ok(Some(decoded)) => {
+                        tracing::debug!(
+                            request_id,
+                            width = decoded.width,
+                            height = decoded.height,
+                            stride = decoded.stride,
+                            "applying wallpaper preview texture"
+                        );
+                        let next_slot = hidden_slot(self.active_slot);
+                        let picture = self.picture_for_slot(next_slot);
+                        picture.set_paintable(Some(&decoded.into_texture()));
+                        root.set_visible(true);
+                        root.set_visible_child(picture);
+                        self.active_slot = next_slot;
+                        self.has_paintable = true;
+                    }
+                    Ok(None) => {}
+                    Err(error) => tracing::debug!("failed to load wallpaper preview: {error}"),
+                }
+            }
+            ImageLayerInput::ClearHidden { request_id, slot } => {
+                if request_id == self.request_id && slot != self.active_slot {
+                    self.picture_for_slot(slot)
+                        .set_paintable(None::<&gdk::Paintable>);
                 }
             }
         }
@@ -910,6 +980,7 @@ fn should_start_image_load(
 fn spawn_image_load(
     request_id: u64,
     path: PathBuf,
+    fit: FitMode,
     blur_radius: Option<u32>,
     target_size: Option<(i32, i32)>,
     sender: relm4::Sender<ImageLayerInput>,
@@ -924,8 +995,19 @@ fn spawn_image_load(
             target_height = target_size.map(|(_, height)| height).unwrap_or_default(),
             "loading wallpaper image"
         );
+        if should_load_heic_preview(&path, blur_radius) {
+            let preview_path = path.clone();
+            let preview = tokio::task::spawn_blocking(move || decode_heic_preview(&preview_path))
+                .await
+                .map_err(|error| format!("wallpaper preview worker failed: {error}"))
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = sender.send(ImageLayerInput::PreviewLoaded {
+                request_id,
+                result: preview,
+            });
+        }
         let result =
-            tokio::task::spawn_blocking(move || decode_image(&path, blur_radius, target_size))
+            tokio::task::spawn_blocking(move || decode_image(&path, fit, blur_radius, target_size))
                 .await
                 .map_err(|error| format!("wallpaper worker failed: {error}"))
                 .and_then(|result| result.map_err(|error| error.to_string()));
@@ -950,8 +1032,58 @@ fn spawn_image_load(
     });
 }
 
+fn should_load_heic_preview(path: &Path, blur_radius: Option<u32>) -> bool {
+    blur_radius.unwrap_or_default() == 0 && crate::heic::is_heic_path(path)
+}
+
+fn decode_heic_preview(path: &Path) -> anyhow::Result<Option<DecodedImage>> {
+    if let Some(preview) = load_legacy_unprocessed_preview_cache(path)? {
+        return Ok(Some(preview));
+    }
+
+    crate::heic::decode_thumbnail(path).map(|decoded| {
+        decoded.map(|decoded| DecodedImage {
+            width: decoded.width,
+            height: decoded.height,
+            stride: decoded.stride,
+            pixels: decoded.pixels,
+        })
+    })
+}
+
+fn load_legacy_unprocessed_preview_cache(path: &Path) -> anyhow::Result<Option<DecodedImage>> {
+    let Some(legacy_key) = ImageCacheKey::new_legacy(path, None, None)? else {
+        return Ok(None);
+    };
+    let preview = load_cached_image(&legacy_key)?;
+    if let Some(preview) = &preview {
+        tracing::info!(
+            path = %path.display(),
+            cache_path = %legacy_key.path.display(),
+            width = preview.width,
+            height = preview.height,
+            stride = preview.stride,
+            "loaded legacy wallpaper preview cache"
+        );
+    }
+    Ok(preview)
+}
+
+fn schedule_hidden_slot_clear(
+    request_id: u64,
+    slot: PictureSlot,
+    transition_ms: u32,
+    sender: relm4::Sender<ImageLayerInput>,
+) {
+    let delay = Duration::from_millis(transition_ms as u64 + 50);
+    glib::timeout_add_local_once(delay, move || {
+        let _ = sender.send(ImageLayerInput::ClearHidden { request_id, slot });
+    });
+}
+
 fn decode_image(
     path: &Path,
+    fit: FitMode,
     blur_radius: Option<u32>,
     target_size: Option<(i32, i32)>,
 ) -> anyhow::Result<DecodedImage> {
@@ -959,7 +1091,7 @@ fn decode_image(
         anyhow::bail!("file not found: {}", path.display());
     }
 
-    let cache_key = ImageCacheKey::new(path, blur_radius, target_size)?;
+    let cache_key = ImageCacheKey::new(path, fit, blur_radius, target_size)?;
     if let Some(cache_key) = &cache_key {
         if let Some(cached) = load_cached_image(cache_key)? {
             tracing::info!(
@@ -972,6 +1104,9 @@ fn decode_image(
                 "loaded wallpaper image from cache"
             );
             return Ok(cached);
+        }
+        if let Some(migrated) = load_legacy_unprocessed_cache(path, fit, target_size, cache_key)? {
+            return Ok(migrated);
         }
     }
 
@@ -1036,6 +1171,19 @@ fn decode_image(
             );
             image = image::imageops::blur(&image, radius as f32);
         }
+    } else if let Some((target_width, target_height)) = target_size {
+        let target_width = target_width.max(1) as u32;
+        let target_height = target_height.max(1) as u32;
+        tracing::debug!(
+            path = %path.display(),
+            source_width = image.width(),
+            source_height = image.height(),
+            target_width,
+            target_height,
+            fit = ?fit,
+            "resizing wallpaper to output-sized texture"
+        );
+        image = resize_rgba_for_fit(image, target_width, target_height, fit);
     }
     let (width, height) = image.dimensions();
     let decoded = DecodedImage {
@@ -1070,9 +1218,84 @@ fn resize_rgba_to_cover(image: image::RgbaImage, width: u32, height: u32) -> ima
         .resize_to_fill(
             width.max(1),
             height.max(1),
-            image::imageops::FilterType::Nearest,
+            image::imageops::FilterType::Lanczos3,
         )
         .into_rgba8()
+}
+
+fn resize_rgba_for_fit(
+    image: image::RgbaImage,
+    width: u32,
+    height: u32,
+    fit: FitMode,
+) -> image::RgbaImage {
+    let width = width.max(1);
+    let height = height.max(1);
+    let image = image::DynamicImage::ImageRgba8(image);
+    match fit {
+        FitMode::Cover => image
+            .resize_to_fill(width, height, image::imageops::FilterType::Lanczos3)
+            .into_rgba8(),
+        FitMode::Contain => image
+            .resize(width, height, image::imageops::FilterType::Lanczos3)
+            .into_rgba8(),
+        FitMode::Fill => image
+            .resize_exact(width, height, image::imageops::FilterType::Lanczos3)
+            .into_rgba8(),
+    }
+}
+
+fn load_legacy_unprocessed_cache(
+    path: &Path,
+    fit: FitMode,
+    target_size: Option<(i32, i32)>,
+    current_cache_key: &ImageCacheKey,
+) -> anyhow::Result<Option<DecodedImage>> {
+    let Some((target_width, target_height)) = target_size else {
+        return Ok(None);
+    };
+    let Some(legacy_key) = ImageCacheKey::new_legacy(path, None, None)? else {
+        return Ok(None);
+    };
+    if legacy_key.path == current_cache_key.path {
+        return Ok(None);
+    }
+    let Some(legacy) = load_cached_image(&legacy_key)? else {
+        return Ok(None);
+    };
+
+    tracing::info!(
+        path = %path.display(),
+        cache_path = %legacy_key.path.display(),
+        width = legacy.width,
+        height = legacy.height,
+        target_width,
+        target_height,
+        fit = ?fit,
+        "resizing legacy wallpaper cache for output-sized texture"
+    );
+    let image = legacy.into_rgba_image()?;
+    let image = resize_rgba_for_fit(
+        image,
+        target_width.max(1) as u32,
+        target_height.max(1) as u32,
+        fit,
+    );
+    let (width, height) = image.dimensions();
+    let decoded = DecodedImage {
+        width: width as i32,
+        height: height as i32,
+        stride: (width * 4) as usize,
+        pixels: image.into_raw(),
+    };
+    if let Err(error) = write_cached_image(current_cache_key, &decoded) {
+        tracing::warn!(
+            path = %path.display(),
+            cache_path = %current_cache_key.path.display(),
+            "failed to update wallpaper image cache from legacy cache: {error}"
+        );
+    }
+    Ok(Some(decoded))
 }
 
 fn backdrop_texture_dimensions(width: u32, height: u32) -> (u32, u32) {
@@ -1097,6 +1320,30 @@ struct ImageCacheKey {
 
 impl ImageCacheKey {
     fn new(
+        source_path: &Path,
+        fit: FitMode,
+        blur_radius: Option<u32>,
+        target_size: Option<(i32, i32)>,
+    ) -> anyhow::Result<Option<Self>> {
+        let Some(cache_root) = dirs::cache_dir().map(|dir| dir.join("glimpse").join("wallpaper"))
+        else {
+            return Ok(None);
+        };
+        let signature = source_signature(source_path)?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        "glimpse-wallpaper-rgba-v2".hash(&mut hasher);
+        source_path.hash(&mut hasher);
+        signature.hash(&mut hasher);
+        fit.hash(&mut hasher);
+        blur_radius.unwrap_or_default().hash(&mut hasher);
+        normalized_target_size(target_size).hash(&mut hasher);
+        let digest = hasher.finish();
+        Ok(Some(Self {
+            path: cache_root.join(format!("{digest:016x}.rgba")),
+        }))
+    }
+
+    fn new_legacy(
         source_path: &Path,
         blur_radius: Option<u32>,
         target_size: Option<(i32, i32)>,
@@ -1218,6 +1465,11 @@ fn write_cached_image(cache_key: &ImageCacheKey, image: &DecodedImage) -> anyhow
 }
 
 impl DecodedImage {
+    fn into_rgba_image(self) -> anyhow::Result<image::RgbaImage> {
+        image::RgbaImage::from_raw(self.width as u32, self.height as u32, self.pixels)
+            .ok_or_else(|| anyhow::anyhow!("cached image dimensions do not match pixel buffer"))
+    }
+
     fn into_texture(self) -> gdk::MemoryTexture {
         let bytes = glib::Bytes::from_owned(self.pixels);
         gdk::MemoryTexture::new(
@@ -1250,7 +1502,8 @@ fn image_color_label(color: image::ColorType) -> &'static str {
 mod tests {
     use super::{
         DecodedImage, ImageCacheKey, ImageLayerInit, active_paths, backdrop_texture_dimensions,
-        blur_processing_dimensions, load_cached_image, should_start_image_load, write_cached_image,
+        blur_processing_dimensions, load_cached_image, load_legacy_unprocessed_cache,
+        resize_rgba_for_fit, should_start_image_load, write_cached_image,
     };
     use glimpse_core::{
         FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
@@ -1325,6 +1578,30 @@ mod tests {
     }
 
     #[test]
+    fn cover_resize_produces_exact_output_size() {
+        let image = image::RgbaImage::new(400, 200);
+        let resized = resize_rgba_for_fit(image, 100, 100, FitMode::Cover);
+
+        assert_eq!(resized.dimensions(), (100, 100));
+    }
+
+    #[test]
+    fn contain_resize_preserves_aspect_inside_output_size() {
+        let image = image::RgbaImage::new(400, 200);
+        let resized = resize_rgba_for_fit(image, 100, 100, FitMode::Contain);
+
+        assert_eq!(resized.dimensions(), (100, 50));
+    }
+
+    #[test]
+    fn fill_resize_produces_exact_output_size() {
+        let image = image::RgbaImage::new(400, 200);
+        let resized = resize_rgba_for_fit(image, 100, 100, FitMode::Fill);
+
+        assert_eq!(resized.dimensions(), (100, 100));
+    }
+
+    #[test]
     fn decoded_image_cache_round_trips_raw_pixels() {
         let cache_dir = temp_path("image-cache");
         fs::create_dir_all(&cache_dir).unwrap();
@@ -1347,6 +1624,38 @@ mod tests {
         assert_eq!(cached.pixels, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
         let _ = fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn legacy_unprocessed_cache_seeds_target_sized_cache() {
+        let source = temp_path("source.heic");
+        fs::write(&source, b"fake image bytes").unwrap();
+        let current_key = ImageCacheKey::new(&source, FitMode::Cover, None, Some((100, 100)))
+            .unwrap()
+            .unwrap();
+        let legacy_key = ImageCacheKey::new_legacy(&source, None, None)
+            .unwrap()
+            .unwrap();
+        let legacy = DecodedImage {
+            width: 400,
+            height: 200,
+            stride: 1600,
+            pixels: vec![255; 400 * 200 * 4],
+        };
+        write_cached_image(&legacy_key, &legacy).unwrap();
+
+        let migrated =
+            load_legacy_unprocessed_cache(&source, FitMode::Cover, Some((100, 100)), &current_key)
+                .unwrap()
+                .unwrap();
+        let current = load_cached_image(&current_key).unwrap().unwrap();
+
+        assert_eq!((migrated.width, migrated.height), (100, 100));
+        assert_eq!((current.width, current.height), (100, 100));
+
+        let _ = fs::remove_file(source);
+        let _ = fs::remove_file(current_key.path);
+        let _ = fs::remove_file(legacy_key.path);
     }
 
     #[test]
