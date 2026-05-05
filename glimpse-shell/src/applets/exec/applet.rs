@@ -225,6 +225,14 @@ impl SimpleComponent for Applet {
                     self.context_menu.popup();
                 }
                 StatusItemOutput::Event(event) => self.send_event(event),
+                StatusItemOutput::Activate(event) => {
+                    if let Some(event) = event {
+                        self.send_event(event);
+                    }
+                    if self.has_popover_content() && !self.popover_open {
+                        self.popover.emit(PopoverInput::Toggle);
+                    }
+                }
             },
             Input::PopoverOutput(PopoverOutput::Opened) => {
                 self.popover_open = true;

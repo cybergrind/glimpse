@@ -110,13 +110,11 @@ func (r *Runtime[S]) Run(ctx context.Context) error {
 			}
 			scanErrCh = nil
 			eventCh = nil
-			if updates == nil {
-				return nil
-			}
+			return nil
 		case msg, ok := <-eventCh:
 			if !ok {
 				eventCh = nil
-				if scanErrCh == nil && updates == nil {
+				if scanErrCh == nil {
 					return nil
 				}
 				continue

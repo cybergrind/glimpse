@@ -37,6 +37,7 @@ pub enum Output {
     TogglePopover,
     ContextMenu,
     Event(EventPayload),
+    Activate(Option<EventPayload>),
 }
 
 #[relm4::component(pub)]
@@ -116,21 +117,27 @@ impl SimpleComponent for StatusItem {
                     return;
                 }
 
+                let event = self.item.id.as_ref().map(|id| EventPayload {
+                    id: id.clone(),
+                    kind: EventKind::Click,
+                    source: EventSource::Status,
+                    button: Some(MouseButton::from_number(button)),
+                    active: None,
+                    value: None,
+                    delta_y: None,
+                });
+
                 if self.has_popover && button == 1 {
-                    let _ = sender.output(Output::TogglePopover);
+                    let output = match event {
+                        Some(event) => Output::Activate(Some(event)),
+                        None => Output::TogglePopover,
+                    };
+                    let _ = sender.output(output);
                     return;
                 }
 
-                if let Some(id) = &self.item.id {
-                    let _ = sender.output(Output::Event(EventPayload {
-                        id: id.clone(),
-                        kind: EventKind::Click,
-                        source: EventSource::Status,
-                        button: Some(MouseButton::from_number(button)),
-                        active: None,
-                        value: None,
-                        delta_y: None,
-                    }));
+                if let Some(event) = event {
+                    let _ = sender.output(Output::Event(event));
                 }
             }
             Input::Scroll(delta_y) => {

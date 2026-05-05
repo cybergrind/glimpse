@@ -188,6 +188,16 @@ pub struct BoxNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub spacing: i32,
+    #[serde(default)]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardNode {
     #[serde(flatten)]
     pub common: CommonProps,
@@ -218,7 +228,7 @@ pub struct CollapsibleSectionNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RowNode {
+pub struct ActionRowNode {
     #[serde(flatten)]
     pub common: CommonProps,
     pub title: String,
@@ -289,19 +299,17 @@ pub struct BadgeNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StatusDotNode {
+pub struct StatusNode {
     #[serde(flatten)]
     pub common: CommonProps,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DeviceStatusNode {
+pub struct SpinnerNode {
     #[serde(flatten)]
     pub common: CommonProps,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub busy: bool,
+    #[serde(default = "default_true")]
+    pub spinning: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -464,12 +472,14 @@ pub enum TreeNode {
     Section(SectionNode),
     CollapsibleSection(CollapsibleSectionNode),
     ActionMenu(ActionMenuNode),
-    Row(RowNode),
+    Column(LayoutNode),
+    Row(LayoutNode),
+    ActionRow(ActionRowNode),
     DetailGrid(DetailGridNode),
     EmptyState(EmptyStateNode),
     Badge(BadgeNode),
-    StatusDot(StatusDotNode),
-    DeviceStatus(DeviceStatusNode),
+    Status(StatusNode),
+    Spinner(SpinnerNode),
     Box(BoxNode),
     Grid(GridNode),
     Scroll(ScrollNode),

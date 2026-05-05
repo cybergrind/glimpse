@@ -10,7 +10,6 @@ use crate::components::{
     badge::BadgeView,
     card_surface::CardSurface,
     collapsible_section::CollapsibleSectionView,
-    device_status::DeviceStatusView,
     empty_state::EmptyStateView,
     hero::HeroView,
     key_value_grid::{KeyValueItem, static_key_value_grid},
@@ -19,11 +18,11 @@ use crate::components::{
 };
 
 use super::protocol::{
-    ActionMenuNode, AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode, CheckboxNode,
-    CollapsibleSectionNode, CommonProps, DetailGridNode, DeviceStatusNode, DropdownNode,
+    ActionMenuNode, ActionRowNode, AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode,
+    CheckboxNode, CollapsibleSectionNode, CommonProps, DetailGridNode, DropdownNode,
     EmptyStateNode, EventKind, EventPayload, EventSource, GridNode, HeroNode, Icon, IconNode,
-    ImageNode, LabelNode, OrientationValue, ProgressNode, RowNode, ScaleNode, ScrollNode,
-    SectionNode, SeparatorNode, StatusDotNode, SwitchNode, TreeNode,
+    ImageNode, LabelNode, LayoutNode, OrientationValue, ProgressNode, ScaleNode, ScrollNode,
+    SectionNode, SeparatorNode, SpinnerNode, StatusNode, SwitchNode, TreeNode,
 };
 
 pub type EventSink = Rc<dyn Fn(EventPayload)>;
@@ -45,12 +44,16 @@ impl RenderCatalog {
             TreeNode::Section(data) => self.render_section(data),
             TreeNode::CollapsibleSection(data) => self.render_collapsible_section(data),
             TreeNode::ActionMenu(data) => self.render_action_menu(data),
-            TreeNode::Row(data) => self.render_row(data),
+            TreeNode::Column(data) => {
+                self.render_layout(data, gtk::Orientation::Vertical, "column")
+            }
+            TreeNode::Row(data) => self.render_layout(data, gtk::Orientation::Horizontal, "row"),
+            TreeNode::ActionRow(data) => self.render_action_row(data),
             TreeNode::DetailGrid(data) => Ok(self.render_detail_grid(data).upcast()),
             TreeNode::EmptyState(data) => Ok(self.render_empty_state(data).upcast()),
             TreeNode::Badge(data) => Ok(self.render_badge(data).upcast()),
-            TreeNode::StatusDot(data) => Ok(self.render_status_dot(data).upcast()),
-            TreeNode::DeviceStatus(data) => Ok(self.render_device_status(data).upcast()),
+            TreeNode::Status(data) => Ok(self.render_status(data).upcast()),
+            TreeNode::Spinner(data) => Ok(self.render_spinner(data).upcast()),
             TreeNode::Box(data) => self.render_box(data),
             TreeNode::Grid(data) => self.render_grid(data),
             TreeNode::Scroll(data) => self.render_scroll(data),
@@ -139,7 +142,7 @@ impl RenderCatalog {
         Ok(section.as_ref().clone().upcast())
     }
 
-    fn render_row(&self, data: &RowNode) -> Result<gtk::Widget, RenderError> {
+    fn render_action_row(&self, data: &ActionRowNode) -> Result<gtk::Widget, RenderError> {
         let row = ActionRow::init(ActionRowInit {
             title: data.title.clone(),
             subtitle: data.subtitle.clone(),
@@ -159,6 +162,21 @@ impl RenderCatalog {
             connect_click(&row.button, self.event.clone(), id.clone());
         }
         Ok(row.as_ref().clone().upcast())
+    }
+
+    fn render_layout(
+        &self,
+        data: &LayoutNode,
+        orientation: gtk::Orientation,
+        class_name: &'static str,
+    ) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(orientation, data.spacing);
+        root.add_css_class(class_name);
+        apply_common_props(&root, &data.common);
+        for child in &data.children {
+            root.append(&self.render(child)?);
+        }
+        Ok(root.upcast())
     }
 
     fn render_action_menu(&self, data: &ActionMenuNode) -> Result<gtk::Widget, RenderError> {
@@ -240,27 +258,27 @@ impl RenderCatalog {
         badge.as_ref().clone()
     }
 
-    fn render_status_dot(&self, data: &StatusDotNode) -> gtk::Box {
+    fn render_status(&self, data: &StatusNode) -> gtk::Box {
         let dot = StatusDotView::init(());
+        dot.add_css_class("status");
         apply_common_props(dot.as_ref(), &data.common);
         dot.as_ref().clone()
     }
 
-    fn render_device_status(&self, data: &DeviceStatusNode) -> gtk::Box {
-        let status = DeviceStatusView::init(());
-        status.set_visible(data.busy || !data.label.is_empty());
-        status.spinner.set_visible(data.busy);
-        status.spinner.set_spinning(data.busy);
-        status
-            .label
-            .set_visible(!data.busy && !data.label.is_empty());
-        status.label.set_label(&data.label);
-        apply_common_props(status.as_ref(), &data.common);
-        status.as_ref().clone()
+    fn render_spinner(&self, data: &SpinnerNode) -> gtk::Spinner {
+        let spinner = gtk::Spinner::new();
+        spinner.add_css_class("spinner");
+        spinner.set_spinning(data.spinning);
+        apply_common_props(&spinner, &data.common);
+        spinner
     }
 
     fn render_box(&self, data: &BoxNode) -> Result<gtk::Widget, RenderError> {
         let root = gtk::Box::new(to_orientation(data.orientation), data.spacing);
+        root.add_css_class(match data.orientation {
+            OrientationValue::Horizontal => "row",
+            OrientationValue::Vertical => "column",
+        });
         apply_common_props(&root, &data.common);
         for child in &data.children {
             root.append(&self.render(child)?);
@@ -270,6 +288,7 @@ impl RenderCatalog {
 
     fn render_grid(&self, data: &GridNode) -> Result<gtk::Widget, RenderError> {
         let grid = gtk::Grid::new();
+        grid.add_css_class("grid");
         grid.set_row_spacing(data.row_spacing as u32);
         grid.set_column_spacing(data.column_spacing as u32);
         apply_common_props(&grid, &data.common);
@@ -287,6 +306,7 @@ impl RenderCatalog {
 
     fn render_scroll(&self, data: &ScrollNode) -> Result<gtk::Widget, RenderError> {
         let scroll = gtk::ScrolledWindow::new();
+        scroll.add_css_class("scroll");
         scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         scroll.set_propagate_natural_height(true);
         apply_common_props(&scroll, &data.common);
@@ -296,7 +316,7 @@ impl RenderCatalog {
 
     fn render_progress(&self, data: &ProgressNode) -> gtk::ProgressBar {
         let progress = gtk::ProgressBar::new();
-        progress.add_css_class("exec-progress");
+        progress.add_css_class("progress");
         apply_common_props(&progress, &data.common);
         let fraction = if data.max <= 0.0 {
             0.0
@@ -315,12 +335,14 @@ impl RenderCatalog {
         let separator = gtk::Separator::new(to_orientation(
             data.orientation.unwrap_or(OrientationValue::Horizontal),
         ));
+        separator.add_css_class("separator");
         apply_common_props(&separator, &data.common);
         separator
     }
 
     fn render_label(&self, data: &LabelNode) -> gtk::Label {
         let label = gtk::Label::new(Some(&data.text));
+        label.add_css_class("label");
         label.set_wrap(data.wrap);
         label.set_selectable(data.selectable);
         if let Some(xalign) = data.xalign {
@@ -332,7 +354,7 @@ impl RenderCatalog {
 
     fn render_icon(&self, data: &IconNode) -> gtk::Image {
         let image = gtk::Image::new();
-        image.add_css_class("exec-icon");
+        image.add_css_class("icon");
         if let Some(pixel_size) = data.pixel_size {
             image.set_pixel_size(pixel_size);
         }
@@ -343,6 +365,7 @@ impl RenderCatalog {
 
     fn render_image(&self, data: &ImageNode) -> gtk::Image {
         let image = gtk::Image::new();
+        image.add_css_class("image");
         if let Some(pixel_size) = data.pixel_size {
             image.set_pixel_size(pixel_size);
         }
@@ -354,6 +377,7 @@ impl RenderCatalog {
     fn render_button(&self, data: &ButtonNode) -> Result<gtk::Widget, RenderError> {
         let id = require_id("button", &data.common)?;
         let button = gtk::Button::new();
+        button.add_css_class("button");
         button.add_css_class("flat");
         apply_common_props(&button, &data.common);
         if let Some(child) = &data.child {
@@ -378,6 +402,7 @@ impl RenderCatalog {
     fn render_switch(&self, data: &SwitchNode) -> Result<gtk::Widget, RenderError> {
         let id = require_id("switch", &data.common)?;
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.add_css_class("switch");
         apply_common_props(&row, &data.common);
         if let Some(label) = &data.label {
             let text = gtk::Label::new(Some(label));
@@ -411,6 +436,7 @@ impl RenderCatalog {
         } else {
             gtk::CheckButton::new()
         };
+        checkbox.add_css_class("checkbox");
         checkbox.set_active(data.active);
         apply_common_props(&checkbox, &data.common);
         let event = self.event.clone();
@@ -436,6 +462,7 @@ impl RenderCatalog {
             data.max,
             data.step,
         );
+        scale.add_css_class("scale");
         scale.set_value(data.value);
         scale.set_draw_value(data.draw_value);
         apply_common_props(&scale, &data.common);
@@ -458,6 +485,7 @@ impl RenderCatalog {
         let id = require_id("dropdown", &data.common)?;
         let labels: Vec<&str> = data.items.iter().map(|item| item.label.as_str()).collect();
         let dropdown = gtk::DropDown::from_strings(&labels);
+        dropdown.add_css_class("dropdown");
         if let Some(selected) = data.selected {
             dropdown.set_selected(selected);
         }

@@ -244,18 +244,6 @@ func NewCollapsibleSection(title string, expanded bool, children []TreeNode) Tre
 	}
 }
 
-type Row struct {
-	CommonProps
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle,omitempty"`
-	Meta     string `json:"meta,omitempty"`
-	Icon     *Icon  `json:"icon,omitempty"`
-}
-
-func NewRow(id string, title string) TreeNode {
-	return TreeNode{Type: "row", Data: Row{CommonProps: CommonProps{ID: id}, Title: title}}
-}
-
 type ActionMenuItem struct {
 	ID         string `json:"id"`
 	Label      string `json:"label"`
@@ -295,6 +283,18 @@ func NewDetailGrid(rows []DetailGridItem) TreeNode {
 	return TreeNode{Type: "detail_grid", Data: DetailGrid{Rows: rows}}
 }
 
+type ActionRow struct {
+	CommonProps
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle,omitempty"`
+	Meta     string `json:"meta,omitempty"`
+	Icon     *Icon  `json:"icon,omitempty"`
+}
+
+func NewActionRow(id string, title string) TreeNode {
+	return TreeNode{Type: "action_row", Data: ActionRow{CommonProps: CommonProps{ID: id}, Title: title}}
+}
+
 type EmptyState struct {
 	CommonProps
 	Title    string `json:"title"`
@@ -314,27 +314,32 @@ func NewBadge(label string) TreeNode {
 	return TreeNode{Type: "badge", Data: Badge{Label: label}}
 }
 
-type StatusDot struct {
+type Status struct {
 	CommonProps
 }
 
-func NewStatusDot() TreeNode {
-	return TreeNode{Type: "status_dot", Data: StatusDot{}}
+func NewStatus() TreeNode {
+	return TreeNode{Type: "status", Data: Status{}}
 }
 
-type DeviceStatus struct {
+type Spinner struct {
 	CommonProps
-	Label string `json:"label,omitempty"`
-	Busy  bool   `json:"busy,omitempty"`
+	Spinning bool `json:"spinning"`
 }
 
-func NewDeviceStatus(label string, busy bool) TreeNode {
-	return TreeNode{Type: "device_status", Data: DeviceStatus{Label: label, Busy: busy}}
+func NewSpinner() TreeNode {
+	return TreeNode{Type: "spinner", Data: Spinner{Spinning: true}}
 }
 
-func BoxVertical(children []TreeNode, spacing int) TreeNode {
+type Layout struct {
+	CommonProps
+	Spacing  int        `json:"spacing"`
+	Children []TreeNode `json:"children"`
+}
+
+func NewColumn(children []TreeNode, spacing int) TreeNode {
 	return TreeNode{
-		Type: "box",
+		Type: "column",
 		Data: Box{
 			Orientation: OrientationVertical,
 			Spacing:     spacing,
@@ -343,13 +348,21 @@ func BoxVertical(children []TreeNode, spacing int) TreeNode {
 	}
 }
 
-func BoxHorizontal(children []TreeNode, spacing int) TreeNode {
+func NewRow(children []TreeNode, spacing int) TreeNode {
 	return TreeNode{
-		Type: "box",
+		Type: "row",
 		Data: Box{
 			Orientation: OrientationHorizontal,
 			Spacing:     spacing,
 			Children:    children,
 		},
 	}
+}
+
+func BoxVertical(children []TreeNode, spacing int) TreeNode {
+	return NewColumn(children, spacing)
+}
+
+func BoxHorizontal(children []TreeNode, spacing int) TreeNode {
+	return NewRow(children, spacing)
 }
