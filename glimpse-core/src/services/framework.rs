@@ -5,8 +5,9 @@ use crate::Config;
 use crate::{
     dbus::Dbus,
     services::{
-        audio, battery, bluetooth, brightness, calendar_events, clock, compositor, geoclue,
-        location, microphone, mpris, network, notifications, power, session, tray, weather, webcam,
+        audio, battery, bluetooth, brightness, calendar_events, clipboard, clock, compositor,
+        geoclue, location, microphone, mpris, network, notifications, power, session, tray,
+        weather, webcam,
     },
 };
 
@@ -120,6 +121,7 @@ pub struct Services {
     pub mpris: mpris::MprisHandle,
     pub battery: ServiceHandle<battery::State, battery::Command>,
     pub brightness: brightness::BrightnessHandle,
+    pub clipboard: clipboard::ClipboardHandle,
     pub power: ServiceHandle<power::State, power::Command>,
     pub bluetooth: ServiceHandle<bluetooth::State, bluetooth::Command>,
     pub network: network::NetworkHandle,
@@ -148,6 +150,7 @@ impl Services {
                 mpris,
                 battery,
                 brightness,
+                clipboard,
                 power,
                 bluetooth,
                 network,
@@ -201,6 +204,9 @@ impl ServiceRuntime {
             brightness::BrightnessService::new(system_dbus.clone());
         let brightness_service = spawn_service(|cancel| brightness_service.run(cancel));
 
+        let (clipboard_service, clipboard) = clipboard::ClipboardService::new();
+        let clipboard_service = spawn_service(|cancel| clipboard_service.run(cancel));
+
         let (power_service, power) = power::PowerService::new(system_dbus.clone());
         let power_service = spawn_service(|cancel| power_service.run(cancel));
 
@@ -239,6 +245,7 @@ impl ServiceRuntime {
             mpris_service,
             battery_service,
             brightness_service,
+            clipboard_service,
             power_service,
             bluetooth_service,
             network_service,
@@ -259,6 +266,7 @@ impl ServiceRuntime {
             mpris,
             battery,
             brightness,
+            clipboard,
             power,
             bluetooth,
             network,

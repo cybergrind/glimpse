@@ -40,6 +40,7 @@ async-trait = "0.1"
 gio = "0.20"
 css-color = "0.2"
 tokio-util = "0.7"
+wl-clipboard-rs = "0.9"
 
 [profile.release]
 lto = "thin"

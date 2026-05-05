@@ -3,6 +3,7 @@ pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
 pub mod calendar_events;
+pub mod clipboard;
 pub mod clock;
 pub mod compositor;
 pub mod framework;

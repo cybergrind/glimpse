@@ -49,6 +49,7 @@ impl Default for PanelConfig {
             center: vec!["clock".into(), "weather".into(), "notifications".into()],
             right: vec![
                 "tray".into(),
+                "clipboard".into(),
                 "keyboard".into(),
                 "privacy".into(),
                 "bluetooth".into(),
@@ -69,6 +70,7 @@ pub enum AppletType {
     Battery,
     Bluetooth,
     Brightness,
+    Clipboard,
     Clock,
     Exec,
     Keyboard,
@@ -89,6 +91,7 @@ impl AppletType {
             "battery" => Some(Self::Battery),
             "bluetooth" => Some(Self::Bluetooth),
             "brightness" => Some(Self::Brightness),
+            "clipboard" => Some(Self::Clipboard),
             "clock" => Some(Self::Clock),
             "exec" => Some(Self::Exec),
             "keyboard" => Some(Self::Keyboard),

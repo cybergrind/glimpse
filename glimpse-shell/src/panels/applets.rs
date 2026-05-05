@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::{
     applets::{
-        audio, battery, bluetooth, brightness, clock, exec, keyboard, mpris, network,
+        audio, battery, bluetooth, brightness, clipboard, clock, exec, keyboard, mpris, network,
         notifications, pager, privacy, session, tray, weather,
     },
     panels::PanelSection,
@@ -43,6 +43,7 @@ pub enum AppletController {
     Battery(Controller<battery::Applet>),
     Bluetooth(Controller<bluetooth::Applet>),
     Brightness(Controller<brightness::Applet>),
+    Clipboard(Controller<clipboard::Applet>),
     Clock(Controller<clock::Applet>),
     Exec(Controller<exec::Applet>),
     Keyboard(Controller<keyboard::Applet>),
@@ -63,6 +64,7 @@ impl AppletController {
             Self::Battery(_) => AppletType::Battery,
             Self::Bluetooth(_) => AppletType::Bluetooth,
             Self::Brightness(_) => AppletType::Brightness,
+            Self::Clipboard(_) => AppletType::Clipboard,
             Self::Clock(_) => AppletType::Clock,
             Self::Exec(_) => AppletType::Exec,
             Self::Keyboard(_) => AppletType::Keyboard,
@@ -83,6 +85,7 @@ impl AppletController {
             Self::Battery(controller) => controller.widget().clone().upcast(),
             Self::Bluetooth(controller) => controller.widget().clone().upcast(),
             Self::Brightness(controller) => controller.widget().clone().upcast(),
+            Self::Clipboard(controller) => controller.widget().clone().upcast(),
             Self::Clock(controller) => controller.widget().clone().upcast(),
             Self::Exec(controller) => controller.widget().clone().upcast(),
             Self::Keyboard(controller) => controller.widget().clone().upcast(),
@@ -118,6 +121,11 @@ impl AppletController {
                 controller.emit(brightness::Input::Reconfigure(
                     brightness::Config::from_raw(&config.cloned()),
                 ));
+            }
+            Self::Clipboard(controller) => {
+                controller.emit(clipboard::Input::Reconfigure(clipboard::Config::from_raw(
+                    &config.cloned(),
+                )));
             }
             Self::Clock(controller) => {
                 controller.emit(clock::Input::Reconfigure(clock::Config::from_raw(
@@ -211,6 +219,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                     service: services.brightness.clone(),
                     compositor: services.compositor.clone(),
                     config: brightness::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Clipboard => Some(AppletController::Clipboard(
+            clipboard::Applet::builder()
+                .launch(clipboard::Init {
+                    service: services.clipboard.clone(),
+                    config: clipboard::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -585,6 +601,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "brightness");
         assert_eq!(entries[0].applet_type, AppletType::Brightness);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_clipboard_builtin_name() {
+        let entries = collect_applets(PanelSection::Left, &["clipboard".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "clipboard");
+        assert_eq!(entries[0].applet_type, AppletType::Clipboard);
         assert!(entries[0].config.is_none());
     }
 

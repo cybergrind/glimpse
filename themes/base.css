@@ -1008,6 +1008,24 @@ popover.popover-size-xlarge {
     min-width: 220px;
 }
 
+/* Clipboard */
+
+.clipboard-label {
+    font-variant-numeric: tabular-nums;
+}
+
+.clipboard-popover {
+    --popover-min-width: var(--popover-medium-width);
+}
+
+.clipboard-row__button {
+    padding: var(--row-padding-y) calc(var(--row-padding-x) - var(--space-1));
+}
+
+.clipboard-row__preview {
+    font-weight: var(--font-weight-medium);
+}
+
 /* Clock */
 
 .clock-popover {
