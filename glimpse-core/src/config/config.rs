@@ -1,5 +1,4 @@
-use notify::EventKind;
-use notify_debouncer_full::{DebounceEventResult, new_debouncer};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer, notify::EventKind};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -321,7 +320,7 @@ pub async fn watch_for_config_changes(sender: mpsc::Sender<ConfigEvent>) {
         }
     };
 
-    if let Err(err) = debouncer.watch(&config_dir, notify::RecursiveMode::Recursive) {
+    if let Err(err) = debouncer.watch(&config_dir, notify::RecursiveMode::NonRecursive) {
         tracing::error!("failed to watch config directory: {}", err);
         return;
     }
@@ -336,13 +335,18 @@ fn file_change_handler(
 ) {
     let events = match res {
         Ok(events) => events,
-        Err(_) => return,
+        Err(errors) => {
+            for error in errors {
+                tracing::warn!("config watcher event error: {}", error);
+            }
+            return;
+        }
     };
 
     for event in events {
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-                if event.paths.contains(&config_file) {
+                if event.paths.iter().any(|path| path == &config_file) {
                     match Config::try_load_from_file(&config_file) {
                         Ok(config) => {
                             if let Err(err) = sender.try_send(ConfigEvent::Changed(config)) {
