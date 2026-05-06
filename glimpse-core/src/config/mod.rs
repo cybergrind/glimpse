@@ -1,15 +1,19 @@
 pub mod background;
 pub mod config;
+pub mod discovery;
 pub mod idle;
 pub mod location;
 pub mod night_light;
 pub mod panels;
 pub mod theme;
+pub mod watch;
 
 pub use background::*;
 pub use config::*;
+pub use discovery::*;
 pub use idle::*;
 pub use location::*;
 pub use night_light::*;
 pub use panels::*;
 pub use theme::*;
+pub use watch::*;

@@ -1,23 +1,32 @@
 [package]
-name = "glimpse-wallpaper"
+name = "glimpse-lock"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 css-color.workspace = true
 dirs.workspace = true
+futures-util.workspace = true
 gio.workspace = true
 glimpse-core = { path = "../glimpse-core" }
-gtk4 = { workspace = true, features = ["v4_8"] }
-gtk4-layer-shell.workspace = true
+gtk4 = { version = "0.9", package = "gtk4", features = ["v4_8"] }
+gtk4-session-lock = "0.1.2"
 image = "0.25"
 notify.workspace = true
 notify-debouncer-full.workspace = true
-relm4.workspace = true
+pam-client2 = { version = "0.5.5", default-features = false }
+relm4 = { version = "0.9", features = ["libadwaita"] }
+serde.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tokio-util.workspace = true
+toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zbus.workspace = true
+zeroize = "1"
+
+[build-dependencies]
+glib-build-tools = "0.20"

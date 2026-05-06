@@ -5,6 +5,7 @@ members = [
     "glimpse-core",
     "glimpse-settings",
     "glimpse-idle",
+    "glimpse-lock",
     "glimpse-shell",
     "glimpse-sunset",
     "glimpse-wallpaper",

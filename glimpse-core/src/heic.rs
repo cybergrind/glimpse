@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn detects_heic_and_heif_paths_case_insensitively() {
         assert!(is_heic_path(Path::new("/tmp/wallpaper.heic")));
-        assert!(is_heic_path(Path::new("/tmp/wallpaper.HEIF")));
+        assert!(is_heic_path(Path::new("/tmp/lock.HEIF")));
         assert!(!is_heic_path(Path::new("/tmp/wallpaper.png")));
     }
 }

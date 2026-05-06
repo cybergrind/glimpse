@@ -24,6 +24,7 @@ jobs:
             gtk4-layer-shell \
             libadwaita \
             libheif \
+            pam \
             pkgconf
 
       - name: Check out source
@@ -55,11 +56,13 @@ jobs:
         run: |
           cargo test --locked -p glimpse-core
           cargo test --locked -p glimpse-idle
+          cargo test --locked -p glimpse-lock
           cargo test --locked -p glimpse-sunset
           cargo test --locked -p glimpse-wallpaper
 
       - name: Check daemons
         run: |
+          cargo check --locked -p glimpse-lock
           cargo check --locked -p glimpse-shell
           cargo check --locked -p glimpse-idle
           cargo check --locked -p glimpse-sunset
@@ -68,6 +71,7 @@ jobs:
       - name: Build release binaries
         run: |
           cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
+          cargo build --release --locked -p glimpse-lock
           cargo build --release --locked -p glimpse-shell
           cargo build --release --locked -p glimpse-idle
           cargo build --release --locked -p glimpse-sunset

@@ -16,8 +16,10 @@ sync-pkgver:
 verify-release: sync-pkgver
     cargo test --locked -p glimpse-core
     cargo test --locked -p glimpse-idle
+    cargo test --locked -p glimpse-lock
     cargo test --locked -p glimpse-sunset
     cargo test --locked -p glimpse-wallpaper
+    cargo check --locked -p glimpse-lock
     cargo check --locked -p glimpse-shell
     cargo check --locked -p glimpse-idle
     cargo check --locked -p glimpse-sunset

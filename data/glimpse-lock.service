@@ -1,0 +1,13 @@
+[Unit]
+Description=Glimpse lock screen
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/glimpse-lock
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

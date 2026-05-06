@@ -1,0 +1,18 @@
+pam_service = "glimpse-lock"
+css_path = "themes/lock.css"
+
+[background]
+# Defaults to the configured wallpaper when path is unset.
+color = "#101010"
+# path = "/path/to/lock-background.png"
+fit = "cover"
+blur_radius = 0
+dim = 0.35
+
+[clock]
+enabled = true
+time_format = "%H:%M"
+date_format = "%A, %B %-d"
+
+[controls]
+buttons = ["weather", "wifi", "input", "battery", "power"]

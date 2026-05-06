@@ -1,0 +1,156 @@
+.lock-window {
+  background: #101010;
+}
+
+.lock-background {
+  background: #101010;
+}
+
+.lock-scrim {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.lock-content {
+  margin: 32px;
+}
+
+.lock-clock {
+  color: white;
+  font-size: 48px;
+  font-weight: 700;
+}
+
+.lock-date {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 18px;
+}
+
+.lock-auth-panel {
+  background: transparent;
+  padding: 18px;
+}
+
+.lock-user-block {
+  margin-bottom: 10px;
+}
+
+.lock-user-avatar {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 48px;
+  min-height: 96px;
+  min-width: 96px;
+}
+
+.lock-user-picture {
+  border-radius: 48px;
+}
+
+.lock-user-initials {
+  color: white;
+  font-size: 34px;
+  font-weight: 600;
+}
+
+.lock-user-name {
+  color: white;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.lock-password {
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.32),
+    0 12px 36px rgba(0, 0, 0, 0.18);
+  color: white;
+  min-width: 260px;
+  padding: 8px 14px;
+}
+
+.lock-password:focus {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.64);
+}
+
+.lock-status {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.lock-caps-indicator {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: -4px;
+  text-transform: uppercase;
+}
+
+.lock-controls {
+  margin: 32px;
+}
+
+.lock-control-button {
+  background: transparent;
+  border: none;
+  border-radius: 18px;
+  color: white;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 8px;
+}
+
+.lock-control-action-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.lock-control-action-button:active,
+.lock-control-action-button:checked {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.lock-control-status-button:hover,
+.lock-control-status-button:active,
+.lock-control-status-button:checked {
+  background: transparent;
+}
+
+.lock-input-button {
+  font-weight: 700;
+  min-width: 42px;
+}
+
+.lock-power-popover {
+  background: rgba(18, 18, 18, 0.46);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  padding: 4px;
+}
+
+.lock-power-popover contents {
+  background: rgba(18, 18, 18, 0.46);
+  border: none;
+  border-radius: 14px;
+  box-shadow: none;
+  padding: 4px;
+}
+
+.lock-power-menu {
+  min-width: 80px;
+  padding: 0;
+}
+
+.lock-power-action {
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: white;
+  min-height: 38px;
+  min-width: 80px;
+  padding: 8px 14px;
+}
+
+.lock-power-action:hover {
+  background: rgba(255, 255, 255, 0.14);
+}

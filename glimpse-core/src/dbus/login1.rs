@@ -8,6 +8,7 @@ pub type Login1SessionEntry = (String, u32, String, String, OwnedObjectPath);
     default_path = "/org/freedesktop/login1"
 )]
 pub trait Login1Manager {
+    fn get_session(&self, session_id: &str) -> zbus::Result<OwnedObjectPath>;
     fn get_session_by_pid(&self, pid: u32) -> zbus::Result<OwnedObjectPath>;
     fn list_sessions(&self) -> zbus::Result<Vec<Login1SessionEntry>>;
     fn can_suspend(&self) -> zbus::Result<String>;
@@ -27,6 +28,7 @@ pub trait Login1Manager {
     default_service = "org.freedesktop.login1"
 )]
 pub trait Login1Session {
+    fn set_locked_hint(&self, locked: bool) -> zbus::Result<()>;
     fn set_brightness(&self, subsystem: &str, name: &str, brightness: u32) -> zbus::Result<()>;
 
     #[zbus(property)]
@@ -39,4 +41,10 @@ pub trait Login1Session {
     fn seat(&self) -> zbus::Result<(String, OwnedObjectPath)>;
     #[zbus(property, name = "Type")]
     fn kind(&self) -> zbus::Result<String>;
+
+    #[zbus(signal)]
+    fn lock(&self) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    fn unlock(&self) -> zbus::Result<()>;
 }

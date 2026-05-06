@@ -10,7 +10,7 @@ use css_color::Srgb;
 use gio::prelude::ListModelExt;
 use glimpse_core::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
-    watch_for_config_changes,
+    heic, watch_for_config_changes,
 };
 use gtk4::{
     ContentFit,
@@ -1033,7 +1033,7 @@ fn spawn_image_load(
 }
 
 fn should_load_heic_preview(path: &Path, blur_radius: Option<u32>) -> bool {
-    blur_radius.unwrap_or_default() == 0 && crate::heic::is_heic_path(path)
+    blur_radius.unwrap_or_default() == 0 && heic::is_heic_path(path)
 }
 
 fn decode_heic_preview(path: &Path) -> anyhow::Result<Option<DecodedImage>> {
@@ -1041,7 +1041,7 @@ fn decode_heic_preview(path: &Path) -> anyhow::Result<Option<DecodedImage>> {
         return Ok(Some(preview));
     }
 
-    crate::heic::decode_thumbnail(path).map(|decoded| {
+    heic::decode_thumbnail(path).map(|decoded| {
         decoded.map(|decoded| DecodedImage {
             width: decoded.width,
             height: decoded.height,
@@ -1111,9 +1111,9 @@ fn decode_image(
     }
 
     tracing::debug!(path = %path.display(), "decoding wallpaper image file");
-    let mut image = if crate::heic::is_heic_path(path) {
+    let mut image = if heic::is_heic_path(path) {
         tracing::debug!(path = %path.display(), "decoding HEIC/HEIF wallpaper with libheif");
-        let decoded = crate::heic::decode(path)?;
+        let decoded = heic::decode(path)?;
         tracing::debug!(
             path = %path.display(),
             width = decoded.width,
