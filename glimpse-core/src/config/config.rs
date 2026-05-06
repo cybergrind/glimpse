@@ -7,9 +7,8 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::{
-    AppletConfig, BackdropConfig, BackgroundSettings, ConfigFileDiscovery, IdleConfig,
-    KeyboardConfig, LocationConfig, NightLightConfig, PanelConfig, ThemeConfig, ThemeMode,
-    WallpaperConfig, wallpaper_spec, watch_config_file,
+    AppletConfig, ConfigFileDiscovery, IdleConfig, KeyboardConfig, LocationConfig,
+    NightLightConfig, PanelConfig, ThemeConfig, watch_config_file,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -19,8 +18,6 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub panels: Vec<PanelConfig>,
     pub applets: HashMap<String, AppletConfig>,
-    pub wallpaper: WallpaperConfig,
-    pub backdrop: BackdropConfig,
     #[serde(default)]
     pub night_light: NightLightConfig,
     #[serde(default)]
@@ -91,34 +88,6 @@ impl Config {
         }
     }
 
-    pub fn resolve_wallpaper(&self, theme_mode: ThemeMode) -> crate::ResolvedWallpaperSpec {
-        wallpaper_spec(&self.wallpaper, &self.backdrop).resolve(theme_mode)
-    }
-
-    pub fn background_toml(&self) -> Result<String, toml::ser::Error> {
-        toml::to_string_pretty(&BackgroundSettings {
-            wallpaper: &self.wallpaper,
-            backdrop: &self.backdrop,
-        })
-    }
-
-    pub fn persist_background_settings(
-        mut self,
-        wallpaper: WallpaperConfig,
-        backdrop: BackdropConfig,
-    ) -> Result<PathBuf, String> {
-        self.wallpaper = wallpaper;
-        self.backdrop = backdrop;
-        let path = Self::config_file();
-        let parent = path
-            .parent()
-            .ok_or_else(|| "config path has no parent directory".to_string())?;
-        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-        let content = toml::to_string_pretty(&self).map_err(|err| err.to_string())?;
-        fs::write(&path, content).map_err(|err| err.to_string())?;
-        Ok(path)
-    }
-
     fn expand_panel_placeholders(&mut self) {
         let defaults = PanelConfig::default();
         for panel in &mut self.panels {
@@ -158,8 +127,6 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             panels: vec![PanelConfig::default()],
             applets: HashMap::new(),
-            wallpaper: WallpaperConfig::default(),
-            backdrop: BackdropConfig::default(),
             night_light: NightLightConfig::default(),
             idle: IdleConfig::default(),
             keyboard: KeyboardConfig::default(),

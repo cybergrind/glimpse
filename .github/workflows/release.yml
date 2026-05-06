@@ -9,27 +9,101 @@ permissions:
   contents: write
 
 jobs:
-  binary-and-aur:
-    name: Build binary release and publish AUR
+  verify:
+    name: Verify release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches workspace version
+        id: version
+        run: |
+          version="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          tag="${GITHUB_REF_NAME#v}"
+          test "$version" = "$tag"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test release crates
+    needs: verify
     runs-on: ubuntu-latest
     container: archlinux:base-devel
-    env:
-      AUR_PKG: glimpse-desktop-bin
-      AUR_REMOTE: ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git
-      AUR_KEY_SET: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
     steps:
-      - name: Install build and release dependencies
+      - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed \
             cargo \
             clang \
             git \
-            github-cli \
             gtk4 \
             gtk4-layer-shell \
             libadwaita \
             libheif \
-            openssh \
+            pam \
+            pkgconf
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Trust checkout directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Restore Cargo dependency cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ runner.os }}-arch-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-arch-cargo-
+
+      - name: Restore Cargo build cache
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-arch-target-test-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-arch-target-test-${{ hashFiles('Cargo.lock') }}-
+            ${{ runner.os }}-arch-target-
+
+      - name: Test release crates
+        run: |
+          cargo test --locked \
+            -p glimpse-core \
+            -p glimpse-idle \
+            -p glimpse-lock \
+            -p glimpse-sunset \
+            -p glimpse-wallpaper
+          cargo check --locked \
+            -p glimpse-lock \
+            -p glimpse-shell \
+            -p glimpse-idle \
+            -p glimpse-sunset \
+            -p glimpse-wallpaper
+
+  package:
+    name: Build binary archive
+    needs: verify
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      checksum: ${{ steps.package.outputs.checksum }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            cargo \
+            clang \
+            git \
+            gtk4 \
+            gtk4-layer-shell \
+            libadwaita \
+            libheif \
             pam \
             pkgconf \
             zstd
@@ -54,48 +128,68 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-arch-target-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-arch-target-release-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-arch-target-${{ hashFiles('Cargo.lock') }}-
+            ${{ runner.os }}-arch-target-release-${{ hashFiles('Cargo.lock') }}-
             ${{ runner.os }}-arch-target-
-
-      - name: Verify tag matches workspace version
-        run: |
-          version="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
-          tag="${GITHUB_REF_NAME#v}"
-          test "$version" = "$tag"
-
-      - name: Test release crates
-        run: |
-          cargo test --locked -p glimpse-core
-          cargo test --locked -p glimpse-idle
-          cargo test --locked -p glimpse-lock
-          cargo test --locked -p glimpse-sunset
-          cargo test --locked -p glimpse-wallpaper
-          cargo check --locked -p glimpse-lock
-          cargo check --locked -p glimpse-shell
-          cargo check --locked -p glimpse-idle
-          cargo check --locked -p glimpse-sunset
-          cargo check --locked -p glimpse-wallpaper
 
       - name: Build binary archive
         id: package
         run: |
-          asset="$(scripts/package-binary.sh "${GITHUB_REF_NAME#v}")"
+          asset="$(scripts/package-binary.sh "${{ needs.verify.outputs.version }}")"
           checksum="$(b2sum "$asset" | awk '{ print $1 }')"
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$(basename "$asset")" >> "$GITHUB_OUTPUT"
           echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binary archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-release
+          path: ${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub release and AUR
+    needs:
+      - verify
+      - test
+      - package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      AUR_PKG: glimpse-desktop-bin
+      AUR_REMOTE: ssh://aur@aur.archlinux.org/glimpse-desktop-bin.git
+      AUR_KEY_SET: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - name: Install publish dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            github-cli \
+            openssh
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download binary archive
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-release
+          path: dist
 
       - name: Publish GitHub release asset
         if: env.ACT != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "${{ steps.package.outputs.asset }}" \
+          asset="dist/${{ needs.package.outputs.asset_name }}"
+          gh release create "$GITHUB_REF_NAME" "$asset" \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
-            --notes "Glimpse ${GITHUB_REF_NAME#v}" \
-          || gh release upload "$GITHUB_REF_NAME" "${{ steps.package.outputs.asset }}" --clobber
+            --notes "Glimpse ${{ needs.verify.outputs.version }}" \
+          || gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
 
       - name: Configure AUR SSH
         if: env.ACT != 'true' && env.AUR_KEY_SET == 'true'
@@ -119,11 +213,11 @@ jobs:
         if: env.ACT != 'true' && env.AUR_KEY_SET == 'true'
         run: |
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ needs.verify.outputs.version }}"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
           git clone "$AUR_REMOTE" "$tmpdir"
-          scripts/render-aur-pkgbuild.sh "$version" "${{ steps.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
+          scripts/render-aur-pkgbuild.sh "$version" "${{ needs.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
           cd "$tmpdir"
           useradd -m builder
           chown -R builder:builder "$tmpdir"
@@ -144,10 +238,10 @@ jobs:
       - name: Render AUR metadata for act
         if: env.ACT == 'true'
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ needs.verify.outputs.version }}"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
-          scripts/render-aur-pkgbuild.sh "$version" "${{ steps.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
+          scripts/render-aur-pkgbuild.sh "$version" "${{ needs.package.outputs.checksum }}" > "$tmpdir/PKGBUILD"
           useradd -m builder
           chown -R builder:builder "$tmpdir"
           runuser -u builder -- bash -c 'cd "$1" && makepkg --printsrcinfo' bash "$tmpdir" > dist/.SRCINFO

@@ -6,9 +6,7 @@ use std::{
 };
 
 use glimpse_core::{
-    AppletConfig, AppletType, BackdropConfig, Config, ConfigDiscovery, FitMode,
-    KeyboardRememberMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
-    ThemeMode, WallpaperConfig,
+    AppletConfig, AppletType, Config, ConfigDiscovery, KeyboardRememberMode, ThemeMode,
 };
 
 #[test]
@@ -43,7 +41,7 @@ fn config_discovery_prefers_glimpse_config_env_then_cwd_then_xdg() {
 }
 
 #[test]
-fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
+fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_settings() {
     let config = Config::from_toml_str(
         r##"
         [theme]
@@ -85,8 +83,6 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
     .unwrap();
 
     assert_eq!(config.theme.mode, ThemeMode::Dark);
-    assert_eq!(config.wallpaper.fit, FitMode::Contain);
-    assert_eq!(config.wallpaper.transition_ms, 250);
     assert_eq!(config.panels.len(), 1);
     assert!(matches!(
         config.applets.get("clock"),
@@ -107,10 +103,9 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
         Some(AppletType::Exec)
     );
 
-    let serialized = config.background_toml().unwrap();
-    assert!(!serialized.contains("mode"));
-    assert!(serialized.contains("[wallpaper]"));
-    assert!(serialized.contains("[backdrop]"));
+    let serialized = toml::to_string_pretty(&config).unwrap();
+    assert!(!serialized.contains("[wallpaper]"));
+    assert!(!serialized.contains("[backdrop]"));
 }
 
 #[test]
@@ -159,124 +154,6 @@ fn config_ignores_unknown_applet_extends_values() {
     assert_eq!(
         config.applets["broken"].settings["command"][0].as_str(),
         Some("/tmp/ignored")
-    );
-}
-
-#[test]
-fn resolves_color_only_wallpaper_spec() {
-    let config = Config {
-        wallpaper: WallpaperConfig {
-            color: "#101010".into(),
-            path: None,
-            fit: FitMode::Cover,
-            transition_ms: 800,
-        },
-        backdrop: BackdropConfig {
-            enabled: false,
-            ..BackdropConfig::default()
-        },
-        ..Config::default()
-    };
-
-    assert_eq!(
-        config.resolve_wallpaper(ThemeMode::Light),
-        ResolvedWallpaperSpec {
-            color: "#101010".into(),
-            image: None,
-            transition_ms: 800,
-            theme_mode: ThemeMode::Light,
-            backdrop: ResolvedBackdropSpec::Disabled,
-        }
-    );
-}
-
-#[test]
-fn resolves_wallpaper_and_backdrop_image_spec() {
-    let config = Config {
-        wallpaper: WallpaperConfig {
-            color: "#202020".into(),
-            path: Some(PathBuf::from("/tmp/wall.png")),
-            fit: FitMode::Fill,
-            transition_ms: 100,
-        },
-        backdrop: BackdropConfig {
-            enabled: true,
-            path: Some(PathBuf::from("/tmp/backdrop.png")),
-            blur_radius: 24,
-        },
-        ..Config::default()
-    };
-
-    assert_eq!(
-        config.resolve_wallpaper(ThemeMode::Dark),
-        ResolvedWallpaperSpec {
-            color: "#202020".into(),
-            image: Some(ResolvedImageSpec {
-                path: PathBuf::from("/tmp/wall.png"),
-                fit: FitMode::Fill,
-            }),
-            transition_ms: 100,
-            theme_mode: ThemeMode::Dark,
-            backdrop: ResolvedBackdropSpec::Enabled {
-                path: Some(PathBuf::from("/tmp/backdrop.png")),
-                blur_radius: 24,
-            },
-        }
-    );
-}
-
-#[test]
-fn enabled_backdrop_without_path_falls_back_to_wallpaper_image() {
-    let config = Config {
-        wallpaper: WallpaperConfig {
-            color: "#202020".into(),
-            path: Some(PathBuf::from("/tmp/wall.png")),
-            fit: FitMode::Cover,
-            transition_ms: 800,
-        },
-        backdrop: BackdropConfig {
-            enabled: true,
-            path: None,
-            blur_radius: 24,
-        },
-        ..Config::default()
-    };
-
-    assert_eq!(
-        config.resolve_wallpaper(ThemeMode::Dark).backdrop,
-        ResolvedBackdropSpec::Enabled {
-            path: Some(PathBuf::from("/tmp/wall.png")),
-            blur_radius: 24,
-        }
-    );
-}
-
-#[test]
-fn backdrop_defaults_to_enabled_with_blur_24_and_wallpaper_fallback() {
-    let config = Config {
-        wallpaper: WallpaperConfig {
-            color: "#202020".into(),
-            path: Some(PathBuf::from("/tmp/wall.png")),
-            fit: FitMode::Cover,
-            transition_ms: 800,
-        },
-        ..Config::default()
-    };
-
-    assert_eq!(
-        config.backdrop,
-        BackdropConfig {
-            enabled: true,
-            path: None,
-            blur_radius: 24,
-        }
-    );
-    assert_eq!(
-        config.resolve_wallpaper(ThemeMode::Dark).backdrop,
-        ResolvedBackdropSpec::Enabled {
-            path: Some(PathBuf::from("/tmp/wall.png")),
-            blur_radius: 24,
-        }
     );
 }
 

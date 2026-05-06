@@ -1,4 +1,4 @@
-use glimpse_core::{ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
+use crate::config::{ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WallpaperFrame {

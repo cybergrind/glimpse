@@ -8,9 +8,11 @@ use std::{
 
 use css_color::Srgb;
 use gio::prelude::ListModelExt;
-use glimpse_core::{
+use glimpse_core::heic;
+
+use crate::config::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
-    heic, watch_for_config_changes,
+    watch_for_config_changes,
 };
 use gtk4::{
     ContentFit,
@@ -100,7 +102,7 @@ impl SimpleComponent for WallpaperAppModel {
         relm4::spawn(async move {
             while let Some(ConfigEvent::Changed(config)) = config_rx.recv().await {
                 tracing::info!("configuration changed, applying wallpaper settings");
-                let spec = config.resolve_wallpaper(config.theme.mode);
+                let spec = config.resolve_wallpaper();
                 let _ = config_sender.input(AppCommand::ApplyResolvedSpec(spec));
             }
         });
@@ -118,7 +120,7 @@ impl SimpleComponent for WallpaperAppModel {
             tracing::warn!("no default GDK display; wallpaper surfaces cannot be created yet");
         }
 
-        let initial_spec = init.config.resolve_wallpaper(init.config.theme.mode);
+        let initial_spec = init.config.resolve_wallpaper();
         tracing::info!(
             color = %initial_spec.color,
             image = initial_spec.image.as_ref().map(|image| image.path.display().to_string()).as_deref().unwrap_or("<none>"),
@@ -142,13 +144,13 @@ impl SimpleComponent for WallpaperAppModel {
             AppCommand::ReloadConfig => {
                 tracing::info!("reloading wallpaper configuration");
                 let config = Config::load();
-                let spec = config.resolve_wallpaper(config.theme.mode);
+                let spec = config.resolve_wallpaper();
                 let _ = sender.input(AppCommand::ApplyResolvedSpec(spec));
             }
             AppCommand::ReloadAssets => {
                 tracing::info!("reloading wallpaper assets");
                 let config = Config::load();
-                let spec = config.resolve_wallpaper(config.theme.mode);
+                let spec = config.resolve_wallpaper();
                 self.apply_resolved_spec(spec, true, sender);
             }
             AppCommand::MonitorsChanged => {
@@ -1505,9 +1507,7 @@ mod tests {
         blur_processing_dimensions, load_cached_image, load_legacy_unprocessed_cache,
         resize_rgba_for_fit, should_start_image_load, write_cached_image,
     };
-    use glimpse_core::{
-        FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
-    };
+    use crate::config::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
     use std::{
         fs,
         path::PathBuf,
@@ -1668,7 +1668,6 @@ mod tests {
                 fit: FitMode::Cover,
             }),
             transition_ms: 800,
-            theme_mode: ThemeMode::Auto,
             backdrop: ResolvedBackdropSpec::Enabled {
                 path: Some(path.clone()),
                 blur_radius: 24,

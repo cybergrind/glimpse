@@ -24,4 +24,5 @@ var/
 !var/sysstats/**
 var/sysstats/sysstats-applet
 config.toml
+wallpaper.toml
 .envrc

@@ -22,11 +22,12 @@ rm -rf "$pkgroot"
 mkdir -p "$pkgroot/usr/bin" "$pkgroot/usr/lib/systemd/user" "$pkgroot/etc/pam.d" dist
 
 cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
-cargo build --release --locked -p glimpse-lock
-cargo build --release --locked -p glimpse-shell
-cargo build --release --locked -p glimpse-idle
-cargo build --release --locked -p glimpse-sunset
-cargo build --release --locked -p glimpse-wallpaper
+cargo build --release --locked \
+    -p glimpse-lock \
+    -p glimpse-shell \
+    -p glimpse-idle \
+    -p glimpse-sunset \
+    -p glimpse-wallpaper
 
 test "$(target/release/glimpse-lock --version)" = "glimpse-lock $version"
 test "$(target/release/glimpse-shell --version)" = "glimpse-shell $version"

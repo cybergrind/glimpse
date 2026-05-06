@@ -4,7 +4,10 @@ use tokio_util::sync::CancellationToken;
 use zbus::zvariant::OwnedObjectPath;
 
 use crate::{
-    dbus::login1::Login1ManagerProxy,
+    dbus::login1::{
+        Login1ManagerProxy, Login1SessionEntry, Login1SessionProxy, SessionCandidate, current_uid,
+        select_session_candidate,
+    },
     services::framework::{Control, ServiceCommand, ServiceHandle},
 };
 
@@ -339,16 +342,21 @@ impl ActionWorker {
     }
 
     async fn lock(&self) -> anyhow::Result<()> {
+        let session_id = self
+            .resolve_current_session_id()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("could not resolve current logind session"))?;
+
         self.logind()
             .await?
-            .lock_sessions()
+            .lock_session(&session_id)
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
     async fn logout(&self) -> anyhow::Result<()> {
         let session_id = self
-            .resolve_logout_session_id()
+            .resolve_current_session_id()
             .await?
             .ok_or_else(|| anyhow::anyhow!("could not resolve current logind session"))?;
 
@@ -359,15 +367,96 @@ impl ActionWorker {
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
-    async fn resolve_logout_session_id(&self) -> anyhow::Result<Option<String>> {
-        if let Some(session_id) = resolve_logout_session_id(|key| std::env::var(key)) {
+    async fn resolve_current_session_id(&self) -> anyhow::Result<Option<String>> {
+        let manager = self.logind().await?;
+        match manager.get_session_by_pid(std::process::id()).await {
+            Ok(path) => {
+                let sessions = manager.list_sessions().await?;
+                if let Some(session_id) = session_id_for_path(&sessions, &path) {
+                    tracing::debug!(session_id, session = %path, "resolved current logind session from process pid");
+                    return Ok(Some(session_id));
+                }
+
+                tracing::debug!(session = %path, "logind returned a session path that was not present in ListSessions");
+            }
+            Err(error) => {
+                tracing::debug!(%error, "failed to resolve current logind session from process pid");
+            }
+        }
+
+        if let Some(session_id) = self.resolve_current_user_session_id(&manager).await? {
             return Ok(Some(session_id));
         }
 
-        let manager = self.logind().await?;
-        let path = manager.get_session_by_pid(std::process::id()).await?;
+        Ok(resolve_env_session_id(|key| std::env::var(key)))
+    }
+
+    async fn resolve_current_user_session_id(
+        &self,
+        manager: &Login1ManagerProxy<'_>,
+    ) -> anyhow::Result<Option<String>> {
+        let uid = current_uid()?;
         let sessions = manager.list_sessions().await?;
-        Ok(session_id_for_path(&sessions, &path))
+        let mut candidates = Vec::new();
+
+        for entry in sessions {
+            if entry.1 != uid {
+                continue;
+            }
+            candidates.push(self.inspect_session_candidate(entry).await);
+        }
+
+        let selected = select_session_candidate(&candidates, uid);
+        if let Some(selected) = selected {
+            tracing::debug!(
+                uid,
+                session_id = %selected.id,
+                session = %selected.path,
+                active = selected.active,
+                class = ?selected.class,
+                kind = ?selected.kind,
+                seat = %selected.seat,
+                "resolved current logind session from user session list"
+            );
+        }
+
+        Ok(selected.map(|candidate| candidate.id.clone()))
+    }
+
+    async fn inspect_session_candidate(&self, entry: Login1SessionEntry) -> SessionCandidate {
+        let (id, uid, _user, seat, path) = entry;
+        let mut candidate = SessionCandidate {
+            id,
+            uid,
+            seat,
+            path,
+            active: false,
+            class: None,
+            kind: None,
+        };
+
+        let proxy = match Login1SessionProxy::builder(&self.conn).path(candidate.path.clone()) {
+            Ok(builder) => builder.build().await,
+            Err(error) => Err(error),
+        };
+
+        match proxy {
+            Ok(session) => {
+                candidate.active = session.active().await.unwrap_or(false);
+                candidate.class = session.class().await.ok();
+                candidate.kind = session.kind().await.ok();
+            }
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    session_id = %candidate.id,
+                    session = %candidate.path,
+                    "failed to inspect logind session candidate"
+                );
+            }
+        }
+
+        candidate
     }
 
     async fn suspend(&self) -> anyhow::Result<()> {
@@ -445,7 +534,7 @@ pub fn build_subtitle(host_name: &str, uptime: &str) -> String {
     }
 }
 
-pub fn resolve_logout_session_id<F>(env: F) -> Option<String>
+pub fn resolve_env_session_id<F>(env: F) -> Option<String>
 where
     F: for<'a> Fn(&'a str) -> Result<String, std::env::VarError>,
 {
@@ -470,10 +559,7 @@ fn read_uptime() -> Option<u64> {
         .map(|seconds| seconds as u64)
 }
 
-fn session_id_for_path(
-    sessions: &[crate::dbus::login1::Login1SessionEntry],
-    path: &OwnedObjectPath,
-) -> Option<String> {
+fn session_id_for_path(sessions: &[Login1SessionEntry], path: &OwnedObjectPath) -> Option<String> {
     sessions
         .iter()
         .find(|(_, _, _, _, session_path)| session_path == path)
@@ -555,10 +641,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_logout_session_id_reads_xdg_session_id() {
+    fn resolve_env_session_id_reads_xdg_session_id() {
         let env = [("XDG_SESSION_ID", "c2"), ("USER", "alex")];
         assert_eq!(
-            resolve_logout_session_id(|key| {
+            resolve_env_session_id(|key| {
                 env.iter()
                     .find(|(name, _)| *name == key)
                     .map(|(_, value)| (*value).to_string())

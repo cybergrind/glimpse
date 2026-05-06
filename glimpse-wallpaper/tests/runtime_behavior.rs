@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
-use glimpse_core::{
-    FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode,
-};
 use glimpse_wallpaper::{
     app::{AppCommand, WallpaperAppModel},
+    config::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec},
     runtime::{ImageLoadResult, WallpaperRuntime},
     source::{StaticWallpaperSource, WallpaperFrame, WallpaperSource},
 };
@@ -96,7 +94,6 @@ fn spec_with_image(path: &str) -> ResolvedWallpaperSpec {
             fit: FitMode::Cover,
         }),
         transition_ms: 800,
-        theme_mode: ThemeMode::Dark,
         backdrop: ResolvedBackdropSpec::Disabled,
     }
 }

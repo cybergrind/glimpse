@@ -4,8 +4,8 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use crate::config::ResolvedWallpaperSpec;
 use anyhow::{Context, anyhow, bail};
-use glimpse_core::ResolvedWallpaperSpec;
 use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 
 pub const APP_ID: &str = "me.aresa.GlimpseWallpaper";
