@@ -22,8 +22,6 @@ use crate::{
     },
 };
 
-use super::format;
-
 pub struct Popover {
     animation: AnimatedPopover,
     hero_icon_name: String,
@@ -217,10 +215,6 @@ fn hero_subtitle_text(state: &State) -> String {
         BluetoothServiceHealth::Reconnecting { .. } => return "Reconnecting".into(),
         BluetoothServiceHealth::Degraded { message } => return message.clone(),
         BluetoothServiceHealth::Ready => {}
-    }
-
-    if let Some(prompt) = &state.prompt {
-        return format::prompt_activity_text(prompt, &state.snapshot);
     }
 
     if let Some(activity) = active_action_text(state) {
@@ -496,7 +490,6 @@ mod tests {
                 devices: vec![],
                 adapters: vec![],
             },
-            prompt: None,
             active_action: None,
         };
 
@@ -521,7 +514,6 @@ mod tests {
                     device("AA:BB:CC:DD:EE:02", "Mouse", false, false),
                 ],
             },
-            prompt: None,
             active_action: None,
         };
 
@@ -542,7 +534,6 @@ mod tests {
                 adapters: vec![],
                 devices: vec![device],
             },
-            prompt: None,
             active_action: None,
         };
 
@@ -563,7 +554,6 @@ mod tests {
                 adapters: vec![],
                 devices: vec![device],
             },
-            prompt: None,
             active_action: Some(BluetoothActiveAction::Connect {
                 address: "AA:BB:CC:DD:EE:02".into(),
             }),
@@ -584,7 +574,6 @@ mod tests {
                 adapters: vec![],
                 devices: vec![device],
             },
-            prompt: None,
             active_action: Some(BluetoothActiveAction::Pair {
                 address: "AA:BB:CC:DD:EE:02".into(),
             }),

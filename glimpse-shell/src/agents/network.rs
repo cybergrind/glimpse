@@ -4,9 +4,9 @@ use std::{
 };
 
 use tokio::sync::{oneshot, watch};
+use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 use zbus::zvariant::{OwnedValue, Value};
-
-use crate::services::network::{NetworkPrompt, NetworkPromptId, NetworkPromptReply};
 
 const AGENT_PATH: &str = "/org/freedesktop/NetworkManager/SecretAgent";
 const WIFI_SECURITY_SETTING: &str = "802-11-wireless-security";
@@ -15,6 +15,21 @@ const SECRET_CONTENT_TYPE: &str = "text/plain";
 const NM_SECRET_AGENT_GET_SECRETS_FLAG_NONE: u32 = 0x0;
 const NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION: u32 = 0x1;
 const NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW: u32 = 0x2;
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct NetworkPromptId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkPrompt {
+    pub id: NetworkPromptId,
+    pub ssid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkPromptReply {
+    Password(String),
+    Cancel,
+}
 
 pub(crate) type ConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
 pub(crate) type SecretMap = HashMap<String, HashMap<String, OwnedValue>>;
@@ -33,14 +48,14 @@ struct KeyringSecretEntry {
     secret: String,
 }
 
-pub struct PromptRegistry {
+struct PromptRegistry {
     next_prompt_id: u64,
     current: Option<PendingPrompt>,
     prompt_tx: watch::Sender<Option<NetworkPrompt>>,
 }
 
 impl PromptRegistry {
-    pub fn new(prompt_tx: watch::Sender<Option<NetworkPrompt>>) -> Self {
+    fn new(prompt_tx: watch::Sender<Option<NetworkPrompt>>) -> Self {
         Self {
             next_prompt_id: 1,
             current: None,
@@ -48,7 +63,7 @@ impl PromptRegistry {
         }
     }
 
-    pub fn request_prompt(
+    fn request_prompt(
         &mut self,
         ssid: String,
     ) -> Option<(NetworkPromptId, oneshot::Receiver<NetworkPromptReply>)> {
@@ -78,7 +93,7 @@ impl PromptRegistry {
         Some((id, reply_rx))
     }
 
-    pub fn complete(&mut self, id: NetworkPromptId, reply: NetworkPromptReply) -> bool {
+    fn complete(&mut self, id: NetworkPromptId, reply: NetworkPromptReply) -> bool {
         if self.current.as_ref().map(|current| current.prompt.id) != Some(id) {
             tracing::debug!(
                 prompt_id = id.0,
@@ -103,7 +118,7 @@ impl PromptRegistry {
         true
     }
 
-    pub fn cancel_current(&mut self) -> bool {
+    fn cancel_current(&mut self) -> bool {
         let Some(current) = self.current.take() else {
             tracing::debug!("network-secret-agent: cancel ignored because no prompt is active");
             return false;
@@ -373,6 +388,59 @@ impl NetworkSecretAgent {
         );
         self.cancel_prompt();
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct NetworkAgentHandle {
+    agent: NetworkSecretAgent,
+    prompt_rx: watch::Receiver<Option<NetworkPrompt>>,
+}
+
+impl NetworkAgentHandle {
+    pub fn subscribe(&self) -> watch::Receiver<Option<NetworkPrompt>> {
+        self.prompt_rx.clone()
+    }
+
+    pub fn reply(&self, id: NetworkPromptId, reply: NetworkPromptReply) -> bool {
+        self.agent.complete_prompt(id, reply)
+    }
+}
+
+pub struct NetworkAgentRuntime {
+    agent: NetworkSecretAgent,
+}
+
+impl NetworkAgentRuntime {
+    pub fn new(conn: zbus::Connection) -> (Self, NetworkAgentHandle) {
+        let (agent, prompt_rx) = NetworkSecretAgent::new(conn);
+        let handle = NetworkAgentHandle {
+            agent: agent.clone(),
+            prompt_rx,
+        };
+
+        (Self { agent }, handle)
+    }
+
+    pub async fn run(self, cancel: CancellationToken) {
+        loop {
+            match self.agent.register().await {
+                Ok(()) => {
+                    cancel.cancelled().await;
+                    if let Err(error) = self.agent.unregister().await {
+                        tracing::warn!(error = %error, "network-secret-agent: unregister failed");
+                    }
+                    break;
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "network-secret-agent: register failed, retrying");
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = sleep(Duration::from_secs(2)) => {}
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -727,13 +795,10 @@ mod tests {
             .expect("prompt should be accepted");
 
         assert_eq!(prompt_rx.borrow().as_ref().unwrap().ssid, "Office");
-        assert!(registry.complete(
-            id,
-            crate::services::network::NetworkPromptReply::Password("secret".into())
-        ));
+        assert!(registry.complete(id, NetworkPromptReply::Password("secret".into())));
         assert_eq!(
             reply_rx.await.unwrap(),
-            crate::services::network::NetworkPromptReply::Password("secret".into())
+            NetworkPromptReply::Password("secret".into())
         );
         assert!(prompt_rx.borrow().is_none());
     }

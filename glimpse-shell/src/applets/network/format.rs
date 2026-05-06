@@ -63,10 +63,6 @@ pub fn hero_subtitle(state: &State) -> String {
         NetworkServiceHealth::Ready => {}
     }
 
-    if let Some(prompt) = &state.prompt {
-        return format!("Password required for {}", prompt.ssid);
-    }
-
     if let Some(activity) = active_action_title(state) {
         return activity;
     }

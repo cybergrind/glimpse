@@ -4,20 +4,47 @@ use std::{
 };
 
 use tokio::sync::{oneshot, watch};
+use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 use zbus::zvariant::ObjectPath;
 
-use crate::{
-    dbus::bluez::Device1Proxy,
-    services::bluetooth::{
-        BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind, BluetoothPromptReply,
-    },
-};
+use glimpse_core::dbus::bluez::Device1Proxy;
 
 const AGENT_PATH: &str = "/org/bluez/glimpse/agent";
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BluetoothPromptId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BluetoothPromptKind {
+    Confirm { passkey: u32 },
+    AuthorizePairing,
+    AuthorizeService { uuid: String },
+    RequestPin,
+    RequestPasskey,
+    DisplayPin { pincode: String },
+    DisplayPasskey { passkey: u32, entered: u16 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BluetoothPrompt {
+    pub id: BluetoothPromptId,
+    pub device_path: String,
+    pub device_label: String,
+    pub kind: BluetoothPromptKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BluetoothPromptReply {
+    Confirm,
+    Pin(String),
+    Passkey(u32),
+    Cancel,
+}
+
 #[derive(Debug, zbus::DBusError)]
 #[zbus(prefix = "org.bluez.Error")]
-enum BluezError {
+pub(crate) enum BluezError {
     Rejected(String),
     Canceled(String),
 }
@@ -30,7 +57,7 @@ enum ServiceAuthorizationPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PromptRegistryError {
+pub(crate) enum PromptRegistryError {
     Busy,
 }
 
@@ -42,7 +69,7 @@ impl fmt::Display for PromptRegistryError {
     }
 }
 
-pub struct PromptRegistry {
+struct PromptRegistry {
     next_prompt_id: u64,
     current: Option<PendingPrompt>,
     prompt_tx: watch::Sender<Option<BluetoothPrompt>>,
@@ -54,7 +81,7 @@ struct PendingPrompt {
 }
 
 impl PromptRegistry {
-    pub fn new(prompt_tx: watch::Sender<Option<BluetoothPrompt>>) -> Self {
+    fn new(prompt_tx: watch::Sender<Option<BluetoothPrompt>>) -> Self {
         Self {
             next_prompt_id: 1,
             current: None,
@@ -67,7 +94,7 @@ impl PromptRegistry {
         self.current.as_ref().map(|current| current.prompt.clone())
     }
 
-    pub fn request_prompt(
+    fn request_prompt(
         &mut self,
         device_path: String,
         device_label: String,
@@ -104,7 +131,7 @@ impl PromptRegistry {
         Ok((id, reply_rx))
     }
 
-    pub fn publish_display_prompt(
+    fn publish_display_prompt(
         &mut self,
         device_path: String,
         device_label: String,
@@ -165,7 +192,7 @@ impl PromptRegistry {
         Ok(id)
     }
 
-    pub fn complete(&mut self, id: BluetoothPromptId, reply: BluetoothPromptReply) -> bool {
+    fn complete(&mut self, id: BluetoothPromptId, reply: BluetoothPromptReply) -> bool {
         if self.current.as_ref().map(|current| current.prompt.id) != Some(id) {
             tracing::debug!(
                 prompt_id = id.0,
@@ -193,7 +220,7 @@ impl PromptRegistry {
         true
     }
 
-    pub fn cancel_current(&mut self) -> bool {
+    fn cancel_current(&mut self) -> bool {
         let Some(current) = self.current.take() else {
             tracing::debug!("bluetooth-agent: cancel ignored because no prompt is active");
             return false;
@@ -260,7 +287,6 @@ fn prompt_kind_name(kind: &BluetoothPromptKind) -> &'static str {
 fn prompt_reply_name(reply: &BluetoothPromptReply) -> &'static str {
     match reply {
         BluetoothPromptReply::Confirm => "confirm",
-        BluetoothPromptReply::Reject => "reject",
         BluetoothPromptReply::Pin(_) => "pin",
         BluetoothPromptReply::Passkey(_) => "passkey",
         BluetoothPromptReply::Cancel => "cancel",
@@ -383,7 +409,7 @@ impl BluetoothAgent {
         Ok(())
     }
 
-    async fn device_label(&self, device_path: &str) -> String {
+    pub(crate) async fn device_label(&self, device_path: &str) -> String {
         let Ok(builder) = Device1Proxy::builder(&self.conn).path(device_path) else {
             return device_path.to_owned();
         };
@@ -398,7 +424,7 @@ impl BluetoothAgent {
         }
     }
 
-    async fn trust_if_paired(&self, device_path: &str) -> zbus::fdo::Result<bool> {
+    pub(crate) async fn trust_if_paired(&self, device_path: &str) -> zbus::fdo::Result<bool> {
         let builder = Device1Proxy::builder(&self.conn)
             .path(device_path)
             .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
@@ -432,7 +458,19 @@ impl BluetoothAgent {
         }
     }
 
-    async fn request_reply(
+    pub(crate) async fn publish_display_prompt(
+        &self,
+        device_path: &str,
+        kind: BluetoothPromptKind,
+    ) -> Result<BluetoothPromptId, PromptRegistryError> {
+        let label = self.device_label(device_path).await;
+        self.registry
+            .lock()
+            .expect("bluetooth prompt registry poisoned")
+            .publish_display_prompt(device_path.to_owned(), label, kind)
+    }
+
+    pub(crate) async fn request_reply(
         &self,
         device_path: &str,
         kind: BluetoothPromptKind,
@@ -469,7 +507,7 @@ impl BluetoothAgent {
         Ok(reply)
     }
 
-    async fn request_string_reply(
+    pub(crate) async fn request_string_reply(
         &self,
         device_path: &str,
         kind: BluetoothPromptKind,
@@ -485,14 +523,13 @@ impl BluetoothAgent {
                 Ok(value)
             }
             BluetoothPromptReply::Cancel => Err(BluezError::Canceled("cancelled by user".into())),
-            BluetoothPromptReply::Reject => Err(BluezError::Rejected("rejected by user".into())),
             _ => Err(BluezError::Rejected(
                 "unexpected bluetooth prompt reply".into(),
             )),
         }
     }
 
-    async fn request_passkey_reply(
+    pub(crate) async fn request_passkey_reply(
         &self,
         device_path: &str,
         kind: BluetoothPromptKind,
@@ -509,7 +546,6 @@ impl BluetoothAgent {
                 Ok(passkey)
             }
             BluetoothPromptReply::Cancel => Err(BluezError::Canceled("cancelled by user".into())),
-            BluetoothPromptReply::Reject => Err(BluezError::Rejected("rejected by user".into())),
             _ => Err(BluezError::Rejected(
                 "unexpected bluetooth prompt reply".into(),
             )),
@@ -517,200 +553,61 @@ impl BluetoothAgent {
     }
 }
 
-#[zbus::interface(name = "org.bluez.Agent1")]
-impl BluetoothAgent {
-    fn release(&self) {
-        tracing::debug!("bluetooth-agent: released by bluez");
-        tracing::info!("bluetooth-agent: released");
+#[derive(Clone)]
+pub struct BluetoothAgentHandle {
+    agent: BluetoothAgent,
+    prompt_rx: watch::Receiver<Option<BluetoothPrompt>>,
+}
+
+impl BluetoothAgentHandle {
+    pub fn subscribe(&self) -> watch::Receiver<Option<BluetoothPrompt>> {
+        self.prompt_rx.clone()
     }
 
-    async fn request_confirmation(
-        &self,
-        device: ObjectPath<'_>,
-        passkey: u32,
-    ) -> Result<(), BluezError> {
-        let device_path = device.as_str().to_owned();
-        tracing::info!(
-            device = device_path,
-            passkey,
-            "bluetooth-agent: confirmation requested"
-        );
-        tracing::debug!(
-            device = device_path,
-            prompt_kind = "confirm",
-            "bluetooth-agent: confirmation prompt requested"
-        );
-        match self
-            .request_reply(&device_path, BluetoothPromptKind::Confirm { passkey })
-            .await?
-        {
-            BluetoothPromptReply::Confirm => Ok(()),
-            BluetoothPromptReply::Cancel => Err(BluezError::Canceled("cancelled by user".into())),
-            _ => Err(BluezError::Rejected("rejected by user".into())),
-        }
+    pub fn reply(&self, id: BluetoothPromptId, reply: BluetoothPromptReply) -> bool {
+        self.agent.complete_prompt(id, reply)
     }
+}
 
-    async fn request_authorization(&self, device: ObjectPath<'_>) -> zbus::fdo::Result<()> {
-        let device_path = device.as_str().to_owned();
-        tracing::info!(
-            device = device_path,
-            "bluetooth-agent: authorizing pairing request"
-        );
-        tracing::debug!(
-            device = device_path,
-            prompt_kind = "authorize-pairing",
-            "bluetooth-agent: authorization prompt requested"
-        );
-        match self
-            .request_reply(&device_path, BluetoothPromptKind::AuthorizePairing)
-            .await
-        {
-            Ok(BluetoothPromptReply::Confirm) => Ok(()),
-            Ok(BluetoothPromptReply::Cancel) => {
-                Err(zbus::fdo::Error::Failed("cancelled by user".into()))
-            }
-            Ok(_) => Err(zbus::fdo::Error::Failed("rejected by user".into())),
-            Err(error) => Err(zbus::fdo::Error::Failed(error.to_string())),
-        }
-    }
+pub struct BluetoothAgentRuntime {
+    agent: BluetoothAgent,
+}
 
-    async fn authorize_service(&self, device: ObjectPath<'_>, uuid: &str) -> zbus::fdo::Result<()> {
-        let device_path = device.as_str().to_owned();
-        tracing::info!(
-            device = device_path,
-            uuid,
-            "bluetooth-agent: authorizing service"
-        );
-        if self.trust_if_paired(&device_path).await? {
-            tracing::info!(
-                device = device_path,
-                uuid,
-                "bluetooth-agent: authorized service for paired device"
-            );
-            return Ok(());
-        }
-
-        tracing::debug!(
-            device = device_path,
-            uuid,
-            prompt_kind = "authorize-service",
-            "bluetooth-agent: service authorization prompt requested"
-        );
-        match self
-            .request_reply(
-                &device_path,
-                BluetoothPromptKind::AuthorizeService { uuid: uuid.into() },
-            )
-            .await
-        {
-            Ok(BluetoothPromptReply::Confirm) => Ok(()),
-            Ok(BluetoothPromptReply::Cancel) => {
-                Err(zbus::fdo::Error::Failed("cancelled by user".into()))
-            }
-            Ok(_) => Err(zbus::fdo::Error::Failed("rejected by user".into())),
-            Err(error) => Err(zbus::fdo::Error::Failed(error.to_string())),
-        }
-    }
-
-    async fn request_passkey(&self, device: ObjectPath<'_>) -> Result<u32, BluezError> {
-        let device_path = device.as_str().to_owned();
-        tracing::debug!(
-            device = device_path,
-            prompt_kind = "request-passkey",
-            "bluetooth-agent: passkey prompt requested"
-        );
-        self.request_passkey_reply(&device_path, BluetoothPromptKind::RequestPasskey, "passkey")
-            .await
-    }
-
-    async fn display_passkey(&self, device: ObjectPath<'_>, passkey: u32, entered: u16) {
-        let device_path = device.as_str().to_owned();
-        tracing::debug!(
-            device = device_path,
-            entered,
-            prompt_kind = "display-passkey",
-            "bluetooth-agent: display passkey requested"
-        );
-        let label = self.device_label(&device_path).await;
-        let prompt_id = {
-            let mut registry = self
-                .registry
-                .lock()
-                .expect("bluetooth prompt registry poisoned");
-            registry.publish_display_prompt(
-                device_path.clone(),
-                label,
-                BluetoothPromptKind::DisplayPasskey { passkey, entered },
-            )
+impl BluetoothAgentRuntime {
+    pub fn new(conn: zbus::Connection) -> (Self, BluetoothAgentHandle) {
+        let (agent, prompt_rx) = BluetoothAgent::new(conn);
+        let handle = BluetoothAgentHandle {
+            agent: agent.clone(),
+            prompt_rx,
         };
-        let Ok(prompt_id) = prompt_id else {
-            tracing::warn!(
-                device = device_path,
-                "bluetooth-agent: display passkey prompt skipped because another prompt is active"
-            );
-            return;
-        };
-        tracing::info!(
-            device = device_path,
-            prompt_id = prompt_id.0,
-            passkey,
-            entered,
-            "bluetooth-agent: display passkey"
-        );
+
+        (Self { agent }, handle)
     }
 
-    async fn display_pin_code(
-        &self,
-        device: ObjectPath<'_>,
-        pincode: &str,
-    ) -> zbus::fdo::Result<()> {
-        let device_path = device.as_str().to_owned();
-        tracing::debug!(
-            device = device_path,
-            pin_length = pincode.chars().count(),
-            prompt_kind = "display-pin",
-            "bluetooth-agent: display pin requested"
-        );
-        let label = self.device_label(&device_path).await;
-        let prompt_id = {
-            let mut registry = self
-                .registry
-                .lock()
-                .expect("bluetooth prompt registry poisoned");
-            registry.publish_display_prompt(
-                device_path.clone(),
-                label,
-                BluetoothPromptKind::DisplayPin {
-                    pincode: pincode.to_owned(),
-                },
-            )
-        }
-        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
-        tracing::info!(
-            device = device_path,
-            prompt_id = prompt_id.0,
-            "bluetooth-agent: display pin code"
-        );
-        Ok(())
-    }
+    pub async fn run(self, cancel: CancellationToken) {
+        loop {
+            match self.agent.register().await {
+                Ok(default_status) => {
+                    if default_status == AgentDefaultStatus::RegisteredOnly {
+                        tracing::warn!(
+                            "bluetooth-agent: registered but is not default; prompts may open elsewhere"
+                        );
+                    }
 
-    async fn request_pin_code(&self, device: ObjectPath<'_>) -> Result<String, BluezError> {
-        let device_path = device.as_str().to_owned();
-        tracing::debug!(
-            device = device_path,
-            prompt_kind = "request-pin",
-            "bluetooth-agent: pin prompt requested"
-        );
-        self.request_string_reply(&device_path, BluetoothPromptKind::RequestPin, "pin")
-            .await
-    }
-
-    fn cancel(&self) {
-        tracing::debug!("bluetooth-agent: cancel requested by bluez");
-        if self.cancel_prompt() {
-            tracing::info!("bluetooth-agent: pairing cancelled");
-        } else {
-            tracing::info!("bluetooth-agent: pairing cancelled with no active prompt");
+                    cancel.cancelled().await;
+                    if let Err(error) = self.agent.unregister().await {
+                        tracing::warn!(error = %error, "bluetooth-agent: unregister failed");
+                    }
+                    break;
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "bluetooth-agent: register failed, retrying");
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = sleep(Duration::from_secs(2)) => {}
+                    }
+                }
+            }
         }
     }
 }

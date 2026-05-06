@@ -183,8 +183,7 @@ fn optimistic_busy_id(command: &Command) -> Option<&str> {
         | Command::StartScanning { .. }
         | Command::StopScanning
         | Command::RequestScan
-        | Command::Forget { .. }
-        | Command::PromptReply { .. } => None,
+        | Command::Forget { .. } => None,
     }
 }
 

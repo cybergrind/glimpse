@@ -16,7 +16,6 @@ notify.workspace = true
 notify-debouncer-full.workspace = true
 pipewire = "0.9"
 reqwest.workspace = true
-secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 serde = { workspace = true }
 serde_json.workspace = true
 sunrise = "1.2.1"
@@ -27,4 +26,4 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 wl-clipboard-rs.workspace = true
-zbus.workspace = true
+zbus = { workspace = true, features = ["blocking-api"] }

@@ -10,26 +10,24 @@ use relm4::{
 };
 use tokio_util::sync::CancellationToken;
 
-use glimpse_core::services::{
-    bluetooth::{
-        BluetoothHandle, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
-        BluetoothPromptReply, BluetoothSnapshot, Command, State,
-    },
-    framework::ServiceCommand,
+use crate::agents::bluetooth::{
+    BluetoothAgentHandle, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
+    BluetoothPromptReply,
 };
+use glimpse_core::services::bluetooth::BluetoothSnapshot;
 
 const RESPONSE_CANCEL: &str = "cancel";
 const RESPONSE_ACCEPT: &str = "accept";
 const MAX_PASSKEY: u32 = 999_999;
 
 pub struct PromptHost {
-    service: BluetoothHandle,
+    agent: BluetoothAgentHandle,
     dialog: Controller<PromptDialog>,
     subscription_cancel: CancellationToken,
 }
 
 pub struct PromptHostInit {
-    pub service: BluetoothHandle,
+    pub agent: BluetoothAgentHandle,
     pub parent: gtk::Widget,
 }
 
@@ -44,7 +42,7 @@ impl Component for PromptHost {
     type Init = PromptHostInit;
     type Input = PromptHostInput;
     type Output = ();
-    type CommandOutput = State;
+    type CommandOutput = Option<BluetoothPrompt>;
 
     view! {
         gtk::Box {
@@ -64,16 +62,16 @@ impl Component for PromptHost {
             .forward(sender.input_sender(), PromptHostInput::DialogOutput);
 
         let model = PromptHost {
-            service: init.service,
+            agent: init.agent,
             dialog,
             subscription_cancel: CancellationToken::new(),
         };
 
-        let service = model.service.clone();
+        let agent = model.agent.clone();
         let cancel = model.subscription_cancel.clone();
         let command_sender = sender.command_sender().clone();
         relm4::spawn(async move {
-            let mut sub = service.subscribe();
+            let mut sub = agent.subscribe();
             let _ = command_sender.send(sub.borrow().clone());
 
             loop {
@@ -112,23 +110,17 @@ impl Component for PromptHost {
         _root: &Self::Root,
     ) {
         self.dialog.emit(PromptDialogInput::Update {
-            prompt: state.prompt,
-            snapshot: state.snapshot,
+            prompt: state,
+            snapshot: BluetoothSnapshot::default(),
         });
     }
 }
 
 impl PromptHost {
     fn send_reply(&self, id: BluetoothPromptId, reply: BluetoothPromptReply) {
-        let service = self.service.clone();
-        relm4::spawn(async move {
-            if let Err(error) = service
-                .send(ServiceCommand::Command(Command::PromptReply { id, reply }))
-                .await
-            {
-                tracing::warn!(%error, "failed to send bluetooth prompt reply");
-            }
-        });
+        if !self.agent.reply(id, reply) {
+            tracing::warn!(prompt_id = id.0, "failed to send bluetooth prompt reply");
+        }
     }
 }
 

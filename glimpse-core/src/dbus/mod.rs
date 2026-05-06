@@ -5,7 +5,6 @@ pub mod geoclue;
 pub mod login1;
 pub mod mpris;
 pub mod network_manager;
-pub mod network_secret_agent;
 pub mod notifications;
 pub mod power_profiles;
 pub mod status_notifier_item;

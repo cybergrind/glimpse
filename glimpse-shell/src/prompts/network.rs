@@ -12,22 +12,21 @@ use relm4::{
 };
 use tokio_util::sync::CancellationToken;
 
-use glimpse_core::services::{
-    framework::ServiceCommand,
-    network::{Command, NetworkHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply, State},
+use crate::agents::network::{
+    NetworkAgentHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply,
 };
 
 const RESPONSE_CANCEL: &str = "cancel";
 const RESPONSE_ACCEPT: &str = "accept";
 
 pub struct PromptHost {
-    service: NetworkHandle,
+    agent: NetworkAgentHandle,
     dialog: Controller<PromptDialog>,
     subscription_cancel: CancellationToken,
 }
 
 pub struct PromptHostInit {
-    pub service: NetworkHandle,
+    pub agent: NetworkAgentHandle,
     pub parent: gtk::Widget,
 }
 
@@ -42,7 +41,7 @@ impl Component for PromptHost {
     type Init = PromptHostInit;
     type Input = PromptHostInput;
     type Output = ();
-    type CommandOutput = State;
+    type CommandOutput = Option<NetworkPrompt>;
 
     view! {
         gtk::Box {
@@ -62,16 +61,16 @@ impl Component for PromptHost {
             .forward(sender.input_sender(), PromptHostInput::DialogOutput);
 
         let model = PromptHost {
-            service: init.service,
+            agent: init.agent,
             dialog,
             subscription_cancel: CancellationToken::new(),
         };
 
-        let service = model.service.clone();
+        let agent = model.agent.clone();
         let cancel = model.subscription_cancel.clone();
         let command_sender = sender.command_sender().clone();
         relm4::spawn(async move {
-            let mut sub = service.subscribe();
+            let mut sub = agent.subscribe();
             let _ = command_sender.send(sub.borrow().clone());
 
             loop {
@@ -109,23 +108,16 @@ impl Component for PromptHost {
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
-        self.dialog.emit(PromptDialogInput::Update {
-            prompt: state.prompt,
-        });
+        self.dialog
+            .emit(PromptDialogInput::Update { prompt: state });
     }
 }
 
 impl PromptHost {
     fn send_reply(&self, id: NetworkPromptId, reply: NetworkPromptReply) {
-        let service = self.service.clone();
-        relm4::spawn(async move {
-            if let Err(error) = service
-                .send(ServiceCommand::Command(Command::PromptReply { id, reply }))
-                .await
-            {
-                tracing::warn!(%error, "failed to send network prompt reply");
-            }
-        });
+        if !self.agent.reply(id, reply) {
+            tracing::warn!(prompt_id = id.0, "failed to send network prompt reply");
+        }
     }
 }
 
@@ -351,7 +343,7 @@ fn response_generation_is_current(current: u64, expected: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse_core::services::network::{NetworkPrompt, NetworkPromptId, NetworkPromptReply};
+    use crate::agents::network::{NetworkPrompt, NetworkPromptId, NetworkPromptReply};
 
     fn prompt(id: u64, ssid: &str) -> NetworkPrompt {
         NetworkPrompt {

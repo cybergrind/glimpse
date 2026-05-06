@@ -2,21 +2,6 @@
 
 use super::NetworkSnapshot;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct NetworkPromptId(pub u64);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NetworkPrompt {
-    pub id: NetworkPromptId,
-    pub ssid: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NetworkPromptReply {
-    Password(String),
-    Cancel,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkServiceHealth {
     Starting,
@@ -38,7 +23,6 @@ pub enum NetworkActiveAction {
 pub struct State {
     pub health: NetworkServiceHealth,
     pub snapshot: NetworkSnapshot,
-    pub prompt: Option<NetworkPrompt>,
     pub active_action: Option<NetworkActiveAction>,
     pub scanning: bool,
 }
@@ -48,7 +32,6 @@ impl Default for State {
         Self {
             health: NetworkServiceHealth::Starting,
             snapshot: NetworkSnapshot::default(),
-            prompt: None,
             active_action: None,
             scanning: false,
         }
@@ -58,28 +41,13 @@ impl Default for State {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     SetWifiEnabled(bool),
-    StartScanning {
-        interval_secs: u64,
-    },
+    StartScanning { interval_secs: u64 },
     StopScanning,
     RequestScan,
-    ConnectWifi {
-        ssid: String,
-        path: String,
-    },
-    ConnectSaved {
-        uuid: String,
-    },
-    Disconnect {
-        uuid: String,
-    },
-    Forget {
-        uuid: String,
-    },
-    PromptReply {
-        id: NetworkPromptId,
-        reply: NetworkPromptReply,
-    },
+    ConnectWifi { ssid: String, path: String },
+    ConnectSaved { uuid: String },
+    Disconnect { uuid: String },
+    Forget { uuid: String },
 }
 
 pub fn active_action_for(command: &Command) -> Option<NetworkActiveAction> {
@@ -96,10 +64,7 @@ pub fn active_action_for(command: &Command) -> Option<NetworkActiveAction> {
             Some(NetworkActiveAction::Disconnect { uuid: uuid.clone() })
         }
         Command::Forget { uuid } => Some(NetworkActiveAction::Forget { uuid: uuid.clone() }),
-        Command::StartScanning { .. }
-        | Command::StopScanning
-        | Command::RequestScan
-        | Command::PromptReply { .. } => None,
+        Command::StartScanning { .. } | Command::StopScanning | Command::RequestScan => None,
     }
 }
 
@@ -137,48 +102,5 @@ mod tests {
         );
         assert_eq!(active_action_for(&Command::StopScanning), None);
         assert_eq!(active_action_for(&Command::RequestScan), None);
-    }
-
-    #[test]
-    fn prompt_replies_do_not_claim_active_action() {
-        assert_eq!(
-            active_action_for(&Command::PromptReply {
-                id: NetworkPromptId(1),
-                reply: NetworkPromptReply::Cancel,
-            }),
-            None
-        );
-    }
-
-    #[test]
-    fn network_prompt_protocol_roundtrip() {
-        let prompt_id = NetworkPromptId(7);
-        let state = State {
-            health: NetworkServiceHealth::Starting,
-            snapshot: NetworkSnapshot::default(),
-            prompt: Some(NetworkPrompt {
-                id: prompt_id,
-                ssid: "Office".into(),
-            }),
-            active_action: None,
-            scanning: false,
-        };
-
-        let cloned = state.clone();
-        let reply = NetworkPromptReply::Password("secret".into());
-        let command = Command::PromptReply {
-            id: cloned.prompt.as_ref().unwrap().id,
-            reply: reply.clone(),
-        };
-
-        assert_eq!(cloned.prompt.as_ref().unwrap().id.0, 7);
-        assert_eq!(cloned, state);
-        assert_eq!(
-            command,
-            Command::PromptReply {
-                id: prompt_id,
-                reply
-            }
-        );
     }
 }

@@ -12,8 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
 
 use super::{
-    AgentDefaultStatus, BluetoothActiveAction, BluetoothAgent, BluetoothPrompt,
-    BluetoothServiceHealth, BluezClient, BluezEvent, Command, State,
+    BluetoothActiveAction, BluetoothServiceHealth, BluezClient, BluezEvent, Command, State,
 };
 
 const COMMAND_QUEUE_SIZE: usize = 16;
@@ -23,9 +22,7 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 pub type BluetoothHandle = ServiceHandle<State, Command>;
 
 pub struct BluetoothService {
-    agent: BluetoothAgent,
     client: BluezClient,
-    prompt_rx: watch::Receiver<Option<BluetoothPrompt>>,
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
 }
@@ -39,13 +36,10 @@ impl BluetoothService {
     pub fn new(conn: zbus::Connection) -> (Self, BluetoothHandle) {
         let (state_tx, state_rx) = watch::channel(State::default());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
-        let (agent, prompt_rx) = BluetoothAgent::new(conn.clone());
 
         (
             Self {
-                agent,
                 client: BluezClient::new(conn),
-                prompt_rx,
                 state_tx,
                 command_rx,
             },
@@ -88,35 +82,9 @@ impl BluetoothService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         tracing::debug!("bluetooth service started");
-
-        let default_status = self
-            .agent
-            .register()
-            .await
-            .context("failed to register bluetooth agent")?;
-        if default_status == AgentDefaultStatus::RegisteredOnly {
-            self.set_degraded("Bluetooth pairing prompts may open in another app");
-        }
-
-        let outcome = self.run_registered(cancel, default_status).await;
-        if let Err(error) = self.agent.unregister().await {
-            tracing::warn!(error = %error, "bluetooth-agent: unregister failed");
-        }
-
-        outcome
-    }
-
-    async fn run_registered(
-        &mut self,
-        cancel: CancellationToken,
-        default_status: AgentDefaultStatus,
-    ) -> anyhow::Result<RunOutcome> {
         self.refresh_snapshot()
             .await
             .context("failed to load initial bluetooth snapshot")?;
-        if default_status == AgentDefaultStatus::RegisteredOnly {
-            self.set_degraded("Bluetooth pairing prompts may open in another app");
-        }
 
         let (event_tx, mut event_rx) = mpsc::channel(EVENT_QUEUE_SIZE);
         let listener_cancel = CancellationToken::new();
@@ -135,16 +103,6 @@ impl BluetoothService {
                     }
                     None => break Err(anyhow!("bluetooth event listener stopped")),
                 },
-                changed = self.prompt_rx.changed() => {
-                    if changed.is_err() {
-                        break Err(anyhow!("bluetooth prompt channel closed"));
-                    }
-
-                    let prompt = self.prompt_rx.borrow().clone();
-                    self.update_state(|state| {
-                        state.prompt = prompt;
-                    });
-                }
                 command = self.command_rx.recv() => match command {
                     Some(ServiceCommand::Command(command)) => {
                         if self.execute_command(command).await {
@@ -276,13 +234,6 @@ impl BluetoothService {
                 tracing::debug!(address = %address, "bluetooth: forget command finished");
                 Ok(true)
             }
-            Command::PromptReply { id, reply } => {
-                tracing::debug!(prompt_id = id.0, "bluetooth: prompt reply command received");
-                if !self.agent.complete_prompt(id, reply) {
-                    tracing::warn!(prompt_id = id.0, "bluetooth: stale prompt reply ignored");
-                }
-                Ok(false)
-            }
         }
     }
 
@@ -354,7 +305,7 @@ fn active_action_for(command: &Command) -> Option<BluetoothActiveAction> {
         Command::Forget { address } => Some(BluetoothActiveAction::Forget {
             address: address.clone(),
         }),
-        Command::StartDiscovery | Command::StopDiscovery | Command::PromptReply { .. } => None,
+        Command::StartDiscovery | Command::StopDiscovery => None,
     }
 }
 
@@ -392,16 +343,9 @@ mod tests {
     }
 
     #[test]
-    fn discovery_and_prompt_replies_do_not_claim_active_action() {
+    fn discovery_commands_do_not_claim_active_action() {
         assert_eq!(active_action_for(&Command::StartDiscovery), None);
         assert_eq!(active_action_for(&Command::StopDiscovery), None);
-        assert_eq!(
-            active_action_for(&Command::PromptReply {
-                id: crate::services::bluetooth::BluetoothPromptId(1),
-                reply: crate::services::bluetooth::BluetoothPromptReply::Reject,
-            }),
-            None
-        );
     }
 
     #[test]

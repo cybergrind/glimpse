@@ -1,6 +1,6 @@
 use zbus::zvariant::ObjectPath;
 
-use crate::services::network::secret_agent::{ConnectionSettings, NetworkSecretAgent, SecretMap};
+use crate::agents::network::{ConnectionSettings, NetworkSecretAgent, SecretMap};
 
 #[zbus::interface(name = "org.freedesktop.NetworkManager.SecretAgent")]
 impl NetworkSecretAgent {

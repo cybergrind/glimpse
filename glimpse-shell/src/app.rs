@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    agents::{bluetooth::BluetoothAgentRuntime, network::NetworkAgentRuntime},
     panels,
     prompts::{bluetooth as bluetooth_prompts, network as network_prompts},
     services::framework::{Control, ServiceRuntime, Services},
@@ -16,6 +17,7 @@ use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
 };
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 pub struct AppInit {
     pub config: Config,
@@ -36,6 +38,8 @@ pub struct App {
     panels: Vec<PanelState>,
     network_prompt_host: Controller<network_prompts::PromptHost>,
     bluetooth_prompt_host: Controller<bluetooth_prompts::PromptHost>,
+    network_agent_cancel: CancellationToken,
+    bluetooth_agent_cancel: CancellationToken,
     prompt_fallback_parent: gtk4::Widget,
 }
 
@@ -111,22 +115,40 @@ impl SimpleComponent for App {
             }
         });
 
+        let system_dbus = init.dbus.system.clone();
+        let (network_agent_runtime, network_agent) = NetworkAgentRuntime::new(system_dbus.clone());
+        let network_agent_cancel = CancellationToken::new();
+        {
+            let cancel = network_agent_cancel.clone();
+            relm4::spawn(async move {
+                network_agent_runtime.run(cancel).await;
+            });
+        }
+
+        let (bluetooth_agent_runtime, bluetooth_agent) = BluetoothAgentRuntime::new(system_dbus);
+        let bluetooth_agent_cancel = CancellationToken::new();
+        {
+            let cancel = bluetooth_agent_cancel.clone();
+            relm4::spawn(async move {
+                bluetooth_agent_runtime.run(cancel).await;
+            });
+        }
+
         let services = ServiceRuntime::new(init.dbus);
         services.broadcast(Control::Start(init.config.clone()));
 
-        let handles = services.handles();
         let prompt_fallback_parent: gtk4::Widget = root.clone().upcast();
 
         let network_prompt_host = network_prompts::PromptHost::builder()
             .launch(network_prompts::PromptHostInit {
-                service: handles.network,
+                agent: network_agent,
                 parent: prompt_fallback_parent.clone(),
             })
             .detach();
 
         let bluetooth_prompt_host = bluetooth_prompts::PromptHost::builder()
             .launch(bluetooth_prompts::PromptHostInit {
-                service: handles.bluetooth,
+                agent: bluetooth_agent,
                 parent: prompt_fallback_parent.clone(),
             })
             .detach();
@@ -139,6 +161,8 @@ impl SimpleComponent for App {
             panels: vec![],
             network_prompt_host,
             bluetooth_prompt_host,
+            network_agent_cancel,
+            bluetooth_agent_cancel,
             prompt_fallback_parent,
         };
 
@@ -169,6 +193,13 @@ impl SimpleComponent for App {
                 self.reconcile_panels(&config);
             }
         }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.network_agent_cancel.cancel();
+        self.bluetooth_agent_cancel.cancel();
     }
 }
 

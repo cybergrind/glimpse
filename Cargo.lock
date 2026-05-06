@@ -1248,7 +1248,6 @@ dependencies = [
  "notify-debouncer-full",
  "pipewire",
  "reqwest",
- "secret-service",
  "serde",
  "serde_json",
  "sunrise",
@@ -1344,6 +1343,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "relm4",
+ "secret-service",
  "serde",
  "serde_json",
  "tokio",
@@ -1351,6 +1351,7 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]

@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 use crate::services::framework::{Control, ServiceCommand, ServiceHandle};
 
 use super::{
-    Command, NetworkEvent, NetworkManagerClient, NetworkPrompt, NetworkServiceHealth, State,
-    protocol::active_action_for, secret_agent::NetworkSecretAgent,
+    Command, NetworkEvent, NetworkManagerClient, NetworkServiceHealth, State,
+    protocol::active_action_for,
 };
 
 const COMMAND_QUEUE_SIZE: usize = 16;
@@ -23,9 +23,7 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 pub type NetworkHandle = ServiceHandle<State, Command>;
 
 pub struct NetworkService {
-    agent: NetworkSecretAgent,
     client: NetworkManagerClient,
-    prompt_rx: watch::Receiver<Option<NetworkPrompt>>,
     state_tx: watch::Sender<State>,
     command_rx: mpsc::Receiver<ServiceCommand<Command>>,
     scan_interval: Option<Duration>,
@@ -40,13 +38,10 @@ impl NetworkService {
     pub fn new(conn: zbus::Connection) -> (Self, NetworkHandle) {
         let (state_tx, state_rx) = watch::channel(State::default());
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_SIZE);
-        let (agent, prompt_rx) = NetworkSecretAgent::new(conn.clone());
 
         (
             Self {
-                agent,
                 client: NetworkManagerClient::new(conn),
-                prompt_rx,
                 state_tx,
                 command_rx,
                 scan_interval: None,
@@ -90,20 +85,6 @@ impl NetworkService {
 
     async fn run_inner(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         tracing::debug!("network service started");
-        self.agent
-            .register()
-            .await
-            .context("failed to register network secret agent")?;
-
-        let outcome = self.run_registered(cancel).await;
-        if let Err(error) = self.agent.unregister().await {
-            tracing::warn!(error = %error, "network-secret-agent: unregister failed");
-        }
-
-        outcome
-    }
-
-    async fn run_registered(&mut self, cancel: CancellationToken) -> anyhow::Result<RunOutcome> {
         self.refresh_snapshot()
             .await
             .context("failed to load initial network snapshot")?;
@@ -127,16 +108,6 @@ impl NetworkService {
                     }
                     None => break Err(anyhow!("network event listener stopped")),
                 },
-                changed = self.prompt_rx.changed() => {
-                    if changed.is_err() {
-                        break Err(anyhow!("network prompt channel closed"));
-                    }
-
-                    let prompt = self.prompt_rx.borrow().clone();
-                    self.update_state(|state| {
-                        state.prompt = prompt;
-                    });
-                }
                 result = action_rx.recv() => match result {
                     Some(result) => {
                         self.update_state(|state| {
@@ -235,13 +206,6 @@ impl NetworkService {
                 Ok(false)
             }
             Command::RequestScan => self.client.request_scan().await.map(|()| true),
-            Command::PromptReply { id, reply } => {
-                tracing::debug!(prompt_id = id.0, "network: prompt reply command received");
-                if !self.agent.complete_prompt(id, reply) {
-                    tracing::warn!(prompt_id = id.0, "network: stale prompt reply ignored");
-                }
-                Ok(false)
-            }
             Command::SetWifiEnabled(_)
             | Command::ConnectWifi { .. }
             | Command::ConnectSaved { .. }
@@ -338,12 +302,9 @@ async fn execute_client_action(
             client.forget(&uuid).await?;
             Ok(true)
         }
-        Command::StartScanning { .. }
-        | Command::StopScanning
-        | Command::RequestScan
-        | Command::PromptReply { .. } => Err(anyhow!(
-            "inline network command cannot run as spawned action"
-        )),
+        Command::StartScanning { .. } | Command::StopScanning | Command::RequestScan => Err(
+            anyhow!("inline network command cannot run as spawned action"),
+        ),
     }
 }
 
