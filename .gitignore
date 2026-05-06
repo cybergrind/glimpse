@@ -25,4 +25,5 @@ var/
 var/sysstats/sysstats-applet
 config.toml
 wallpaper.toml
+!glimpse-wallpaper/resources/wallpaper.toml
 .envrc

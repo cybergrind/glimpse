@@ -1,0 +1,8 @@
+[wallpaper]
+color = "#101010"
+fit = "cover"
+transition_ms = 800
+
+[backdrop]
+enabled = true
+blur_radius = 24
