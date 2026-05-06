@@ -495,18 +495,42 @@ with_common!(Card);
 pub struct Section {
     #[serde(flatten)]
     pub common: CommonProps,
-    pub title: String,
-    pub subtitle: String,
-    pub children: Vec<TreeNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<Header>,
+    pub body: Vec<TreeNode>,
 }
 
 impl Section {
-    pub fn new(title: impl Into<String>, children: Vec<TreeNode>) -> Self {
+    pub fn new(title: impl Into<String>, body: Vec<TreeNode>) -> Self {
         Self {
             common: CommonProps::default(),
+            header: Some(Header::new(title)),
+            body,
+        }
+    }
+
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        if let Some(header) = self.header.take() {
+            self.header = Some(header.subtitle(subtitle));
+        }
+        self
+    }
+}
+
+with_common!(Section);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Header {
+    pub title: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub subtitle: String,
+}
+
+impl Header {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
             title: title.into(),
             subtitle: String::new(),
-            children,
         }
     }
 
@@ -516,7 +540,198 @@ impl Section {
     }
 }
 
-with_common!(Section);
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Collapsible {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<Header>,
+    pub expanded: bool,
+    pub body: Vec<TreeNode>,
+}
+
+impl Collapsible {
+    pub fn new(title: impl Into<String>, expanded: bool, body: Vec<TreeNode>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            header: Some(Header::new(title)),
+            expanded,
+            body,
+        }
+    }
+}
+
+with_common!(Collapsible);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Item {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left: Option<Box<TreeNode>>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right: Option<Box<TreeNode>>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub clickable: bool,
+}
+
+impl Item {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            left: None,
+            label: label.into(),
+            right: None,
+            clickable: false,
+        }
+    }
+
+    pub fn clickable(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps {
+                id: Some(id.into()),
+                ..CommonProps::default()
+            },
+            left: None,
+            label: label.into(),
+            right: None,
+            clickable: true,
+        }
+    }
+
+    pub fn left(mut self, left: TreeNode) -> Self {
+        self.left = Some(Box::new(left));
+        self
+    }
+
+    pub fn right(mut self, right: TreeNode) -> Self {
+        self.right = Some(Box::new(right));
+        self
+    }
+}
+
+with_common!(Item);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CollapsibleItem {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left: Option<Box<TreeNode>>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right: Option<Box<TreeNode>>,
+    pub expanded: bool,
+    pub body: Vec<TreeNode>,
+}
+
+impl CollapsibleItem {
+    pub fn new(label: impl Into<String>, expanded: bool, body: Vec<TreeNode>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            left: None,
+            label: label.into(),
+            right: None,
+            expanded,
+            body,
+        }
+    }
+}
+
+with_common!(CollapsibleItem);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Meter {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    pub value: f64,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub interactive: bool,
+}
+
+impl Meter {
+    pub fn new(label: impl Into<String>, value: f64, max: f64) -> Self {
+        Self {
+            common: CommonProps::default(),
+            icon: None,
+            label: label.into(),
+            value,
+            min: 0.0,
+            max,
+            step: 0.01,
+            text: None,
+            interactive: false,
+        }
+    }
+}
+
+with_common!(Meter);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Copyable {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    pub value: String,
+}
+
+impl Copyable {
+    pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            label: label.into(),
+            value: value.into(),
+        }
+    }
+}
+
+with_common!(Copyable);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ToastAction {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Toast {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
+    pub title: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<ToastAction>,
+}
+
+impl Toast {
+    pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            common: CommonProps::default(),
+            icon: None,
+            title: title.into(),
+            message: message.into(),
+            action: None,
+        }
+    }
+}
+
+with_common!(Toast);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Row {
@@ -659,6 +874,13 @@ pub enum TreeNode {
     Hero(Hero),
     Card(Card),
     Section(Section),
+    Collapsible(Collapsible),
+    Item(Item),
+    CollapsibleItem(CollapsibleItem),
+    Meter(Meter),
+    Copyable(Copyable),
+    Toast(Toast),
+    #[serde(rename = "action_row")]
     Row(Row),
     DetailGrid(DetailGrid),
     EmptyState(EmptyState),
@@ -692,6 +914,36 @@ impl From<Card> for TreeNode {
 impl From<Section> for TreeNode {
     fn from(value: Section) -> Self {
         Self::Section(value)
+    }
+}
+impl From<Collapsible> for TreeNode {
+    fn from(value: Collapsible) -> Self {
+        Self::Collapsible(value)
+    }
+}
+impl From<Item> for TreeNode {
+    fn from(value: Item) -> Self {
+        Self::Item(value)
+    }
+}
+impl From<CollapsibleItem> for TreeNode {
+    fn from(value: CollapsibleItem) -> Self {
+        Self::CollapsibleItem(value)
+    }
+}
+impl From<Meter> for TreeNode {
+    fn from(value: Meter) -> Self {
+        Self::Meter(value)
+    }
+}
+impl From<Copyable> for TreeNode {
+    fn from(value: Copyable) -> Self {
+        Self::Copyable(value)
+    }
+}
+impl From<Toast> for TreeNode {
+    fn from(value: Toast) -> Self {
+        Self::Toast(value)
     }
 }
 impl From<Row> for TreeNode {

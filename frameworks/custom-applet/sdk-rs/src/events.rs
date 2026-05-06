@@ -14,6 +14,7 @@ pub enum CallbackEvent {
     Input(InputEvent),
     Change(ChangeEvent),
     Toggle(ToggleEvent),
+    Popover(PopoverEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +45,11 @@ pub struct ChangeEvent {
 pub struct ToggleEvent {
     pub id: String,
     pub value: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopoverEvent {
+    pub open: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +122,8 @@ pub fn parse_callback_event(data: Value) -> serde_json::Result<CallbackEvent> {
                 .or_else(|| payload.value.and_then(|v| v.as_bool()))
                 .unwrap_or(false),
         }),
+        "open" => CallbackEvent::Popover(PopoverEvent { open: true }),
+        "close" => CallbackEvent::Popover(PopoverEvent { open: false }),
         _ => CallbackEvent::Change(ChangeEvent {
             id: payload.id,
             value: payload.value,

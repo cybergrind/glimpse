@@ -41,6 +41,11 @@ class ToggleEvent(CallbackEvent):
     value: bool = False
 
 
+@dataclass(slots=True)
+class PopoverEvent(CallbackEvent):
+    open: bool = False
+
+
 def parse_init_event(payload: dict[str, Any]) -> InitEvent:
     return InitEvent(
         instance=str(payload.get("instance", "")),
@@ -63,4 +68,6 @@ def parse_callback_event(payload: dict[str, Any]) -> CallbackEvent:
             event=event_type,
             value=bool(payload.get("active", payload.get("value", False))),
         )
+    if event_type in {"open", "close"}:
+        return PopoverEvent(id=callback_id, event=event_type, open=event_type == "open")
     return ChangeEvent(id=callback_id, event=event_type, value=payload.get("value"))

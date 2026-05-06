@@ -13,8 +13,8 @@ use super::{
     components::{StatusItem, StatusItemInit, StatusItemInput, StatusItemOutput},
     popover::{Input as PopoverInput, Output as PopoverOutput, Popover},
     protocol::{
-        EventPayload, PanelCommand, PopoverPayload, StatusItem as StatusItemModel, StatusPayload,
-        TreeNode,
+        EventKind, EventPayload, EventSource, PanelCommand, PopoverPayload,
+        StatusItem as StatusItemModel, StatusPayload, TreeNode,
     },
     supervisor::{self, Control},
 };
@@ -235,11 +235,19 @@ impl SimpleComponent for Applet {
                 }
             },
             Input::PopoverOutput(PopoverOutput::Opened) => {
+                if self.popover_open {
+                    return;
+                }
                 self.popover_open = true;
                 self.sync_popover();
+                self.send_popover_lifecycle_event(EventKind::Open);
             }
             Input::PopoverOutput(PopoverOutput::Closed) => {
+                if !self.popover_open {
+                    return;
+                }
                 self.popover_open = false;
+                self.send_popover_lifecycle_event(EventKind::Close);
             }
             Input::PopoverOutput(PopoverOutput::Event(event)) => self.send_event(event),
         }
@@ -308,6 +316,18 @@ impl Applet {
         if let Err(error) = self.outbound_tx.try_send(PanelCommand::Event(event)) {
             tracing::warn!(%error, applet = %self.name, "exec applet failed to queue event");
         }
+    }
+
+    fn send_popover_lifecycle_event(&self, kind: EventKind) {
+        self.send_event(EventPayload {
+            id: "popover".into(),
+            kind,
+            source: EventSource::Popover,
+            button: None,
+            active: None,
+            value: None,
+            delta_y: None,
+        });
     }
 }
 

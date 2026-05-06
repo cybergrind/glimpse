@@ -33,12 +33,18 @@ export interface ToggleEvent extends CallbackEventBase {
   value: boolean;
 }
 
+export interface PopoverEvent extends CallbackEventBase {
+  event: "open" | "close";
+  open: boolean;
+}
+
 export type CallbackEvent =
   | ClickEvent
   | ScrollEvent
   | InputEvent
   | ChangeEvent
-  | ToggleEvent;
+  | ToggleEvent
+  | PopoverEvent;
 
 export function parseInitEvent(payload: Record<string, unknown>): InitEvent {
   return {
@@ -65,6 +71,9 @@ export function parseCallbackEvent(payload: Record<string, unknown>): CallbackEv
   }
   if (event === "toggle") {
     return { id, event, value: Boolean(payload.active ?? payload.value) };
+  }
+  if (event === "open" || event === "close") {
+    return { id, event, open: event === "open" };
   }
   return { id, event: "change", value: payload.value };
 }

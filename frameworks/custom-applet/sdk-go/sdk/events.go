@@ -56,6 +56,21 @@ type ToggleEvent struct {
 func (e ToggleEvent) CallbackID() string   { return e.ID }
 func (e ToggleEvent) CallbackType() string { return "toggle" }
 
+type PopoverEvent struct {
+	Open bool
+}
+
+func (e PopoverEvent) CallbackID() string {
+	return "popover"
+}
+
+func (e PopoverEvent) CallbackType() string {
+	if e.Open {
+		return "open"
+	}
+	return "close"
+}
+
 type incomingMessage struct {
 	Type string
 	Data json.RawMessage
@@ -119,6 +134,10 @@ func parseCallbackEvent(data []byte) (CallbackEvent, error) {
 			value = parsed
 		}
 		return ToggleEvent{ID: payload.ID, Value: value}, nil
+	case "open":
+		return PopoverEvent{Open: true}, nil
+	case "close":
+		return PopoverEvent{Open: false}, nil
 	default:
 		return ChangeEvent{ID: payload.ID, Value: payload.Value}, nil
 	}

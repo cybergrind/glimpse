@@ -75,6 +75,8 @@ pub enum EventKind {
     Toggle,
     Change,
     Scroll,
+    Open,
+    Close,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -206,23 +208,74 @@ pub struct CardNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SectionNode {
-    #[serde(flatten)]
-    pub common: CommonProps,
+pub struct HeaderNode {
     pub title: String,
     #[serde(default)]
     pub subtitle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub header: Option<HeaderNode>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub body: Vec<TreeNode>,
     #[serde(default)]
     pub children: Vec<TreeNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CollapsibleSectionNode {
+pub struct CollapsibleNode {
     #[serde(flatten)]
     pub common: CommonProps,
-    pub title: String,
+    #[serde(default)]
+    pub header: Option<HeaderNode>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub subtitle: String,
     #[serde(default)]
     pub expanded: bool,
+    #[serde(default)]
+    pub body: Vec<TreeNode>,
+    #[serde(default)]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ItemNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub left: Option<Box<TreeNode>>,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub right: Option<Box<TreeNode>>,
+    #[serde(default)]
+    pub clickable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollapsibleItemNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub left: Option<Box<TreeNode>>,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub right: Option<Box<TreeNode>>,
+    #[serde(default)]
+    pub expanded: bool,
+    #[serde(default)]
+    pub body: Vec<TreeNode>,
     #[serde(default)]
     pub children: Vec<TreeNode>,
 }
@@ -302,6 +355,59 @@ pub struct BadgeNode {
 pub struct StatusNode {
     #[serde(flatten)]
     pub common: CommonProps,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeterNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub icon: Option<Icon>,
+    #[serde(default)]
+    pub label: String,
+    pub value: f64,
+    #[serde(default)]
+    pub min: f64,
+    #[serde(default = "default_progress_max")]
+    pub max: f64,
+    #[serde(default = "default_meter_step")]
+    pub step: f64,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub interactive: bool,
+}
+
+fn default_meter_step() -> f64 {
+    0.01
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CopyableNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToastActionNode {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToastNode {
+    #[serde(flatten)]
+    pub common: CommonProps,
+    #[serde(default)]
+    pub icon: Option<Icon>,
+    pub title: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub action: Option<ToastActionNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -470,8 +576,14 @@ pub enum TreeNode {
     Hero(HeroNode),
     Card(CardNode),
     Section(SectionNode),
-    CollapsibleSection(CollapsibleSectionNode),
+    Collapsible(CollapsibleNode),
+    CollapsibleSection(CollapsibleNode),
     ActionMenu(ActionMenuNode),
+    Item(ItemNode),
+    CollapsibleItem(CollapsibleItemNode),
+    Meter(MeterNode),
+    Copyable(CopyableNode),
+    Toast(ToastNode),
     Column(LayoutNode),
     Row(LayoutNode),
     ActionRow(ActionRowNode),
@@ -613,6 +725,21 @@ mod tests {
     }
 
     #[test]
+    fn parses_layer_two_nodes() {
+        let command = parse_child_line(
+            r#"popover {"root":{"type":"section","data":{"header":{"title":"System"},"body":[{"type":"item","data":{"id":"wifi","label":"Wi-Fi","clickable":true,"right":{"type":"badge","data":{"label":"on"}}}},{"type":"collapsible","data":{"header":{"title":"Details","subtitle":"More"},"expanded":true,"body":[{"type":"meter","data":{"id":"volume","label":"Volume","value":0.5,"interactive":true}},{"type":"copyable","data":{"label":"ID","value":"device-42"}},{"type":"toast","data":{"title":"Saved","message":"Copied"}}]}}]}}}"#,
+        )
+        .expect("layer two nodes should parse");
+
+        assert!(matches!(
+            command,
+            ChildCommand::Popover(PopoverPayload {
+                root: Some(TreeNode::Section(_))
+            })
+        ));
+    }
+
+    #[test]
     fn rejects_text_entry_nodes() {
         let error = parse_child_line(
             r#"popover {"root":{"type":"entry","data":{"id":"name","text":"bad"}}}"#,
@@ -644,6 +771,19 @@ mod tests {
             })),
             r#"event {"id":"refresh","type":"click","source":"popover","button":"left"}"#
                 .to_string()
+        );
+
+        assert_eq!(
+            encode_panel_command(&PanelCommand::Event(EventPayload {
+                id: "popover".into(),
+                kind: EventKind::Open,
+                source: EventSource::Popover,
+                button: None,
+                active: None,
+                value: None,
+                delta_y: None,
+            })),
+            r#"event {"id":"popover","type":"open","source":"popover"}"#.to_string()
         );
     }
 }

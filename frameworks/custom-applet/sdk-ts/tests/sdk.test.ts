@@ -12,6 +12,7 @@ import {
   type InitEvent,
   Label,
   RenderResult,
+  Row,
   StatusItem,
   parseCallbackEvent,
 } from "../src/index.js";
@@ -61,6 +62,10 @@ class DemoApplet extends Applet<DemoState> {
   async initForTest(instance: string): Promise<void> {
     await (this as any).handleIncoming("init", { instance, options: {} });
   }
+
+  async eventForTest(payload: Record<string, unknown>): Promise<void> {
+    await (this as any).handleIncoming("event", payload);
+  }
 }
 
 test("setState updates state and emits protocol messages", async () => {
@@ -94,6 +99,15 @@ test("parseCallbackEvent returns typed click event", () => {
   assert.equal(event.button, "left");
 });
 
+test("parseCallbackEvent returns typed popover event", () => {
+  const event = parseCallbackEvent({ id: "popover", type: "open", source: "popover" });
+  assert.equal(event.event, "open");
+  if (event.event !== "open") {
+    throw new Error("expected open event");
+  }
+  assert.equal(event.open, true);
+});
+
 test("dropdown serializes items", () => {
   const node = new Dropdown({
     id: "env",
@@ -103,6 +117,27 @@ test("dropdown serializes items", () => {
   const payload = node.toProtocol();
   assert.equal(payload.type, "dropdown");
   assert.equal((payload.data as any).items[0].id, "prod");
+});
+
+test("row serializes as action_row", () => {
+  const payload = new Row({ id: "open", title: "Open" }).toProtocol();
+  assert.equal(payload.type, "action_row");
+});
+
+test("closed popover updates are dropped until opened", async () => {
+  const applet = new DemoApplet();
+  await applet.drain();
+  await applet.setState({ version: "v2" });
+
+  let drained = await applet.drain();
+  assert.deepEqual(
+    drained.map((message: any) => message.command),
+    ["status"],
+  );
+
+  await applet.eventForTest({ id: "popover", type: "open", source: "popover" });
+  drained = await applet.drain();
+  assert.ok(drained.some((message: any) => message.command === "popover"));
 });
 
 test("init event rerenders changed state", async () => {

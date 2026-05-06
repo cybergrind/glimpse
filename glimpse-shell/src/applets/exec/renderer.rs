@@ -10,19 +10,24 @@ use crate::components::{
     badge::BadgeView,
     card_surface::CardSurface,
     collapsible_section::CollapsibleSectionView,
+    copyable::CopyableView,
     empty_state::EmptyStateView,
     hero::HeroView,
+    item::ItemView,
     key_value_grid::{KeyValueItem, static_key_value_grid},
+    meter::MeterView,
     section_header::SectionHeader,
     status_dot::StatusDotView,
+    toast::ToastView,
 };
 
 use super::protocol::{
     ActionMenuNode, ActionRowNode, AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode,
-    CheckboxNode, CollapsibleSectionNode, CommonProps, DetailGridNode, DropdownNode,
-    EmptyStateNode, EventKind, EventPayload, EventSource, GridNode, HeroNode, Icon, IconNode,
-    ImageNode, LabelNode, LayoutNode, OrientationValue, ProgressNode, ScaleNode, ScrollNode,
-    SectionNode, SeparatorNode, SpinnerNode, StatusNode, SwitchNode, TreeNode,
+    CheckboxNode, CollapsibleItemNode, CollapsibleNode, CommonProps, CopyableNode, DetailGridNode,
+    DropdownNode, EmptyStateNode, EventKind, EventPayload, EventSource, GridNode, HeaderNode,
+    HeroNode, Icon, IconNode, ImageNode, ItemNode, LabelNode, LayoutNode, MeterNode,
+    OrientationValue, ProgressNode, ScaleNode, ScrollNode, SectionNode, SeparatorNode, SpinnerNode,
+    StatusNode, SwitchNode, ToastNode, TreeNode,
 };
 
 pub type EventSink = Rc<dyn Fn(EventPayload)>;
@@ -42,8 +47,15 @@ impl RenderCatalog {
             TreeNode::Hero(data) => self.render_hero(data),
             TreeNode::Card(data) => self.render_card(data),
             TreeNode::Section(data) => self.render_section(data),
-            TreeNode::CollapsibleSection(data) => self.render_collapsible_section(data),
+            TreeNode::Collapsible(data) | TreeNode::CollapsibleSection(data) => {
+                self.render_collapsible(data)
+            }
             TreeNode::ActionMenu(data) => self.render_action_menu(data),
+            TreeNode::Item(data) => self.render_item(data),
+            TreeNode::CollapsibleItem(data) => self.render_collapsible_item(data),
+            TreeNode::Meter(data) => self.render_meter(data),
+            TreeNode::Copyable(data) => Ok(self.render_copyable(data).upcast()),
+            TreeNode::Toast(data) => self.render_toast(data),
             TreeNode::Column(data) => {
                 self.render_layout(data, gtk::Orientation::Vertical, "column")
             }
@@ -95,36 +107,57 @@ impl RenderCatalog {
     fn render_section(&self, data: &SectionNode) -> Result<gtk::Widget, RenderError> {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("section-block");
+        root.add_css_class("section");
         apply_common_props(&root, &data.common);
 
-        let header = SectionHeader::init(());
-        header.title.set_label(&data.title);
-        header.subtitle.set_label(&data.subtitle);
-        header.subtitle.set_visible(!data.subtitle.is_empty());
-        root.append(header.as_ref());
+        if let Some(header_data) = section_header(data) {
+            let header = SectionHeader::init(());
+            header.title.set_label(&header_data.title);
+            header.subtitle.set_label(&header_data.subtitle);
+            header
+                .subtitle
+                .set_visible(!header_data.subtitle.is_empty());
+            root.append(header.as_ref());
+        }
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         body.add_css_class("section-block__body");
-        for child in &data.children {
+        body.add_css_class("section__body");
+        for child in section_body(data) {
             body.append(&self.render(child)?);
         }
         root.append(&body);
         Ok(root.upcast())
     }
 
-    fn render_collapsible_section(
-        &self,
-        data: &CollapsibleSectionNode,
-    ) -> Result<gtk::Widget, RenderError> {
+    fn render_collapsible(&self, data: &CollapsibleNode) -> Result<gtk::Widget, RenderError> {
         let section = CollapsibleSectionView::init(());
-        section.title.set_label(&data.title);
+        section.as_ref().add_css_class("collapsible");
+        let header = collapsible_header(data);
+        section.title.set_label(
+            header
+                .as_ref()
+                .map(|header| header.title.as_str())
+                .unwrap_or_default(),
+        );
+        section.subtitle.set_label(
+            header
+                .as_ref()
+                .map(|header| header.subtitle.as_str())
+                .unwrap_or_default(),
+        );
+        section.subtitle.set_visible(
+            header
+                .as_ref()
+                .is_some_and(|header| !header.subtitle.is_empty()),
+        );
         section.content.set_visible(data.expanded);
         section.chevron.set_icon_name(Some(if data.expanded {
             "pan-down-symbolic"
         } else {
             "pan-end-symbolic"
         }));
-        for child in &data.children {
+        for child in collapsible_body(data) {
             section.content.append(&self.render(child)?);
         }
         let content = section.content.clone();
@@ -227,6 +260,202 @@ impl RenderCatalog {
         Ok(root.upcast())
     }
 
+    fn render_item(&self, data: &ItemNode) -> Result<gtk::Widget, RenderError> {
+        let item = self.render_item_view(
+            data.left.as_deref(),
+            &data.label,
+            data.right.as_deref(),
+            None,
+        )?;
+        let button = item.button.clone();
+
+        apply_common_props(&button, &data.common);
+
+        if data.clickable {
+            let id = require_id("item", &data.common)?;
+            connect_click(&button, self.event.clone(), id);
+        } else {
+            button.add_css_class("item__button--static");
+            button.set_focusable(false);
+        }
+
+        Ok(button.upcast())
+    }
+
+    fn render_collapsible_item(
+        &self,
+        data: &CollapsibleItemNode,
+    ) -> Result<gtk::Widget, RenderError> {
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("collapsible-item");
+        apply_common_props(&root, &data.common);
+
+        let chevron = gtk::Image::new();
+        chevron.add_css_class("collapsible-item__chevron");
+        chevron.set_pixel_size(16);
+        chevron.set_icon_name(Some(if data.expanded {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        }));
+
+        let header = gtk::Button::new();
+        header.add_css_class("flat");
+        header.add_css_class("item");
+        header.add_css_class("collapsible-item__button");
+        let item = self.render_item_view(
+            data.left.as_deref(),
+            &data.label,
+            data.right.as_deref(),
+            Some(&chevron),
+        )?;
+        item.content.add_css_class("collapsible-item__content");
+        item.left.add_css_class("collapsible-item__left");
+        item.label.add_css_class("collapsible-item__label");
+        item.right.add_css_class("collapsible-item__right");
+        header.set_child(Some(&item.content));
+        root.append(&header);
+
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.add_css_class("collapsible-item__body");
+        body.set_visible(data.expanded);
+        for child in collapsible_item_body(data) {
+            body.append(&self.render(child)?);
+        }
+        root.append(&body);
+
+        let body_ref = body.clone();
+        header.connect_clicked(move |_| {
+            let expanded = !body_ref.is_visible();
+            body_ref.set_visible(expanded);
+            chevron.set_icon_name(Some(if expanded {
+                "pan-down-symbolic"
+            } else {
+                "pan-end-symbolic"
+            }));
+        });
+
+        Ok(root.upcast())
+    }
+
+    fn render_item_view(
+        &self,
+        left: Option<&TreeNode>,
+        label: &str,
+        right: Option<&TreeNode>,
+        chevron: Option<&gtk::Image>,
+    ) -> Result<ItemView, RenderError> {
+        let item = ItemView::init(());
+        item.label.set_label(label);
+
+        if let Some(left) = left {
+            let child = self.render(left)?;
+            constrain_slot_child(&child);
+            item.left.append(&child);
+            item.left.set_visible(true);
+        }
+
+        if let Some(right) = right {
+            let child = self.render(right)?;
+            constrain_slot_child(&child);
+            item.right.append(&child);
+            item.right.set_visible(true);
+        }
+
+        if let Some(chevron) = chevron {
+            item.content.append(chevron);
+        }
+
+        Ok(item)
+    }
+
+    fn render_meter(&self, data: &MeterNode) -> Result<gtk::Widget, RenderError> {
+        let meter = MeterView::init(());
+        meter.label.set_label(&data.label);
+        if let Some(icon) = &data.icon {
+            apply_icon_to_image(&meter.icon, icon);
+            meter.icon.set_visible(true);
+        }
+        if let Some(text) = &data.text {
+            meter.value.set_label(text);
+            meter.value.set_visible(true);
+        }
+
+        if data.interactive {
+            let id = require_id("meter", &data.common)?;
+            let (min, max) = meter_bounds(data.min, data.max, data.step);
+            let scale = gtk::Scale::with_range(
+                gtk::Orientation::Horizontal,
+                min,
+                max,
+                data.step.max(f64::EPSILON),
+            );
+            scale.add_css_class("meter__scale");
+            scale.add_css_class("scale");
+            scale.set_draw_value(false);
+            scale.set_value(data.value.clamp(min, max));
+            let event = self.event.clone();
+            scale.connect_value_changed(move |scale| {
+                event(EventPayload {
+                    id: id.clone(),
+                    kind: EventKind::Change,
+                    source: EventSource::Popover,
+                    button: None,
+                    active: None,
+                    value: Some(serde_json::Value::from(scale.value())),
+                    delta_y: None,
+                });
+            });
+            meter.control.append(&scale);
+        } else {
+            let progress = gtk::ProgressBar::new();
+            progress.add_css_class("meter__progress");
+            progress.add_css_class("progress");
+            progress.set_fraction(meter_fraction(data.value, data.min, data.max));
+            meter.control.append(&progress);
+        }
+
+        apply_common_props(meter.as_ref(), &data.common);
+        Ok(meter.as_ref().clone().upcast())
+    }
+
+    fn render_copyable(&self, data: &CopyableNode) -> gtk::Box {
+        let copyable = CopyableView::init(());
+        if !data.label.is_empty() {
+            copyable.label.set_label(&data.label);
+            copyable.label.set_visible(true);
+        }
+        copyable.value.set_label(&data.value);
+        let copy_value = data.value.clone();
+        copyable.button.connect_clicked(move |_| {
+            if let Some(display) = gtk::gdk::Display::default() {
+                display.clipboard().set_text(&copy_value);
+            }
+        });
+        apply_common_props(copyable.as_ref(), &data.common);
+        copyable.as_ref().clone()
+    }
+
+    fn render_toast(&self, data: &ToastNode) -> Result<gtk::Widget, RenderError> {
+        let toast = ToastView::init(());
+        if let Some(icon) = &data.icon {
+            apply_icon_to_image(&toast.icon, icon);
+            toast.icon.set_visible(true);
+        }
+        toast.title.set_label(&data.title);
+        toast.message.set_label(&data.message);
+        toast.message.set_visible(!data.message.is_empty());
+
+        if let Some(action) = &data.action {
+            toast.action.set_label(&action.label);
+            toast.action.set_visible(true);
+            connect_click(&toast.action, self.event.clone(), action.id.clone());
+        }
+
+        apply_common_props(toast.as_ref(), &data.common);
+        Ok(toast.as_ref().clone().upcast())
+    }
+
     fn render_detail_grid(&self, data: &DetailGridNode) -> gtk::Box {
         let root = static_key_value_grid(
             data.rows
@@ -318,12 +547,7 @@ impl RenderCatalog {
         let progress = gtk::ProgressBar::new();
         progress.add_css_class("progress");
         apply_common_props(&progress, &data.common);
-        let fraction = if data.max <= 0.0 {
-            0.0
-        } else {
-            (data.value / data.max).clamp(0.0, 1.0)
-        };
-        progress.set_fraction(fraction);
+        progress.set_fraction(progress_fraction(data.value, data.max));
         if data.show_text || data.text.is_some() {
             progress.set_show_text(true);
             progress.set_text(data.text.as_deref());
@@ -541,6 +765,79 @@ fn icon_name(icon: &Option<Icon>) -> Option<String> {
     }
 }
 
+fn section_header(data: &SectionNode) -> Option<HeaderNode> {
+    data.header.clone().or_else(|| {
+        data.title.as_ref().map(|title| HeaderNode {
+            title: title.clone(),
+            subtitle: data.subtitle.clone(),
+        })
+    })
+}
+
+fn section_body(data: &SectionNode) -> &[TreeNode] {
+    if data.body.is_empty() {
+        &data.children
+    } else {
+        &data.body
+    }
+}
+
+fn collapsible_header(data: &CollapsibleNode) -> Option<HeaderNode> {
+    data.header.clone().or_else(|| {
+        data.title.as_ref().map(|title| HeaderNode {
+            title: title.clone(),
+            subtitle: data.subtitle.clone(),
+        })
+    })
+}
+
+fn collapsible_body(data: &CollapsibleNode) -> &[TreeNode] {
+    if data.body.is_empty() {
+        &data.children
+    } else {
+        &data.body
+    }
+}
+
+fn collapsible_item_body(data: &CollapsibleItemNode) -> &[TreeNode] {
+    if data.body.is_empty() {
+        &data.children
+    } else {
+        &data.body
+    }
+}
+
+fn progress_fraction(value: f64, max: f64) -> f64 {
+    if max <= 0.0 {
+        0.0
+    } else {
+        (value / max).clamp(0.0, 1.0)
+    }
+}
+
+fn constrain_slot_child(widget: &impl IsA<gtk::Widget>) {
+    widget.set_halign(gtk::Align::Center);
+    widget.set_valign(gtk::Align::Center);
+    widget.set_hexpand(false);
+    widget.set_vexpand(false);
+}
+
+fn meter_bounds(min: f64, max: f64, step: f64) -> (f64, f64) {
+    if max > min {
+        (min, max)
+    } else {
+        (min, min + step.max(f64::EPSILON))
+    }
+}
+
+fn meter_fraction(value: f64, min: f64, max: f64) -> f64 {
+    if max <= min {
+        0.0
+    } else {
+        ((value - min) / (max - min)).clamp(0.0, 1.0)
+    }
+}
+
 fn connect_click(button: &gtk::Button, event: EventSink, id: String) {
     button.connect_clicked(move |_| {
         event(EventPayload {
@@ -627,6 +924,56 @@ mod tests {
             result.err(),
             Some(RenderError::MissingId {
                 widget_type: "button"
+            })
+        );
+    }
+
+    #[test]
+    fn clickable_items_require_ids_for_events() {
+        if !gtk_available_on_this_thread() {
+            return;
+        }
+
+        let renderer = RenderCatalog::new(Rc::new(|_| {}));
+        let result = renderer.render(&TreeNode::Item(ItemNode {
+            common: CommonProps::default(),
+            left: None,
+            label: "Open".into(),
+            right: None,
+            clickable: true,
+        }));
+
+        assert_eq!(
+            result.err(),
+            Some(RenderError::MissingId {
+                widget_type: "item"
+            })
+        );
+    }
+
+    #[test]
+    fn interactive_meters_require_ids_for_events() {
+        if !gtk_available_on_this_thread() {
+            return;
+        }
+
+        let renderer = RenderCatalog::new(Rc::new(|_| {}));
+        let result = renderer.render(&TreeNode::Meter(MeterNode {
+            common: CommonProps::default(),
+            icon: None,
+            label: "Volume".into(),
+            value: 0.5,
+            min: 0.0,
+            max: 1.0,
+            step: 0.01,
+            text: None,
+            interactive: true,
+        }));
+
+        assert_eq!(
+            result.err(),
+            Some(RenderError::MissingId {
+                widget_type: "meter"
             })
         );
     }

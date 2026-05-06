@@ -341,20 +341,176 @@ class Card(Widget):
 
 
 @dataclass(slots=True)
+class Header:
+    title: str
+    subtitle: str = ""
+
+    def to_protocol(self) -> dict[str, object]:
+        payload: dict[str, object] = {"title": self.title}
+        if self.subtitle:
+            payload["subtitle"] = self.subtitle
+        return payload
+
+
+@dataclass(slots=True)
 class Section(Widget):
     title: str = ""
     subtitle: str = ""
+    header: Header | None = None
+    body: list["TreeNode"] = field(default_factory=list)
     children: list["TreeNode"] = field(default_factory=list)
     widget_type: str = "section"
 
     def to_protocol(self) -> dict[str, object]:
+        header = self.header
+        if header is None and (self.title or self.subtitle):
+            header = Header(self.title, self.subtitle)
+        body = self.body or self.children
         payload = self.apply_common(
             {
-                "title": self.title,
-                "subtitle": self.subtitle,
-                "children": [child.to_protocol() for child in self.children],
+                "body": [child.to_protocol() for child in body],
             }
         )
+        if header is not None:
+            payload["header"] = header.to_protocol()
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Collapsible(Widget):
+    title: str = ""
+    subtitle: str = ""
+    header: Header | None = None
+    expanded: bool = False
+    body: list["TreeNode"] = field(default_factory=list)
+    children: list["TreeNode"] = field(default_factory=list)
+    widget_type: str = "collapsible"
+
+    def to_protocol(self) -> dict[str, object]:
+        header = self.header
+        if header is None and (self.title or self.subtitle):
+            header = Header(self.title, self.subtitle)
+        body = self.body or self.children
+        payload = self.apply_common(
+            {
+                "expanded": self.expanded,
+                "body": [child.to_protocol() for child in body],
+            }
+        )
+        if header is not None:
+            payload["header"] = header.to_protocol()
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Item(Widget):
+    left: "TreeNode | None" = None
+    label: str = ""
+    right: "TreeNode | None" = None
+    clickable: bool = False
+    widget_type: str = "item"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"label": self.label})
+        if self.left is not None:
+            payload["left"] = self.left.to_protocol()
+        if self.right is not None:
+            payload["right"] = self.right.to_protocol()
+        if self.clickable:
+            payload["clickable"] = self.clickable
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class CollapsibleItem(Widget):
+    left: "TreeNode | None" = None
+    label: str = ""
+    right: "TreeNode | None" = None
+    expanded: bool = False
+    body: list["TreeNode"] = field(default_factory=list)
+    children: list["TreeNode"] = field(default_factory=list)
+    widget_type: str = "collapsible_item"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common(
+            {
+                "label": self.label,
+                "expanded": self.expanded,
+                "body": [child.to_protocol() for child in (self.body or self.children)],
+            }
+        )
+        if self.left is not None:
+            payload["left"] = self.left.to_protocol()
+        if self.right is not None:
+            payload["right"] = self.right.to_protocol()
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Meter(Widget):
+    icon: Icon | None = None
+    label: str = ""
+    value: float = 0.0
+    min: float = 0.0
+    max: float = 1.0
+    step: float = 0.01
+    text: str | None = None
+    interactive: bool = False
+    widget_type: str = "meter"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common(
+            {
+                "label": self.label,
+                "value": self.value,
+                "min": self.min,
+                "max": self.max,
+                "step": self.step,
+            }
+        )
+        if self.icon is not None:
+            payload["icon"] = self.icon.to_protocol()
+        if self.text is not None:
+            payload["text"] = self.text
+        if self.interactive:
+            payload["interactive"] = self.interactive
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class Copyable(Widget):
+    label: str = ""
+    value: str = ""
+    widget_type: str = "copyable"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"label": self.label, "value": self.value})
+        return {"type": self.widget_type, "data": payload}
+
+
+@dataclass(slots=True)
+class ToastAction:
+    id: str
+    label: str
+
+    def to_protocol(self) -> dict[str, str]:
+        return {"id": self.id, "label": self.label}
+
+
+@dataclass(slots=True)
+class Toast(Widget):
+    icon: Icon | None = None
+    title: str = ""
+    message: str = ""
+    action: ToastAction | None = None
+    widget_type: str = "toast"
+
+    def to_protocol(self) -> dict[str, object]:
+        payload = self.apply_common({"title": self.title, "message": self.message})
+        if self.icon is not None:
+            payload["icon"] = self.icon.to_protocol()
+        if self.action is not None:
+            payload["action"] = self.action.to_protocol()
         return {"type": self.widget_type, "data": payload}
 
 
@@ -364,7 +520,7 @@ class Row(Widget):
     subtitle: str = ""
     meta: str = ""
     icon: Icon | None = None
-    widget_type: str = "row"
+    widget_type: str = "action_row"
 
     def to_protocol(self) -> dict[str, object]:
         payload = self.apply_common(
@@ -428,6 +584,12 @@ TreeNode: TypeAlias = (
     Hero
     | Card
     | Section
+    | Collapsible
+    | Item
+    | CollapsibleItem
+    | Meter
+    | Copyable
+    | Toast
     | Row
     | DetailGrid
     | EmptyState

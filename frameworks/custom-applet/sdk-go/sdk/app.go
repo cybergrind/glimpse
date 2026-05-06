@@ -25,9 +25,10 @@ type Applet[S any] interface {
 }
 
 type BaseApplet[S any] struct {
-	mu      sync.RWMutex
-	state   S
-	updates chan struct{}
+	mu          sync.RWMutex
+	state       S
+	popoverOpen bool
+	updates     chan struct{}
 }
 
 func NewBaseApplet[S any](state S) BaseApplet[S] {
@@ -57,6 +58,25 @@ func (a *BaseApplet[S]) Snapshot() S {
 	return a.state
 }
 
+func (a *BaseApplet[S]) IsPopoverOpen() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.popoverOpen
+}
+
+func (a *BaseApplet[S]) SetPopoverOpen(open bool) {
+	a.mu.Lock()
+	changed := a.popoverOpen != open
+	a.popoverOpen = open
+	a.mu.Unlock()
+	if changed {
+		select {
+		case a.updates <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (a *BaseApplet[S]) Updates() <-chan struct{} {
 	return a.updates
 }
@@ -71,8 +91,9 @@ type Runtime[S any] struct {
 	writer io.Writer
 	mu     sync.Mutex
 
-	lastStatus []StatusItem
-	lastTree   *treePayload
+	lastStatus  []StatusItem
+	lastTree    *treePayload
+	popoverOpen bool
 }
 
 func NewRuntime[S any](applet Applet[S], reader io.Reader, writer io.Writer) *Runtime[S] {
@@ -132,6 +153,9 @@ func (r *Runtime[S]) Run(ctx context.Context) error {
 				event, err := parseCallbackEvent(msg.Data)
 				if err != nil {
 					return err
+				}
+				if popoverEvent, ok := event.(PopoverEvent); ok {
+					r.setPopoverOpen(popoverEvent.Open)
 				}
 				if err := r.applet.OnCallback(ctx, event); err != nil {
 					return err
@@ -197,6 +221,9 @@ func (r *Runtime[S]) flush(ctx context.Context) error {
 		r.lastStatus = append([]StatusItem(nil), rendered.Status...)
 	}
 	tree := &treePayload{Root: rendered.Tree}
+	if !r.popoverOpen && r.lastTree != nil && tree.Root != nil {
+		return nil
+	}
 	if !treePayloadEqual(r.lastTree, tree) {
 		if err := r.writeMessage("popover", tree); err != nil {
 			return err
@@ -204,6 +231,13 @@ func (r *Runtime[S]) flush(ctx context.Context) error {
 		r.lastTree = tree
 	}
 	return nil
+}
+
+func (r *Runtime[S]) setPopoverOpen(open bool) {
+	r.popoverOpen = open
+	if stateful, ok := r.applet.(interface{ SetPopoverOpen(bool) }); ok {
+		stateful.SetPopoverOpen(open)
+	}
 }
 
 func (r *Runtime[S]) writeMessage(kind string, data any) error {

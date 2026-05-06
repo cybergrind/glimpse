@@ -24,11 +24,15 @@ pub struct RenderResult {
 #[derive(Debug, Clone)]
 pub struct StateStore<State> {
     state: State,
+    popover_open: bool,
 }
 
 impl<State> StateStore<State> {
     pub fn new(state: State) -> Self {
-        Self { state }
+        Self {
+            state,
+            popover_open: false,
+        }
     }
 
     pub fn state(&self) -> &State {
@@ -44,6 +48,14 @@ impl<State> StateStore<State> {
         F: FnOnce(&mut State),
     {
         patch(&mut self.state);
+    }
+
+    pub fn is_popover_open(&self) -> bool {
+        self.popover_open
+    }
+
+    pub fn set_popover_open(&mut self, open: bool) {
+        self.popover_open = open;
     }
 }
 
@@ -82,6 +94,14 @@ pub trait Applet: Send {
     {
         self.store_mut().set_state(patch);
     }
+
+    fn is_popover_open(&self) -> bool {
+        self.store().is_popover_open()
+    }
+
+    fn set_popover_open(&mut self, open: bool) {
+        self.store_mut().set_popover_open(open);
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -100,7 +120,7 @@ where
 
     applet.on_start().await?;
     let initial = applet.render().await?;
-    flush_render(&mut stdout, &mut last_render, initial).await?;
+    flush_render(&mut stdout, &mut last_render, initial, applet.is_popover_open()).await?;
 
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
@@ -113,15 +133,23 @@ where
                 applet.on_init(parse_init_event(incoming.data)?).await?;
             }
             "event" => {
-                applet
-                    .on_callback(parse_callback_event(incoming.data)?)
-                    .await?;
+                let event = parse_callback_event(incoming.data)?;
+                if let CallbackEvent::Popover(popover) = &event {
+                    applet.set_popover_open(popover.open);
+                }
+                applet.on_callback(event).await?;
             }
             _ => continue,
         }
 
         let rendered = applet.render().await?;
-        flush_render(&mut stdout, &mut last_render, rendered).await?;
+        flush_render(
+            &mut stdout,
+            &mut last_render,
+            rendered,
+            applet.is_popover_open(),
+        )
+        .await?;
     }
 
     Ok(())
@@ -131,6 +159,7 @@ async fn flush_render(
     stdout: &mut io::Stdout,
     previous: &mut Option<RenderResult>,
     next: RenderResult,
+    popover_open: bool,
 ) -> AppletResult<()> {
     let changed = previous.as_ref();
     if changed
@@ -144,7 +173,8 @@ async fn flush_render(
         )
         .await?;
     }
-    if changed.map(|prev| prev.tree != next.tree).unwrap_or(true) {
+    let publish_popover = popover_open || previous.is_none() || next.tree.is_none();
+    if publish_popover && changed.map(|prev| prev.tree != next.tree).unwrap_or(true) {
         write_message(
             stdout,
             "popover",
@@ -155,7 +185,11 @@ async fn flush_render(
         .await?;
     }
 
-    *previous = Some(next);
+    let mut stored = next;
+    if !publish_popover {
+        stored.tree = previous.as_ref().and_then(|prev| prev.tree.clone());
+    }
+    *previous = Some(stored);
     Ok(())
 }
 
@@ -178,7 +212,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, StatusItem, TreeNode};
+    use crate::{BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, Row, StatusItem, TreeNode};
 
     struct DemoApplet {
         store: StateStore<DemoState>,
@@ -255,12 +289,34 @@ mod tests {
     }
 
     #[test]
+    fn parse_callback_event_returns_typed_popover_variant() {
+        let event = parse_callback_event(json!({
+            "id": "popover",
+            "type": "open",
+            "source": "popover"
+        }))
+        .expect("popover event should parse");
+
+        assert_eq!(
+            event,
+            CallbackEvent::Popover(crate::PopoverEvent { open: true })
+        );
+    }
+
+    #[test]
     fn dropdown_like_tree_nodes_serialize() {
         let node =
             crate::Dropdown::new("env", vec![crate::DropdownItem::new("prod", "Production")]);
         let payload = serde_json::to_value(TreeNode::from(node)).expect("tree should serialize");
         assert_eq!(payload["type"], "dropdown");
         assert_eq!(payload["data"]["items"][0]["id"], "prod");
+    }
+
+    #[test]
+    fn action_rows_use_canonical_protocol_name() {
+        let payload =
+            serde_json::to_value(TreeNode::from(Row::new("open", "Open"))).expect("row serializes");
+        assert_eq!(payload["type"], "action_row");
     }
 
     #[test]

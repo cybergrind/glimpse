@@ -21,12 +21,25 @@ impl WidgetTemplate for CollapsibleSectionView {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 8,
 
-                    #[name = "title"]
-                    gtk::Label {
-                        add_css_class: "action-row__title",
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 2,
                         set_hexpand: true,
-                        set_halign: gtk::Align::Start,
-                        set_xalign: 0.0,
+
+                        #[name = "title"]
+                        gtk::Label {
+                            add_css_class: "action-row__title",
+                            set_halign: gtk::Align::Start,
+                            set_xalign: 0.0,
+                        },
+
+                        #[name = "subtitle"]
+                        gtk::Label {
+                            add_css_class: "action-row__subtitle",
+                            set_halign: gtk::Align::Start,
+                            set_xalign: 0.0,
+                            set_visible: false,
+                        },
                     },
 
                     #[name = "chevron"]
@@ -66,6 +79,8 @@ mod tests {
         assert!(section.has_css_class("collapsible-section"));
         assert!(section.button.has_css_class("action-row__button"));
         assert!(section.title.has_css_class("action-row__title"));
+        assert!(section.subtitle.has_css_class("action-row__subtitle"));
+        assert!(!section.subtitle.is_visible());
         assert!(
             section
                 .chevron

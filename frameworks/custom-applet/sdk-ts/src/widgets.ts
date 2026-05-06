@@ -337,11 +337,26 @@ export class Card extends WidgetBase {
   }
 }
 
+export class Header {
+  constructor(
+    public readonly title: string,
+    public readonly subtitle = "",
+  ) {}
+
+  toProtocol(): Record<string, unknown> {
+    const payload: Record<string, unknown> = { title: this.title };
+    if (this.subtitle !== "") payload.subtitle = this.subtitle;
+    return payload;
+  }
+}
+
 export class Section extends WidgetBase {
   constructor(
     private readonly options: CommonProps & {
-      title: string;
+      title?: string;
       subtitle?: string;
+      header?: Header;
+      body?: TreeNode[];
       children?: TreeNode[];
     },
   ) {
@@ -349,14 +364,186 @@ export class Section extends WidgetBase {
   }
 
   toProtocol(): Record<string, unknown> {
+    const header =
+      this.options.header ??
+      (this.options.title === undefined
+        ? undefined
+        : new Header(this.options.title, this.options.subtitle ?? ""));
+    const body = this.options.body ?? this.options.children ?? [];
     return {
       type: "section",
       data: this.withCommon({
-        title: this.options.title,
-        subtitle: this.options.subtitle ?? "",
-        children: (this.options.children ?? []).map((child) => child.toProtocol()),
+        ...(header === undefined ? {} : { header: header.toProtocol() }),
+        body: body.map((child) => child.toProtocol()),
       }),
     };
+  }
+}
+
+export class Collapsible extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      title?: string;
+      subtitle?: string;
+      header?: Header;
+      expanded?: boolean;
+      body?: TreeNode[];
+      children?: TreeNode[];
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const header =
+      this.options.header ??
+      (this.options.title === undefined
+        ? undefined
+        : new Header(this.options.title, this.options.subtitle ?? ""));
+    const body = this.options.body ?? this.options.children ?? [];
+    return {
+      type: "collapsible",
+      data: this.withCommon({
+        ...(header === undefined ? {} : { header: header.toProtocol() }),
+        expanded: this.options.expanded ?? false,
+        body: body.map((child) => child.toProtocol()),
+      }),
+    };
+  }
+}
+
+export class Item extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      left?: TreeNode;
+      label?: string;
+      right?: TreeNode;
+      clickable?: boolean;
+    } = {},
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      label: this.options.label ?? "",
+    });
+    if (this.options.left !== undefined) payload.left = this.options.left.toProtocol();
+    if (this.options.right !== undefined) payload.right = this.options.right.toProtocol();
+    if (this.options.clickable !== undefined) payload.clickable = this.options.clickable;
+    return { type: "item", data: payload };
+  }
+}
+
+export class CollapsibleItem extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      left?: TreeNode;
+      label?: string;
+      right?: TreeNode;
+      expanded?: boolean;
+      body?: TreeNode[];
+      children?: TreeNode[];
+    } = {},
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      label: this.options.label ?? "",
+      expanded: this.options.expanded ?? false,
+      body: (this.options.body ?? this.options.children ?? []).map((child) => child.toProtocol()),
+    });
+    if (this.options.left !== undefined) payload.left = this.options.left.toProtocol();
+    if (this.options.right !== undefined) payload.right = this.options.right.toProtocol();
+    return { type: "collapsible_item", data: payload };
+  }
+}
+
+export class Meter extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      icon?: Icon;
+      label?: string;
+      value: number;
+      min?: number;
+      max?: number;
+      step?: number;
+      text?: string;
+      interactive?: boolean;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      label: this.options.label ?? "",
+      value: this.options.value,
+      min: this.options.min ?? 0,
+      max: this.options.max ?? 1,
+      step: this.options.step ?? 0.01,
+    });
+    if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
+    if (this.options.text !== undefined) payload.text = this.options.text;
+    if (this.options.interactive !== undefined) payload.interactive = this.options.interactive;
+    return { type: "meter", data: payload };
+  }
+}
+
+export class Copyable extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      label?: string;
+      value: string;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    return {
+      type: "copyable",
+      data: this.withCommon({
+        label: this.options.label ?? "",
+        value: this.options.value,
+      }),
+    };
+  }
+}
+
+export class ToastAction {
+  constructor(
+    public readonly id: string,
+    public readonly label: string,
+  ) {}
+
+  toProtocol(): Record<string, unknown> {
+    return { id: this.id, label: this.label };
+  }
+}
+
+export class Toast extends WidgetBase {
+  constructor(
+    private readonly options: CommonProps & {
+      icon?: Icon;
+      title: string;
+      message?: string;
+      action?: ToastAction;
+    },
+  ) {
+    super(options);
+  }
+
+  toProtocol(): Record<string, unknown> {
+    const payload = this.withCommon({
+      title: this.options.title,
+      message: this.options.message ?? "",
+    });
+    if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
+    if (this.options.action !== undefined) payload.action = this.options.action.toProtocol();
+    return { type: "toast", data: payload };
   }
 }
 
@@ -379,7 +566,7 @@ export class Row extends WidgetBase {
       meta: this.options.meta ?? "",
     });
     if (this.options.icon !== undefined) payload.icon = this.options.icon.toProtocol();
-    return { type: "row", data: payload };
+    return { type: "action_row", data: payload };
   }
 }
 
@@ -498,6 +685,12 @@ export type TreeNode =
   | Hero
   | Card
   | Section
+  | Collapsible
+  | Item
+  | CollapsibleItem
+  | Meter
+  | Copyable
+  | Toast
   | Row
   | DetailGrid
   | EmptyState

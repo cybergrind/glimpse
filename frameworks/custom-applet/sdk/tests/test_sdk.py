@@ -16,7 +16,9 @@ from glimpse_applet import (
     Icon,
     InitEvent,
     Label,
+    PopoverEvent,
     RenderResult,
+    Row,
     StatusItem,
     Variant,
     click,
@@ -39,7 +41,7 @@ class DemoApplet(Applet[DemoState]):
             status=[
                 StatusItem(id="demo", icon=Icon.name("demo-symbolic"), label=self.state.version)
             ],
-            tree=Box.vertical([Label(self.state.version), Button(id="submit", label="Submit")]),
+            tree=Box.vertical([Label(text=self.state.version), Button(id="submit", label="Submit")]),
         )
 
     @click("submit")
@@ -79,14 +81,23 @@ class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.event, "click")
         self.assertEqual(getattr(event, "button"), "left")
 
+    def test_parse_callback_event_returns_typed_popover_variant(self) -> None:
+        event = parse_callback_event({"id": "popover", "type": "open", "source": "popover"})
+        self.assertIsInstance(event, PopoverEvent)
+        self.assertTrue(getattr(event, "open"))
+
     def test_dropdown_serializes_items(self) -> None:
         node = Dropdown(id="env", items=[DropdownItem(id="prod", label="Production")], selected=0)
         payload = node.to_protocol()
         self.assertEqual(payload["type"], "dropdown")
         self.assertEqual(payload["data"]["items"][0]["id"], "prod")
 
+    def test_row_serializes_as_action_row(self) -> None:
+        payload = Row(id="open", title="Open").to_protocol()
+        self.assertEqual(payload["type"], "action_row")
+
     def test_variant_serializes_as_semantic_protocol_value(self) -> None:
-        payload = Label("Warning", variant=Variant.WARNING).to_protocol()
+        payload = Label(text="Warning", variant=Variant.WARNING).to_protocol()
         self.assertEqual(payload["data"]["variant"], "warning")
 
     async def test_init_event_rerenders_changed_state(self) -> None:
@@ -104,6 +115,25 @@ class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
             loop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await loop_task
+
+    async def test_closed_popover_updates_are_dropped_until_opened(self) -> None:
+        applet = DemoApplet()
+        applet._render_requested = True
+        await applet._flush_render()
+        await applet._outgoing.get()
+        await applet._outgoing.get()
+
+        await applet.set_state(version="v2")
+        status = await applet._outgoing.get()
+        self.assertEqual(status[0], "status")
+        self.assertTrue(applet._outgoing.empty())
+
+        applet._popover_open = True
+        applet._render_requested = True
+        await applet._flush_render()
+        command, payload = await applet._outgoing.get()
+        self.assertEqual(command, "popover")
+        self.assertEqual(payload["root"]["data"]["children"][0]["data"]["text"], "v2")
 
 
 if __name__ == "__main__":

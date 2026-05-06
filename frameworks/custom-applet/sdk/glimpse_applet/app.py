@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass, is_dataclass
 from typing import Any, Generic, TypeVar
 
-from .events import CallbackEvent, InitEvent, parse_callback_event, parse_init_event
+from .events import CallbackEvent, InitEvent, PopoverEvent, parse_callback_event, parse_init_event
 from .protocol import StatusItem
 from .widgets import TreeNode
 
@@ -38,6 +38,7 @@ class Applet(Generic[StateT]):
         self._render_requested = False
         self._last_status: list[dict[str, Any]] | None = None
         self._last_tree: dict[str, Any] | None = None
+        self._popover_open = False
 
     def initial_state(self) -> StateT:
         raise NotImplementedError
@@ -62,6 +63,9 @@ class Applet(Generic[StateT]):
         self._schedule_render()
         await asyncio.sleep(0)
 
+    def is_popover_open(self) -> bool:
+        return self._popover_open
+
     def _schedule_render(self) -> None:
         self._render_requested = True
         if self._render_task is None or self._render_task.done():
@@ -79,7 +83,8 @@ class Applet(Generic[StateT]):
             if status != self._last_status:
                 self._last_status = status
                 await self._outgoing.put(("status", {"items": status}))
-            if tree != self._last_tree:
+            publish_popover = self._popover_open or self._last_tree is None or content is None
+            if publish_popover and tree != self._last_tree:
                 self._last_tree = tree
                 await self._outgoing.put(("popover", tree))
 
@@ -129,7 +134,11 @@ class Applet(Generic[StateT]):
                 self._schedule_render()
                 await asyncio.sleep(0)
             else:
+                if isinstance(event, PopoverEvent):
+                    self._popover_open = event.open
                 await self._dispatch_callback(event)
+                self._schedule_render()
+                await asyncio.sleep(0)
 
     async def _run(self) -> None:
         if not is_dataclass(self.state):

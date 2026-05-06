@@ -6,6 +6,7 @@ import {
   type ClickEvent,
   type InitEvent,
   type InputEvent,
+  type PopoverEvent,
   type ScrollEvent,
   type ToggleEvent,
   parseCallbackEvent,
@@ -48,6 +49,7 @@ export abstract class Applet<State extends object> {
   private renderQueued = false;
   private lastStatus: unknown[] | null = null;
   private lastTree: Record<string, unknown> | null = null;
+  private popoverOpen = false;
 
   protected constructor() {
     this.state = this.initialState();
@@ -88,6 +90,10 @@ export abstract class Applet<State extends object> {
 
   onToggle(id: string, handler: Handler<ToggleEvent>): void {
     this.register("toggle", id, handler as Handler<CallbackEvent>);
+  }
+
+  isPopoverOpen(): boolean {
+    return this.popoverOpen;
   }
 
   async run(): Promise<void> {
@@ -139,7 +145,12 @@ export abstract class Applet<State extends object> {
       return;
     }
     if (type === "event") {
-      await this.dispatchCallback(parseCallbackEvent(data));
+      const event = parseCallbackEvent(data);
+      if (isPopoverEvent(event)) {
+        this.popoverOpen = event.open;
+      }
+      await this.dispatchCallback(event);
+      await this.scheduleRender();
     }
   }
 
@@ -169,7 +180,8 @@ export abstract class Applet<State extends object> {
       this.lastStatus = status;
       this.emit("status", { items: status });
     }
-    if (!deepEqual(tree, this.lastTree)) {
+    const publishPopover = this.popoverOpen || this.lastTree === null || tree.root === null;
+    if (publishPopover && !deepEqual(tree, this.lastTree)) {
       this.lastTree = tree;
       this.emit("popover", tree);
     }
@@ -199,4 +211,8 @@ function parseLine(line: string): { command: string; data: unknown } | null {
 
 function deepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isPopoverEvent(event: CallbackEvent): event is PopoverEvent {
+  return event.event === "open" || event.event === "close";
 }

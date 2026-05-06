@@ -15,6 +15,7 @@ import (
 type demoState struct {
 	Version string
 	Clicks  int
+	Tree    bool
 }
 
 type demoApplet struct {
@@ -23,7 +24,7 @@ type demoApplet struct {
 
 func newDemoApplet() *demoApplet {
 	return &demoApplet{
-		BaseApplet: NewBaseApplet(demoState{Version: "v1"}),
+		BaseApplet: NewBaseApplet(demoState{Version: "v1", Tree: true}),
 	}
 }
 
@@ -44,15 +45,19 @@ func (a *demoApplet) OnCallback(_ context.Context, event CallbackEvent) error {
 }
 
 func (a *demoApplet) Render(context.Context) (RenderResult, error) {
+	var tree *TreeNode
+	if a.State().Tree {
+		tree = ptr(BoxVertical([]TreeNode{
+			NewHero("Demo", a.State().Version),
+			NewLabel(a.State().Version),
+			NewButton("submit", "Submit"),
+		}, 0))
+	}
 	return RenderResult{
 		Status: []StatusItem{
 			{ID: "demo", Icon: IconName("demo-symbolic"), Label: a.State().Version},
 		},
-		Tree: ptr(BoxVertical([]TreeNode{
-			NewHero("Demo", a.State().Version),
-			NewLabel(a.State().Version),
-			NewButton("submit", "Submit"),
-		}, 0)),
+		Tree: tree,
 	}, nil
 }
 
@@ -67,6 +72,20 @@ func TestParseCallbackEventReturnsTypedClickVariant(t *testing.T) {
 	}
 	if click.Button != "left" {
 		t.Fatalf("expected left button, got %q", click.Button)
+	}
+}
+
+func TestParseCallbackEventReturnsTypedPopoverVariant(t *testing.T) {
+	event, err := parseCallbackEvent([]byte(`{"id":"popover","type":"open","source":"popover"}`))
+	if err != nil {
+		t.Fatalf("parse callback event: %v", err)
+	}
+	popover, ok := event.(PopoverEvent)
+	if !ok {
+		t.Fatalf("expected PopoverEvent, got %T", event)
+	}
+	if !popover.Open {
+		t.Fatal("expected open popover event")
 	}
 }
 
@@ -115,6 +134,77 @@ func TestRuntimeFlushesRenderedMessages(t *testing.T) {
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(lines))
+	}
+}
+
+func TestRuntimeDropsClosedPopoverUpdatesAfterInitialTree(t *testing.T) {
+	applet := newDemoApplet()
+	var output bytes.Buffer
+	runtime := NewRuntime[demoState](applet, bytes.NewBufferString(""), &output)
+
+	if err := runtime.flush(context.Background()); err != nil {
+		t.Fatalf("initial flush render: %v", err)
+	}
+	output.Reset()
+
+	applet.SetState(func(state *demoState) {
+		state.Version = "v2"
+	})
+	if err := runtime.flush(context.Background()); err != nil {
+		t.Fatalf("closed flush render: %v", err)
+	}
+	if strings.Contains(output.String(), "popover ") {
+		t.Fatalf("expected closed popover update to be dropped, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), "status ") {
+		t.Fatalf("expected status updates to continue while popover is closed, got %q", output.String())
+	}
+
+	output.Reset()
+	runtime.setPopoverOpen(true)
+	if err := runtime.flush(context.Background()); err != nil {
+		t.Fatalf("open flush render: %v", err)
+	}
+	if !strings.Contains(output.String(), "popover ") {
+		t.Fatalf("expected fresh popover update after open, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), "v2") {
+		t.Fatalf("expected latest popover model after open, got %q", output.String())
+	}
+}
+
+func TestRuntimePublishesClosedPopoverRemoval(t *testing.T) {
+	applet := newDemoApplet()
+	var output bytes.Buffer
+	runtime := NewRuntime[demoState](applet, bytes.NewBufferString(""), &output)
+
+	if err := runtime.flush(context.Background()); err != nil {
+		t.Fatalf("initial flush render: %v", err)
+	}
+	output.Reset()
+
+	applet.SetState(func(state *demoState) {
+		state.Tree = false
+	})
+	if err := runtime.flush(context.Background()); err != nil {
+		t.Fatalf("closed removal flush render: %v", err)
+	}
+	if !strings.Contains(output.String(), "popover ") {
+		t.Fatalf("expected popover removal to publish while closed, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), `"root":null`) {
+		t.Fatalf("expected nil popover root removal, got %q", output.String())
+	}
+}
+
+func TestRuntimeExposesPopoverOpenBeforeCallback(t *testing.T) {
+	applet := newDemoApplet()
+	runtime := NewRuntime[demoState](applet, bytes.NewBufferString(""), io.Discard)
+
+	runtime.setPopoverOpen(true)
+
+	if !applet.IsPopoverOpen() {
+		t.Fatal("expected applet to observe open popover state")
 	}
 }
 

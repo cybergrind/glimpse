@@ -1,5 +1,7 @@
 package sdk
 
+import "encoding/json"
+
 type Align string
 type Orientation string
 type Variant string
@@ -215,33 +217,174 @@ func NewCard(children []TreeNode) TreeNode {
 	return TreeNode{Type: "card", Data: Card{Children: children}}
 }
 
+type Header struct {
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle,omitempty"`
+}
+
 type Section struct {
 	CommonProps
-	Title    string     `json:"title"`
-	Subtitle string     `json:"subtitle,omitempty"`
-	Children []TreeNode `json:"children"`
+	Title    string     `json:"-"`
+	Subtitle string     `json:"-"`
+	Children []TreeNode `json:"-"`
+	Header   *Header    `json:"header,omitempty"`
+	Body     []TreeNode `json:"body,omitempty"`
 }
 
 func NewSection(title string, children []TreeNode) TreeNode {
-	return TreeNode{Type: "section", Data: Section{Title: title, Children: children}}
+	return TreeNode{
+		Type: "section",
+		Data: Section{
+			Title:    title,
+			Children: children,
+			Header:   &Header{Title: title},
+			Body:     children,
+		},
+	}
 }
 
-type CollapsibleSection struct {
+func (s Section) MarshalJSON() ([]byte, error) {
+	type alias Section
+	value := alias(s)
+	if value.Header == nil && (value.Title != "" || value.Subtitle != "") {
+		value.Header = &Header{Title: value.Title, Subtitle: value.Subtitle}
+	}
+	if value.Body == nil && value.Children != nil {
+		value.Body = value.Children
+	}
+	return marshalAlias(value)
+}
+
+type Collapsible struct {
 	CommonProps
-	Title    string     `json:"title"`
+	Title    string     `json:"-"`
+	Subtitle string     `json:"-"`
+	Children []TreeNode `json:"-"`
+	Header   *Header    `json:"header,omitempty"`
 	Expanded bool       `json:"expanded"`
-	Children []TreeNode `json:"children"`
+	Body     []TreeNode `json:"body,omitempty"`
+}
+
+func NewCollapsible(title string, expanded bool, children []TreeNode) TreeNode {
+	return TreeNode{
+		Type: "collapsible",
+		Data: Collapsible{
+			Title:    title,
+			Children: children,
+			Header:   &Header{Title: title},
+			Expanded: expanded,
+			Body:     children,
+		},
+	}
 }
 
 func NewCollapsibleSection(title string, expanded bool, children []TreeNode) TreeNode {
+	return NewCollapsible(title, expanded, children)
+}
+
+func (c Collapsible) MarshalJSON() ([]byte, error) {
+	type alias Collapsible
+	value := alias(c)
+	if value.Header == nil && (value.Title != "" || value.Subtitle != "") {
+		value.Header = &Header{Title: value.Title, Subtitle: value.Subtitle}
+	}
+	if value.Body == nil && value.Children != nil {
+		value.Body = value.Children
+	}
+	return marshalAlias(value)
+}
+
+type Item struct {
+	CommonProps
+	Left      *TreeNode `json:"left,omitempty"`
+	Label     string    `json:"label,omitempty"`
+	Right     *TreeNode `json:"right,omitempty"`
+	Clickable bool      `json:"clickable,omitempty"`
+}
+
+func NewItem(label string) TreeNode {
+	return TreeNode{Type: "item", Data: Item{Label: label}}
+}
+
+func NewClickableItem(id string, label string) TreeNode {
 	return TreeNode{
-		Type: "collapsible_section",
-		Data: CollapsibleSection{
-			Title:    title,
-			Expanded: expanded,
-			Children: children,
+		Type: "item",
+		Data: Item{
+			CommonProps: CommonProps{ID: id},
+			Label:       label,
+			Clickable:   true,
 		},
 	}
+}
+
+type CollapsibleItem struct {
+	CommonProps
+	Left     *TreeNode  `json:"left,omitempty"`
+	Label    string     `json:"label,omitempty"`
+	Right    *TreeNode  `json:"right,omitempty"`
+	Expanded bool       `json:"expanded,omitempty"`
+	Body     []TreeNode `json:"body"`
+}
+
+func NewCollapsibleItem(label string, expanded bool, children []TreeNode) TreeNode {
+	return TreeNode{
+		Type: "collapsible_item",
+		Data: CollapsibleItem{
+			Label:    label,
+			Expanded: expanded,
+			Body:     children,
+		},
+	}
+}
+
+type Meter struct {
+	CommonProps
+	Icon        *Icon   `json:"icon,omitempty"`
+	Label       string  `json:"label,omitempty"`
+	Value       float64 `json:"value"`
+	Min         float64 `json:"min,omitempty"`
+	Max         float64 `json:"max"`
+	Step        float64 `json:"step,omitempty"`
+	Text        string  `json:"text,omitempty"`
+	Interactive bool    `json:"interactive,omitempty"`
+}
+
+func NewMeter(label string, value float64, max float64) TreeNode {
+	return TreeNode{
+		Type: "meter",
+		Data: Meter{
+			Label: label,
+			Value: value,
+			Max:   max,
+		},
+	}
+}
+
+type Copyable struct {
+	CommonProps
+	Label string `json:"label,omitempty"`
+	Value string `json:"value"`
+}
+
+func NewCopyable(label string, value string) TreeNode {
+	return TreeNode{Type: "copyable", Data: Copyable{Label: label, Value: value}}
+}
+
+type ToastAction struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type Toast struct {
+	CommonProps
+	Icon    *Icon        `json:"icon,omitempty"`
+	Title   string       `json:"title"`
+	Message string       `json:"message,omitempty"`
+	Action  *ToastAction `json:"action,omitempty"`
+}
+
+func NewToast(title string, message string) TreeNode {
+	return TreeNode{Type: "toast", Data: Toast{Title: title, Message: message}}
 }
 
 type ActionMenuItem struct {
@@ -340,6 +483,26 @@ type Layout struct {
 func NewColumn(children []TreeNode, spacing int) TreeNode {
 	return TreeNode{
 		Type: "column",
+		Data: Layout{
+			Spacing:  spacing,
+			Children: children,
+		},
+	}
+}
+
+func NewRow(children []TreeNode, spacing int) TreeNode {
+	return TreeNode{
+		Type: "row",
+		Data: Layout{
+			Spacing:  spacing,
+			Children: children,
+		},
+	}
+}
+
+func BoxVertical(children []TreeNode, spacing int) TreeNode {
+	return TreeNode{
+		Type: "column",
 		Data: Box{
 			Orientation: OrientationVertical,
 			Spacing:     spacing,
@@ -348,7 +511,7 @@ func NewColumn(children []TreeNode, spacing int) TreeNode {
 	}
 }
 
-func NewRow(children []TreeNode, spacing int) TreeNode {
+func BoxHorizontal(children []TreeNode, spacing int) TreeNode {
 	return TreeNode{
 		Type: "row",
 		Data: Box{
@@ -359,10 +522,19 @@ func NewRow(children []TreeNode, spacing int) TreeNode {
 	}
 }
 
-func BoxVertical(children []TreeNode, spacing int) TreeNode {
-	return NewColumn(children, spacing)
-}
-
-func BoxHorizontal(children []TreeNode, spacing int) TreeNode {
-	return NewRow(children, spacing)
+func marshalAlias(value any) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		return nil, err
+	}
+	for key, value := range payload {
+		if value == nil {
+			delete(payload, key)
+		}
+	}
+	return json.Marshal(payload)
 }
