@@ -44,9 +44,8 @@ fn config_discovery_prefers_glimpse_config_env_then_cwd_then_xdg() {
 fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_settings() {
     let config = Config::from_toml_str(
         r##"
-        [theme]
-        name = "adwaita"
-        mode = "dark"
+        theme = "adwaita"
+        theme_mode = "dark"
 
         [location]
         provider = "static"
@@ -82,7 +81,8 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_settings() {
     )
     .unwrap();
 
-    assert_eq!(config.theme.mode, ThemeMode::Dark);
+    assert_eq!(config.theme, "adwaita");
+    assert_eq!(config.theme_mode, ThemeMode::Dark);
     assert_eq!(config.panels.len(), 1);
     assert!(matches!(
         config.applets.get("clock"),

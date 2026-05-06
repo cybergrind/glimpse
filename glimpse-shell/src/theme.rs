@@ -5,7 +5,7 @@ use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use glimpse_core::{Config, ThemeMode};
+use glimpse_core::{Config, ThemeMode, services::theme::EffectiveThemeMode};
 
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
 
@@ -36,6 +36,7 @@ impl ThemeState {
 
         let state = Self { base, theme };
         state.reload(config);
+        state.apply_configured_mode(&config.theme_mode);
         state
     }
 
@@ -45,44 +46,50 @@ impl ThemeState {
             .load_from_resource(&format!("{RESOURCE_BASE}/themes/base.css"));
 
         let theme_file = config.theme_file();
-        let shipped = format!("{RESOURCE_BASE}/themes/{}.css", config.theme.name);
+        let shipped = format!("{RESOURCE_BASE}/themes/{}.css", config.theme);
         if theme_file.exists() && theme_file.is_file() {
             tracing::info!(
-                theme = %config.theme.name,
-                mode = ?config.theme.mode,
+                theme = %config.theme,
+                mode = ?config.theme_mode,
                 source = %theme_file.display(),
                 "applied user theme"
             );
             self.theme.load_from_path(&theme_file);
         } else if resource_exists(&shipped) {
             tracing::info!(
-                theme = %config.theme.name,
-                mode = ?config.theme.mode,
+                theme = %config.theme,
+                mode = ?config.theme_mode,
                 source = %shipped,
                 "applied shipped theme"
             );
             self.theme.load_from_resource(&shipped);
         } else {
             tracing::warn!(
-                theme = %config.theme.name,
-                mode = ?config.theme.mode,
+                theme = %config.theme,
+                mode = ?config.theme_mode,
                 "theme not found, falling back to adwaita"
             );
             self.theme
                 .load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
         }
-
-        apply_mode(&config.theme.mode);
     }
-}
 
-fn apply_mode(mode: &ThemeMode) {
-    let scheme = match mode {
-        ThemeMode::Auto => adw::ColorScheme::Default,
-        ThemeMode::Dark => adw::ColorScheme::ForceDark,
-        ThemeMode::Light => adw::ColorScheme::ForceLight,
-    };
-    adw::StyleManager::default().set_color_scheme(scheme);
+    pub fn apply_effective_mode(&self, mode: EffectiveThemeMode) {
+        let scheme = match mode {
+            EffectiveThemeMode::Light => adw::ColorScheme::ForceLight,
+            EffectiveThemeMode::Dark => adw::ColorScheme::ForceDark,
+        };
+        adw::StyleManager::default().set_color_scheme(scheme);
+    }
+
+    fn apply_configured_mode(&self, mode: &ThemeMode) {
+        let scheme = match mode {
+            ThemeMode::Auto => adw::ColorScheme::Default,
+            ThemeMode::Dark => adw::ColorScheme::ForceDark,
+            ThemeMode::Light => adw::ColorScheme::ForceLight,
+        };
+        adw::StyleManager::default().set_color_scheme(scheme);
+    }
 }
 
 fn resource_exists(path: &str) -> bool {

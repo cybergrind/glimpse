@@ -8,19 +8,3 @@ pub enum ThemeMode {
     #[default]
     Auto,
 }
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct ThemeConfig {
-    pub name: String,
-    pub mode: ThemeMode,
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self {
-            name: "adwaita".into(),
-            mode: ThemeMode::Auto,
-        }
-    }
-}

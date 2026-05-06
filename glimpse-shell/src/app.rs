@@ -10,7 +10,10 @@ use crate::{
 use adw::gdk::{self, prelude::DisplayExt, prelude::MonitorExt};
 use gio::prelude::ListModelExt;
 use glib::object::{Cast, CastNone};
-use glimpse_core::{Config, ConfigEvent, PanelConfig, watch_for_config_changes};
+use glimpse_core::{
+    Config, ConfigEvent, PanelConfig, services::theme::State as ThemeServiceState,
+    watch_for_config_changes,
+};
 use gtk4::prelude::{GtkWindowExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{
@@ -28,6 +31,7 @@ pub struct AppInit {
 pub enum Input {
     ConfigChanged(Config),
     ThemeReload,
+    ThemeChanged(ThemeServiceState),
     MonitorsChanged,
 }
 
@@ -136,6 +140,7 @@ impl SimpleComponent for App {
 
         let services = ServiceRuntime::new(init.dbus);
         services.broadcast(Control::Start(init.config.clone()));
+        spawn_theme_subscription(services.handles().theme, sender.input_sender().clone());
 
         let prompt_fallback_parent: gtk4::Widget = root.clone().upcast();
 
@@ -187,6 +192,24 @@ impl SimpleComponent for App {
                 tracing::info!("theme file changed, reloading");
                 self.theme.reload(&self.config);
             }
+            Input::ThemeChanged(state) => {
+                if state.configured_mode != self.config.theme_mode {
+                    tracing::debug!(
+                        current_configured_mode = ?self.config.theme_mode,
+                        stale_configured_mode = ?state.configured_mode,
+                        stale_effective_mode = ?state.effective_mode,
+                        "ignoring stale theme service state"
+                    );
+                    return;
+                }
+                tracing::debug!(
+                    configured_mode = ?state.configured_mode,
+                    effective_mode = ?state.effective_mode,
+                    reason = ?state.reason,
+                    "applying theme service state"
+                );
+                self.theme.apply_effective_mode(state.effective_mode);
+            }
             Input::MonitorsChanged => {
                 tracing::info!("monitors changed, reconciling panels");
                 let config = self.config.clone();
@@ -201,6 +224,33 @@ impl Drop for App {
         self.network_agent_cancel.cancel();
         self.bluetooth_agent_cancel.cancel();
     }
+}
+
+fn spawn_theme_subscription(
+    theme: glimpse_core::services::theme::ThemeHandle,
+    sender: relm4::Sender<Input>,
+) {
+    relm4::spawn(async move {
+        let mut state_rx = theme.subscribe();
+        if sender
+            .send(Input::ThemeChanged(*state_rx.borrow()))
+            .is_err()
+        {
+            return;
+        }
+
+        loop {
+            if state_rx.changed().await.is_err() {
+                break;
+            }
+            if sender
+                .send(Input::ThemeChanged(*state_rx.borrow()))
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
 }
 
 impl App {

@@ -7,7 +7,7 @@ use crate::{
     services::{
         audio, audio_events, battery, bluetooth, brightness, calendar_events, clipboard, clock,
         compositor, geoclue, keyboard, location, microphone, mpris, network, notifications, power,
-        session, storage, tray, weather, webcam,
+        session, solar, storage, theme, tray, weather, webcam,
     },
 };
 
@@ -118,6 +118,8 @@ pub struct Services {
     pub calendar_events: calendar_events::CalendarEventsHandle,
     pub geoclue: geoclue::GeoClueHandle,
     pub location: ServiceHandle<location::State, location::Command>,
+    pub solar: solar::SolarHandle,
+    pub theme: theme::ThemeHandle,
     pub microphone: microphone::MicrophoneHandle,
     pub mpris: mpris::MprisHandle,
     pub battery: ServiceHandle<battery::State, battery::Command>,
@@ -150,6 +152,8 @@ impl Services {
                 calendar_events,
                 geoclue,
                 location,
+                solar,
+                theme,
                 microphone,
                 mpris,
                 battery,
@@ -199,6 +203,12 @@ impl ServiceRuntime {
 
         let (location_service, location) = location::LocationService::new(geoclue.clone());
         let location_service = spawn_service(|cancel| location_service.run(cancel));
+
+        let (solar_service, solar) = solar::SolarService::new(location.clone());
+        let solar_service = spawn_service(|cancel| solar_service.run(cancel));
+
+        let (theme_service, theme) = theme::ThemeService::new(solar.clone());
+        let theme_service = spawn_service(|cancel| theme_service.run(cancel));
 
         let (microphone_service, microphone) =
             microphone::MicrophoneService::new(audio_events.clone());
@@ -258,6 +268,8 @@ impl ServiceRuntime {
             calendar_events_service,
             geoclue_service,
             location_service,
+            solar_service,
+            theme_service,
             microphone_service,
             mpris_service,
             battery_service,
@@ -282,6 +294,8 @@ impl ServiceRuntime {
             calendar_events,
             geoclue,
             location,
+            solar,
+            theme,
             microphone,
             mpris,
             battery,

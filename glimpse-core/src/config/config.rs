@@ -8,14 +8,15 @@ use tokio::sync::mpsc;
 
 use crate::{
     AppletConfig, ConfigFileDiscovery, IdleConfig, KeyboardConfig, LocationConfig,
-    NightLightConfig, PanelConfig, ThemeConfig, watch_config_file,
+    NightLightConfig, PanelConfig, ThemeMode, watch_config_file,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub location: LocationConfig,
-    pub theme: ThemeConfig,
+    pub theme: String,
+    pub theme_mode: ThemeMode,
     pub panels: Vec<PanelConfig>,
     pub applets: HashMap<String, AppletConfig>,
     #[serde(default)]
@@ -64,7 +65,7 @@ impl Config {
     pub fn theme_file(&self) -> PathBuf {
         env::var("GLIMPSE_THEME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| Self::themes_dir().join(format!("{}.css", self.theme.name)))
+            .unwrap_or_else(|_| Self::themes_dir().join(format!("{}.css", self.theme)))
     }
 
     pub fn load_from_file(path: &Path) -> Self {
@@ -124,7 +125,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             location: LocationConfig::default(),
-            theme: ThemeConfig::default(),
+            theme: "adwaita".into(),
+            theme_mode: ThemeMode::Auto,
             panels: vec![PanelConfig::default()],
             applets: HashMap::new(),
             night_light: NightLightConfig::default(),
