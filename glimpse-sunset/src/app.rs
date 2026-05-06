@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use glimpse_core::{
     Config, ConfigEvent,
     services::{
@@ -11,7 +13,10 @@ use glimpse_core::{
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::backend::create_backend;
+use crate::{
+    backend::create_backend,
+    logind::{self, SleepEvent},
+};
 
 struct AppTask {
     cancel: CancellationToken,
@@ -50,6 +55,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         night_light.clone(),
         cancel.clone(),
     ));
+    let (sleep_tx, mut sleep_rx) = mpsc::channel(4);
+    running_services.push(spawn_logind_sleep_watcher(sleep_tx, cancel.clone()));
 
     let (config_tx, mut config_rx) = mpsc::channel(1);
     let config_cancel = cancel.clone();
@@ -76,6 +83,16 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     tracing::info!("app config changed");
                     reconfigure_services(&location, &solar, &night_light, config.clone());
                     current_config = config;
+                }
+                None => break,
+            },
+            sleep_event = sleep_rx.recv() => match sleep_event {
+                Some(SleepEvent::Suspending) => {
+                    tracing::info!("system is suspending");
+                }
+                Some(SleepEvent::Resumed) => {
+                    tracing::info!("system resumed; refreshing sunset state");
+                    refresh_after_resume(&location, &solar, &night_light);
                 }
                 None => break,
             }
@@ -118,6 +135,16 @@ pub fn reconfigure_services(
     }
 }
 
+pub fn refresh_after_resume(
+    location: &location::LocationHandle,
+    solar: &solar::SolarHandle,
+    night_light: &NightLightHandle,
+) {
+    send_command("location", location, location::Command::Refresh);
+    send_command("solar", solar, solar::Command::Refresh);
+    send_command("night-light", night_light, night_light::Command::Refresh);
+}
+
 fn shutdown_services(
     location: &location::LocationHandle,
     solar: &solar::SolarHandle,
@@ -141,6 +168,19 @@ fn send_control<State, Command>(
     }
 }
 
+fn send_command<State, Command>(
+    service_name: &'static str,
+    handle: &ServiceHandle<State, Command>,
+    command: Command,
+) where
+    State: Clone,
+    Command: Send,
+{
+    if let Err(error) = handle.try_send(ServiceCommand::Command(command)) {
+        tracing::warn!(service = service_name, %error, "failed to send service command");
+    }
+}
+
 fn spawn_night_light_subscription(
     night_light: NightLightHandle,
     cancel: CancellationToken,
@@ -155,6 +195,39 @@ fn spawn_night_light_subscription(
                         break;
                     }
                     log_night_light_state(&state_rx.borrow().clone());
+                }
+            }
+        }
+    })
+}
+
+fn spawn_logind_sleep_watcher(
+    sender: mpsc::Sender<SleepEvent>,
+    cancel: CancellationToken,
+) -> AppTask {
+    spawn_service(cancel.clone(), move |task_cancel| async move {
+        let mut retry_delay = Duration::from_secs(1);
+        loop {
+            tokio::select! {
+                _ = task_cancel.cancelled() => break,
+                result = logind::watch_sleep_events(sender.clone()) => {
+                    match result {
+                        Ok(()) => {
+                            retry_delay = Duration::from_secs(1);
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                retry_delay_ms = retry_delay.as_millis(),
+                                "logind sleep watcher stopped; retrying"
+                            );
+                            tokio::select! {
+                                _ = task_cancel.cancelled() => break,
+                                _ = tokio::time::sleep(retry_delay) => {}
+                            }
+                            retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
+                        }
+                    }
                 }
             }
         }
@@ -185,7 +258,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{reconfigure_services, start_services};
+    use super::{reconfigure_services, refresh_after_resume, start_services};
     use glimpse_core::{
         Config, NightLightConfig, NightLightSchedule,
         services::{
@@ -261,6 +334,30 @@ mod tests {
             night_light_rx.recv().await,
             Some(ServiceCommand::Command(night_light::Command::ApplyConfig(config)))
                 if config.schedule == NightLightSchedule::Schedule
+        ));
+    }
+
+    #[tokio::test]
+    async fn refresh_after_resume_refreshes_location_stack_and_night_light() {
+        let (location, mut location_rx) =
+            handle::<location::State, location::Command>(location::State::Unknown);
+        let (solar, mut solar_rx) = handle::<solar::State, solar::Command>(solar::State::Unknown);
+        let (night_light, mut night_light_rx) =
+            handle::<night_light::State, night_light::Command>(night_light::State::default());
+
+        refresh_after_resume(&location, &solar, &night_light);
+
+        assert!(matches!(
+            location_rx.recv().await,
+            Some(ServiceCommand::Command(location::Command::Refresh))
+        ));
+        assert!(matches!(
+            solar_rx.recv().await,
+            Some(ServiceCommand::Command(solar::Command::Refresh))
+        ));
+        assert!(matches!(
+            night_light_rx.recv().await,
+            Some(ServiceCommand::Command(night_light::Command::Refresh))
         ));
     }
 }

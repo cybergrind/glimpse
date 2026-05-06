@@ -20,6 +20,7 @@ pub mod notifications;
 pub mod power;
 pub mod session;
 pub mod solar;
+pub mod storage;
 pub mod tray;
 pub mod weather;
 pub mod webcam;

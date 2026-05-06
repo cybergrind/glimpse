@@ -51,6 +51,7 @@ impl Default for PanelConfig {
             center: vec!["clock".into(), "weather".into(), "notifications".into()],
             right: vec![
                 "tray".into(),
+                "removable".into(),
                 "clipboard".into(),
                 "keyboard".into(),
                 "privacy".into(),
@@ -82,6 +83,7 @@ pub enum AppletType {
     Notifications,
     Pager,
     Privacy,
+    Removable,
     Session,
     Tray,
     Weather,
@@ -104,6 +106,7 @@ impl AppletType {
             "notifications" => Some(Self::Notifications),
             "pager" => Some(Self::Pager),
             "privacy" => Some(Self::Privacy),
+            "removable" => Some(Self::Removable),
             "session" => Some(Self::Session),
             "tray" => Some(Self::Tray),
             "weather" => Some(Self::Weather),
@@ -171,3 +174,13 @@ impl<'de> Deserialize<'de> for AppletConfig {
 }
 
 pub type AppletConfigs = HashMap<String, AppletConfig>;
+
+#[cfg(test)]
+mod tests {
+    use super::AppletType;
+
+    #[test]
+    fn removable_applet_type_is_available_from_config_name() {
+        assert!(AppletType::from_config_name("removable").is_some());
+    }
+}

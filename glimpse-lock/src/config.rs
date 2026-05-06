@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use glimpse_core::{FitMode, ResolvedImageSpec, WallpaperConfig};
+use glimpse_wallpaper::config::{FitMode, ResolvedImageSpec, WallpaperConfig};
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 
@@ -377,7 +377,7 @@ fn path_matches(path: &Path, expected: &Path) -> bool {
 mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
-    use glimpse_core::{FitMode, WallpaperConfig};
+    use glimpse_wallpaper::config::{FitMode, WallpaperConfig};
 
     use super::{LockConfig, LockConfigDiscovery, LockControlButton, resolve_lock_spec};
 

@@ -12,6 +12,7 @@ dirs.workspace = true
 futures-util.workspace = true
 gio.workspace = true
 glimpse-core = { path = "../glimpse-core" }
+glimpse-wallpaper = { path = "../glimpse-wallpaper" }
 gtk4 = { version = "0.9", package = "gtk4", features = ["v4_8"] }
 gtk4-session-lock = "0.1.2"
 image = "0.25"

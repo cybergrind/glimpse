@@ -11,8 +11,7 @@ use std::{
 
 use css_color::Srgb;
 use glimpse_core::{
-    Config, ConfigEvent, FitMode, KeyboardConfig, LocationConfig, ResolvedImageSpec,
-    WallpaperConfig,
+    Config, ConfigEvent, KeyboardConfig, LocationConfig,
     dbus::Dbus,
     heic,
     services::{
@@ -29,6 +28,9 @@ use glimpse_core::{
         weather::{WeatherHandle, WeatherService, model as weather_model},
     },
     watch_for_config_changes,
+};
+use glimpse_wallpaper::config::{
+    self as wallpaper_config, FitMode, ResolvedImageSpec, WallpaperConfig,
 };
 use gtk4::{
     ContentFit, CssProvider, gdk,
@@ -55,6 +57,7 @@ use crate::{
         LockConfig, LockConfigEvent, LockControlButton, ResolvedLockSpec, resolve_lock_spec,
         watch_for_lock_config_changes,
     },
+    dbus::{LockApiState, register_lock_api},
     logind::{self, LogindLockEvent},
     runtime::{GTK_APPLICATION_ID, GTK_PREVIEW_APPLICATION_ID, LockRuntime},
 };
@@ -72,6 +75,7 @@ pub enum AppCommand {
     ReconcileMonitors,
     ApplyConfig(Box<LockConfig>),
     ApplySharedConfig(Box<Config>),
+    ApplyWallpaperConfig(Box<WallpaperConfig>),
     ReloadCss,
     ReloadAssets,
     SubmitPassword(String),
@@ -97,6 +101,8 @@ pub struct AppInit {
     pub config: LockAppConfig,
     pub authenticator: Arc<dyn Authenticator>,
     pub mode: LockMode,
+    pub api_connection: Option<zbus::Connection>,
+    pub api_state: LockApiState,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +119,7 @@ impl LockAppConfig {
         let shared = Config::load();
         Self {
             lock: LockConfig::load(),
-            wallpaper: shared.wallpaper,
+            wallpaper: load_wallpaper_config(),
             location: shared.location,
             keyboard: shared.keyboard,
             config_dir: lock_config_dir(),
@@ -128,7 +134,7 @@ impl LockAppConfig {
         let shared = Config::load();
         Self {
             lock,
-            wallpaper: shared.wallpaper,
+            wallpaper: load_wallpaper_config(),
             location: shared.location,
             keyboard: shared.keyboard,
             config_dir: lock_config_dir(),
@@ -138,9 +144,19 @@ impl LockAppConfig {
     fn with_shared(&self, shared: Config) -> Self {
         Self {
             lock: self.lock.clone(),
-            wallpaper: shared.wallpaper,
+            wallpaper: self.wallpaper.clone(),
             location: shared.location,
             keyboard: shared.keyboard,
+            config_dir: self.config_dir.clone(),
+        }
+    }
+
+    fn with_wallpaper(&self, wallpaper: WallpaperConfig) -> Self {
+        Self {
+            lock: self.lock.clone(),
+            wallpaper,
+            location: self.location.clone(),
+            keyboard: self.keyboard.clone(),
             config_dir: self.config_dir.clone(),
         }
     }
@@ -230,6 +246,7 @@ pub struct LockApp {
     authenticating: bool,
     control_status: LockControlStatus,
     services: LockServices,
+    api_state: LockApiState,
 }
 
 #[relm4::component(pub)]
@@ -280,8 +297,30 @@ impl SimpleComponent for LockApp {
                 shared_config_sender.input(AppCommand::ApplySharedConfig(Box::new(config)));
             }
         });
+        let (wallpaper_config_tx, mut wallpaper_config_rx) = mpsc::channel(1);
+        relm4::spawn(async move {
+            wallpaper_config::watch_for_config_changes(wallpaper_config_tx).await;
+        });
+        let wallpaper_config_sender = sender.clone();
+        relm4::spawn_local(async move {
+            while let Some(wallpaper_config::ConfigEvent::Changed(config)) =
+                wallpaper_config_rx.recv().await
+            {
+                wallpaper_config_sender
+                    .input(AppCommand::ApplyWallpaperConfig(Box::new(config.wallpaper)));
+            }
+        });
 
         if init.mode == LockMode::Resident {
+            if let Some(connection) = init.api_connection.clone() {
+                let api_sender = sender.input_sender().clone();
+                let api_state = init.api_state.clone();
+                relm4::spawn(async move {
+                    if let Err(error) = register_lock_api(connection, api_sender, api_state).await {
+                        tracing::warn!(%error, "failed to register glimpse-lock D-Bus API");
+                    }
+                });
+            }
             let (logind_tx, mut logind_rx) = mpsc::channel(4);
             relm4::spawn(async move {
                 let mut retry_delay = Duration::from_secs(1);
@@ -331,6 +370,7 @@ impl SimpleComponent for LockApp {
             authenticating: false,
             control_status: LockControlStatus::default(),
             services,
+            api_state: init.api_state,
         };
         if model.mode == LockMode::Resident {
             connect_monitor_changes(&sender);
@@ -367,6 +407,7 @@ impl SimpleComponent for LockApp {
             AppCommand::Locked => {
                 tracing::info!("session lock acquired");
                 self.runtime.mark_locked();
+                self.api_state.set_active(true);
                 relm4::spawn(async {
                     if let Err(error) = logind::set_current_session_locked_hint(true).await {
                         tracing::debug!(%error, "failed to set logind LockedHint=true");
@@ -401,6 +442,17 @@ impl SimpleComponent for LockApp {
                     return;
                 }
                 tracing::info!("lock shared config changed");
+                self.spec = next;
+                self.watch_assets(sender.clone());
+                self.emit_to_lock_windows(LockWindowInput::Reconfigure(self.spec.clone()));
+            }
+            AppCommand::ApplyWallpaperConfig(wallpaper) => {
+                self.config = self.config.with_wallpaper(*wallpaper);
+                let next = self.config.resolve();
+                if self.spec == next {
+                    return;
+                }
+                tracing::info!("lock wallpaper config changed");
                 self.spec = next;
                 self.watch_assets(sender.clone());
                 self.emit_to_lock_windows(LockWindowInput::Reconfigure(self.spec.clone()));
@@ -572,6 +624,7 @@ impl LockApp {
         self.instance = None;
         self.runtime.reset();
         self.authenticating = false;
+        self.api_state.set_active(false);
     }
 
     fn emit_to_lock_windows(&self, input: LockWindowInput) {
@@ -681,7 +734,11 @@ struct MonitorWindow {
     window: Controller<LockWindow>,
 }
 
-pub fn run(config: LockAppConfig, args: Vec<String>) -> anyhow::Result<()> {
+pub fn run(
+    config: LockAppConfig,
+    args: Vec<String>,
+    api_connection: Option<zbus::Connection>,
+) -> anyhow::Result<()> {
     let app = RelmApp::new(GTK_APPLICATION_ID);
     app.allow_multiple_instances(true);
     app.visible_on_activate(false)
@@ -690,6 +747,8 @@ pub fn run(config: LockAppConfig, args: Vec<String>) -> anyhow::Result<()> {
             config,
             authenticator: Arc::new(PamAuthenticator),
             mode: LockMode::Resident,
+            api_connection,
+            api_state: LockApiState::default(),
         });
     Ok(())
 }
@@ -703,6 +762,8 @@ pub fn run_preview(config: LockAppConfig, args: Vec<String>) -> anyhow::Result<(
             config,
             authenticator: Arc::new(PreviewAuthenticator::default()),
             mode: LockMode::Preview,
+            api_connection: None,
+            api_state: LockApiState::default(),
         });
     Ok(())
 }
@@ -1104,6 +1165,10 @@ fn lock_config_dir() -> PathBuf {
         .parent()
         .map(PathBuf::from)
         .unwrap_or_else(LockConfig::config_dir)
+}
+
+fn load_wallpaper_config() -> WallpaperConfig {
+    wallpaper_config::Config::load().wallpaper
 }
 
 pub struct LockWindow {
@@ -2575,16 +2640,14 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use glimpse_core::{
-        FitMode,
-        services::{
-            battery::{
-                BatteryState as CoreBatteryState, BatteryStatus, State as CoreBatteryServiceState,
-            },
-            keyboard::{KeyboardLayout, State as CoreKeyboardState},
-            network::{NetworkSnapshot, NetworkStatus, State as CoreNetworkState, WifiAccessPoint},
+    use glimpse_core::services::{
+        battery::{
+            BatteryState as CoreBatteryState, BatteryStatus, State as CoreBatteryServiceState,
         },
+        keyboard::{KeyboardLayout, State as CoreKeyboardState},
+        network::{NetworkSnapshot, NetworkStatus, State as CoreNetworkState, WifiAccessPoint},
     };
+    use glimpse_wallpaper::config::FitMode;
     use notify::event::{AccessKind, AccessMode, DataChange};
 
     use super::{

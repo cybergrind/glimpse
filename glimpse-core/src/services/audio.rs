@@ -223,12 +223,21 @@ impl AudioService {
 
 impl AudioClient {
     async fn fetch_state(&self) -> anyhow::Result<State> {
+        let info = match pactl_json(&["info"]).await {
+            Ok(info) => info,
+            Err(error) => {
+                tracing::debug!(%error, "failed to fetch audio server info");
+                serde_json::Value::Null
+            }
+        };
         let data = pactl_json(&["list"]).await?;
+        let default_output = default_name(&info, "default_sink_name");
+        let default_input = default_name(&info, "default_source_name");
 
         Ok(State {
             available: true,
-            outputs: parse_outputs(&data["sinks"]),
-            inputs: parse_inputs(&data["sources"]),
+            outputs: parse_outputs(&data["sinks"], default_output.as_deref()),
+            inputs: parse_inputs(&data["sources"], default_input.as_deref()),
             streams: parse_streams(&data["sink_inputs"]),
         })
     }
@@ -312,12 +321,20 @@ async fn pactl_json(args: &[&str]) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-fn parse_outputs(data: &serde_json::Value) -> Vec<AudioDevice> {
-    parse_devices(data, DeviceKind::Output)
+fn default_name(data: &serde_json::Value, key: &str) -> Option<String> {
+    data[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
-fn parse_inputs(data: &serde_json::Value) -> Vec<AudioDevice> {
-    parse_devices(data, DeviceKind::Input)
+fn parse_outputs(data: &serde_json::Value, default_name: Option<&str>) -> Vec<AudioDevice> {
+    parse_devices(data, DeviceKind::Output, default_name)
+}
+
+fn parse_inputs(data: &serde_json::Value, default_name: Option<&str>) -> Vec<AudioDevice> {
+    parse_devices(data, DeviceKind::Input, default_name)
 }
 
 #[derive(Clone, Copy)]
@@ -326,7 +343,11 @@ enum DeviceKind {
     Input,
 }
 
-fn parse_devices(data: &serde_json::Value, device_kind: DeviceKind) -> Vec<AudioDevice> {
+fn parse_devices(
+    data: &serde_json::Value,
+    device_kind: DeviceKind,
+    default_name: Option<&str>,
+) -> Vec<AudioDevice> {
     let Some(devices) = data.as_array() else {
         return Vec::new();
     };
@@ -356,13 +377,15 @@ fn parse_devices(data: &serde_json::Value, device_kind: DeviceKind) -> Vec<Audio
                 description,
                 volume: parse_volume(&device["volume"]),
                 muted: device["mute"].as_bool().unwrap_or(false),
-                is_default: false,
+                is_default: default_name.is_some_and(|default_name| default_name == name),
                 icon_name: resolve_icon(raw_icon, form_factor, device_kind),
             })
         })
         .collect::<Vec<_>>();
 
-    if let Some(first) = parsed.first_mut() {
+    if !parsed.iter().any(|device| device.is_default)
+        && let Some(first) = parsed.first_mut()
+    {
         first.is_default = true;
     }
 
@@ -469,13 +492,88 @@ mod tests {
             }
         ]);
 
-        let outputs = parse_outputs(&data);
+        let outputs = parse_outputs(&data, None);
 
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].description, "Speakers");
         assert_eq!(outputs[0].volume, 42);
         assert!(outputs[0].is_default);
         assert_eq!(outputs[0].icon_name, "audio-speakers-symbolic");
+    }
+
+    #[test]
+    fn parse_outputs_marks_reported_default_sink_even_when_not_first() {
+        let data = serde_json::json!([
+            {
+                "index": 1,
+                "name": "alsa_output.pci",
+                "description": "Ryzen HD Audio Controller Analog Stereo",
+                "volume": { "front-left": { "value_percent": "37%" } },
+                "mute": false,
+                "properties": {
+                    "device.icon_name": "audio-card-analog",
+                    "device.form_factor": "speaker"
+                }
+            },
+            {
+                "index": 2,
+                "name": "bluez_output.F8_4E_17_BC_EE_D5.1",
+                "description": "WH-1000XM4",
+                "volume": { "front-left": { "value_percent": "29%" } },
+                "mute": false,
+                "properties": {
+                    "device.icon_name": "audio-headset-bluetooth",
+                    "device.form_factor": "headset"
+                }
+            }
+        ]);
+
+        let outputs = parse_outputs(&data, Some("bluez_output.F8_4E_17_BC_EE_D5.1"));
+
+        assert!(!outputs[0].is_default);
+        assert!(outputs[1].is_default);
+        assert_eq!(outputs[1].description, "WH-1000XM4");
+    }
+
+    #[test]
+    fn parse_outputs_falls_back_to_first_device_without_matching_default() {
+        let data = serde_json::json!([
+            {
+                "index": 1,
+                "name": "alsa_output.pci",
+                "description": "Speakers",
+                "volume": { "front-left": { "value_percent": "42%" } },
+                "mute": false,
+                "properties": {}
+            },
+            {
+                "index": 2,
+                "name": "bluez_output.headphones",
+                "description": "Headphones",
+                "volume": { "front-left": { "value_percent": "42%" } },
+                "mute": false,
+                "properties": {}
+            }
+        ]);
+
+        let outputs = parse_outputs(&data, Some("missing"));
+
+        assert!(outputs[0].is_default);
+        assert!(!outputs[1].is_default);
+    }
+
+    #[test]
+    fn default_name_trims_empty_values() {
+        let data = serde_json::json!({
+            "default_sink_name": " bluez_output.headphones ",
+            "default_source_name": " "
+        });
+
+        assert_eq!(
+            default_name(&data, "default_sink_name").as_deref(),
+            Some("bluez_output.headphones")
+        );
+        assert_eq!(default_name(&data, "default_source_name"), None);
     }
 
     #[test]

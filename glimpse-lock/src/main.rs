@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
         .init();
     let config = LockAppConfig::load();
     let runtime = tokio::runtime::Runtime::new()?;
-    let _instance_guard = if preview {
+    let instance_guard = if preview {
         None
     } else {
         Some(runtime.block_on(LockRuntime::acquire_single_instance())?)
@@ -46,7 +46,11 @@ fn main() -> anyhow::Result<()> {
         app::run_preview(config, gtk_args)
     } else {
         let _runtime_guard = runtime.enter();
-        app::run(config, gtk_args)
+        app::run(
+            config,
+            gtk_args,
+            instance_guard.as_ref().map(|guard| guard.connection()),
+        )
     };
     if !preview {
         if let Err(error) = runtime.block_on(logind::set_current_session_locked_hint(false)) {

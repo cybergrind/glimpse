@@ -1,7 +1,6 @@
 use serde::Serialize;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
-use zbus::zvariant::OwnedObjectPath;
 
 use crate::{
     dbus::login1::{
@@ -332,26 +331,13 @@ struct ActionWorker {
 impl ActionWorker {
     async fn run(&self, action: SessionAction) -> anyhow::Result<()> {
         match action {
-            SessionAction::Lock => self.lock().await,
+            SessionAction::Lock => anyhow::bail!("lock action must be handled by glimpse-lock"),
             SessionAction::Logout => self.logout().await,
             SessionAction::Suspend => self.suspend().await,
             SessionAction::Hibernate => self.hibernate().await,
             SessionAction::Reboot => self.reboot().await,
             SessionAction::PowerOff => self.power_off().await,
         }
-    }
-
-    async fn lock(&self) -> anyhow::Result<()> {
-        let session_id = self
-            .resolve_current_session_id()
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("could not resolve current logind session"))?;
-
-        self.logind()
-            .await?
-            .lock_session(&session_id)
-            .await
-            .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
     async fn logout(&self) -> anyhow::Result<()> {
@@ -559,7 +545,10 @@ fn read_uptime() -> Option<u64> {
         .map(|seconds| seconds as u64)
 }
 
-fn session_id_for_path(sessions: &[Login1SessionEntry], path: &OwnedObjectPath) -> Option<String> {
+fn session_id_for_path(
+    sessions: &[Login1SessionEntry],
+    path: &zbus::zvariant::OwnedObjectPath,
+) -> Option<String> {
     sessions
         .iter()
         .find(|(_, _, _, _, session_path)| session_path == path)
@@ -657,14 +646,16 @@ mod tests {
 
     #[test]
     fn session_id_for_path_matches_logind_session_entry() {
-        let path = OwnedObjectPath::try_from("/org/freedesktop/login1/session/_32").unwrap();
+        let path = zbus::zvariant::OwnedObjectPath::try_from("/org/freedesktop/login1/session/_32")
+            .unwrap();
         let sessions = vec![
             (
                 "1".into(),
                 1000,
                 "alex".into(),
                 "seat0".into(),
-                OwnedObjectPath::try_from("/org/freedesktop/login1/session/_31").unwrap(),
+                zbus::zvariant::OwnedObjectPath::try_from("/org/freedesktop/login1/session/_31")
+                    .unwrap(),
             ),
             (
                 "2".into(),

@@ -5,6 +5,8 @@ use relm4::{
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
+use glimpse_core::dbus::glimpse_lock::GlimpseLockProxy;
+
 use crate::{
     panels::applets::AppletConfig,
     services::{
@@ -272,7 +274,36 @@ impl Applet {
     }
 
     fn send_action(&self, action: SessionAction) {
+        if action == SessionAction::Lock {
+            self.request_lock();
+            return;
+        }
+
         self.send_command(Command::Run(action));
+    }
+
+    fn request_lock(&self) {
+        relm4::spawn(async move {
+            let connection = match zbus::Connection::session().await {
+                Ok(connection) => connection,
+                Err(error) => {
+                    tracing::warn!(%error, "failed to connect to session D-Bus for lock request");
+                    return;
+                }
+            };
+
+            let proxy = match GlimpseLockProxy::new(&connection).await {
+                Ok(proxy) => proxy,
+                Err(error) => {
+                    tracing::warn!(%error, "failed to create glimpse-lock D-Bus proxy");
+                    return;
+                }
+            };
+
+            if let Err(error) = proxy.lock().await {
+                tracing::warn!(%error, "failed to request lock from glimpse-lock");
+            }
+        });
     }
 }
 

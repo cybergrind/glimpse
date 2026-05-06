@@ -60,6 +60,12 @@ pub struct InstanceGuard {
     _connection: zbus::Connection,
 }
 
+impl InstanceGuard {
+    pub fn connection(&self) -> zbus::Connection {
+        self._connection.clone()
+    }
+}
+
 async fn acquire_dbus_name(name: impl Into<String>) -> anyhow::Result<InstanceGuard> {
     let name = name.into();
     tracing::debug!(name, "connecting to session D-Bus");

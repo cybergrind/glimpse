@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::{
     applets::{
         audio, battery, bluetooth, brightness, clipboard, clock, command, exec, keyboard, mpris,
-        network, notifications, pager, privacy, session, tray, weather,
+        network, notifications, pager, privacy, removable, session, tray, weather,
     },
     panels::PanelSection,
     services::framework::Services,
@@ -53,6 +53,7 @@ pub enum AppletController {
     Notifications(Controller<notifications::Applet>),
     Pager(Controller<pager::Applet>),
     Privacy(Controller<privacy::Applet>),
+    Removable(Controller<removable::Applet>),
     Session(Controller<session::Applet>),
     Tray(Controller<tray::Applet>),
     Weather(Controller<weather::Applet>),
@@ -75,6 +76,7 @@ impl AppletController {
             Self::Notifications(_) => AppletType::Notifications,
             Self::Pager(_) => AppletType::Pager,
             Self::Privacy(_) => AppletType::Privacy,
+            Self::Removable(_) => AppletType::Removable,
             Self::Session(_) => AppletType::Session,
             Self::Tray(_) => AppletType::Tray,
             Self::Weather(_) => AppletType::Weather,
@@ -97,6 +99,7 @@ impl AppletController {
             Self::Notifications(controller) => controller.widget().clone().upcast(),
             Self::Pager(controller) => controller.widget().clone().upcast(),
             Self::Privacy(controller) => controller.widget().clone().upcast(),
+            Self::Removable(controller) => controller.widget().clone().upcast(),
             Self::Session(controller) => controller.widget().clone().upcast(),
             Self::Tray(controller) => controller.widget().clone().upcast(),
             Self::Weather(controller) => controller.widget().clone().upcast(),
@@ -172,6 +175,11 @@ impl AppletController {
             }
             Self::Privacy(controller) => {
                 controller.emit(privacy::Input::Reconfigure(privacy::Config::from_raw(
+                    &config.cloned(),
+                )));
+            }
+            Self::Removable(controller) => {
+                controller.emit(removable::Input::Reconfigure(removable::Config::from_raw(
                     &config.cloned(),
                 )));
             }
@@ -326,6 +334,14 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                     compositor: services.compositor.clone(),
                     geoclue: services.geoclue.clone(),
                     config: privacy::Config::from_raw(&blueprint.config),
+                })
+                .detach(),
+        )),
+        AppletType::Removable => Some(AppletController::Removable(
+            removable::Applet::builder()
+                .launch(removable::Init {
+                    service: services.storage.clone(),
+                    config: removable::Config::from_raw(&blueprint.config),
                 })
                 .detach(),
         )),
@@ -718,6 +734,16 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "privacy");
         assert_eq!(entries[0].applet_type, AppletType::Privacy);
+        assert!(entries[0].config.is_none());
+    }
+
+    #[test]
+    fn collect_applets_falls_back_to_removable_builtin_name() {
+        let entries = collect_applets(PanelSection::Right, &["removable".into()], &HashMap::new());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "removable");
+        assert_eq!(entries[0].applet_type, AppletType::Removable);
         assert!(entries[0].config.is_none());
     }
 

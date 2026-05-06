@@ -1288,6 +1288,7 @@ dependencies = [
  "gio 0.20.12",
  "glib-build-tools 0.20.0",
  "glimpse-core",
+ "glimpse-wallpaper",
  "gtk4",
  "gtk4-session-lock",
  "image",
@@ -1360,6 +1361,7 @@ version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
+ "futures-util",
  "glimpse-core",
  "tokio",
  "tokio-util",

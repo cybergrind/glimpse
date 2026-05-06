@@ -19,9 +19,10 @@ pub trait Login1Manager {
     fn hibernate(&self, interactive: bool) -> zbus::Result<()>;
     fn reboot(&self, interactive: bool) -> zbus::Result<()>;
     fn power_off(&self, interactive: bool) -> zbus::Result<()>;
-    fn lock_session(&self, session_id: &str) -> zbus::Result<()>;
-    fn lock_sessions(&self) -> zbus::Result<()>;
     fn terminate_session(&self, session_id: &str) -> zbus::Result<()>;
+
+    #[zbus(signal, name = "PrepareForSleep")]
+    fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
 }
 
 #[zbus::proxy(
