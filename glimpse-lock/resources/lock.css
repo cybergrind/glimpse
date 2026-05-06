@@ -27,6 +27,7 @@
 
 .lock-auth-panel {
   background: transparent;
+  margin-top: 140px;
   padding: 18px;
 }
 
@@ -90,6 +91,24 @@
   margin: 32px;
 }
 
+.lock-control-row {
+  background: transparent;
+}
+
+.lock-power-dismiss {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.lock-power-dismiss:hover,
+.lock-power-dismiss:active,
+.lock-power-dismiss:checked {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 .lock-control-button {
   background: transparent;
   border: none;
@@ -115,30 +134,75 @@
   background: transparent;
 }
 
+.lock-control-value {
+  font-weight: 600;
+}
+
 .lock-input-button {
   font-weight: 700;
   min-width: 42px;
 }
 
-.lock-power-popover {
-  background: rgba(18, 18, 18, 0.46);
-  border: none;
-  border-radius: 14px;
-  color: white;
-  padding: 4px;
-}
-
-.lock-power-popover contents {
-  background: rgba(18, 18, 18, 0.46);
-  border: none;
-  border-radius: 14px;
-  box-shadow: none;
-  padding: 4px;
+.lock-power-revealer {
+  background: transparent;
 }
 
 .lock-power-menu {
-  min-width: 80px;
-  padding: 0;
+  background: rgba(18, 18, 18, 0.58);
+  border-radius: 14px;
+  min-width: 112px;
+  padding: 4px;
+}
+
+.lock-power-confirm-modal-wrap {
+  margin: 32px;
+}
+
+.lock-power-confirm-modal {
+  background: rgb(18, 18, 18);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  color: white;
+  min-width: 320px;
+  padding: 22px;
+}
+
+.lock-power-confirm-icon {
+  -gtk-icon-size: 28px;
+}
+
+.lock-power-confirm-title {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lock-power-confirm-body {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+}
+
+.lock-power-confirm-actions {
+  margin-top: 2px;
+}
+
+.lock-power-confirm-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  min-height: 32px;
+  min-width: 72px;
+  padding: 6px 10px;
+}
+
+.lock-power-confirm-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.lock-power-confirm-danger {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .lock-power-action {

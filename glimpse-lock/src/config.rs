@@ -133,9 +133,9 @@ impl Default for LockControlsConfig {
     fn default() -> Self {
         Self {
             buttons: vec![
-                LockControlButton::Weather,
                 LockControlButton::Wifi,
                 LockControlButton::Input,
+                LockControlButton::Weather,
                 LockControlButton::Battery,
                 LockControlButton::Power,
             ],
@@ -395,9 +395,9 @@ mod tests {
         assert_eq!(
             config.controls.buttons,
             vec![
-                LockControlButton::Weather,
                 LockControlButton::Wifi,
                 LockControlButton::Input,
+                LockControlButton::Weather,
                 LockControlButton::Battery,
                 LockControlButton::Power,
             ]

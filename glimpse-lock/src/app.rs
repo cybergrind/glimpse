@@ -11,15 +11,18 @@ use std::{
 
 use css_color::Srgb;
 use glimpse_core::{
-    Config, ConfigEvent, FitMode, LocationConfig, ResolvedImageSpec, WallpaperConfig,
-    compositors::keyboard_layout_code,
+    Config, ConfigEvent, FitMode, KeyboardConfig, LocationConfig, ResolvedImageSpec,
+    WallpaperConfig,
     dbus::Dbus,
     heic,
     services::{
         battery::{BatteryHandle, BatteryService, State as BatteryState},
-        compositor::{CompositorHandle, CompositorService, State as CompositorState},
+        compositor::CompositorService,
         framework::{Control, ServiceCommand},
         geoclue::GeoClueService,
+        keyboard::{
+            Command as KeyboardCommand, KeyboardHandle, KeyboardService, State as KeyboardState,
+        },
         location::{LocationHandle, LocationService},
         network::{NetworkHandle, NetworkService, State as NetworkState},
         session::{Command as SessionCommand, SessionAction, SessionHandle, SessionService},
@@ -29,7 +32,10 @@ use glimpse_core::{
 };
 use gtk4::{
     ContentFit, CssProvider, gdk,
-    glib::{self, object::Cast},
+    glib::{
+        self,
+        object::{Cast, IsA},
+    },
     prelude::*,
 };
 use gtk4_session_lock::Instance;
@@ -75,7 +81,7 @@ pub enum AppCommand {
     WeatherState(weather_model::State),
     BatteryState(BatteryState),
     NetworkState(NetworkState),
-    CompositorState(CompositorState),
+    KeyboardState(KeyboardState),
     CycleInput,
     PowerAction(LockPowerAction),
     ClockTick,
@@ -98,6 +104,7 @@ pub struct LockAppConfig {
     pub lock: LockConfig,
     pub wallpaper: WallpaperConfig,
     pub location: LocationConfig,
+    pub keyboard: KeyboardConfig,
     pub config_dir: PathBuf,
 }
 
@@ -108,6 +115,7 @@ impl LockAppConfig {
             lock: LockConfig::load(),
             wallpaper: shared.wallpaper,
             location: shared.location,
+            keyboard: shared.keyboard,
             config_dir: lock_config_dir(),
         }
     }
@@ -122,6 +130,7 @@ impl LockAppConfig {
             lock,
             wallpaper: shared.wallpaper,
             location: shared.location,
+            keyboard: shared.keyboard,
             config_dir: lock_config_dir(),
         }
     }
@@ -131,6 +140,7 @@ impl LockAppConfig {
             lock: self.lock.clone(),
             wallpaper: shared.wallpaper,
             location: shared.location,
+            keyboard: shared.keyboard,
             config_dir: self.config_dir.clone(),
         }
     }
@@ -138,6 +148,7 @@ impl LockAppConfig {
     fn service_config(&self) -> Config {
         Config {
             location: self.location.clone(),
+            keyboard: self.keyboard.clone(),
             ..Config::default()
         }
     }
@@ -154,26 +165,22 @@ pub struct UserInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LockControlStatus {
     wifi_icon: String,
-    wifi_tooltip: String,
     battery_icon: String,
-    battery_tooltip: String,
+    battery_percent: String,
     weather_icon: String,
-    weather_tooltip: String,
+    weather_temperature: String,
     input_label: String,
-    input_tooltip: String,
 }
 
 impl Default for LockControlStatus {
     fn default() -> Self {
         Self {
             wifi_icon: "network-wireless-offline-symbolic".into(),
-            wifi_tooltip: "Wi-Fi unavailable".into(),
             battery_icon: "battery-missing-symbolic".into(),
-            battery_tooltip: "Battery unavailable".into(),
+            battery_percent: "--".into(),
             weather_icon: "weather-overcast-symbolic".into(),
-            weather_tooltip: "Weather unavailable".into(),
+            weather_temperature: "--".into(),
             input_label: "--".into(),
-            input_tooltip: "Keyboard layout unavailable".into(),
         }
     }
 }
@@ -184,7 +191,7 @@ struct LockServices {
     battery: Option<BatteryHandle>,
     network: Option<NetworkHandle>,
     session: Option<SessionHandle>,
-    compositor: CompositorHandle,
+    keyboard: KeyboardHandle,
     cancel: CancellationToken,
 }
 
@@ -277,10 +284,21 @@ impl SimpleComponent for LockApp {
         if init.mode == LockMode::Resident {
             let (logind_tx, mut logind_rx) = mpsc::channel(4);
             relm4::spawn(async move {
+                let mut retry_delay = Duration::from_secs(1);
                 loop {
-                    if let Err(error) = logind::watch_lock_signals(logind_tx.clone()).await {
-                        tracing::warn!(%error, "stopped watching logind lock signals");
-                        sleep(Duration::from_secs(2)).await;
+                    match logind::watch_lock_signals(logind_tx.clone()).await {
+                        Ok(()) => {
+                            retry_delay = Duration::from_secs(1);
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                error = %format!("{error:#}"),
+                                retry_seconds = retry_delay.as_secs(),
+                                "stopped watching logind lock signals; retrying"
+                            );
+                            sleep(retry_delay).await;
+                            retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
+                        }
                     }
                 }
             });
@@ -450,38 +468,38 @@ impl SimpleComponent for LockApp {
                 self.emit_to_lock_windows(LockWindowInput::ControlStatus(status));
             }
             AppCommand::WeatherState(state) => {
-                let (icon, tooltip) = weather_control_status(&state);
+                let (icon, temperature) = weather_control_status(&state);
                 let mut status = self.control_status.clone();
                 status.weather_icon = icon;
-                status.weather_tooltip = tooltip;
+                status.weather_temperature = temperature;
                 sender.input(AppCommand::ControlStatus(status));
             }
             AppCommand::BatteryState(state) => {
-                let (icon, tooltip) = battery_control_status(&state);
+                let (icon, percent) = battery_control_status(&state);
                 let mut status = self.control_status.clone();
                 status.battery_icon = icon;
-                status.battery_tooltip = tooltip;
+                status.battery_percent = percent;
                 sender.input(AppCommand::ControlStatus(status));
             }
             AppCommand::NetworkState(state) => {
-                let (icon, tooltip) = network_control_status(&state);
+                let icon = network_control_status(&state);
                 let mut status = self.control_status.clone();
                 status.wifi_icon = icon;
-                status.wifi_tooltip = tooltip;
                 sender.input(AppCommand::ControlStatus(status));
             }
-            AppCommand::CompositorState(state) => {
-                let (label, tooltip) = input_control_status(&state);
+            AppCommand::KeyboardState(state) => {
+                let label = keyboard_control_status(&state);
                 let mut status = self.control_status.clone();
                 status.input_label = label;
-                status.input_tooltip = tooltip;
                 sender.input(AppCommand::ControlStatus(status));
             }
             AppCommand::CycleInput => {
-                cycle_keyboard_layout(&self.services.compositor);
+                cycle_keyboard_layout(&self.services.keyboard);
             }
             AppCommand::PowerAction(action) => {
-                run_power_action(self.services.session.as_ref(), action);
+                if should_run_power_action(self.mode, action) {
+                    run_power_action(self.services.session.as_ref(), action);
+                }
             }
             AppCommand::ClockTick => {
                 self.emit_to_lock_windows(LockWindowInput::ClockTick);
@@ -733,6 +751,7 @@ fn start_lock_services(config: &LockAppConfig, sender: &ComponentSender<LockApp>
     let (network_service, network) = NetworkService::new(dbus.system.clone());
     let (session_service, session) = SessionService::new(dbus.system);
     let (compositor_service, compositor) = CompositorService::new();
+    let (keyboard_service, keyboard) = KeyboardService::new(compositor.clone());
 
     spawn_cancellable_service(cancel.clone(), |task_cancel| {
         geoclue_service.run(task_cancel)
@@ -755,6 +774,9 @@ fn start_lock_services(config: &LockAppConfig, sender: &ComponentSender<LockApp>
     spawn_cancellable_service(cancel.clone(), |task_cancel| {
         compositor_service.run(task_cancel)
     });
+    spawn_cancellable_service(cancel.clone(), |task_cancel| {
+        keyboard_service.run(task_cancel)
+    });
 
     start_lock_service_inputs(
         config,
@@ -763,7 +785,7 @@ fn start_lock_services(config: &LockAppConfig, sender: &ComponentSender<LockApp>
         &weather,
         Some(&battery),
         Some(&network),
-        &compositor,
+        &keyboard,
     );
 
     LockServices {
@@ -772,7 +794,7 @@ fn start_lock_services(config: &LockAppConfig, sender: &ComponentSender<LockApp>
         battery: Some(battery),
         network: Some(network),
         session: Some(session),
-        compositor,
+        keyboard,
         cancel,
     }
 }
@@ -786,6 +808,7 @@ fn start_lock_services_without_dbus(
 ) -> LockServices {
     let (weather_service, weather) = WeatherService::new(location.clone());
     let (compositor_service, compositor) = CompositorService::new();
+    let (keyboard_service, keyboard) = KeyboardService::new(compositor.clone());
     spawn_cancellable_service(cancel.clone(), |task_cancel| {
         location_service.run(task_cancel)
     });
@@ -795,14 +818,17 @@ fn start_lock_services_without_dbus(
     spawn_cancellable_service(cancel.clone(), |task_cancel| {
         compositor_service.run(task_cancel)
     });
-    start_lock_service_inputs(config, sender, &location, &weather, None, None, &compositor);
+    spawn_cancellable_service(cancel.clone(), |task_cancel| {
+        keyboard_service.run(task_cancel)
+    });
+    start_lock_service_inputs(config, sender, &location, &weather, None, None, &keyboard);
     LockServices {
         location,
         weather,
         battery: None,
         network: None,
         session: None,
-        compositor,
+        keyboard,
         cancel,
     }
 }
@@ -825,9 +851,10 @@ fn start_lock_service_inputs(
     weather: &WeatherHandle,
     battery: Option<&BatteryHandle>,
     network: Option<&NetworkHandle>,
-    compositor: &CompositorHandle,
+    keyboard: &KeyboardHandle,
 ) {
     start_location_service(location, config);
+    start_keyboard_service(keyboard, config);
     configure_weather_service(weather);
     subscribe_weather_service(weather, sender);
     if let Some(battery) = battery {
@@ -836,12 +863,26 @@ fn start_lock_service_inputs(
     if let Some(network) = network {
         subscribe_network_service(network, sender);
     }
-    subscribe_compositor_service(compositor, sender);
+    subscribe_keyboard_service(keyboard, sender);
 }
 
 fn reconfigure_lock_services(services: &LockServices, config: &LockAppConfig) {
     reconfigure_location_service(&services.location, config);
+    reconfigure_keyboard_service(&services.keyboard, config);
     configure_weather_service(&services.weather);
+}
+
+fn reconfigure_keyboard_service(keyboard: &KeyboardHandle, config: &LockAppConfig) {
+    let keyboard = keyboard.clone();
+    let config = config.service_config();
+    relm4::spawn(async move {
+        if let Err(error) = keyboard
+            .send(ServiceCommand::Control(Control::Reconfigure(config)))
+            .await
+        {
+            tracing::warn!(%error, "failed to reconfigure lock keyboard service");
+        }
+    });
 }
 
 fn reconfigure_location_service(location: &LocationHandle, config: &LockAppConfig) {
@@ -875,6 +916,19 @@ fn start_location_service(location: &LocationHandle, config: &LockAppConfig) {
             .await
         {
             tracing::debug!(%error, "failed to request lock location refresh");
+        }
+    });
+}
+
+fn start_keyboard_service(keyboard: &KeyboardHandle, config: &LockAppConfig) {
+    let keyboard = keyboard.clone();
+    let config = config.service_config();
+    relm4::spawn(async move {
+        if let Err(error) = keyboard
+            .send(ServiceCommand::Control(Control::Start(config)))
+            .await
+        {
+            tracing::warn!(%error, "failed to start lock keyboard service");
         }
     });
 }
@@ -926,13 +980,13 @@ fn subscribe_network_service(network: &NetworkHandle, sender: &ComponentSender<L
     });
 }
 
-fn subscribe_compositor_service(compositor: &CompositorHandle, sender: &ComponentSender<LockApp>) {
-    let mut rx = compositor.subscribe();
+fn subscribe_keyboard_service(keyboard: &KeyboardHandle, sender: &ComponentSender<LockApp>) {
+    let mut rx = keyboard.subscribe();
     let input = sender.input_sender().clone();
-    let _ = input.send(AppCommand::CompositorState(rx.borrow().clone()));
+    let _ = input.send(AppCommand::KeyboardState(rx.borrow().clone()));
     relm4::spawn_local(async move {
         while rx.changed().await.is_ok() {
-            let _ = input.send(AppCommand::CompositorState(rx.borrow().clone()));
+            let _ = input.send(AppCommand::KeyboardState(rx.borrow().clone()));
         }
     });
 }
@@ -960,41 +1014,27 @@ fn weather_control_status(state: &weather_model::State) -> (String, String) {
             );
             (
                 snapshot.current.icon.clone(),
-                format!(
-                    "{:.0} C, {} ({})",
-                    snapshot.current.temperature,
-                    snapshot.current.condition,
-                    snapshot.location.city
-                ),
+                format!("{:.0}C", snapshot.current.temperature),
             )
         }
         weather_model::State::Loading => {
             tracing::debug!("lock weather state loading");
-            ("weather-overcast-symbolic".into(), "Loading weather".into())
+            ("weather-overcast-symbolic".into(), "--".into())
         }
         weather_model::State::Unavailable(error) => {
             tracing::debug!(%error, "lock weather state unavailable");
-            (
-                "weather-overcast-symbolic".into(),
-                format!("Weather unavailable: {error}"),
-            )
+            ("weather-overcast-symbolic".into(), "--".into())
         }
         weather_model::State::Unknown => {
             tracing::debug!("lock weather state unknown");
-            (
-                "weather-overcast-symbolic".into(),
-                "Weather unavailable".into(),
-            )
+            ("weather-overcast-symbolic".into(), "--".into())
         }
     }
 }
 
 fn battery_control_status(state: &BatteryState) -> (String, String) {
     if !state.status.present {
-        return (
-            "battery-missing-symbolic".into(),
-            "Battery unavailable".into(),
-        );
+        return ("battery-missing-symbolic".into(), "--".into());
     }
 
     let icon = if state.status.icon_name.is_empty() {
@@ -1002,17 +1042,15 @@ fn battery_control_status(state: &BatteryState) -> (String, String) {
     } else {
         state.status.icon_name.clone()
     };
-    (
-        icon,
-        format!(
-            "Battery {}% {}",
-            state.status.percentage,
-            battery_state_label(&state.status.state)
-        ),
-    )
+    let percent = if state.status.on_battery {
+        format!("{}%", state.status.percentage)
+    } else {
+        String::new()
+    };
+    (icon, percent)
 }
 
-fn network_control_status(state: &NetworkState) -> (String, String) {
+fn network_control_status(state: &NetworkState) -> String {
     let snapshot = &state.snapshot;
     let icon = if snapshot.status.icon.is_empty() {
         "network-offline-symbolic".into()
@@ -1021,44 +1059,24 @@ fn network_control_status(state: &NetworkState) -> (String, String) {
     };
 
     if !snapshot.status.enabled {
-        return (icon, "Network disabled".into());
+        return icon;
     }
     if !snapshot.status.wifi_hw_enabled {
-        return (icon, "Wi-Fi unavailable".into());
+        return icon;
     }
     if !snapshot.status.wifi_enabled {
-        return (icon, "Wi-Fi disabled".into());
+        return icon;
     }
-    if let Some(ap) = snapshot
-        .wifi_access_points
-        .iter()
-        .find(|access_point| access_point.connected)
-    {
-        return (icon, format!("Wi-Fi connected: {}", ap.ssid));
-    }
-    if snapshot.status.primary_type == "ethernet" {
-        return (icon, "Wired network connected".into());
-    }
-    (icon, "Wi-Fi disconnected".into())
+    icon
 }
 
-fn input_control_status(state: &CompositorState) -> (String, String) {
-    let Some(index) = state.current_keyboard_layout else {
-        return ("--".into(), "Keyboard layout unavailable".into());
-    };
-    let Some(layout) = state
-        .keyboard_layouts
-        .iter()
-        .find(|layout| layout.index == index)
-        .or_else(|| state.keyboard_layouts.get(index))
-    else {
-        return ("--".into(), "Keyboard layout unavailable".into());
-    };
-
-    (
-        keyboard_layout_code(&layout.name),
-        format!("Keyboard layout: {}", layout.name),
-    )
+fn keyboard_control_status(state: &KeyboardState) -> String {
+    state
+        .current_layout
+        .as_ref()
+        .filter(|_| state.available)
+        .map(|layout| layout.label.clone())
+        .unwrap_or_else(|| "--".into())
 }
 
 fn fallback_battery_icon_name(capacity: u8) -> &'static str {
@@ -1067,18 +1085,6 @@ fn fallback_battery_icon_name(capacity: u8) -> &'static str {
         11..=30 => "battery-low-symbolic",
         31..=90 => "battery-good-symbolic",
         _ => "battery-full-symbolic",
-    }
-}
-
-fn battery_state_label(state: &glimpse_core::services::battery::BatteryState) -> &'static str {
-    match state {
-        glimpse_core::services::battery::BatteryState::Charging => "Charging",
-        glimpse_core::services::battery::BatteryState::Discharging => "Discharging",
-        glimpse_core::services::battery::BatteryState::Empty => "Empty",
-        glimpse_core::services::battery::BatteryState::FullyCharged => "Full",
-        glimpse_core::services::battery::BatteryState::PendingCharge => "Pending charge",
-        glimpse_core::services::battery::BatteryState::PendingDischarge => "Pending discharge",
-        glimpse_core::services::battery::BatteryState::Unknown => "Unknown",
     }
 }
 
@@ -1105,6 +1111,8 @@ pub struct LockWindow {
     user: UserInfo,
     status: String,
     controls: LockControlStatus,
+    power_menu_open: bool,
+    confirm_power_action: Option<LockPowerAction>,
     show_auth: bool,
     caps_lock: bool,
     clock_tick: u64,
@@ -1132,12 +1140,16 @@ pub enum LockWindowInput {
     PowerAction(LockPowerAction),
     ControlStatus(LockControlStatus),
     CycleInput,
+    TogglePowerMenu,
+    ClosePowerMenu,
+    CancelPowerAction,
+    ConfirmPowerAction(LockPowerAction),
     CapsLockChanged(bool),
     SetPrimary(bool),
     ClockTick,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockPowerAction {
     Suspend,
     Restart,
@@ -1185,6 +1197,7 @@ impl SimpleComponent for LockWindow {
                     },
                 },
 
+                #[name(auth_panel)]
                 add_overlay = &gtk::Box {
                     add_css_class: "lock-auth-panel",
                     set_halign: gtk::Align::Center,
@@ -1257,80 +1270,315 @@ impl SimpleComponent for LockWindow {
                     },
                 },
 
+                add_overlay = &gtk::Button {
+                    add_css_class: "flat",
+                    add_css_class: "lock-power-dismiss",
+                    set_halign: gtk::Align::Fill,
+                    set_valign: gtk::Align::Fill,
+                    set_hexpand: true,
+                    set_vexpand: true,
+                    set_focusable: false,
+                    set_focus_on_click: false,
+                    #[watch]
+                    set_visible: model.power_menu_open || model.confirm_power_action.is_some(),
+                    connect_clicked[sender] => move |_| {
+                        sender.input(LockWindowInput::ClosePowerMenu);
+                    },
+                },
+
+                add_overlay = &gtk::Box {
+                    add_css_class: "lock-power-confirm-modal-wrap",
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                    set_orientation: gtk::Orientation::Vertical,
+                    #[watch]
+                    set_visible: model.confirm_power_action.is_some(),
+
+                    gtk::Box {
+                        add_css_class: "lock-power-confirm-modal",
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 16,
+
+                        gtk::Image {
+                            add_css_class: "lock-power-confirm-icon",
+                            #[watch]
+                            set_icon_name: Some(power_confirmation_icon(model.confirm_power_action)),
+                        },
+
+                        gtk::Label {
+                            add_css_class: "lock-power-confirm-title",
+                            set_halign: gtk::Align::Center,
+                            set_wrap: true,
+                            set_justify: gtk::Justification::Center,
+                            #[watch]
+                            set_label: &power_confirmation_title(model.confirm_power_action),
+                        },
+
+                        gtk::Label {
+                            add_css_class: "lock-power-confirm-body",
+                            set_halign: gtk::Align::Center,
+                            set_wrap: true,
+                            set_justify: gtk::Justification::Center,
+                            set_label: "Open sessions may lose unsaved work.",
+                        },
+
+                        gtk::Box {
+                            add_css_class: "lock-power-confirm-actions",
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_halign: gtk::Align::Center,
+                            set_spacing: 8,
+
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-confirm-button",
+                                set_label: "Cancel",
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::CancelPowerAction);
+                                },
+                            },
+
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-confirm-button",
+                                add_css_class: "lock-power-confirm-danger",
+                                set_label: "Restart",
+                                #[watch]
+                                set_visible: model.confirm_power_action == Some(LockPowerAction::Restart),
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::ConfirmPowerAction(LockPowerAction::Restart));
+                                },
+                            },
+
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-confirm-button",
+                                add_css_class: "lock-power-confirm-danger",
+                                set_label: "Shut Down",
+                                #[watch]
+                                set_visible: model.confirm_power_action == Some(LockPowerAction::Shutdown),
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::ConfirmPowerAction(LockPowerAction::Shutdown));
+                                },
+                            },
+                        },
+                    },
+                },
+
+                #[name(controls)]
                 add_overlay = &gtk::Box {
                     add_css_class: "lock-controls",
                     set_halign: gtk::Align::End,
                     set_valign: gtk::Align::End,
-                    set_orientation: gtk::Orientation::Horizontal,
+                    set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 8,
                     #[watch]
                     set_visible: model.show_auth,
+                    #[watch]
+                    set_sensitive: model.confirm_power_action.is_none(),
 
-                    #[name(weather_button)]
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "lock-control-button",
-                        add_css_class: "lock-control-status-button",
+                    gtk::Revealer {
+                        add_css_class: "lock-power-revealer",
+                        set_halign: gtk::Align::End,
+                        set_transition_type: gtk::RevealerTransitionType::SlideUp,
+                        set_transition_duration: 140,
                         #[watch]
-                        set_icon_name: &model.controls.weather_icon,
+                        set_reveal_child: model.power_menu_open,
                         #[watch]
-                        set_tooltip_text: Some(&model.controls.weather_tooltip),
-                        #[watch]
-                        set_visible: lock_control_enabled(&model.spec, LockControlButton::Weather),
-                    },
+                        set_visible: model.power_menu_open && lock_control_enabled(&model.spec, LockControlButton::Power),
 
-                    #[name(wifi_button)]
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "lock-control-button",
-                        add_css_class: "lock-control-status-button",
-                        #[watch]
-                        set_icon_name: &model.controls.wifi_icon,
-                        #[watch]
-                        set_tooltip_text: Some(&model.controls.wifi_tooltip),
-                        #[watch]
-                        set_visible: lock_control_enabled(&model.spec, LockControlButton::Wifi),
-                    },
+                        gtk::Box {
+                            add_css_class: "lock-power-menu",
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 2,
 
-                    #[name(input_button)]
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "lock-control-button",
-                        add_css_class: "lock-control-status-button",
-                        add_css_class: "lock-input-button",
-                        #[watch]
-                        set_label: &model.controls.input_label,
-                        #[watch]
-                        set_tooltip_text: Some(&model.controls.input_tooltip),
-                        #[watch]
-                        set_visible: lock_control_enabled(&model.spec, LockControlButton::Input),
-                        connect_clicked[sender] => move |_| {
-                            sender.input(LockWindowInput::CycleInput);
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-action",
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::PowerAction(LockPowerAction::Suspend));
+                                },
+
+                                #[wrap(Some)]
+                                set_child = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 8,
+
+                                    gtk::Image {
+                                        add_css_class: "lock-power-action-icon",
+                                        set_icon_name: Some("media-playback-pause-symbolic"),
+                                    },
+
+                                    gtk::Label {
+                                        add_css_class: "lock-power-action-label",
+                                        set_hexpand: true,
+                                        set_halign: gtk::Align::Fill,
+                                        set_xalign: 0.0,
+                                        set_label: "Suspend",
+                                    },
+                                },
+                            },
+
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-action",
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::PowerAction(LockPowerAction::Restart));
+                                },
+
+                                #[wrap(Some)]
+                                set_child = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 8,
+
+                                    gtk::Image {
+                                        add_css_class: "lock-power-action-icon",
+                                        set_icon_name: Some("view-refresh-symbolic"),
+                                    },
+
+                                    gtk::Label {
+                                        add_css_class: "lock-power-action-label",
+                                        set_hexpand: true,
+                                        set_halign: gtk::Align::Fill,
+                                        set_xalign: 0.0,
+                                        set_label: "Restart",
+                                    },
+                                },
+                            },
+
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "lock-power-action",
+                                connect_clicked[sender] => move |_| {
+                                    sender.input(LockWindowInput::PowerAction(LockPowerAction::Shutdown));
+                                },
+
+                                #[wrap(Some)]
+                                set_child = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 8,
+
+                                    gtk::Image {
+                                        add_css_class: "lock-power-action-icon",
+                                        set_icon_name: Some("system-shutdown-symbolic"),
+                                    },
+
+                                    gtk::Label {
+                                        add_css_class: "lock-power-action-label",
+                                        set_hexpand: true,
+                                        set_halign: gtk::Align::Fill,
+                                        set_xalign: 0.0,
+                                        set_label: "Shutdown",
+                                    },
+                                },
+                            },
                         },
                     },
 
-                    #[name(battery_button)]
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "lock-control-button",
-                        add_css_class: "lock-control-status-button",
-                        #[watch]
-                        set_icon_name: &model.controls.battery_icon,
-                        #[watch]
-                        set_tooltip_text: Some(&model.controls.battery_tooltip),
-                        #[watch]
-                        set_visible: lock_control_enabled(&model.spec, LockControlButton::Battery),
-                    },
+                    gtk::Box {
+                        add_css_class: "lock-control-row",
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 8,
 
-                    #[name(power_button)]
-                    gtk::Button {
-                        add_css_class: "flat",
-                        add_css_class: "lock-control-button",
-                        add_css_class: "lock-control-action-button",
-                        set_icon_name: "system-shutdown-symbolic",
-                        set_tooltip_text: Some("Power"),
-                        #[watch]
-                        set_visible: lock_control_enabled(&model.spec, LockControlButton::Power),
+                        #[name(weather_button)]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "lock-control-button",
+                            add_css_class: "lock-control-status-button",
+                            set_focusable: false,
+                            set_focus_on_click: false,
+                            #[watch]
+                            set_visible: lock_control_enabled(&model.spec, LockControlButton::Weather),
+
+                            #[wrap(Some)]
+                            set_child = &gtk::Box {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_spacing: 6,
+
+                                gtk::Image {
+                                    #[watch]
+                                    set_icon_name: Some(&model.controls.weather_icon),
+                                },
+
+                                gtk::Label {
+                                    add_css_class: "lock-control-value",
+                                    #[watch]
+                                    set_label: &model.controls.weather_temperature,
+                                },
+                            },
+                        },
+
+                        #[name(wifi_button)]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "lock-control-button",
+                            add_css_class: "lock-control-status-button",
+                            set_focusable: false,
+                            set_focus_on_click: false,
+                            #[watch]
+                            set_icon_name: &model.controls.wifi_icon,
+                            #[watch]
+                            set_visible: lock_control_enabled(&model.spec, LockControlButton::Wifi),
+                        },
+
+                        #[name(input_button)]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "lock-control-button",
+                            add_css_class: "lock-control-status-button",
+                            add_css_class: "lock-input-button",
+                            set_focusable: false,
+                            set_focus_on_click: false,
+                            #[watch]
+                            set_label: &model.controls.input_label,
+                            #[watch]
+                            set_visible: lock_control_enabled(&model.spec, LockControlButton::Input),
+                            connect_clicked[sender] => move |_| {
+                                sender.input(LockWindowInput::CycleInput);
+                            },
+                        },
+
+                        #[name(battery_button)]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "lock-control-button",
+                            add_css_class: "lock-control-status-button",
+                            set_focusable: false,
+                            set_focus_on_click: false,
+                            #[watch]
+                            set_visible: lock_control_enabled(&model.spec, LockControlButton::Battery),
+
+                            #[wrap(Some)]
+                            set_child = &gtk::Box {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_spacing: 6,
+
+                                gtk::Image {
+                                    #[watch]
+                                    set_icon_name: Some(&model.controls.battery_icon),
+                                },
+
+                                gtk::Label {
+                                    add_css_class: "lock-control-value",
+                                    #[watch]
+                                    set_label: &model.controls.battery_percent,
+                                },
+                            },
+                        },
+
+                        #[name(power_button)]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "lock-control-button",
+                            add_css_class: "lock-control-action-button",
+                            set_focusable: false,
+                            set_focus_on_click: false,
+                            set_icon_name: "system-shutdown-symbolic",
+                            #[watch]
+                            set_visible: lock_control_enabled(&model.spec, LockControlButton::Power),
+                            connect_clicked[sender] => move |_| {
+                                sender.input(LockWindowInput::TogglePowerMenu);
+                            },
+                        },
                     },
                 }
             }
@@ -1350,8 +1598,10 @@ impl SimpleComponent for LockWindow {
         let model = LockWindow {
             spec: init.spec,
             user: init.user,
-            status: "Unlock".into(),
+            status: String::new(),
             controls: init.control_status,
+            power_menu_open: false,
+            confirm_power_action: None,
             show_auth: init.show_auth,
             caps_lock: false,
             clock_tick: 0,
@@ -1360,7 +1610,7 @@ impl SimpleComponent for LockWindow {
             sender: init.sender,
         };
         let widgets = view_output!();
-        connect_power_menu(&widgets.power_button, sender.input_sender().clone());
+        connect_lock_window_keys(&root, sender.input_sender().clone());
         connect_caps_lock_indicator(&widgets.password_entry, sender.input_sender().clone());
         if let Some(path) = &model.user.icon_path {
             widgets.user_picture.set_filename(Some(path));
@@ -1379,6 +1629,8 @@ impl SimpleComponent for LockWindow {
             });
         }
         if model.show_auth {
+            animate_widget_opacity(&widgets.auth_panel, Duration::from_millis(180));
+            animate_widget_opacity(&widgets.controls, Duration::from_millis(220));
             gtk4::prelude::GtkWindowExt::set_focus(&root, Some(&widgets.password_entry));
             widgets.password_entry.grab_focus();
             let password_entry = widgets.password_entry.clone();
@@ -1392,6 +1644,10 @@ impl SimpleComponent for LockWindow {
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
             LockWindowInput::Reconfigure(spec) => {
+                if !lock_control_enabled(&spec, LockControlButton::Power) {
+                    self.power_menu_open = false;
+                    self.confirm_power_action = None;
+                }
                 self.spec = spec.clone();
                 self.background.emit(BackgroundInput::Reconfigure(spec));
             }
@@ -1403,24 +1659,59 @@ impl SimpleComponent for LockWindow {
             }
             LockWindowInput::AuthSucceeded => {
                 self.status = "Authentication accepted".into();
+                self.power_menu_open = false;
+                self.confirm_power_action = None;
             }
             LockWindowInput::AuthFailed => {
                 self.status = "Authentication failed".into();
             }
             LockWindowInput::PowerAction(action) => {
+                if action.requires_confirmation() && self.confirm_power_action != Some(action) {
+                    self.confirm_power_action = Some(action);
+                    self.power_menu_open = false;
+                    return;
+                }
+                self.confirm_power_action = None;
+                self.power_menu_open = false;
                 let _ = self.sender.send(AppCommand::PowerAction(action));
+            }
+            LockWindowInput::ConfirmPowerAction(action) => {
+                if self.confirm_power_action == Some(action) {
+                    self.confirm_power_action = None;
+                    self.power_menu_open = false;
+                    let _ = self.sender.send(AppCommand::PowerAction(action));
+                }
             }
             LockWindowInput::ControlStatus(status) => {
                 self.controls = status;
             }
             LockWindowInput::CycleInput => {
+                self.power_menu_open = false;
+                self.confirm_power_action = None;
                 let _ = self.sender.send(AppCommand::CycleInput);
+            }
+            LockWindowInput::TogglePowerMenu => {
+                self.power_menu_open = !self.power_menu_open;
+                if !self.power_menu_open {
+                    self.confirm_power_action = None;
+                }
+            }
+            LockWindowInput::ClosePowerMenu => {
+                self.power_menu_open = false;
+                self.confirm_power_action = None;
+            }
+            LockWindowInput::CancelPowerAction => {
+                self.confirm_power_action = None;
             }
             LockWindowInput::CapsLockChanged(caps_lock) => {
                 self.caps_lock = caps_lock;
             }
             LockWindowInput::SetPrimary(show_auth) => {
                 self.show_auth = show_auth;
+                if !show_auth {
+                    self.power_menu_open = false;
+                    self.confirm_power_action = None;
+                }
             }
             LockWindowInput::ClockTick => {
                 self.clock_tick = self.clock_tick.wrapping_add(1);
@@ -1433,40 +1724,67 @@ fn lock_control_enabled(spec: &ResolvedLockSpec, button: LockControlButton) -> b
     spec.controls.contains(&button)
 }
 
-fn connect_power_menu(button: &gtk::Button, sender: relm4::Sender<LockWindowInput>) {
-    let popover = gtk::Popover::new();
-    popover.add_css_class("lock-power-popover");
-    popover.set_has_arrow(false);
-    popover.set_parent(button);
-
-    let menu = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    menu.add_css_class("lock-power-menu");
-    menu.append(&power_action_button(
-        "Suspend",
-        "media-playback-pause-symbolic",
-        LockPowerAction::Suspend,
-        &sender,
-        &popover,
-    ));
-    menu.append(&power_action_button(
-        "Restart",
-        "view-refresh-symbolic",
-        LockPowerAction::Restart,
-        &sender,
-        &popover,
-    ));
-    menu.append(&power_action_button(
-        "Shutdown",
-        "system-shutdown-symbolic",
-        LockPowerAction::Shutdown,
-        &sender,
-        &popover,
-    ));
-    popover.set_child(Some(&menu));
-
-    button.connect_clicked(move |_| {
-        popover.popup();
+fn animate_widget_opacity<W>(widget: &W, duration: Duration)
+where
+    W: IsA<gtk::Widget>,
+{
+    let widget = widget.clone().upcast::<gtk::Widget>();
+    if !gtk_animations_enabled() {
+        widget.set_opacity(1.0);
+        return;
+    }
+    widget.set_opacity(0.0);
+    let started_at = Rc::new(Cell::new(None::<i64>));
+    widget.add_tick_callback(move |widget, clock| {
+        let start = started_at.get().unwrap_or_else(|| {
+            let frame_time = clock.frame_time();
+            started_at.set(Some(frame_time));
+            frame_time
+        });
+        let elapsed = (clock.frame_time() - start).max(0) as f64 / 1_000_000.0;
+        let duration = duration.as_secs_f64().max(0.001);
+        let progress = (elapsed / duration).clamp(0.0, 1.0);
+        let eased = 1.0 - (1.0 - progress).powi(3);
+        widget.set_opacity(eased);
+        if progress >= 1.0 {
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
     });
+}
+
+fn gtk_animations_enabled() -> bool {
+    gtk::Settings::default().is_none_or(|settings| settings.is_gtk_enable_animations())
+}
+
+fn power_confirmation_title(action: Option<LockPowerAction>) -> String {
+    match action {
+        Some(LockPowerAction::Restart) => "Restart this computer?".into(),
+        Some(LockPowerAction::Shutdown) => "Shut down this computer?".into(),
+        Some(LockPowerAction::Suspend) | None => String::new(),
+    }
+}
+
+fn power_confirmation_icon(action: Option<LockPowerAction>) -> &'static str {
+    match action {
+        Some(LockPowerAction::Restart) => "view-refresh-symbolic",
+        Some(LockPowerAction::Shutdown) => "system-shutdown-symbolic",
+        Some(LockPowerAction::Suspend) | None => "system-shutdown-symbolic",
+    }
+}
+
+fn connect_lock_window_keys(window: &gtk::Window, sender: relm4::Sender<LockWindowInput>) {
+    let controller = gtk::EventControllerKey::new();
+    controller.connect_key_pressed(move |_, key, _, _| {
+        if key == gdk::Key::Escape {
+            let _ = sender.send(LockWindowInput::ClosePowerMenu);
+            return glib::Propagation::Stop;
+        }
+
+        glib::Propagation::Proceed
+    });
+    window.add_controller(controller);
 }
 
 fn connect_caps_lock_indicator(entry: &gtk::PasswordEntry, sender: relm4::Sender<LockWindowInput>) {
@@ -1484,45 +1802,6 @@ fn connect_caps_lock_indicator(entry: &gtk::PasswordEntry, sender: relm4::Sender
         ));
     });
     entry.add_controller(controller);
-}
-
-fn power_action_button(
-    label: &str,
-    icon_name: &str,
-    action: LockPowerAction,
-    sender: &relm4::Sender<LockWindowInput>,
-    popover: &gtk::Popover,
-) -> gtk::Button {
-    let button = gtk::Button::new();
-    button.add_css_class("flat");
-    button.add_css_class("lock-power-action");
-    button.set_hexpand(true);
-    button.set_halign(gtk::Align::Fill);
-    button.set_tooltip_text(Some(label));
-
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row.set_hexpand(true);
-    row.set_halign(gtk::Align::Fill);
-
-    let icon = gtk::Image::from_icon_name(icon_name);
-    icon.add_css_class("lock-power-action-icon");
-    row.append(&icon);
-
-    let text = gtk::Label::new(Some(label));
-    text.add_css_class("lock-power-action-label");
-    text.set_hexpand(true);
-    text.set_halign(gtk::Align::Fill);
-    text.set_xalign(0.0);
-    row.append(&text);
-
-    button.set_child(Some(&row));
-    let sender = sender.clone();
-    let popover = popover.clone();
-    button.connect_clicked(move |_| {
-        popover.popdown();
-        let _ = sender.send(LockWindowInput::PowerAction(action));
-    });
-    button
 }
 
 fn run_power_action(session: Option<&SessionHandle>, action: LockPowerAction) {
@@ -1543,7 +1822,23 @@ fn run_power_action(session: Option<&SessionHandle>, action: LockPowerAction) {
     });
 }
 
+fn should_run_power_action(mode: LockMode, action: LockPowerAction) -> bool {
+    if mode.is_preview() {
+        tracing::info!(
+            action = ?action,
+            "lock preview power action ignored; no real session action will be executed"
+        );
+        return false;
+    }
+
+    true
+}
+
 impl LockPowerAction {
+    fn requires_confirmation(self) -> bool {
+        matches!(self, Self::Restart | Self::Shutdown)
+    }
+
     fn session_action(self) -> SessionAction {
         match self {
             Self::Suspend => SessionAction::Suspend,
@@ -1553,35 +1848,14 @@ impl LockPowerAction {
     }
 }
 
-fn cycle_keyboard_layout(compositor: &CompositorHandle) {
-    let state = compositor.snapshot();
-    if state.keyboard_layouts.len() < 2 {
-        tracing::debug!(
-            "keyboard layout cycle ignored because fewer than two layouts are available"
-        );
-        return;
-    }
-
-    let current_position = state
-        .current_keyboard_layout
-        .and_then(|current| {
-            state
-                .keyboard_layouts
-                .iter()
-                .position(|layout| layout.index == current)
-                .or(Some(current))
-        })
-        .unwrap_or(0);
-    let next = state.keyboard_layouts[(current_position + 1) % state.keyboard_layouts.len()].index;
-    let compositor = compositor.clone();
+fn cycle_keyboard_layout(keyboard: &KeyboardHandle) {
+    let keyboard = keyboard.clone();
     relm4::spawn(async move {
-        if let Err(error) = compositor
-            .send(ServiceCommand::Command(
-                glimpse_core::services::compositor::Command::SetKeyboardLayout(next),
-            ))
+        if let Err(error) = keyboard
+            .send(ServiceCommand::Command(KeyboardCommand::NextLayout))
             .await
         {
-            tracing::warn!(%error, layout = next, "failed to switch keyboard layout");
+            tracing::warn!(%error, "failed to switch keyboard layout");
         }
     });
 }
@@ -1627,6 +1901,51 @@ impl ImageLoadState {
 
     fn is_current(&self, request_id: u64) -> bool {
         self.active_request == Some(request_id)
+    }
+}
+
+impl BackgroundLayer {
+    fn reconfigure(&mut self, spec: ResolvedLockSpec, sender: relm4::Sender<BackgroundInput>) {
+        apply_color(&self.color, &spec.background.color);
+        apply_dim(&self.scrim, spec.background.dim);
+        self.picture
+            .set_content_fit(content_fit(spec.background.image.as_ref()));
+        if let Some(image) = spec.background.image {
+            let target_size = target_texture_size(&self.picture);
+            match load_cached_texture_for_image(&image, spec.background.blur_radius, target_size) {
+                Ok(Some(decoded)) => {
+                    self.load_state.clear();
+                    apply_decoded_texture(&self.picture, decoded);
+                }
+                Ok(None) => {
+                    let request_id = self.load_state.begin();
+                    spawn_texture_load(
+                        request_id,
+                        image,
+                        spec.background.blur_radius,
+                        target_size,
+                        sender,
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        path = %image.path.display(),
+                        "failed to load cached lock background image before first frame: {error}"
+                    );
+                    let request_id = self.load_state.begin();
+                    spawn_texture_load(
+                        request_id,
+                        image,
+                        spec.background.blur_radius,
+                        target_size,
+                        sender,
+                    );
+                }
+            }
+        } else {
+            self.load_state.clear();
+            self.picture.set_paintable(None::<&gdk::Paintable>);
+        }
     }
 }
 
@@ -1684,46 +2003,21 @@ impl SimpleComponent for BackgroundLayer {
         model.color = widgets.color.clone();
         model.picture = widgets.picture.clone();
         model.scrim = widgets.scrim.clone();
-        sender.input(BackgroundInput::Reconfigure(init));
+        model.reconfigure(init, sender.input_sender().clone());
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             BackgroundInput::Reconfigure(spec) => {
-                apply_color(&self.color, &spec.background.color);
-                apply_dim(&self.scrim, spec.background.dim);
-                self.picture
-                    .set_content_fit(content_fit(spec.background.image.as_ref()));
-                if let Some(image) = spec.background.image {
-                    let request_id = self.load_state.begin();
-                    let target_size = target_texture_size(&self.picture);
-                    spawn_texture_load(
-                        request_id,
-                        image,
-                        spec.background.blur_radius,
-                        target_size,
-                        sender.input_sender().clone(),
-                    );
-                } else {
-                    self.load_state.clear();
-                    self.picture.set_paintable(None::<&gdk::Paintable>);
-                }
+                self.reconfigure(spec, sender.input_sender().clone());
             }
             BackgroundInput::Loaded { request_id, result }
                 if self.load_state.is_current(request_id) =>
             {
                 match result {
                     Ok(decoded) => {
-                        let bytes = glib::Bytes::from_owned(decoded.data);
-                        let texture = gdk::MemoryTexture::new(
-                            decoded.width,
-                            decoded.height,
-                            gdk::MemoryFormat::R8g8b8a8,
-                            &bytes,
-                            decoded.stride,
-                        );
-                        self.picture.set_paintable(Some(&texture));
+                        apply_decoded_texture(&self.picture, decoded);
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -2006,6 +2300,42 @@ fn largest_monitor_size() -> Option<TextureTargetSize> {
         .max_by_key(|size| size.width.saturating_mul(size.height))
 }
 
+fn apply_decoded_texture(picture: &gtk::Picture, decoded: DecodedTexture) {
+    let bytes = glib::Bytes::from_owned(decoded.data);
+    let texture = gdk::MemoryTexture::new(
+        decoded.width,
+        decoded.height,
+        gdk::MemoryFormat::R8g8b8a8,
+        &bytes,
+        decoded.stride,
+    );
+    picture.set_paintable(Some(&texture));
+}
+
+fn load_cached_texture_for_image(
+    image: &ResolvedImageSpec,
+    blur_radius: u32,
+    target_size: TextureTargetSize,
+) -> anyhow::Result<Option<DecodedTexture>> {
+    if !image.path.exists() {
+        anyhow::bail!("file not found: {}", image.path.display());
+    }
+    let cache_key = TextureCacheKey::new(&image.path, image.fit, blur_radius, target_size)?;
+    let cached = load_cached_texture(&cache_key)?;
+    if let Some(texture) = &cached {
+        tracing::info!(
+            path = %image.path.display(),
+            cache_path = %cache_key.path.display(),
+            width = texture.width,
+            height = texture.height,
+            stride = texture.stride,
+            pixel_bytes = texture.data.len(),
+            "loaded lock background image from cache before first frame"
+        );
+    }
+    Ok(cached)
+}
+
 fn spawn_texture_load(
     request_id: u64,
     image: ResolvedImageSpec,
@@ -2247,21 +2577,22 @@ mod tests {
 
     use glimpse_core::{
         FitMode,
-        compositors::KeyboardLayout,
         services::{
             battery::{
                 BatteryState as CoreBatteryState, BatteryStatus, State as CoreBatteryServiceState,
             },
-            compositor::State as CoreCompositorState,
+            keyboard::{KeyboardLayout, State as CoreKeyboardState},
             network::{NetworkSnapshot, NetworkStatus, State as CoreNetworkState, WifiAccessPoint},
         },
     };
     use notify::event::{AccessKind, AccessMode, DataChange};
 
     use super::{
-        DecodedTexture, ImageLoadState, TextureCacheKey, battery_control_status,
-        file_watch_event_reloads, input_control_status, load_cached_texture,
-        network_control_status, resize_rgba_for_fit, write_cached_texture,
+        DecodedTexture, ImageLoadState, LockMode, LockPowerAction, TextureCacheKey,
+        battery_control_status, file_watch_event_reloads, keyboard_control_status,
+        load_cached_texture, network_control_status, power_confirmation_icon,
+        power_confirmation_title, resize_rgba_for_fit, should_run_power_action,
+        write_cached_texture,
     };
 
     #[test]
@@ -2283,6 +2614,59 @@ mod tests {
         state.clear();
 
         assert!(!state.is_current(request));
+    }
+
+    #[test]
+    fn restart_and_shutdown_power_actions_require_confirmation() {
+        assert!(!LockPowerAction::Suspend.requires_confirmation());
+        assert!(LockPowerAction::Restart.requires_confirmation());
+        assert!(LockPowerAction::Shutdown.requires_confirmation());
+    }
+
+    #[test]
+    fn preview_mode_never_runs_real_power_actions() {
+        assert!(!should_run_power_action(
+            LockMode::Preview,
+            LockPowerAction::Suspend
+        ));
+        assert!(!should_run_power_action(
+            LockMode::Preview,
+            LockPowerAction::Restart
+        ));
+        assert!(!should_run_power_action(
+            LockMode::Preview,
+            LockPowerAction::Shutdown
+        ));
+        assert!(should_run_power_action(
+            LockMode::Resident,
+            LockPowerAction::Suspend
+        ));
+    }
+
+    #[test]
+    fn power_confirmation_title_is_only_for_destructive_actions() {
+        assert_eq!(power_confirmation_title(Some(LockPowerAction::Suspend)), "");
+        assert_eq!(
+            power_confirmation_title(Some(LockPowerAction::Restart)),
+            "Restart this computer?"
+        );
+        assert_eq!(
+            power_confirmation_title(Some(LockPowerAction::Shutdown)),
+            "Shut down this computer?"
+        );
+        assert_eq!(power_confirmation_title(None), "");
+    }
+
+    #[test]
+    fn power_confirmation_icon_matches_action() {
+        assert_eq!(
+            power_confirmation_icon(Some(LockPowerAction::Restart)),
+            "view-refresh-symbolic"
+        );
+        assert_eq!(
+            power_confirmation_icon(Some(LockPowerAction::Shutdown)),
+            "system-shutdown-symbolic"
+        );
     }
 
     #[test]
@@ -2327,13 +2711,32 @@ mod tests {
             percentage: 57,
             state: CoreBatteryState::Charging,
             icon_name: "battery-good-charging-symbolic".into(),
+            on_battery: true,
             ..BatteryStatus::default()
         };
 
-        let (icon, tooltip) = battery_control_status(&state);
+        let (icon, percent) = battery_control_status(&state);
 
         assert_eq!(icon, "battery-good-charging-symbolic");
-        assert_eq!(tooltip, "Battery 57% Charging");
+        assert_eq!(percent, "57%");
+    }
+
+    #[test]
+    fn battery_control_status_hides_percent_when_on_ac() {
+        let mut state = CoreBatteryServiceState::default();
+        state.status = BatteryStatus {
+            present: true,
+            percentage: 89,
+            state: CoreBatteryState::Charging,
+            icon_name: "battery-good-charging-symbolic".into(),
+            on_battery: false,
+            ..BatteryStatus::default()
+        };
+
+        let (icon, percent) = battery_control_status(&state);
+
+        assert_eq!(icon, "battery-good-charging-symbolic");
+        assert_eq!(percent, "");
     }
 
     #[test]
@@ -2355,33 +2758,28 @@ mod tests {
             ..NetworkSnapshot::default()
         };
 
-        let (icon, tooltip) = network_control_status(&state);
+        let icon = network_control_status(&state);
 
         assert_eq!(icon, "network-wireless-signal-good-symbolic");
-        assert_eq!(tooltip, "Wi-Fi connected: Studio");
     }
 
     #[test]
-    fn input_control_status_uses_compositor_keyboard_layout_state() {
-        let state = CoreCompositorState {
-            current_keyboard_layout: Some(1),
-            keyboard_layouts: vec![
-                KeyboardLayout {
-                    index: 0,
-                    name: "German".into(),
-                },
-                KeyboardLayout {
-                    index: 1,
-                    name: "English (US)".into(),
-                },
-            ],
-            ..CoreCompositorState::default()
+    fn keyboard_control_status_uses_keyboard_service_state() {
+        let state = CoreKeyboardState {
+            available: true,
+            current_layout: Some(KeyboardLayout {
+                index: 1,
+                name: "English (US)".into(),
+                code: "EN".into(),
+                label: "US".into(),
+            }),
+            current_index: Some(1),
+            ..CoreKeyboardState::default()
         };
 
-        let (label, tooltip) = input_control_status(&state);
+        let label = keyboard_control_status(&state);
 
-        assert_eq!(label, "EN");
-        assert_eq!(tooltip, "Keyboard layout: English (US)");
+        assert_eq!(label, "US");
     }
 
     #[test]
