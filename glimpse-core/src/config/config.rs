@@ -240,6 +240,7 @@ right = ["...", "custom"]
             config.panels[0].right,
             vec![
                 "tray",
+                "removable",
                 "clipboard",
                 "keyboard",
                 "privacy",
