@@ -9,13 +9,10 @@ use relm4::{
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    compositors::KeyboardLayout,
-    panels::applets::AppletConfig,
-    services::{
-        compositor::{Command, CompositorHandle, State},
-        framework::ServiceCommand,
-    },
+use crate::panels::applets::AppletConfig;
+use glimpse_core::services::{
+    framework::ServiceCommand,
+    keyboard::{Command, KeyboardHandle, KeyboardLayout, State},
 };
 
 use super::format;
@@ -43,16 +40,15 @@ impl Config {
 }
 
 pub struct Applet {
-    config: Config,
     state: KeyboardState,
     view: View,
-    service: CompositorHandle,
+    service: KeyboardHandle,
     subscription_cancel: CancellationToken,
 }
 
 #[derive(Debug)]
 pub struct Init {
-    pub service: CompositorHandle,
+    pub service: KeyboardHandle,
     pub config: Config,
 }
 
@@ -104,13 +100,16 @@ impl SimpleComponent for Applet {
     ) -> ComponentParts<Self> {
         install_scroll_controller(&root, &sender);
 
-        let state = KeyboardState::from(&init.service.snapshot());
-        let view = view_from_state(&init.config, &state);
+        let Init {
+            service,
+            config: _config,
+        } = init;
+        let state = KeyboardState::from(&service.snapshot());
+        let view = view_from_state(&state);
         let model = Applet {
-            config: init.config,
             state,
             view,
-            service: init.service,
+            service,
             subscription_cancel: CancellationToken::new(),
         };
 
@@ -158,15 +157,16 @@ impl SimpleComponent for Applet {
                     self.sync_view();
                 }
             }
-            Input::Reconfigure(config) => {
-                self.config = config;
-                self.sync_view();
-            }
+            Input::Reconfigure(_config) => {}
             Input::ActivateNext => {
-                self.switch_layout(true);
+                self.send_command(Command::NextLayout);
             }
             Input::Scroll { next } => {
-                self.switch_layout(next);
+                self.send_command(if next {
+                    Command::NextLayout
+                } else {
+                    Command::PreviousLayout
+                });
             }
         }
     }
@@ -174,25 +174,17 @@ impl SimpleComponent for Applet {
 
 impl Applet {
     fn sync_view(&mut self) {
-        let view = view_from_state(&self.config, &self.state);
+        let view = view_from_state(&self.state);
         if self.view != view {
             self.view = view;
         }
     }
 
-    fn switch_layout(&self, next: bool) {
-        let Some(target) = next_layout_index(self.state.current_index, &self.state.layouts, next)
-        else {
-            return;
-        };
-
+    fn send_command(&self, command: Command) {
         let service = self.service.clone();
         relm4::spawn(async move {
-            if let Err(error) = service
-                .send(ServiceCommand::Command(Command::SetKeyboardLayout(target)))
-                .await
-            {
-                tracing::warn!(%error, "failed to send compositor command from keyboard applet");
+            if let Err(error) = service.send(ServiceCommand::Command(command)).await {
+                tracing::warn!(%error, "failed to send keyboard command from applet");
             }
         });
     }
@@ -207,28 +199,14 @@ impl Drop for Applet {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct KeyboardState {
     available: bool,
-    current_index: Option<usize>,
-    layouts: Vec<KeyboardLayout>,
     current_layout: Option<KeyboardLayout>,
 }
 
 impl From<&State> for KeyboardState {
     fn from(state: &State) -> Self {
-        let current_layout = state
-            .current_keyboard_layout
-            .and_then(|index| {
-                state
-                    .keyboard_layouts
-                    .iter()
-                    .find(|layout| layout.index == index)
-            })
-            .cloned();
-
         Self {
-            available: state.capabilities.keyboard_layouts && !state.keyboard_layouts.is_empty(),
-            current_index: current_layout.as_ref().map(|layout| layout.index),
-            layouts: state.keyboard_layouts.clone(),
-            current_layout,
+            available: state.available,
+            current_layout: state.current_layout.clone(),
         }
     }
 }
@@ -240,36 +218,16 @@ struct View {
     tooltip: String,
 }
 
-fn view_from_state(config: &Config, state: &KeyboardState) -> View {
+fn view_from_state(state: &KeyboardState) -> View {
     let Some(layout) = state.current_layout.as_ref().filter(|_| state.available) else {
         return View::default();
     };
 
     View {
         visible: true,
-        label: format::layout_label(layout, &config.labels),
+        label: format::layout_label(layout),
         tooltip: format::layout_tooltip(layout),
     }
-}
-
-fn next_layout_index(
-    current: Option<usize>,
-    layouts: &[KeyboardLayout],
-    next: bool,
-) -> Option<usize> {
-    if layouts.len() < 2 {
-        return None;
-    }
-
-    let current = current?;
-    let position = layouts.iter().position(|layout| layout.index == current)?;
-    let target = if next {
-        (position + 1) % layouts.len()
-    } else {
-        (position + layouts.len() - 1) % layouts.len()
-    };
-
-    Some(layouts[target].index)
 }
 
 fn install_scroll_controller(root: &gtk::Box, sender: &ComponentSender<Applet>) {
@@ -304,7 +262,6 @@ fn scroll_direction(dx: f64, dy: f64) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glimpse_core::compositors::CompositorCapabilities;
 
     #[test]
     fn config_accepts_absent_and_empty_settings() {
@@ -332,43 +289,22 @@ mod tests {
     }
 
     #[test]
-    fn view_hides_without_keyboard_layout_capability() {
-        let state = State {
-            keyboard_layouts: vec![layout(0, "us")],
-            current_keyboard_layout: Some(0),
-            ..State::default()
-        };
+    fn view_hides_when_keyboard_service_is_unavailable() {
+        let state = State::default();
 
-        assert!(!view_from_state(&Config::default(), &KeyboardState::from(&state)).visible);
+        assert!(!view_from_state(&KeyboardState::from(&state)).visible);
     }
 
     #[test]
-    fn view_hides_when_current_layout_is_unknown() {
+    fn view_uses_normalized_service_layout() {
         let state = State {
-            capabilities: CompositorCapabilities {
-                keyboard_layouts: true,
-                ..CompositorCapabilities::default()
-            },
-            keyboard_layouts: vec![layout(0, "us")],
-            current_keyboard_layout: Some(7),
+            available: true,
+            layouts: vec![layout(0, "US"), layout(1, "PL")],
+            current_layout: Some(layout(1, "PL")),
+            current_index: Some(1),
             ..State::default()
         };
-
-        assert!(!view_from_state(&Config::default(), &KeyboardState::from(&state)).visible);
-    }
-
-    #[test]
-    fn view_uses_current_layout_code_by_default() {
-        let state = State {
-            capabilities: CompositorCapabilities {
-                keyboard_layouts: true,
-                ..CompositorCapabilities::default()
-            },
-            keyboard_layouts: vec![layout(0, "us"), layout(1, "pl")],
-            current_keyboard_layout: Some(1),
-            ..State::default()
-        };
-        let view = view_from_state(&Config::default(), &KeyboardState::from(&state));
+        let view = view_from_state(&KeyboardState::from(&state));
 
         assert!(view.visible);
         assert_eq!(view.label, "PL");
@@ -376,43 +312,17 @@ mod tests {
     }
 
     #[test]
-    fn view_uses_configured_label_override() {
+    fn view_ignores_applet_label_config_because_service_normalizes_labels() {
         let state = State {
-            capabilities: CompositorCapabilities {
-                keyboard_layouts: true,
-                ..CompositorCapabilities::default()
-            },
-            keyboard_layouts: vec![layout(0, "us")],
-            current_keyboard_layout: Some(0),
+            available: true,
+            layouts: vec![layout(0, "US")],
+            current_layout: Some(layout(0, "US")),
+            current_index: Some(0),
             ..State::default()
         };
-        let config = Config {
-            labels: HashMap::from([("us".into(), "🇺🇸".into())]),
-        };
-        let view = view_from_state(&config, &KeyboardState::from(&state));
+        let view = view_from_state(&KeyboardState::from(&state));
 
-        assert_eq!(view.label, "🇺🇸");
-    }
-
-    #[test]
-    fn next_layout_index_wraps() {
-        let layouts = vec![layout(0, "us"), layout(1, "pl"), layout(2, "de")];
-
-        assert_eq!(next_layout_index(Some(0), &layouts, true), Some(1));
-        assert_eq!(next_layout_index(Some(2), &layouts, true), Some(0));
-        assert_eq!(next_layout_index(Some(0), &layouts, false), Some(2));
-        assert_eq!(next_layout_index(Some(0), &layouts[..1], true), None);
-        assert_eq!(next_layout_index(None, &layouts, true), None);
-    }
-
-    #[test]
-    fn next_layout_index_uses_actual_layout_indices() {
-        let layouts = vec![layout(2, "us"), layout(4, "pl"), layout(7, "de")];
-
-        assert_eq!(next_layout_index(Some(2), &layouts, true), Some(4));
-        assert_eq!(next_layout_index(Some(7), &layouts, true), Some(2));
-        assert_eq!(next_layout_index(Some(2), &layouts, false), Some(7));
-        assert_eq!(next_layout_index(Some(1), &layouts, true), None);
+        assert_eq!(view.label, "US");
     }
 
     #[test]
@@ -424,10 +334,12 @@ mod tests {
         assert_eq!(scroll_direction(-1.0, 0.1), Some(false));
     }
 
-    fn layout(index: usize, name: &str) -> KeyboardLayout {
+    fn layout(index: usize, label: &str) -> KeyboardLayout {
         KeyboardLayout {
             index,
-            name: name.into(),
+            name: label.to_lowercase(),
+            code: label.into(),
+            label: label.into(),
         }
     }
 }

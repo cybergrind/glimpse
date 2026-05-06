@@ -280,7 +280,7 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
         AppletType::Keyboard => Some(AppletController::Keyboard(
             keyboard::Applet::builder()
                 .launch(keyboard::Init {
-                    service: services.compositor.clone(),
+                    service: services.keyboard.clone(),
                     config: keyboard::Config::from_raw(&blueprint.config),
                 })
                 .detach(),

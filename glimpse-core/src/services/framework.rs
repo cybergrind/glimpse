@@ -6,8 +6,8 @@ use crate::{
     dbus::Dbus,
     services::{
         audio, audio_events, battery, bluetooth, brightness, calendar_events, clipboard, clock,
-        compositor, geoclue, location, microphone, mpris, network, notifications, power, session,
-        tray, weather, webcam,
+        compositor, geoclue, keyboard, location, microphone, mpris, network, notifications, power,
+        session, tray, weather, webcam,
     },
 };
 
@@ -129,6 +129,7 @@ pub struct Services {
     pub notifications: notifications::NotificationsHandle,
     pub session: session::SessionHandle,
     pub compositor: compositor::CompositorHandle,
+    pub keyboard: keyboard::KeyboardHandle,
     pub weather: weather::WeatherHandle,
     pub tray: tray::TrayHandle,
     pub webcam: webcam::WebcamHandle,
@@ -159,6 +160,7 @@ impl Services {
                 notifications,
                 session,
                 compositor,
+                keyboard,
                 weather,
                 tray,
                 webcam
@@ -232,6 +234,9 @@ impl ServiceRuntime {
         let (compositor_service, compositor) = compositor::CompositorService::new();
         let compositor_service = spawn_service(|cancel| compositor_service.run(cancel));
 
+        let (keyboard_service, keyboard) = keyboard::KeyboardService::new(compositor.clone());
+        let keyboard_service = spawn_service(|cancel| keyboard_service.run(cancel));
+
         let (weather_service, weather) = weather::WeatherService::new(location.clone());
         let weather_service = spawn_service(|cancel| weather_service.run(cancel));
 
@@ -259,6 +264,7 @@ impl ServiceRuntime {
             notifications_service,
             session_service,
             compositor_service,
+            keyboard_service,
             weather_service,
             tray_service,
             webcam_service,
@@ -281,6 +287,7 @@ impl ServiceRuntime {
             notifications,
             session,
             compositor,
+            keyboard,
             weather,
             tray,
             webcam,

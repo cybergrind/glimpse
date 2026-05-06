@@ -7,7 +7,8 @@ use std::{
 
 use glimpse_core::{
     AppletConfig, AppletType, BackdropConfig, Config, ConfigDiscovery, FitMode,
-    ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
+    KeyboardRememberMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
+    ThemeMode, WallpaperConfig,
 };
 
 #[test]
@@ -110,6 +111,28 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_mode() {
     assert!(!serialized.contains("mode"));
     assert!(serialized.contains("[wallpaper]"));
     assert!(serialized.contains("[backdrop]"));
+}
+
+#[test]
+fn parses_keyboard_service_config() {
+    let config = Config::from_toml_str(
+        r#"
+        [keyboard]
+        remember = "app"
+
+        [keyboard.labels]
+        us = "EN"
+        "English (US)" = "🇺🇸"
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(config.keyboard.remember, KeyboardRememberMode::App);
+    assert_eq!(config.keyboard.labels.get("us"), Some(&"EN".into()));
+    assert_eq!(
+        config.keyboard.labels.get("English (US)"),
+        Some(&"🇺🇸".into())
+    );
 }
 
 #[test]

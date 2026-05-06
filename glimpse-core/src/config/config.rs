@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 
 use crate::{
     AppletConfig, BackdropConfig, BackgroundSettings, ConfigFileDiscovery, IdleConfig,
-    LocationConfig, NightLightConfig, PanelConfig, ThemeConfig, ThemeMode, WallpaperConfig,
-    wallpaper_spec, watch_config_file,
+    KeyboardConfig, LocationConfig, NightLightConfig, PanelConfig, ThemeConfig, ThemeMode,
+    WallpaperConfig, wallpaper_spec, watch_config_file,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -25,6 +25,8 @@ pub struct Config {
     pub night_light: NightLightConfig,
     #[serde(default)]
     pub idle: IdleConfig,
+    #[serde(default)]
+    pub keyboard: KeyboardConfig,
 }
 
 impl Config {
@@ -127,6 +129,7 @@ impl Default for Config {
             backdrop: BackdropConfig::default(),
             night_light: NightLightConfig::default(),
             idle: IdleConfig::default(),
+            keyboard: KeyboardConfig::default(),
         }
     }
 }
