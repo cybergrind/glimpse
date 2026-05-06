@@ -43,7 +43,9 @@ impl Config {
     }
 
     pub fn from_toml_str(content: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str::<Self>(content)
+        let mut config = toml::from_str::<Self>(content)?;
+        config.expand_panel_placeholders();
+        Ok(config)
     }
 
     pub fn detect_config_file() -> PathBuf {
@@ -116,6 +118,37 @@ impl Config {
         fs::write(&path, content).map_err(|err| err.to_string())?;
         Ok(path)
     }
+
+    fn expand_panel_placeholders(&mut self) {
+        let defaults = PanelConfig::default();
+        for panel in &mut self.panels {
+            expand_panel_section("left", &mut panel.left, &defaults.left);
+            expand_panel_section("center", &mut panel.center, &defaults.center);
+            expand_panel_section("right", &mut panel.right, &defaults.right);
+        }
+    }
+}
+
+fn expand_panel_section(section: &'static str, applets: &mut Vec<String>, defaults: &[String]) {
+    let mut expanded = Vec::with_capacity(applets.len() + defaults.len());
+    let mut inserted_defaults = false;
+    for applet in applets.drain(..) {
+        if applet == crate::DEFAULT_PANEL_APPLETS_PLACEHOLDER {
+            if inserted_defaults {
+                tracing::warn!(
+                    section,
+                    placeholder = crate::DEFAULT_PANEL_APPLETS_PLACEHOLDER,
+                    "extra panel applet placeholder ignored"
+                );
+                continue;
+            }
+            expanded.extend(defaults.iter().cloned());
+            inserted_defaults = true;
+            continue;
+        }
+        expanded.push(applet);
+    }
+    *applets = expanded;
 }
 
 impl Default for Config {
@@ -210,6 +243,94 @@ listeners = [
             config.idle.profiles.ac.listeners[0].respect_inhibitors,
             Some(true)
         );
+    }
+}
+
+#[cfg(test)]
+mod panel_config_tests {
+    use crate::{Config, PanelConfig};
+
+    #[test]
+    fn config_expands_panel_default_placeholder() {
+        let config = Config::from_toml_str(
+            r#"
+[[panels]]
+left = ["custom", "..."]
+center = ["..."]
+right = ["...", "custom"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.panels[0].left, vec!["custom", "pager", "mpris"]);
+        assert_eq!(
+            config.panels[0].center,
+            vec!["clock", "weather", "notifications"]
+        );
+        assert_eq!(
+            config.panels[0].right,
+            vec![
+                "tray",
+                "clipboard",
+                "keyboard",
+                "privacy",
+                "bluetooth",
+                "network",
+                "brightness",
+                "audio",
+                "battery",
+                "session",
+                "custom"
+            ]
+        );
+    }
+
+    #[test]
+    fn config_keeps_panel_section_without_placeholder_as_full_override() {
+        let config = Config::from_toml_str(
+            r#"
+[[panels]]
+right = ["custom"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.panels[0].right, vec!["custom"]);
+    }
+
+    #[test]
+    fn config_expands_only_first_panel_default_placeholder() {
+        let config = Config::from_toml_str(
+            r#"
+[[panels]]
+center = ["before", "...", "middle", "...", "after"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.panels[0].center,
+            vec![
+                "before",
+                "clock",
+                "weather",
+                "notifications",
+                "middle",
+                "after"
+            ]
+        );
+    }
+
+    #[test]
+    fn panel_config_deserialize_keeps_placeholder_until_config_normalization() {
+        let panel = toml::from_str::<PanelConfig>(
+            r#"
+left = ["custom", "..."]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(panel.left, vec!["custom", "..."]);
     }
 }
 

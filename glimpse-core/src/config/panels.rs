@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 use crate::ThemeMode;
 
+pub const DEFAULT_PANEL_APPLETS_PLACEHOLDER: &str = "...";
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Position {
