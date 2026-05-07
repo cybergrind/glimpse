@@ -59,6 +59,7 @@ pub enum AuthResult {
     Success,
     Failure,
     SecondFactorRequired,
+    AccountUnavailable(&'static str),
 }
 
 #[derive(Debug, Default)]
@@ -121,8 +122,9 @@ fn authenticate_with_pam(
         Ok(()) => match context.acct_mgmt(Flag::NONE) {
             Ok(()) => Ok(AuthResult::Success),
             Err(error) => {
-                tracing::warn!(%error, "PAM account validation failed");
-                Ok(AuthResult::Failure)
+                let code = error.code();
+                tracing::warn!(%error, ?code, "PAM account validation failed");
+                Ok(account_failure_result(code))
             }
         },
         Err(error) => {
@@ -133,10 +135,42 @@ fn authenticate_with_pam(
                 );
                 Ok(AuthResult::SecondFactorRequired)
             } else {
-                tracing::warn!(%error, "PAM authentication failed");
-                Ok(AuthResult::Failure)
+                let code = error.code();
+                if let Some(unavailable) = authenticate_unavailable_result(code) {
+                    tracing::warn!(%error, ?code, "PAM account unavailable");
+                    Ok(unavailable)
+                } else {
+                    tracing::warn!(%error, ?code, "PAM authentication failed");
+                    Ok(AuthResult::Failure)
+                }
             }
         }
+    }
+}
+
+fn account_failure_result(code: ErrorCode) -> AuthResult {
+    match code {
+        ErrorCode::ACCT_EXPIRED => AuthResult::AccountUnavailable("Account expired"),
+        ErrorCode::NEW_AUTHTOK_REQD
+        | ErrorCode::CRED_EXPIRED
+        | ErrorCode::AUTHTOK_EXPIRED => {
+            AuthResult::AccountUnavailable("Password change required to log in")
+        }
+        ErrorCode::PERM_DENIED => AuthResult::AccountUnavailable("Account access denied"),
+        ErrorCode::USER_UNKNOWN => AuthResult::AccountUnavailable("Account not found"),
+        _ => AuthResult::Failure,
+    }
+}
+
+fn authenticate_unavailable_result(code: ErrorCode) -> Option<AuthResult> {
+    match code {
+        ErrorCode::ACCT_EXPIRED => Some(AuthResult::AccountUnavailable("Account expired")),
+        ErrorCode::USER_UNKNOWN => Some(AuthResult::AccountUnavailable("Account not found")),
+        ErrorCode::MAXTRIES => Some(AuthResult::AccountUnavailable(
+            "Too many attempts; try again later",
+        )),
+        ErrorCode::PERM_DENIED => Some(AuthResult::AccountUnavailable("Account access denied")),
+        _ => None,
     }
 }
 

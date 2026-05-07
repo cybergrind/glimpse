@@ -461,6 +461,11 @@ impl SimpleComponent for LockApp {
                         self.runtime.mark_auth_failure();
                         self.emit_to_lock_windows(LockWindowInput::AuthSecondFactorUnsupported);
                     }
+                    AuthResult::AccountUnavailable(reason) => {
+                        tracing::warn!(reason, "PAM account unavailable");
+                        self.runtime.mark_auth_failure();
+                        self.emit_to_lock_windows(LockWindowInput::SetStatus(reason.into()));
+                    }
                 }
             }
             AppCommand::RefreshControls => {
