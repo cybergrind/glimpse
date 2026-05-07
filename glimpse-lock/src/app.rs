@@ -996,12 +996,20 @@ fn start_clock_refresh(sender: &ComponentSender<LockApp>) {
     let input = sender.input_sender().clone();
     relm4::spawn_local(async move {
         loop {
-            glib::timeout_future(Duration::from_secs(30)).await;
+            glib::timeout_future(time_to_next_minute()).await;
             if input.send(AppCommand::ClockTick).is_err() {
                 break;
             }
         }
     });
+}
+
+fn time_to_next_minute() -> Duration {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    let secs = u64::from(60 - now.second().min(59));
+    let nanos = u64::from(now.nanosecond().min(999_999_999));
+    Duration::from_nanos(secs * 1_000_000_000 - nanos).max(Duration::from_millis(100))
 }
 
 fn weather_control_status(state: &weather_model::State) -> (String, String) {
