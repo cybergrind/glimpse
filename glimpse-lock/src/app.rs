@@ -275,18 +275,32 @@ impl SimpleComponent for LockApp {
             }
             let (logind_tx, mut logind_rx) = mpsc::channel(4);
             relm4::spawn(async move {
+                const NOISY_FAILURES: u32 = 3;
                 let mut retry_delay = Duration::from_secs(1);
+                let mut consecutive_failures: u32 = 0;
                 loop {
                     match logind::watch_lock_signals(logind_tx.clone()).await {
                         Ok(()) => {
                             retry_delay = Duration::from_secs(1);
+                            consecutive_failures = 0;
                         }
                         Err(error) => {
-                            tracing::warn!(
-                                error = %format!("{error:#}"),
-                                retry_seconds = retry_delay.as_secs(),
-                                "stopped watching logind lock signals; retrying"
-                            );
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            if consecutive_failures <= NOISY_FAILURES {
+                                tracing::warn!(
+                                    error = %format!("{error:#}"),
+                                    retry_seconds = retry_delay.as_secs(),
+                                    consecutive_failures,
+                                    "stopped watching logind lock signals; retrying"
+                                );
+                            } else {
+                                tracing::debug!(
+                                    error = %format!("{error:#}"),
+                                    retry_seconds = retry_delay.as_secs(),
+                                    consecutive_failures,
+                                    "stopped watching logind lock signals; retrying"
+                                );
+                            }
                             sleep(retry_delay).await;
                             retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
                         }
