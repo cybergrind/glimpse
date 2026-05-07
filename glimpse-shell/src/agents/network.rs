@@ -7,6 +7,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 use zbus::zvariant::{OwnedValue, Value};
+use zeroize::Zeroizing;
 
 const AGENT_PATH: &str = "/org/freedesktop/NetworkManager/SecretAgent";
 const WIFI_SECURITY_SETTING: &str = "802-11-wireless-security";
@@ -25,10 +26,38 @@ pub struct NetworkPrompt {
     pub ssid: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum NetworkPromptReply {
-    Password(String),
+    Password(Secret),
     Cancel,
+}
+
+impl std::fmt::Debug for NetworkPromptReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Password(_) => f.debug_tuple("Password").field(&"<redacted>").finish(),
+            Self::Cancel => f.debug_tuple("Cancel").finish(),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(Zeroizing<String>);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(Zeroizing::new(value.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Secret").finish_non_exhaustive()
+    }
 }
 
 pub(crate) type ConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
@@ -249,7 +278,7 @@ impl NetworkSecretAgent {
         Ok(())
     }
 
-    async fn request_password(&self, ssid: String) -> zbus::fdo::Result<String> {
+    async fn request_password(&self, ssid: String) -> zbus::fdo::Result<Secret> {
         let (id, reply_rx) = {
             let mut registry = self
                 .registry
@@ -343,7 +372,7 @@ impl NetworkSecretAgent {
         }
 
         let password = self.request_password(label).await?;
-        Ok(wifi_password_secret_map(&password))
+        Ok(wifi_password_secret_map(password.as_str()))
     }
 
     pub(crate) async fn handle_save_secrets(
@@ -648,16 +677,20 @@ async fn lookup_keyring_secret(uuid: &str, setting_name: &str) -> anyhow::Result
             continue;
         };
 
-        let secret_bytes = item
-            .get_secret()
-            .await
-            .map_err(|error| anyhow::anyhow!("get_secret: {error}"))?;
+        let secret_bytes = Zeroizing::new(
+            item.get_secret()
+                .await
+                .map_err(|error| anyhow::anyhow!("get_secret: {error}"))?,
+        );
 
-        let secret = String::from_utf8(secret_bytes)
-            .map_err(|error| anyhow::anyhow!("secret is not UTF-8: {error}"))?;
+        let secret = Zeroizing::new(
+            std::str::from_utf8(&secret_bytes)
+                .map_err(|error| anyhow::anyhow!("secret is not UTF-8: {error}"))?
+                .to_owned(),
+        );
 
         tracing::debug!(key, "network-secret-agent: found secret key");
-        setting_secrets.insert(key.clone(), owned_string(&secret));
+        setting_secrets.insert(key.clone(), owned_string(secret.as_str()));
     }
 
     if setting_secrets.is_empty() {
@@ -795,10 +828,10 @@ mod tests {
             .expect("prompt should be accepted");
 
         assert_eq!(prompt_rx.borrow().as_ref().unwrap().ssid, "Office");
-        assert!(registry.complete(id, NetworkPromptReply::Password("secret".into())));
+        assert!(registry.complete(id, NetworkPromptReply::Password(Secret::new("secret"))));
         assert_eq!(
             reply_rx.await.unwrap(),
-            NetworkPromptReply::Password("secret".into())
+            NetworkPromptReply::Password(Secret::new("secret"))
         );
         assert!(prompt_rx.borrow().is_none());
     }

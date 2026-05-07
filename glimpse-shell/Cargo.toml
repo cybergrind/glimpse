@@ -26,6 +26,7 @@ tokio-util.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
 zbus.workspace = true
+zeroize = "1"
 
 [build-dependencies]
 glib-build-tools = "0.22"

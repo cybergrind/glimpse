@@ -13,7 +13,7 @@ use relm4::{
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::network::{
-    NetworkAgentHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply,
+    NetworkAgentHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply, Secret,
 };
 
 const RESPONSE_CANCEL: &str = "cancel";
@@ -313,12 +313,12 @@ fn prompt_body(prompt: &NetworkPrompt) -> String {
 }
 
 fn password_reply(value: &str) -> Option<NetworkPromptReply> {
-    let value = value.trim().to_owned();
+    let value = value.trim();
     if value.is_empty() {
         tracing::warn!("network dialog: empty password submitted");
         Some(NetworkPromptReply::Cancel)
     } else {
-        Some(NetworkPromptReply::Password(value))
+        Some(NetworkPromptReply::Password(Secret::new(value)))
     }
 }
 
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(password_reply("  "), Some(NetworkPromptReply::Cancel));
         assert_eq!(
             password_reply("secret"),
-            Some(NetworkPromptReply::Password("secret".into()))
+            Some(NetworkPromptReply::Password(Secret::new("secret")))
         );
     }
 
