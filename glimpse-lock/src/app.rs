@@ -2171,6 +2171,13 @@ fn current_user_info() -> UserInfo {
 }
 
 fn accounts_service_field(username: &str, field: &str) -> Option<String> {
+    if !is_valid_posix_username(username) {
+        tracing::warn!(
+            username,
+            "rejecting AccountsService lookup for non-POSIX username"
+        );
+        return None;
+    }
     let path = Path::new("/var/lib/AccountsService/users").join(username);
     let prefix = format!("{field}=");
     fs::read_to_string(path).ok()?.lines().find_map(|line| {
@@ -2179,6 +2186,18 @@ fn accounts_service_field(username: &str, field: &str) -> Option<String> {
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
     })
+}
+
+fn is_valid_posix_username(username: &str) -> bool {
+    if username.is_empty() || username.len() > 32 {
+        return false;
+    }
+    let mut chars = username.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
 fn passwd_user_info(username: &str) -> Option<(Option<String>, Option<PathBuf>)> {
