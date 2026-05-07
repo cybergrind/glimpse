@@ -4,10 +4,12 @@ use std::{
 };
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
     sync::mpsc,
 };
+
+const MAX_LINE_BYTES: usize = 256 * 1024;
 
 use super::{
     applet::{Config, Input},
@@ -96,8 +98,8 @@ pub async fn run(
             tracing::warn!(%error, applet = %name, "exec applet failed to send init");
         }
 
-        let mut lines = BufReader::new(stdout).lines();
-        let mut stderr_lines = BufReader::new(stderr).lines();
+        let mut stdout_lines = BoundedLines::new(BufReader::new(stdout), MAX_LINE_BYTES);
+        let mut stderr_lines = BoundedLines::new(BufReader::new(stderr), MAX_LINE_BYTES);
         let mut stderr_open = true;
         let mut stderr_limiter = StderrLogLimiter::default();
 
@@ -126,11 +128,14 @@ pub async fn run(
                         break ChildLoopExit::Stop;
                     }
                 },
-                line = lines.next_line() => match line {
-                    Ok(Some(line)) => match parse_child_line(&line) {
+                line = stdout_lines.next_line() => match line {
+                    Ok(Some(BoundedLine::Line(line))) => match parse_child_line(&line) {
                         Ok(command) => send_child_command(&out, command),
                         Err(error) => tracing::debug!(%error, raw = %line, applet = %name, "exec applet ignored child line"),
                     },
+                    Ok(Some(BoundedLine::Oversize(bytes))) => {
+                        tracing::warn!(applet = %name, bytes, max = MAX_LINE_BYTES, "dropped oversize exec applet stdout line");
+                    }
                     Ok(None) => break ChildLoopExit::ProtocolEnded,
                     Err(error) => {
                         tracing::warn!(%error, applet = %name, "exec applet stdout read failed");
@@ -138,10 +143,13 @@ pub async fn run(
                     }
                 },
                 line = stderr_lines.next_line(), if stderr_open => match line {
-                    Ok(Some(line)) => {
+                    Ok(Some(BoundedLine::Line(line))) => {
                         if !line.is_empty() {
                             stderr_limiter.log(&name, &line);
                         }
+                    }
+                    Ok(Some(BoundedLine::Oversize(bytes))) => {
+                        tracing::warn!(applet = %name, bytes, max = MAX_LINE_BYTES, "dropped oversize exec applet stderr line");
                     }
                     Ok(None) => {
                         stderr_limiter.flush(&name);
@@ -254,6 +262,85 @@ pub async fn write_panel_command(
     stdin.flush().await
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum BoundedLine {
+    Line(String),
+    Oversize(usize),
+}
+
+struct BoundedLines<R> {
+    reader: R,
+    buf: Vec<u8>,
+    overflowed: bool,
+    total: usize,
+    max_bytes: usize,
+}
+
+impl<R: AsyncBufRead + Unpin> BoundedLines<R> {
+    fn new(reader: R, max_bytes: usize) -> Self {
+        Self {
+            reader,
+            buf: Vec::new(),
+            overflowed: false,
+            total: 0,
+            max_bytes,
+        }
+    }
+
+    async fn next_line(&mut self) -> std::io::Result<Option<BoundedLine>> {
+        loop {
+            let (consumed, has_newline, eof) = {
+                let available = self.reader.fill_buf().await?;
+                if available.is_empty() {
+                    (0, false, true)
+                } else {
+                    let pos = available.iter().position(|&b| b == b'\n');
+                    let to_consume = pos.map(|p| p + 1).unwrap_or(available.len());
+                    if !self.overflowed {
+                        let space = self.max_bytes.saturating_sub(self.buf.len());
+                        let copy_len = to_consume.min(space);
+                        self.buf.extend_from_slice(&available[..copy_len]);
+                        if to_consume > space {
+                            self.overflowed = true;
+                        }
+                    }
+                    (to_consume, pos.is_some(), false)
+                }
+            };
+
+            if eof {
+                if self.total == 0 && !self.overflowed && self.buf.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(self.take_result()));
+            }
+
+            self.total += consumed;
+            self.reader.consume(consumed);
+
+            if has_newline {
+                return Ok(Some(self.take_result()));
+            }
+        }
+    }
+
+    fn take_result(&mut self) -> BoundedLine {
+        let total = std::mem::take(&mut self.total);
+        let overflowed = std::mem::replace(&mut self.overflowed, false);
+        let mut buf = std::mem::take(&mut self.buf);
+        if overflowed {
+            return BoundedLine::Oversize(total.max(buf.len()));
+        }
+        if buf.last() == Some(&b'\n') {
+            buf.pop();
+            if buf.last() == Some(&b'\r') {
+                buf.pop();
+            }
+        }
+        BoundedLine::Line(String::from_utf8_lossy(&buf).into_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -323,6 +410,8 @@ mod tests {
             ],
             restart_delay_ms: 60_000,
             options: serde_json::json!({}),
+            env_clear: false,
+            env: std::collections::HashMap::new(),
         };
 
         let task = tokio::spawn(run("leaky".into(), config, outbound_rx, control_rx, sender));
