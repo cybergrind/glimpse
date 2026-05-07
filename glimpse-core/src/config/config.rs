@@ -7,8 +7,9 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::{
-    AppletConfig, ConfigFileDiscovery, IdleConfig, KeyboardConfig, LocationConfig,
-    NightLightConfig, PanelConfig, ThemeMode, watch_config_file,
+    AppletConfig, BackdropConfig, ConfigFileDiscovery, IdleConfig, KeyboardConfig, LocationConfig,
+    LockConfig, NightLightConfig, PanelConfig, ResolvedWallpaperSpec, ThemeMode, WallpaperConfig,
+    resolve_wallpaper_spec, watch_config_file,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -25,6 +26,12 @@ pub struct Config {
     pub idle: IdleConfig,
     #[serde(default)]
     pub keyboard: KeyboardConfig,
+    #[serde(default)]
+    pub wallpaper: WallpaperConfig,
+    #[serde(default)]
+    pub backdrop: BackdropConfig,
+    #[serde(default)]
+    pub lock: LockConfig,
 }
 
 impl Config {
@@ -66,6 +73,10 @@ impl Config {
         env::var("GLIMPSE_THEME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| Self::themes_dir().join(format!("{}.css", self.theme)))
+    }
+
+    pub fn resolve_wallpaper(&self) -> ResolvedWallpaperSpec {
+        resolve_wallpaper_spec(&self.wallpaper, &self.backdrop)
     }
 
     pub fn load_from_file(path: &Path) -> Self {
@@ -132,6 +143,9 @@ impl Default for Config {
             night_light: NightLightConfig::default(),
             idle: IdleConfig::default(),
             keyboard: KeyboardConfig::default(),
+            wallpaper: WallpaperConfig::default(),
+            backdrop: BackdropConfig::default(),
+            lock: LockConfig::default(),
         }
     }
 }

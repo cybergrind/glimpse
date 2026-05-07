@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use glimpse_core::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
 use glimpse_wallpaper::{
     app::{AppCommand, WallpaperAppModel},
-    config::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec},
     runtime::{ImageLoadResult, WallpaperRuntime},
     source::{StaticWallpaperSource, WallpaperFrame, WallpaperSource},
 };

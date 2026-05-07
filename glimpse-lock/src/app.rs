@@ -11,9 +11,10 @@ use std::{
 
 use css_color::Srgb;
 use glimpse_core::{
-    Config, ConfigEvent, KeyboardConfig, LocationConfig,
+    Config, ConfigEvent, FitMode, KeyboardConfig, LocationConfig, LockConfig, LockControlButton,
+    ResolvedImageSpec, ResolvedLockSpec, WallpaperConfig,
     dbus::Dbus,
-    heic,
+    heic, resolve_lock_spec,
     services::{
         battery::{BatteryHandle, BatteryService, State as BatteryState},
         compositor::CompositorService,
@@ -28,9 +29,6 @@ use glimpse_core::{
         weather::{WeatherHandle, WeatherService, model as weather_model},
     },
     watch_for_config_changes,
-};
-use glimpse_wallpaper::config::{
-    self as wallpaper_config, FitMode, ResolvedImageSpec, WallpaperConfig,
 };
 use gtk4::{
     ContentFit, CssProvider, gdk,
@@ -53,10 +51,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     auth::{AuthResult, Authenticator, PamAuthenticator, PreviewAuthenticator, SecretString},
-    config::{
-        LockConfig, LockConfigEvent, LockControlButton, ResolvedLockSpec, resolve_lock_spec,
-        watch_for_lock_config_changes,
-    },
     dbus::{LockApiState, register_lock_api},
     logind::{self, LogindLockEvent},
     runtime::{GTK_APPLICATION_ID, GTK_PREVIEW_APPLICATION_ID, LockRuntime},
@@ -73,9 +67,7 @@ pub enum AppCommand {
     Locked,
     Unlocked,
     ReconcileMonitors,
-    ApplyConfig(Box<LockConfig>),
     ApplySharedConfig(Box<Config>),
-    ApplyWallpaperConfig(Box<WallpaperConfig>),
     ReloadCss,
     ReloadAssets,
     SubmitPassword(String),
@@ -118,11 +110,11 @@ impl LockAppConfig {
     pub fn load() -> Self {
         let shared = Config::load();
         Self {
-            lock: LockConfig::load(),
-            wallpaper: load_wallpaper_config(),
+            lock: shared.lock,
+            wallpaper: shared.wallpaper,
             location: shared.location,
             keyboard: shared.keyboard,
-            config_dir: lock_config_dir(),
+            config_dir: Config::config_dir(),
         }
     }
 
@@ -130,35 +122,18 @@ impl LockAppConfig {
         resolve_lock_spec(&self.lock, &self.wallpaper, &self.config_dir)
     }
 
-    fn with_lock(&self, lock: LockConfig) -> Self {
-        let shared = Config::load();
-        Self {
-            lock,
-            wallpaper: load_wallpaper_config(),
-            location: shared.location,
-            keyboard: shared.keyboard,
-            config_dir: lock_config_dir(),
-        }
-    }
-
     fn with_shared(&self, shared: Config) -> Self {
         Self {
-            lock: self.lock.clone(),
-            wallpaper: self.wallpaper.clone(),
+            lock: shared.lock,
+            wallpaper: shared.wallpaper,
             location: shared.location,
             keyboard: shared.keyboard,
-            config_dir: self.config_dir.clone(),
+            config_dir: Config::config_dir(),
         }
     }
 
-    fn with_wallpaper(&self, wallpaper: WallpaperConfig) -> Self {
-        Self {
-            lock: self.lock.clone(),
-            wallpaper,
-            location: self.location.clone(),
-            keyboard: self.keyboard.clone(),
-            config_dir: self.config_dir.clone(),
-        }
+    fn services_changed(&self, next: &Self) -> bool {
+        self.location != next.location || self.keyboard != next.keyboard
     }
 
     fn service_config(&self) -> Config {
@@ -277,16 +252,6 @@ impl SimpleComponent for LockApp {
         let spec = init.config.resolve();
         load_custom_css(&custom_css_provider, &spec.css_path);
 
-        let (config_tx, mut config_rx) = mpsc::channel(1);
-        relm4::spawn(async move {
-            watch_for_lock_config_changes(config_tx).await;
-        });
-        let config_sender = sender.clone();
-        relm4::spawn_local(async move {
-            while let Some(LockConfigEvent::Changed(config)) = config_rx.recv().await {
-                config_sender.input(AppCommand::ApplyConfig(Box::new(config)));
-            }
-        });
         let (shared_config_tx, mut shared_config_rx) = mpsc::channel(1);
         relm4::spawn(async move {
             watch_for_config_changes(shared_config_tx).await;
@@ -295,19 +260,6 @@ impl SimpleComponent for LockApp {
         relm4::spawn_local(async move {
             while let Some(ConfigEvent::Changed(config)) = shared_config_rx.recv().await {
                 shared_config_sender.input(AppCommand::ApplySharedConfig(Box::new(config)));
-            }
-        });
-        let (wallpaper_config_tx, mut wallpaper_config_rx) = mpsc::channel(1);
-        relm4::spawn(async move {
-            wallpaper_config::watch_for_config_changes(wallpaper_config_tx).await;
-        });
-        let wallpaper_config_sender = sender.clone();
-        relm4::spawn_local(async move {
-            while let Some(wallpaper_config::ConfigEvent::Changed(config)) =
-                wallpaper_config_rx.recv().await
-            {
-                wallpaper_config_sender
-                    .input(AppCommand::ApplyWallpaperConfig(Box::new(config.wallpaper)));
             }
         });
 
@@ -420,40 +372,21 @@ impl SimpleComponent for LockApp {
                 self.finish_unlock();
             }
             AppCommand::ReconcileMonitors => self.reconcile_monitor_windows(sender),
-            AppCommand::ApplyConfig(config) => {
-                self.config = self.config.with_lock(*config);
-                let mut next = self.config.resolve();
-                next.pam_service.clone_from(&self.spec.pam_service);
-                if self.spec == next {
-                    return;
-                }
-                tracing::info!("lock visual config changed");
-                self.spec = next;
-                load_custom_css(&self.custom_css_provider, &self.spec.css_path);
-                self.watch_css(sender.clone());
-                self.watch_assets(sender.clone());
-                self.emit_to_lock_windows(LockWindowInput::Reconfigure(self.spec.clone()));
-            }
             AppCommand::ApplySharedConfig(config) => {
-                self.config = self.config.with_shared(*config);
-                reconfigure_lock_services(&self.services, &self.config);
-                let next = self.config.resolve();
+                let next_config = self.config.with_shared(*config);
+                if self.config.services_changed(&next_config) {
+                    reconfigure_lock_services(&self.services, &next_config);
+                }
+                let next = next_config.resolve();
                 if self.spec == next {
+                    self.config = next_config;
                     return;
                 }
                 tracing::info!("lock shared config changed");
+                self.config = next_config;
                 self.spec = next;
-                self.watch_assets(sender.clone());
-                self.emit_to_lock_windows(LockWindowInput::Reconfigure(self.spec.clone()));
-            }
-            AppCommand::ApplyWallpaperConfig(wallpaper) => {
-                self.config = self.config.with_wallpaper(*wallpaper);
-                let next = self.config.resolve();
-                if self.spec == next {
-                    return;
-                }
-                tracing::info!("lock wallpaper config changed");
-                self.spec = next;
+                load_custom_css(&self.custom_css_provider, &self.spec.css_path);
+                self.watch_css(sender.clone());
                 self.watch_assets(sender.clone());
                 self.emit_to_lock_windows(LockWindowInput::Reconfigure(self.spec.clone()));
             }
@@ -1157,18 +1090,6 @@ fn list_gdk_monitors() -> Vec<gdk::Monitor> {
     (0..monitors.n_items())
         .filter_map(|idx| monitors.item(idx).and_downcast::<gdk::Monitor>())
         .collect()
-}
-
-fn lock_config_dir() -> PathBuf {
-    let detected = LockConfig::detect_config_file();
-    detected
-        .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(LockConfig::config_dir)
-}
-
-fn load_wallpaper_config() -> WallpaperConfig {
-    wallpaper_config::Config::load().wallpaper
 }
 
 pub struct LockWindow {
@@ -2640,14 +2561,16 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use glimpse_core::services::{
-        battery::{
-            BatteryState as CoreBatteryState, BatteryStatus, State as CoreBatteryServiceState,
+    use glimpse_core::{
+        FitMode,
+        services::{
+            battery::{
+                BatteryState as CoreBatteryState, BatteryStatus, State as CoreBatteryServiceState,
+            },
+            keyboard::{KeyboardLayout, State as CoreKeyboardState},
+            network::{NetworkSnapshot, NetworkStatus, State as CoreNetworkState, WifiAccessPoint},
         },
-        keyboard::{KeyboardLayout, State as CoreKeyboardState},
-        network::{NetworkSnapshot, NetworkStatus, State as CoreNetworkState, WifiAccessPoint},
     };
-    use glimpse_wallpaper::config::FitMode;
     use notify::event::{AccessKind, AccessMode, DataChange};
 
     use super::{

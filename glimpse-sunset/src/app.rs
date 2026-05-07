@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use glimpse_core::{
-    Config, ConfigEvent,
+    Config, ConfigEvent, LocationConfig, NightLightConfig,
     services::{
-        framework::{Control, ServiceCommand, ServiceHandle},
+        framework::Control,
         location,
         night_light::{self, NightLightHandle, NightLightService, State},
         solar,
@@ -21,6 +21,21 @@ use crate::{
 struct AppTask {
     cancel: CancellationToken,
     task: tokio::task::JoinHandle<()>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SunsetAppConfig {
+    location: LocationConfig,
+    night_light: NightLightConfig,
+}
+
+impl SunsetAppConfig {
+    fn from_shared(config: &Config) -> Self {
+        Self {
+            location: config.location.clone(),
+            night_light: config.night_light.clone(),
+        }
+    }
 }
 
 impl AppTask {
@@ -68,7 +83,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     }));
 
     tracing::info!("glimpse-sunset is running");
-    let mut current_config = config;
+    let mut current_config = SunsetAppConfig::from_shared(&config);
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
@@ -77,12 +92,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             }
             message = config_rx.recv() => match message {
                 Some(ConfigEvent::Changed(config)) => {
-                    if current_config == config {
+                    let next_config = SunsetAppConfig::from_shared(&config);
+                    if current_config == next_config {
                         continue;
                     }
-                    tracing::info!("app config changed");
+                    tracing::info!("sunset config changed");
                     reconfigure_services(&location, &solar, &night_light, config.clone());
-                    current_config = config;
+                    current_config = next_config;
                 }
                 None => break,
             },
@@ -115,9 +131,21 @@ pub fn start_services(
     night_light: &NightLightHandle,
     config: Config,
 ) {
-    send_control("location", location, Control::Start(config.clone()));
-    send_control("solar", solar, Control::Start(config.clone()));
-    send_control("night-light", night_light, Control::Start(config));
+    location.try_send_control(
+        "location",
+        Control::Start(config.clone()),
+        "failed to send service control",
+    );
+    solar.try_send_control(
+        "solar",
+        Control::Start(config.clone()),
+        "failed to send service control",
+    );
+    night_light.try_send_control(
+        "night-light",
+        Control::Start(config),
+        "failed to send service control",
+    );
 }
 
 pub fn reconfigure_services(
@@ -126,13 +154,21 @@ pub fn reconfigure_services(
     night_light: &NightLightHandle,
     config: Config,
 ) {
-    send_control("location", location, Control::Reconfigure(config.clone()));
-    send_control("solar", solar, Control::Reconfigure(config.clone()));
-    if let Err(error) = night_light.try_send(ServiceCommand::Command(
+    location.try_send_control(
+        "location",
+        Control::Reconfigure(config.clone()),
+        "failed to send service control",
+    );
+    solar.try_send_control(
+        "solar",
+        Control::Reconfigure(config.clone()),
+        "failed to send service control",
+    );
+    night_light.try_send_command(
+        "night-light",
         night_light::Command::ApplyConfig(config.night_light),
-    )) {
-        tracing::warn!(%error, "failed to send night light config update");
-    }
+        "failed to send night light config update",
+    );
 }
 
 pub fn refresh_after_resume(
@@ -140,9 +176,21 @@ pub fn refresh_after_resume(
     solar: &solar::SolarHandle,
     night_light: &NightLightHandle,
 ) {
-    send_command("location", location, location::Command::Refresh);
-    send_command("solar", solar, solar::Command::Refresh);
-    send_command("night-light", night_light, night_light::Command::Refresh);
+    location.try_send_command(
+        "location",
+        location::Command::Refresh,
+        "failed to send service command",
+    );
+    solar.try_send_command(
+        "solar",
+        solar::Command::Refresh,
+        "failed to send service command",
+    );
+    night_light.try_send_command(
+        "night-light",
+        night_light::Command::Refresh,
+        "failed to send service command",
+    );
 }
 
 fn shutdown_services(
@@ -150,35 +198,17 @@ fn shutdown_services(
     solar: &solar::SolarHandle,
     night_light: &NightLightHandle,
 ) {
-    send_control("location", location, Control::Shutdown);
-    send_control("solar", solar, Control::Shutdown);
-    send_control("night-light", night_light, Control::Shutdown);
-}
-
-fn send_control<State, Command>(
-    service_name: &'static str,
-    handle: &ServiceHandle<State, Command>,
-    control: Control,
-) where
-    State: Clone,
-    Command: Send,
-{
-    if let Err(error) = handle.try_send(ServiceCommand::Control(control)) {
-        tracing::warn!(service = service_name, %error, "failed to send service control");
-    }
-}
-
-fn send_command<State, Command>(
-    service_name: &'static str,
-    handle: &ServiceHandle<State, Command>,
-    command: Command,
-) where
-    State: Clone,
-    Command: Send,
-{
-    if let Err(error) = handle.try_send(ServiceCommand::Command(command)) {
-        tracing::warn!(service = service_name, %error, "failed to send service command");
-    }
+    location.try_send_control(
+        "location",
+        Control::Shutdown,
+        "failed to send service control",
+    );
+    solar.try_send_control("solar", Control::Shutdown, "failed to send service control");
+    night_light.try_send_control(
+        "night-light",
+        Control::Shutdown,
+        "failed to send service control",
+    );
 }
 
 fn spawn_night_light_subscription(

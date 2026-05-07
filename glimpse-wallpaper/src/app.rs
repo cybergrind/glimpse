@@ -8,11 +8,9 @@ use std::{
 
 use css_color::Srgb;
 use gio::prelude::ListModelExt;
-use glimpse_core::heic;
-
-use crate::config::{
+use glimpse_core::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
-    watch_for_config_changes,
+    heic, watch_for_config_changes,
 };
 use gtk4::{
     ContentFit,
@@ -1507,7 +1505,7 @@ mod tests {
         blur_processing_dimensions, load_cached_image, load_legacy_unprocessed_cache,
         resize_rgba_for_fit, should_start_image_load, write_cached_image,
     };
-    use crate::config::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
+    use glimpse_core::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
     use std::{
         fs,
         path::PathBuf,

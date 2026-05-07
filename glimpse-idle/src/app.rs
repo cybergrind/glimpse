@@ -2,7 +2,7 @@ use glimpse_core::{
     Config, ConfigEvent,
     services::{
         battery::{BatteryHandle, BatteryService},
-        framework::{Control, ServiceCommand, ServiceHandle},
+        framework::Control,
         idle::{self, IdleHandle, IdleService, State},
     },
     watch_for_config_changes,
@@ -88,34 +88,33 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 }
 
 pub fn start_services(battery: &BatteryHandle, idle: &IdleHandle, config: Config) {
-    send_control("battery", battery, Control::Start(config.clone()));
-    send_control("idle", idle, Control::Start(config));
+    battery.try_send_control(
+        "battery",
+        Control::Start(config.clone()),
+        "failed to send service control",
+    );
+    idle.try_send_control(
+        "idle",
+        Control::Start(config),
+        "failed to send service control",
+    );
 }
 
 pub fn reconfigure_services(idle: &IdleHandle, config: Config) {
-    if let Err(error) = idle.try_send(ServiceCommand::Command(idle::Command::ApplyConfig(
-        config.idle,
-    ))) {
-        tracing::warn!(%error, "failed to send idle config update");
-    }
+    idle.try_send_command(
+        "idle",
+        idle::Command::ApplyConfig(config.idle),
+        "failed to send idle config update",
+    );
 }
 
 fn shutdown_services(battery: &BatteryHandle, idle: &IdleHandle) {
-    send_control("battery", battery, Control::Shutdown);
-    send_control("idle", idle, Control::Shutdown);
-}
-
-fn send_control<State, Command>(
-    service_name: &'static str,
-    handle: &ServiceHandle<State, Command>,
-    control: Control,
-) where
-    State: Clone,
-    Command: Send,
-{
-    if let Err(error) = handle.try_send(ServiceCommand::Control(control)) {
-        tracing::warn!(service = service_name, %error, "failed to send service control");
-    }
+    battery.try_send_control(
+        "battery",
+        Control::Shutdown,
+        "failed to send service control",
+    );
+    idle.try_send_control("idle", Control::Shutdown, "failed to send service control");
 }
 
 fn spawn_idle_subscription(idle: IdleHandle, cancel: CancellationToken) -> AppTask {

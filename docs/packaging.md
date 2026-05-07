@@ -197,8 +197,7 @@ For security, `glimpse-lock` ignores logind `Unlock` requests; unlocking require
 | File | Location |
 |------|----------|
 | Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./panel.toml` |
-| Shell, wallpaper, sunset, and idle config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
-| Lock config | `GLIMPSE_LOCK_CONFIG`, `./lock.toml`, or `$XDG_CONFIG_HOME/glimpse/lock.toml` |
+| Shell, wallpaper, sunset, idle, and lock config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
 | Lock screen CSS | `$XDG_CONFIG_HOME/glimpse/themes/lock.css` |
 | Built-in structure/theme layers | embedded in `glimpse-panel` binary |
@@ -242,13 +241,14 @@ listeners = [
 Each listener command is executed through `/bin/sh -c`. `on_resume` runs only after that listener has fired `on_idle`.
 Set `respect_inhibitors` on a listener to override the global value.
 
-`glimpse-lock` reads `lock.toml`. It still uses the shared `[wallpaper]` block from `config.toml` as a fallback when `lock.toml` omits background color or path.
+`glimpse-lock` reads the shared `[lock]` block. It still uses the shared `[wallpaper]` block as a fallback when `[lock.background]` omits background color or path.
 
 ```toml
+[lock]
 pam_service = "glimpse-lock"
 css_path = "themes/lock.css"
 
-[background]
+[lock.background]
 color = "#101010"
 path = "/path/to/lock.png"
 fit = "cover"
@@ -263,7 +263,7 @@ The default `pam_service = "glimpse-lock"` expects `/etc/pam.d/glimpse-lock`, wh
 For lock theme work without taking a real session lock, run:
 
 ```bash
-GLIMPSE_LOCK_CONFIG=/path/to/lock.toml cargo run -p glimpse-lock -- --preview
+GLIMPSE_CONFIG=/path/to/config.toml cargo run -p glimpse-lock -- --preview
 ```
 
 Preview mode opens a normal GTK window, uses the same lock background and CSS watchers, and simulates authentication. Password `valid` succeeds; any other non-empty password fails.

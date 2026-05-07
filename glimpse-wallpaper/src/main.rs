@@ -1,13 +1,12 @@
+use glimpse_core::Config;
 use glimpse_wallpaper::{
     app::{AppInit, WallpaperAppModel},
-    config::Config,
     runtime::{GTK_APPLICATION_ID, WallpaperRuntime},
 };
 use relm4::{
     RELM_THREADS, RelmApp,
     gtk::{self, gio::prelude::ApplicationExtManual},
 };
-use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 const GTK_APPLICATION_ID_ENV: &str = "GLIMPSE_WALLPAPER_APP_ID";
@@ -18,12 +17,6 @@ async fn main() -> anyhow::Result<()> {
         println!("{output}");
         return Ok(());
     }
-    if export_config_requested(std::env::args()) {
-        let path = export_config()?;
-        println!("wrote {}", path.display());
-        return Ok(());
-    }
-
     let filter = log_filter();
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
@@ -112,37 +105,9 @@ where
         .then(|| format!("glimpse-wallpaper {}", env!("CARGO_PKG_VERSION")))
 }
 
-fn export_config_requested<I, S>(args: I) -> bool
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    args.into_iter()
-        .skip(1)
-        .any(|arg| matches!(arg.as_ref(), "--export-config"))
-}
-
-fn export_config() -> anyhow::Result<PathBuf> {
-    let path = Config::config_file();
-    if path.exists() {
-        anyhow::bail!(
-            "wallpaper config already exists at {}; refusing to overwrite",
-            path.display()
-        );
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, glimpse_wallpaper::config::EXPORTED_CONFIG)?;
-    Ok(path)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        export_config_requested, gtk_application_id_from_env, normalized_glimpse_log_filter,
-        version_output,
-    };
+    use super::{gtk_application_id_from_env, normalized_glimpse_log_filter, version_output};
 
     #[test]
     fn bare_glimpse_log_level_keeps_relm4_quiet() {
@@ -194,14 +159,5 @@ mod tests {
     #[test]
     fn version_output_is_absent_without_flag() {
         assert_eq!(version_output(["glimpse-wallpaper"]), None);
-    }
-
-    #[test]
-    fn export_config_flag_is_detected() {
-        assert!(export_config_requested([
-            "glimpse-wallpaper",
-            "--export-config"
-        ]));
-        assert!(!export_config_requested(["glimpse-wallpaper"]));
     }
 }

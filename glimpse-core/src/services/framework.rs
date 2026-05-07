@@ -96,6 +96,28 @@ impl<State: Clone, Command: Send> ServiceHandle<State, Command> {
             mpsc::error::TrySendError::Closed(_) => ServiceError::ChannelClosed,
         })
     }
+
+    pub fn try_send_control(
+        &self,
+        service_name: &'static str,
+        control: Control,
+        failure_message: &'static str,
+    ) {
+        if let Err(error) = self.try_send(ServiceCommand::Control(control)) {
+            tracing::warn!(service = service_name, %error, "{failure_message}");
+        }
+    }
+
+    pub fn try_send_command(
+        &self,
+        service_name: &'static str,
+        command: Command,
+        failure_message: &'static str,
+    ) {
+        if let Err(error) = self.try_send(ServiceCommand::Command(command)) {
+            tracing::warn!(service = service_name, %error, "{failure_message}");
+        }
+    }
 }
 
 pub struct RunningService {

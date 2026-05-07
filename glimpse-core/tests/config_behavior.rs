@@ -41,7 +41,7 @@ fn config_discovery_prefers_glimpse_config_env_then_cwd_then_xdg() {
 }
 
 #[test]
-fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_settings() {
+fn parses_shell_compatible_config_with_shared_wallpaper_settings() {
     let config = Config::from_toml_str(
         r##"
         theme = "adwaita"
@@ -104,8 +104,8 @@ fn parses_shell_compatible_config_and_ignores_legacy_wallpaper_settings() {
     );
 
     let serialized = toml::to_string_pretty(&config).unwrap();
-    assert!(!serialized.contains("[wallpaper]"));
-    assert!(!serialized.contains("[backdrop]"));
+    assert!(serialized.contains("[wallpaper]"));
+    assert!(serialized.contains("[backdrop]"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
+use glimpse_core::Config;
 use glimpse_lock::{
     app::{self, LockAppConfig},
-    config::LockConfig,
     logind,
     runtime::LockRuntime,
 };
@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 const EXPORTED_LOCK_CSS: &str = include_str!("../resources/export-lock.css");
-const EXPORTED_LOCK_CONFIG: &str = include_str!("../resources/lock.toml");
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -18,11 +17,6 @@ fn main() -> anyhow::Result<()> {
     }
     if export_css_requested(&args) {
         let path = export_css()?;
-        println!("wrote {}", path.display());
-        return Ok(());
-    }
-    if export_config_requested(&args) {
-        let path = export_config()?;
         println!("wrote {}", path.display());
         return Ok(());
     }
@@ -85,30 +79,15 @@ where
         .any(|arg| matches!(arg.as_ref(), "--export-css"))
 }
 
-fn export_config_requested<I, S>(args: I) -> bool
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    args.into_iter()
-        .skip(1)
-        .any(|arg| matches!(arg.as_ref(), "--export-config"))
-}
-
 fn gtk_args(args: &[String]) -> Vec<String> {
     args.iter()
-        .filter(|arg| {
-            !matches!(
-                arg.as_str(),
-                "--preview" | "--export-css" | "--export-config"
-            )
-        })
+        .filter(|arg| !matches!(arg.as_str(), "--preview" | "--export-css"))
         .cloned()
         .collect()
 }
 
 fn export_css() -> anyhow::Result<PathBuf> {
-    let path = LockConfig::config_dir().join("themes").join("lock.css");
+    let path = Config::config_dir().join("themes").join("lock.css");
     if path.exists() {
         anyhow::bail!(
             "lock CSS already exists at {}; refusing to overwrite",
@@ -119,21 +98,6 @@ fn export_css() -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&path, EXPORTED_LOCK_CSS)?;
-    Ok(path)
-}
-
-fn export_config() -> anyhow::Result<PathBuf> {
-    let path = LockConfig::config_file();
-    if path.exists() {
-        anyhow::bail!(
-            "lock config already exists at {}; refusing to overwrite",
-            path.display()
-        );
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, EXPORTED_LOCK_CONFIG)?;
     Ok(path)
 }
 
@@ -173,9 +137,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        export_config_requested, export_css_requested, gtk_args, preview_requested, version_output,
-    };
+    use super::{export_css_requested, gtk_args, preview_requested, version_output};
 
     #[test]
     fn version_output_uses_cargo_package_version() {
@@ -198,18 +160,11 @@ mod tests {
     }
 
     #[test]
-    fn export_config_flag_is_detected() {
-        assert!(export_config_requested(["glimpse-lock", "--export-config"]));
-        assert!(!export_config_requested(["glimpse-lock"]));
-    }
-
-    #[test]
     fn glimpse_flags_are_removed_from_gtk_args() {
         let args = vec![
             "glimpse-lock".to_string(),
             "--preview".to_string(),
             "--export-css".to_string(),
-            "--export-config".to_string(),
             "--gapplication-service".to_string(),
         ];
 
