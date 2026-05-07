@@ -440,6 +440,13 @@ impl SimpleComponent for LockApp {
                         self.runtime.mark_auth_failure();
                         self.emit_to_lock_windows(LockWindowInput::AuthFailed);
                     }
+                    AuthResult::SecondFactorRequired => {
+                        tracing::warn!(
+                            "authentication requires a second factor; glimpse-lock does not support multi-prompt PAM stacks"
+                        );
+                        self.runtime.mark_auth_failure();
+                        self.emit_to_lock_windows(LockWindowInput::AuthSecondFactorUnsupported);
+                    }
                 }
             }
             AppCommand::RefreshControls => {
@@ -1123,6 +1130,7 @@ pub enum LockWindowInput {
     SetStatus(String),
     AuthSucceeded,
     AuthFailed,
+    AuthSecondFactorUnsupported,
     PowerAction(LockPowerAction),
     ControlStatus(LockControlStatus),
     CycleInput,
@@ -1650,6 +1658,9 @@ impl SimpleComponent for LockWindow {
             }
             LockWindowInput::AuthFailed => {
                 self.status = "Authentication failed".into();
+            }
+            LockWindowInput::AuthSecondFactorUnsupported => {
+                self.status = "Second-factor authentication is required but not supported".into();
             }
             LockWindowInput::PowerAction(action) => {
                 if action.requires_confirmation() && self.confirm_power_action != Some(action) {

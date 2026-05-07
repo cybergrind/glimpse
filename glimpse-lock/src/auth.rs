@@ -1,4 +1,8 @@
-use std::ffi::{CStr, CString};
+use std::{
+    cell::Cell,
+    ffi::{CStr, CString},
+    rc::Rc,
+};
 
 use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use zeroize::{Zeroize, Zeroizing};
@@ -44,6 +48,7 @@ pub trait Authenticator: Send + Sync + 'static {
 pub enum AuthResult {
     Success,
     Failure,
+    SecondFactorRequired,
 }
 
 #[derive(Debug, Default)]
@@ -99,7 +104,8 @@ fn authenticate_with_pam(
     username: &str,
     password: SecretString,
 ) -> anyhow::Result<AuthResult> {
-    let conversation = LockConversation::new(username, password);
+    let second_factor_seen = Rc::new(Cell::new(false));
+    let conversation = LockConversation::new(username, password, second_factor_seen.clone());
     let mut context = Context::new(service, Some(username), conversation)?;
     match context.authenticate(Flag::DISALLOW_NULL_AUTHTOK) {
         Ok(()) => match context.acct_mgmt(Flag::NONE) {
@@ -110,8 +116,16 @@ fn authenticate_with_pam(
             }
         },
         Err(error) => {
-            tracing::warn!(%error, "PAM authentication failed");
-            Ok(AuthResult::Failure)
+            if second_factor_seen.get() {
+                tracing::warn!(
+                    %error,
+                    "PAM stack requires a second factor; glimpse-lock does not support multi-prompt PAM stacks"
+                );
+                Ok(AuthResult::SecondFactorRequired)
+            } else {
+                tracing::warn!(%error, "PAM authentication failed");
+                Ok(AuthResult::Failure)
+            }
         }
     }
 }
@@ -119,13 +133,17 @@ fn authenticate_with_pam(
 struct LockConversation {
     username: String,
     password: SecretString,
+    password_prompt_count: u32,
+    second_factor_seen: Rc<Cell<bool>>,
 }
 
 impl LockConversation {
-    fn new(username: &str, password: SecretString) -> Self {
+    fn new(username: &str, password: SecretString, second_factor_seen: Rc<Cell<bool>>) -> Self {
         Self {
             username: username.to_owned(),
             password,
+            password_prompt_count: 0,
+            second_factor_seen,
         }
     }
 }
@@ -136,7 +154,13 @@ impl ConversationHandler for LockConversation {
     }
 
     fn prompt_echo_off(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
-        CString::new(self.password.as_str()).map_err(|_| ErrorCode::CONV_ERR)
+        self.password_prompt_count += 1;
+        if self.password_prompt_count == 1 {
+            CString::new(self.password.as_str()).map_err(|_| ErrorCode::CONV_ERR)
+        } else {
+            self.second_factor_seen.set(true);
+            Err(ErrorCode::CONV_ERR)
+        }
     }
 
     fn text_info(&mut self, msg: &CStr) {
