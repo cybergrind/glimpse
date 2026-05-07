@@ -726,6 +726,7 @@ struct ImageLayer {
     has_paintable: bool,
     front_picture: gtk::Picture,
     back_picture: gtk::Picture,
+    pending_clear: Option<glib::SourceId>,
 }
 
 #[derive(Debug)]
@@ -829,6 +830,7 @@ impl Component for ImageLayer {
             has_paintable: false,
             front_picture,
             back_picture,
+            pending_clear: None,
         };
         let _ = sender.input(ImageLayerInput::Reconfigure {
             init,
@@ -904,12 +906,15 @@ impl Component for ImageLayer {
                         let previous_slot = self.active_slot;
                         self.active_slot = next_slot;
                         self.has_paintable = true;
-                        schedule_hidden_slot_clear(
+                        if let Some(source) = self.pending_clear.take() {
+                            source.remove();
+                        }
+                        self.pending_clear = Some(schedule_hidden_slot_clear(
                             self.request_id,
                             previous_slot,
                             self.current.transition_ms,
                             sender.input_sender().clone(),
-                        );
+                        ));
                     }
                     Err(error) => tracing::warn!("failed to load wallpaper image: {error}"),
                 }
@@ -940,9 +945,12 @@ impl Component for ImageLayer {
                 }
             }
             ImageLayerInput::ClearHidden { request_id, slot } => {
-                if request_id == self.request_id && slot != self.active_slot {
-                    self.picture_for_slot(slot)
-                        .set_paintable(None::<&gdk::Paintable>);
+                if request_id == self.request_id {
+                    self.pending_clear = None;
+                    if slot != self.active_slot {
+                        self.picture_for_slot(slot)
+                            .set_paintable(None::<&gdk::Paintable>);
+                    }
                 }
             }
         }
@@ -1096,11 +1104,11 @@ fn schedule_hidden_slot_clear(
     slot: PictureSlot,
     transition_ms: u32,
     sender: relm4::Sender<ImageLayerInput>,
-) {
+) -> glib::SourceId {
     let delay = Duration::from_millis(transition_ms as u64 + 50);
     glib::timeout_add_local_once(delay, move || {
         let _ = sender.send(ImageLayerInput::ClearHidden { request_id, slot });
-    });
+    })
 }
 
 fn decode_image(
