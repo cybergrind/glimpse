@@ -3,7 +3,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use relm4::Sender;
@@ -19,22 +19,27 @@ pub struct LockApiState {
 
 #[derive(Default)]
 struct LockApiStateInner {
-    active: AtomicBool,
+    state: Mutex<ActiveState>,
     was_active: AtomicBool,
-    active_since: Mutex<Option<Instant>>,
+}
+
+#[derive(Default, Clone, Copy)]
+struct ActiveState {
+    active: bool,
+    since: Option<Instant>,
 }
 
 impl LockApiState {
     pub fn set_active(&self, active: bool) {
-        self.inner.active.store(active, Ordering::Relaxed);
         if active {
             self.inner.was_active.store(true, Ordering::Relaxed);
         }
-        let Ok(mut active_since) = self.inner.active_since.lock() else {
+        let Ok(mut state) = self.inner.state.lock() else {
             tracing::warn!("lock API state mutex is poisoned");
             return;
         };
-        *active_since = active.then(Instant::now);
+        state.active = active;
+        state.since = active.then(Instant::now);
     }
 
     pub fn was_ever_active(&self) -> bool {
@@ -42,16 +47,29 @@ impl LockApiState {
     }
 
     fn active(&self) -> bool {
-        self.inner.active.load(Ordering::Relaxed)
+        self.inner
+            .state
+            .lock()
+            .map(|state| state.active)
+            .unwrap_or_else(|_| {
+                tracing::warn!("lock API state mutex is poisoned");
+                false
+            })
     }
 
     fn active_time(&self) -> u32 {
-        let Ok(active_since) = self.inner.active_since.lock() else {
+        let Ok(state) = self.inner.state.lock() else {
             tracing::warn!("lock API state mutex is poisoned");
             return 0;
         };
-        active_since
-            .map(|started| started.elapsed().as_secs().min(u32::MAX as u64) as u32)
+        state
+            .since
+            .map(|started| {
+                started
+                    .elapsed()
+                    .min(Duration::from_secs(u32::MAX as u64))
+                    .as_secs() as u32
+            })
             .unwrap_or(0)
     }
 }
