@@ -21,6 +21,16 @@ impl SecretString {
     fn as_str(&self) -> &str {
         self.inner.as_str()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
+impl Clone for SecretString {
+    fn clone(&self) -> Self {
+        Self::new(self.inner.as_str())
+    }
 }
 
 impl std::fmt::Debug for SecretString {

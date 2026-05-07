@@ -70,7 +70,7 @@ pub enum AppCommand {
     ApplySharedConfig(Box<Config>),
     ReloadCss,
     ReloadAssets,
-    SubmitPassword(String),
+    SubmitPassword(SecretString),
     AuthFinished(AuthResult),
     RefreshControls,
     ControlStatus(LockControlStatus),
@@ -408,7 +408,7 @@ impl SimpleComponent for LockApp {
                 let result_sender = sender.input_sender().clone();
                 relm4::spawn_local(async move {
                     let result = tokio::task::spawn_blocking(move || {
-                        authenticator.authenticate(&service, &username, SecretString::new(password))
+                        authenticator.authenticate(&service, &username, password)
                     })
                     .await
                     .map_err(|error| anyhow::anyhow!("auth worker failed: {error}"))
@@ -1126,7 +1126,7 @@ pub struct LockWindowInit {
 #[derive(Clone, Debug)]
 pub enum LockWindowInput {
     Reconfigure(ResolvedLockSpec),
-    Submit(String),
+    Submit(SecretString),
     SetStatus(String),
     AuthSucceeded,
     AuthFailed,
@@ -1244,7 +1244,7 @@ impl SimpleComponent for LockWindow {
                         set_width_chars: 24,
                         set_show_peek_icon: false,
                         connect_activate[sender] => move |entry| {
-                            let password = entry.text().to_string();
+                            let password = SecretString::new(entry.text().as_str());
                             entry.set_text("");
                             sender.input(LockWindowInput::Submit(password));
                         },
