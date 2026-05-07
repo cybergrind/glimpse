@@ -1,9 +1,10 @@
-use std::time::Duration;
+use std::{os::fd::AsFd, time::Duration};
 
 use glimpse_core::services::{
     framework::ServiceCommand,
     idle::{self, ActiveListener, Health, IdleHandle, State},
 };
+use tokio::io::{Interest, unix::AsyncFd};
 use tokio_util::sync::CancellationToken;
 use wayland_client::{
     Connection, Dispatch, Proxy, QueueHandle, delegate_noop,
@@ -14,7 +15,6 @@ use wayland_protocols::ext::idle_notify::v1::client::{
     ext_idle_notification_v1, ext_idle_notifier_v1,
 };
 
-const WAYLAND_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const WAYLAND_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 pub async fn run(idle: IdleHandle, cancel: CancellationToken) {
@@ -60,18 +60,25 @@ async fn run_inner(idle: IdleHandle, cancel: CancellationToken) -> anyhow::Resul
 
     let mut state_rx = idle.subscribe();
     sync_notifications(&mut backend_state, &notifier, &seat, &qh, &idle.snapshot());
-    let mut tick = tokio::time::interval(WAYLAND_POLL_INTERVAL);
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    conn.flush()?;
+
+    let owned_fd = conn.as_fd().try_clone_to_owned()?;
+    let async_fd = AsyncFd::with_interest(owned_fd, Interest::READABLE)?;
 
     loop {
+        event_queue.dispatch_pending(&mut backend_state)?;
+        conn.flush()?;
+
         tokio::select! {
             _ = cancel.cancelled() => {
                 clear_notifications(&mut backend_state);
+                let _ = conn.flush();
                 return Ok(RunOutcome::Cancelled);
             }
             changed = state_rx.changed() => {
                 if changed.is_err() {
                     clear_notifications(&mut backend_state);
+                    let _ = conn.flush();
                     return Ok(RunOutcome::Cancelled);
                 }
                 let state = state_rx.borrow().clone();
@@ -86,8 +93,12 @@ async fn run_inner(idle: IdleHandle, cancel: CancellationToken) -> anyhow::Resul
                     conn.flush()?;
                 }
             }
-            _ = tick.tick() => {
-                event_queue.roundtrip(&mut backend_state)?;
+            readable = async_fd.readable() => {
+                let mut guard = readable?;
+                if let Some(read_guard) = conn.prepare_read() {
+                    read_guard.read()?;
+                }
+                guard.clear_ready();
             }
         }
     }
