@@ -13,13 +13,11 @@ use tokio_util::sync::CancellationToken;
 use crate::backend;
 
 struct AppTask {
-    cancel: CancellationToken,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl AppTask {
-    async fn cancel(self) {
-        self.cancel.cancel();
+    async fn join(self) {
         let _ = self.task.await;
     }
 }
@@ -80,7 +78,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     shutdown_services(&battery, &idle);
     cancel.cancel();
     for service in running_services {
-        service.cancel().await;
+        service.join().await;
     }
     tracing::info!("glimpse-idle stopped");
 
@@ -157,9 +155,8 @@ where
     F: FnOnce(CancellationToken) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let task_cancel = cancel.clone();
-    let task = tokio::spawn(async move { run(task_cancel).await });
-    AppTask { cancel, task }
+    let task = tokio::spawn(async move { run(cancel).await });
+    AppTask { task }
 }
 
 #[cfg(test)]
