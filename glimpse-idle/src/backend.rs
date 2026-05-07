@@ -126,9 +126,9 @@ fn sync_notifications(
     }
 
     for listener in &idle_state.listeners {
-        if let Some(notification) = register_listener(notifier, seat, qh, listener) {
-            state.notifications.push(notification);
-        }
+        state
+            .notifications
+            .push(register_listener(notifier, seat, qh, listener));
     }
 
     tracing::info!(
@@ -144,7 +144,7 @@ fn register_listener(
     seat: &wl_seat::WlSeat,
     qh: &QueueHandle<WaylandIdleState>,
     listener: &ActiveListener,
-) -> Option<ext_idle_notification_v1::ExtIdleNotificationV1> {
+) -> ext_idle_notification_v1::ExtIdleNotificationV1 {
     let timeout_ms = listener.timeout.saturating_mul(1000).min(u32::MAX as u64) as u32;
     tracing::debug!(
         listener = listener.id,
@@ -154,16 +154,16 @@ fn register_listener(
     );
 
     if listener.respect_inhibitors {
-        Some(notifier.get_idle_notification(timeout_ms, seat, qh, listener.id))
+        notifier.get_idle_notification(timeout_ms, seat, qh, listener.id)
     } else if notifier.version() >= 2 {
-        Some(notifier.get_input_idle_notification(timeout_ms, seat, qh, listener.id))
+        notifier.get_input_idle_notification(timeout_ms, seat, qh, listener.id)
     } else {
         tracing::warn!(
             listener = listener.id,
             timeout = listener.timeout,
             "idle backend cannot ignore inhibitors because ext-idle-notify v2 is unavailable"
         );
-        Some(notifier.get_idle_notification(timeout_ms, seat, qh, listener.id))
+        notifier.get_idle_notification(timeout_ms, seat, qh, listener.id)
     }
 }
 
