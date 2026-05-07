@@ -20,17 +20,25 @@ pub struct LockApiState {
 #[derive(Default)]
 struct LockApiStateInner {
     active: AtomicBool,
+    was_active: AtomicBool,
     active_since: Mutex<Option<Instant>>,
 }
 
 impl LockApiState {
     pub fn set_active(&self, active: bool) {
         self.inner.active.store(active, Ordering::Relaxed);
+        if active {
+            self.inner.was_active.store(true, Ordering::Relaxed);
+        }
         let Ok(mut active_since) = self.inner.active_since.lock() else {
             tracing::warn!("lock API state mutex is poisoned");
             return;
         };
         *active_since = active.then(Instant::now);
+    }
+
+    pub fn was_ever_active(&self) -> bool {
+        self.inner.was_active.load(Ordering::Relaxed)
     }
 
     fn active(&self) -> bool {

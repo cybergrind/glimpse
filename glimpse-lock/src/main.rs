@@ -1,6 +1,7 @@
 use glimpse_core::Config;
 use glimpse_lock::{
     app::{self, LockAppConfig},
+    dbus::LockApiState,
     logind,
     runtime::LockRuntime,
 };
@@ -34,6 +35,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         Some(runtime.block_on(LockRuntime::acquire_single_instance())?)
     };
+    let api_state = LockApiState::default();
     let result = if preview {
         tracing::info!("starting glimpse-lock preview; password 'valid' succeeds");
         let _runtime_guard = runtime.enter();
@@ -44,9 +46,10 @@ fn main() -> anyhow::Result<()> {
             config,
             gtk_args,
             instance_guard.as_ref().map(|guard| guard.connection()),
+            api_state.clone(),
         )
     };
-    if !preview {
+    if !preview && api_state.was_ever_active() {
         if let Err(error) = runtime.block_on(logind::set_current_session_locked_hint(false)) {
             tracing::debug!(%error, "failed to set logind LockedHint=false");
         }

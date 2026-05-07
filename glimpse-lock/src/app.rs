@@ -678,6 +678,7 @@ pub fn run(
     config: LockAppConfig,
     args: Vec<String>,
     api_connection: Option<zbus::Connection>,
+    api_state: LockApiState,
 ) -> anyhow::Result<()> {
     let app = RelmApp::new(GTK_APPLICATION_ID);
     app.allow_multiple_instances(true);
@@ -688,7 +689,7 @@ pub fn run(
             authenticator: Arc::new(PamAuthenticator),
             mode: LockMode::Resident,
             api_connection,
-            api_state: LockApiState::default(),
+            api_state,
         });
     Ok(())
 }
