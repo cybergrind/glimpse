@@ -38,13 +38,19 @@ pub async fn run(
         };
 
         tracing::info!(applet = %name, program = %program, "exec applet spawning child");
-        let mut child = match Command::new(&program)
+        let mut command_builder = Command::new(&program);
+        command_builder
             .args(config.command.iter().skip(1))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+        if config.env_clear {
+            command_builder.env_clear();
+        }
+        for (key, value) in &config.env {
+            command_builder.env(key, value);
+        }
+        let mut child = match command_builder.spawn() {
             Ok(child) => child,
             Err(error) => {
                 tracing::warn!(%error, applet = %name, "exec applet failed to spawn child");
@@ -276,6 +282,8 @@ mod tests {
                 ],
                 restart_delay_ms: 60_000,
                 options: serde_json::json!({}),
+                env_clear: false,
+                env: std::collections::HashMap::new(),
             };
 
             let task = tokio::spawn(run("fast".into(), config, outbound_rx, control_rx, sender));
