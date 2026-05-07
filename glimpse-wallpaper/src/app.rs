@@ -15,7 +15,10 @@ use glimpse_core::{
 use gtk4::{
     ContentFit,
     gdk::{self, prelude::MonitorExt},
-    glib::{self, object::Cast},
+    glib::{
+        self,
+        object::{Cast, ObjectType},
+    },
     prelude::{DisplayExt, DrawingAreaExtManual, GtkWindowExt, WidgetExt},
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -40,10 +43,19 @@ pub enum AppCommand {
 #[derive(Default)]
 pub struct WallpaperAppModel {
     active_spec: Option<ResolvedWallpaperSpec>,
-    wallpaper_windows: HashMap<String, Controller<WallpaperWindow>>,
-    backdrop_windows: HashMap<String, Controller<BackdropWindow>>,
+    wallpaper_windows: HashMap<MonitorKey, Controller<WallpaperWindow>>,
+    backdrop_windows: HashMap<MonitorKey, Controller<BackdropWindow>>,
     asset_watch_cancel: Option<CancellationToken>,
     ready_logged: bool,
+}
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+struct MonitorKey(usize);
+
+impl MonitorKey {
+    fn for_monitor(monitor: &gdk::Monitor) -> Self {
+        Self(monitor.as_ptr() as usize)
+    }
 }
 
 impl WallpaperAppModel {
@@ -206,10 +218,11 @@ impl WallpaperAppModel {
         let mut next_wallpaper = HashMap::new();
 
         for monitor in &monitors {
-            let key = connector_name(monitor);
+            let key = MonitorKey::for_monitor(monitor);
+            let label = connector_name(monitor);
             let controller = match existing_wallpaper.remove(&key) {
                 Some(controller) => {
-                    tracing::debug!(monitor = %key, "reconfiguring wallpaper surface");
+                    tracing::debug!(monitor = %label, "reconfiguring wallpaper surface");
                     controller.emit(WallpaperWindowInput::Reconfigure {
                         spec: spec.clone(),
                         target_size: monitor_target_size(monitor),
@@ -218,7 +231,7 @@ impl WallpaperAppModel {
                     controller
                 }
                 None => {
-                    tracing::info!(monitor = %key, "creating wallpaper surface");
+                    tracing::info!(monitor = %label, "creating wallpaper surface");
                     WallpaperWindow::builder()
                         .launch(WallpaperWindowInit {
                             monitor: monitor.clone(),
@@ -264,10 +277,11 @@ impl WallpaperAppModel {
         let mut existing = std::mem::take(&mut self.backdrop_windows);
         let mut next = HashMap::new();
         for monitor in monitors {
-            let key = connector_name(monitor);
+            let key = MonitorKey::for_monitor(monitor);
+            let label = connector_name(monitor);
             let controller = match existing.remove(&key) {
                 Some(controller) => {
-                    tracing::debug!(monitor = %key, "reconfiguring backdrop surface");
+                    tracing::debug!(monitor = %label, "reconfiguring backdrop surface");
                     controller.emit(BackdropWindowInput::Reconfigure {
                         backdrop: spec.backdrop.clone(),
                         target_size: monitor_target_size(monitor),
@@ -276,7 +290,7 @@ impl WallpaperAppModel {
                     controller
                 }
                 None => {
-                    tracing::info!(monitor = %key, "creating backdrop surface");
+                    tracing::info!(monitor = %label, "creating backdrop surface");
                     BackdropWindow::builder()
                         .launch(BackdropWindowInit {
                             monitor: monitor.clone(),
