@@ -1009,17 +1009,22 @@ fn spawn_image_load(
             target_height = target_size.map(|(_, height)| height).unwrap_or_default(),
             "loading wallpaper image"
         );
-        if should_load_heic_preview(&path, blur_radius) {
+
+        let preview_task = should_load_heic_preview(&path, blur_radius).then(|| {
             let preview_path = path.clone();
-            let preview = tokio::task::spawn_blocking(move || decode_heic_preview(&preview_path))
-                .await
-                .map_err(|error| format!("wallpaper preview worker failed: {error}"))
-                .and_then(|result| result.map_err(|error| error.to_string()));
-            let _ = sender.send(ImageLayerInput::PreviewLoaded {
-                request_id,
-                result: preview,
-            });
-        }
+            let preview_sender = sender.clone();
+            tokio::spawn(async move {
+                let preview = tokio::task::spawn_blocking(move || decode_heic_preview(&preview_path))
+                    .await
+                    .map_err(|error| format!("wallpaper preview worker failed: {error}"))
+                    .and_then(|result| result.map_err(|error| error.to_string()));
+                let _ = preview_sender.send(ImageLayerInput::PreviewLoaded {
+                    request_id,
+                    result: preview,
+                });
+            })
+        });
+
         let result =
             tokio::task::spawn_blocking(move || decode_image(&path, fit, blur_radius, target_size))
                 .await
@@ -1043,6 +1048,9 @@ fn spawn_image_load(
             }
         }
         let _ = sender.send(ImageLayerInput::Loaded { request_id, result });
+        if let Some(handle) = preview_task {
+            let _ = handle.await;
+        }
     });
 }
 
