@@ -93,6 +93,7 @@ fn build_wired_items(devices: &[NetworkDevice]) -> Vec<DeviceListItem<()>> {
             active: device.state == "connected",
             visible: true,
             command: None,
+            actions: Vec::new(),
         })
         .collect()
 }

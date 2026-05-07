@@ -814,6 +814,15 @@ popover.popover-size-xlarge {
     color: var(--color-accent);
 }
 
+popover.device-list-row-menu {
+    --popover-min-width: 180px;
+}
+
+popover.device-list-row-menu .action-menu,
+popover.clipboard-app-menu .action-menu {
+    padding: var(--space-1);
+}
+
 .card-surface {
     padding: var(--card-shell-padding);
     background: var(--card-bg);

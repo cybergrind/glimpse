@@ -11,7 +11,9 @@ use relm4::{
 use crate::{
     components::{
         animated_popover::AnimatedPopover,
-        device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
+        device_list::{
+            DeviceList, DeviceListAction, DeviceListInit, DeviceListInput, DeviceListItem,
+        },
         hero::HeroView,
         popover_scroll,
         popover_shell::PopoverShell,
@@ -296,6 +298,7 @@ fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
             active: device.connected,
             visible: true,
             command: Some(primary_device_command(device)),
+            actions: device_actions(device),
         })
         .collect()
 }
@@ -375,6 +378,72 @@ fn primary_device_command(device: &BluetoothDevice) -> Command {
             address: device.address.clone(),
         }
     }
+}
+
+fn device_actions(device: &BluetoothDevice) -> Vec<DeviceListAction<Command>> {
+    let mut actions = Vec::new();
+
+    if device.connected {
+        actions.push(DeviceListAction {
+            id: "disconnect".into(),
+            label: "Disconnect".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Disconnect {
+                address: device.address.clone(),
+            },
+        });
+    } else if device.paired {
+        actions.push(DeviceListAction {
+            id: "connect".into(),
+            label: "Connect".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Connect {
+                address: device.address.clone(),
+            },
+        });
+    } else {
+        actions.push(DeviceListAction {
+            id: "pair".into(),
+            label: "Pair".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Pair {
+                address: device.address.clone(),
+            },
+        });
+    }
+
+    actions.push(DeviceListAction {
+        id: if device.trusted { "untrust" } else { "trust" }.into(),
+        label: if device.trusted { "Untrust" } else { "Trust" }.into(),
+        destructive: false,
+        enabled: true,
+        visible: true,
+        command: Command::Trust {
+            address: device.address.clone(),
+            trusted: !device.trusted,
+        },
+    });
+
+    if device.connected || device.paired || device.trusted {
+        actions.push(DeviceListAction {
+            id: "forget".into(),
+            label: "Forget Device".into(),
+            destructive: true,
+            enabled: true,
+            visible: true,
+            command: Command::Forget {
+                address: device.address.clone(),
+            },
+        });
+    }
+
+    actions
 }
 
 fn device_status(device: &BluetoothDevice) -> String {
@@ -613,6 +682,7 @@ mod tests {
                 command: Some(Command::Pair {
                     address: "AA:BB".into(),
                 }),
+                actions: Vec::new(),
             },
             DeviceListItem {
                 id: "CC:DD".into(),
@@ -626,11 +696,23 @@ mod tests {
                 command: Some(Command::Pair {
                     address: "CC:DD".into(),
                 }),
+                actions: Vec::new(),
             },
         ];
 
         assert!(mark_device_busy(&mut items, "AA:BB"));
         assert!(items[0].busy);
         assert!(!items[1].busy);
+    }
+
+    #[test]
+    fn paired_device_exposes_connect_trust_and_forget_actions() {
+        let device = device("AA:BB:CC:DD:EE:02", "Mouse", false, true);
+        let actions = device_actions(&device);
+
+        assert_eq!(actions[0].id, "connect");
+        assert_eq!(actions[1].id, "trust");
+        assert_eq!(actions[2].id, "forget");
+        assert!(actions[2].destructive);
     }
 }

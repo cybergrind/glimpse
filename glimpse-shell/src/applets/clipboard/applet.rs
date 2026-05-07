@@ -1,11 +1,13 @@
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    WidgetTemplate,
     gtk::{self, prelude::*},
 };
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    components::action_row::{ActionRow, ActionRowInit},
     panels::applets::AppletConfig,
     services::{
         clipboard::{ClipboardHandle, Command, State},
@@ -62,6 +64,8 @@ pub struct Applet {
     tooltip: String,
     service: ClipboardHandle,
     popover: Controller<Popover>,
+    action_popover: gtk::Popover,
+    clear_button: gtk::Button,
     popover_open: bool,
     subscription_cancel: CancellationToken,
 }
@@ -77,6 +81,8 @@ pub enum Input {
     ServiceStateChanged(State),
     Reconfigure(Config),
     TogglePopover,
+    OpenActions,
+    Clear,
     PopoverOutput(PopoverOutput),
 }
 
@@ -97,12 +103,19 @@ impl SimpleComponent for Applet {
             #[watch]
             set_tooltip_text: if model.tooltip.is_empty() { None } else { Some(&model.tooltip) },
 
-            add_controller = gtk::GestureClick {
-                set_button: 1,
-                connect_pressed[sender] => move |_, _, _, _| {
-                    sender.input(Input::TogglePopover);
+                add_controller = gtk::GestureClick {
+                    set_button: 1,
+                    connect_pressed[sender] => move |_, _, _, _| {
+                        sender.input(Input::TogglePopover);
+                    },
                 },
-            },
+                add_controller = gtk::GestureClick {
+                    set_button: 3,
+                    connect_pressed[sender] => move |gesture, _, _, _| {
+                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                        sender.input(Input::OpenActions);
+                    },
+                },
 
             gtk::Image {
                 set_pixel_size: 16,
@@ -134,6 +147,32 @@ impl SimpleComponent for Applet {
             .forward(sender.input_sender(), Input::PopoverOutput);
 
         let state = init.service.snapshot();
+        let action_popover = gtk::Popover::new();
+        action_popover.add_css_class("clipboard-app-menu");
+        action_popover.add_css_class("popover-size-small");
+        action_popover.set_has_arrow(false);
+        action_popover.set_autohide(true);
+
+        let action_list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        action_list.add_css_class("action-menu");
+        let clear_row = ActionRow::init(ActionRowInit {
+            title: "Clear".into(),
+            subtitle: String::new(),
+            meta: String::new(),
+            icon: None,
+            visible: true,
+            selectable: false,
+        });
+        clear_row.as_ref().add_css_class("is-danger");
+        clear_row.button.connect_clicked({
+            let sender = sender.clone();
+            move |_| sender.input(Input::Clear)
+        });
+        action_list.append(clear_row.as_ref());
+        action_popover.set_child(Some(&action_list));
+
+        let clear_button = clear_row.button.clone();
+        clear_button.set_sensitive(clear_action_available(&state));
         let model = Applet {
             icon_name: format::icon_name(&state).into(),
             label: format::label(&init.config.label_format, &state),
@@ -142,6 +181,8 @@ impl SimpleComponent for Applet {
             state,
             service: init.service,
             popover,
+            action_popover,
+            clear_button,
             popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
@@ -177,6 +218,7 @@ impl SimpleComponent for Applet {
         });
 
         let widgets = view_output!();
+        model.action_popover.set_parent(&widgets.root);
         ComponentParts { model, widgets }
     }
 
@@ -192,6 +234,14 @@ impl SimpleComponent for Applet {
             }
             Input::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
+            }
+            Input::OpenActions => {
+                self.sync_action_menu();
+                self.action_popover.popup();
+            }
+            Input::Clear => {
+                self.action_popover.popdown();
+                self.send_command(Command::ClearHistory);
             }
             Input::PopoverOutput(PopoverOutput::Opened) => {
                 self.popover_open = true;
@@ -220,6 +270,7 @@ impl Applet {
         if self.popover_open {
             self.sync_popover_state();
         }
+        self.sync_action_menu();
     }
 
     fn sync_popover_state(&self) {
@@ -232,6 +283,15 @@ impl Applet {
             tracing::warn!(%error, "failed to send clipboard command");
         }
     }
+
+    fn sync_action_menu(&self) {
+        self.clear_button
+            .set_sensitive(clear_action_available(&self.state));
+    }
+}
+
+fn clear_action_available(state: &State) -> bool {
+    state.available && !state.history.is_empty()
 }
 
 impl Drop for Applet {
@@ -250,5 +310,14 @@ mod tests {
 
         assert_eq!(config.label_format, "");
         assert!(!config.show_when_empty);
+    }
+
+    #[test]
+    fn clear_action_requires_available_history() {
+        let mut state = State::default();
+        assert!(!clear_action_available(&state));
+
+        state.available = true;
+        assert!(!clear_action_available(&state));
     }
 }

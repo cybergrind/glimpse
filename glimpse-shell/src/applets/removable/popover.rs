@@ -6,7 +6,9 @@ use relm4::{
 use crate::{
     components::{
         animated_popover::AnimatedPopover,
-        device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
+        device_list::{
+            DeviceList, DeviceListAction, DeviceListInit, DeviceListInput, DeviceListItem,
+        },
         popover_scroll,
         popover_shell::PopoverShell,
     },
@@ -164,6 +166,7 @@ fn build_device_items(state: &State) -> Vec<DeviceListItem<Command>> {
             active: device.mounted_at.is_some(),
             visible: true,
             command: primary_device_command(device),
+            actions: device_actions(device),
         })
         .collect()
 }
@@ -192,6 +195,66 @@ fn primary_device_command(device: &StorageDevice) -> Option<Command> {
     } else {
         None
     }
+}
+
+fn device_actions(device: &StorageDevice) -> Vec<DeviceListAction<Command>> {
+    if device.busy {
+        return Vec::new();
+    }
+
+    let mut actions = Vec::new();
+
+    if device.mounted_at.is_some() && device.can_unmount {
+        actions.push(DeviceListAction {
+            id: "unmount".into(),
+            label: "Unmount".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Unmount {
+                id: device.id.clone(),
+            },
+        });
+    } else if device.can_mount {
+        actions.push(DeviceListAction {
+            id: "mount".into(),
+            label: "Mount".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Mount {
+                id: device.id.clone(),
+            },
+        });
+    }
+
+    if device.can_eject {
+        actions.push(DeviceListAction {
+            id: "eject".into(),
+            label: "Eject".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::Eject {
+                id: device.id.clone(),
+            },
+        });
+    }
+
+    if device.can_power_off {
+        actions.push(DeviceListAction {
+            id: "power-off".into(),
+            label: "Power Off".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::PowerOff {
+                id: device.id.clone(),
+            },
+        });
+    }
+
+    actions
 }
 
 fn device_status(device: &StorageDevice) -> String {
@@ -305,6 +368,7 @@ mod tests {
         };
 
         assert_eq!(primary_device_command(&device), None);
+        assert!(device_actions(&device).is_empty());
     }
 
     #[test]
@@ -323,5 +387,26 @@ mod tests {
             ..device()
         };
         assert_eq!(device_status(&mountable), "Available");
+    }
+
+    #[test]
+    fn removable_device_actions_include_available_operations() {
+        let actions = device_actions(&device());
+
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["mount", "eject", "power-off"]
+        );
+
+        let mounted = StorageDevice {
+            mounted_at: Some("/run/media/alex/USB".into()),
+            ..device()
+        };
+        let actions = device_actions(&mounted);
+
+        assert_eq!(actions[0].id, "unmount");
     }
 }

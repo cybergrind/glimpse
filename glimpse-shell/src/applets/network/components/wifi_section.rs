@@ -7,7 +7,9 @@ use relm4::{
 
 use crate::{
     applets::network::format,
-    components::device_list::{DeviceList, DeviceListInit, DeviceListInput, DeviceListItem},
+    components::device_list::{
+        DeviceList, DeviceListAction, DeviceListInit, DeviceListInput, DeviceListItem,
+    },
     services::network::{Command, NetworkActiveAction, WifiAccessPoint},
 };
 
@@ -127,6 +129,7 @@ fn build_wifi_items(
                 active: access_point.connected,
                 visible: true,
                 command: Some(primary_wifi_command(access_point)),
+                actions: wifi_item_actions(access_point),
             }
         })
         .collect()
@@ -149,6 +152,61 @@ fn primary_wifi_command(access_point: &WifiAccessPoint) -> Command {
         ssid: access_point.ssid.clone(),
         path: access_point.path.clone(),
     }
+}
+
+fn wifi_item_actions(access_point: &WifiAccessPoint) -> Vec<DeviceListAction<Command>> {
+    let mut actions = Vec::new();
+
+    if access_point.connected {
+        if let Some(uuid) = &access_point.uuid {
+            actions.push(DeviceListAction {
+                id: "disconnect".into(),
+                label: "Disconnect".into(),
+                destructive: false,
+                enabled: true,
+                visible: true,
+                command: Command::Disconnect { uuid: uuid.clone() },
+            });
+        }
+    } else if access_point.saved {
+        if let Some(uuid) = &access_point.uuid {
+            actions.push(DeviceListAction {
+                id: "connect".into(),
+                label: "Connect".into(),
+                destructive: false,
+                enabled: true,
+                visible: true,
+                command: Command::ConnectSaved { uuid: uuid.clone() },
+            });
+        }
+    } else {
+        actions.push(DeviceListAction {
+            id: "connect".into(),
+            label: "Connect".into(),
+            destructive: false,
+            enabled: true,
+            visible: true,
+            command: Command::ConnectWifi {
+                ssid: access_point.ssid.clone(),
+                path: access_point.path.clone(),
+            },
+        });
+    }
+
+    if access_point.saved {
+        if let Some(uuid) = &access_point.uuid {
+            actions.push(DeviceListAction {
+                id: "forget".into(),
+                label: "Forget Network".into(),
+                destructive: true,
+                enabled: true,
+                visible: true,
+                command: Command::Forget { uuid: uuid.clone() },
+            });
+        }
+    }
+
+    actions
 }
 
 fn wifi_status(access_point: &WifiAccessPoint) -> String {
@@ -331,5 +389,15 @@ mod tests {
         );
 
         assert!(items[0].busy);
+    }
+
+    #[test]
+    fn saved_wifi_item_exposes_connect_and_forget_actions() {
+        let items = build_wifi_items(&[access_point("Home", 80, false, true)], None);
+
+        assert_eq!(items[0].actions.len(), 2);
+        assert_eq!(items[0].actions[0].id, "connect");
+        assert_eq!(items[0].actions[1].id, "forget");
+        assert!(items[0].actions[1].destructive);
     }
 }

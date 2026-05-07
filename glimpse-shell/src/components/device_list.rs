@@ -4,11 +4,25 @@ use std::fmt::Debug;
 
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
+    WidgetTemplate,
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
     gtk::{self, prelude::*},
 };
 
-use crate::components::device_status::DeviceStatusView;
+use crate::components::{
+    action_row::{ActionRow, ActionRowInit},
+    device_status::DeviceStatusView,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceListAction<Command> {
+    pub id: String,
+    pub label: String,
+    pub destructive: bool,
+    pub enabled: bool,
+    pub visible: bool,
+    pub command: Command,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceListItem<Command> {
@@ -21,6 +35,7 @@ pub struct DeviceListItem<Command> {
     pub active: bool,
     pub visible: bool,
     pub command: Option<Command>,
+    pub actions: Vec<DeviceListAction<Command>>,
 }
 
 pub struct DeviceList<Command>
@@ -47,10 +62,14 @@ pub enum DeviceListInput<Command> {
 enum DeviceRowInput<Command> {
     Update(DeviceListItem<Command>),
     Activate,
+    OpenActions,
+    RunAction(Command),
 }
 
 struct DeviceRow<Command> {
     item: DeviceListItem<Command>,
+    action_popover: gtk::Popover,
+    action_list: gtk::Box,
 }
 
 #[relm4::component]
@@ -75,11 +94,18 @@ where
                 add_css_class: "device-list-row__button",
                 add_css_class: "action-row__button",
                 #[watch]
-                set_sensitive: model.item.command.is_some(),
+                set_sensitive: row_has_activation(&model.item),
                 #[watch]
                 set_tooltip_text: model.item.tooltip.as_deref(),
                 connect_clicked[sender] => move |_| {
                     sender.input(DeviceRowInput::Activate);
+                },
+                add_controller = gtk::GestureClick {
+                    set_button: 3,
+                    connect_pressed[sender] => move |gesture, _, _, _| {
+                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                        sender.input(DeviceRowInput::OpenActions);
+                    },
                 },
 
                 gtk::Box {
@@ -120,8 +146,24 @@ where
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = DeviceRow { item: init };
+        let action_popover = gtk::Popover::new();
+        action_popover.add_css_class("device-list-row-menu");
+        action_popover.add_css_class("popover-size-small");
+        action_popover.set_has_arrow(false);
+        action_popover.set_autohide(true);
+
+        let action_list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        action_list.add_css_class("action-menu");
+        action_popover.set_child(Some(&action_list));
+
+        let model = DeviceRow {
+            item: init,
+            action_popover,
+            action_list,
+        };
         let widgets = view_output!();
+        model.action_popover.set_parent(&widgets.button);
+        render_action_menu(&model.action_list, &model.item.actions, &sender);
         ComponentParts { model, widgets }
     }
 
@@ -129,11 +171,25 @@ where
         match message {
             DeviceRowInput::Update(item) => {
                 self.item = item;
+                render_action_menu(&self.action_list, &self.item.actions, &sender);
+                if !has_visible_actions(&self.item.actions) {
+                    self.action_popover.popdown();
+                }
             }
             DeviceRowInput::Activate => {
                 if let Some(command) = self.item.command.clone() {
                     let _ = sender.output(command);
                 }
+            }
+            DeviceRowInput::OpenActions => {
+                if has_visible_actions(&self.item.actions) {
+                    render_action_menu(&self.action_list, &self.item.actions, &sender);
+                    self.action_popover.popup();
+                }
+            }
+            DeviceRowInput::RunAction(command) => {
+                self.action_popover.popdown();
+                let _ = sender.output(command);
             }
         }
     }
@@ -154,6 +210,49 @@ where
             .label
             .set_visible(!model.item.busy && !model.item.status.is_empty());
         status.label.set_label(&model.item.status);
+    }
+}
+
+fn has_visible_actions<Command>(actions: &[DeviceListAction<Command>]) -> bool {
+    actions.iter().any(|action| action.visible)
+}
+
+fn row_has_activation<Command>(item: &DeviceListItem<Command>) -> bool {
+    item.command.is_some() || has_visible_actions(&item.actions)
+}
+
+fn render_action_menu<Command>(
+    list: &gtk::Box,
+    actions: &[DeviceListAction<Command>],
+    sender: &ComponentSender<DeviceRow<Command>>,
+) where
+    Command: Clone + Debug + Send + 'static,
+{
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+
+    for action in actions.iter().filter(|action| action.visible) {
+        let row = ActionRow::init(ActionRowInit {
+            title: action.label.clone(),
+            subtitle: String::new(),
+            meta: String::new(),
+            icon: None,
+            visible: true,
+            selectable: false,
+        });
+        row.button.set_sensitive(action.enabled);
+        if action.destructive {
+            row.as_ref().add_css_class("is-danger");
+        }
+
+        let command = action.command.clone();
+        let sender = sender.clone();
+        row.button.connect_clicked(move |_| {
+            sender.input(DeviceRowInput::RunAction(command.clone()));
+        });
+
+        list.append(row.as_ref());
     }
 }
 
@@ -402,10 +501,33 @@ mod tests {
             active: true,
             visible: true,
             command: Some("connect"),
+            actions: vec![DeviceListAction {
+                id: "disconnect".into(),
+                label: "Disconnect".into(),
+                destructive: false,
+                enabled: true,
+                visible: true,
+                command: "disconnect",
+            }],
         };
 
         assert_eq!(item.label, "Headphones");
         assert_eq!(item.status, "75%");
         assert!(item.active);
+        assert_eq!(item.actions[0].id, "disconnect");
+    }
+
+    #[test]
+    fn visible_actions_ignore_hidden_menu_entries() {
+        let actions = vec![DeviceListAction {
+            id: "hidden".into(),
+            label: "Hidden".into(),
+            destructive: false,
+            enabled: true,
+            visible: false,
+            command: "noop",
+        }];
+
+        assert!(!has_visible_actions(&actions));
     }
 }
