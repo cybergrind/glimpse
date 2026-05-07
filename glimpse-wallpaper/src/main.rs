@@ -24,8 +24,14 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(4);
-    RELM_THREADS.set(threads).ok();
-    tracing::debug!(threads, "configured Relm4 worker threads");
+    if RELM_THREADS.set(threads).is_err() {
+        tracing::warn!(
+            threads,
+            "RELM_THREADS already initialized; GLIMPSE_THREADS ignored"
+        );
+    } else {
+        tracing::debug!(threads, "configured Relm4 worker threads");
+    }
 
     let app_id = gtk_application_id();
     let _single_instance = match WallpaperRuntime::acquire_single_instance_with_name(&app_id).await

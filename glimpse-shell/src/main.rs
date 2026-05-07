@@ -40,7 +40,12 @@ fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(4);
-    RELM_THREADS.set(threads).ok();
+    if RELM_THREADS.set(threads).is_err() {
+        tracing::warn!(
+            threads,
+            "RELM_THREADS already initialized; GLIMPSE_THREADS ignored"
+        );
+    }
 
     let config = Config::autodetect();
     if let Some(compositor) = detect_compositor() {
