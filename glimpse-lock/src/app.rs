@@ -2083,52 +2083,36 @@ async fn watch_file(
         cancel.cancelled().await;
         return;
     };
-    let (event_tx, event_rx) = std::sync::mpsc::channel();
     let watched_path = path.clone();
-    let watcher_cancel = cancel.clone();
-    std::thread::spawn(move || {
-        let mut debouncer = match new_debouncer(
-            Duration::from_millis(150),
-            None,
-            move |res: DebounceEventResult| {
-                let Ok(events) = res else {
-                    return;
-                };
-                if events.iter().any(|event| {
-                    file_watch_event_reloads(&event.kind)
-                        && event.paths.iter().any(|path| path == &watched_path)
-                }) {
-                    let _ = event_tx.send(());
-                }
-            },
-        ) {
-            Ok(debouncer) => debouncer,
-            Err(error) => {
-                tracing::warn!(%error, "failed to create lock file watcher");
+    let mut debouncer = match new_debouncer(
+        Duration::from_millis(150),
+        None,
+        move |res: DebounceEventResult| {
+            let Ok(events) = res else {
                 return;
+            };
+            if events.iter().any(|event| {
+                file_watch_event_reloads(&event.kind)
+                    && event.paths.iter().any(|path| path == &watched_path)
+            }) {
+                let _ = sender.send(match command {
+                    WatchCommand::ReloadCss => AppCommand::ReloadCss,
+                    WatchCommand::ReloadAssets => AppCommand::ReloadAssets,
+                });
             }
-        };
-        if let Err(error) = debouncer.watch(&parent, notify::RecursiveMode::NonRecursive) {
-            tracing::warn!(path = %parent.display(), %error, "failed to watch lock file directory");
+        },
+    ) {
+        Ok(debouncer) => debouncer,
+        Err(error) => {
+            tracing::warn!(%error, "failed to create lock file watcher");
             return;
         }
-        while !watcher_cancel.is_cancelled() {
-            std::thread::sleep(Duration::from_millis(250));
-        }
-    });
-
-    loop {
-        if cancel.is_cancelled() {
-            return;
-        }
-        while event_rx.try_recv().is_ok() {
-            let _ = sender.send(match command {
-                WatchCommand::ReloadCss => AppCommand::ReloadCss,
-                WatchCommand::ReloadAssets => AppCommand::ReloadAssets,
-            });
-        }
-        glib::timeout_future(Duration::from_millis(100)).await;
+    };
+    if let Err(error) = debouncer.watch(&parent, notify::RecursiveMode::NonRecursive) {
+        tracing::warn!(path = %parent.display(), %error, "failed to watch lock file directory");
+        return;
     }
+    cancel.cancelled().await;
 }
 
 fn file_watch_event_reloads(kind: &EventKind) -> bool {
