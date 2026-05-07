@@ -14,16 +14,8 @@ sync-pkgver:
     sed -i -E "s/^pkgver=.*/pkgver=$(just version)/" PKGBUILD
 
 verify-release: sync-pkgver
-    cargo test --locked -p glimpse-core
-    cargo test --locked -p glimpse-idle
-    cargo test --locked -p glimpse-lock
-    cargo test --locked -p glimpse-sunset
-    cargo test --locked -p glimpse-wallpaper
-    cargo check --locked -p glimpse-lock
-    cargo check --locked -p glimpse-shell
-    cargo check --locked -p glimpse-idle
-    cargo check --locked -p glimpse-sunset
-    cargo check --locked -p glimpse-wallpaper
+    cargo test --locked -p glimpse-core -p glimpse-idle -p glimpse-lock -p glimpse-sunset -p glimpse-wallpaper
+    cargo check --locked -p glimpse-core -p glimpse-idle -p glimpse-lock -p glimpse-sunset -p glimpse-wallpaper
 
 binary-package: verify-release
     scripts/package-binary.sh "$(just version)"
@@ -33,7 +25,7 @@ aur-pkgbuild:
     set -euo pipefail
     version="$(just version)"
     asset="glimpse-${version}-$(uname -m).tar.zst"
-    url="https://github.com/{{github_repo}}/releases/download/v${version}/${asset}"
+    url="https://github.com/{{ github_repo }}/releases/download/v${version}/${asset}"
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
     curl -fsSL "$url" -o "$tmpdir/$asset"
@@ -51,13 +43,13 @@ aur-publish: aur-pkgbuild
     test -f "$asset"
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
-    git clone "{{aur_remote}}" "$tmpdir"
+    git clone "{{ aur_remote }}" "$tmpdir"
     cp dist/PKGBUILD "$tmpdir"/
     cd "$tmpdir"
     makepkg --printsrcinfo > .SRCINFO
     git add PKGBUILD .SRCINFO
     if git diff --cached --quiet; then
-        echo "AUR package {{aur_pkg}} already up to date"
+        echo "AUR package {{ aur_pkg }} already up to date"
     else
         git commit -m "Release ${version}"
         git push origin master

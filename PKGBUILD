@@ -1,5 +1,5 @@
 pkgname=glimpse-desktop-bin
-pkgver=0.2.1
+pkgver=0.2.8
 pkgrel=1
 pkgdesc="Wayland shell, status panel, idle, lock screen, wallpaper, and sunset daemons for the Glimpse ecosystem"
 arch=('x86_64')

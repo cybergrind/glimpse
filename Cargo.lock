@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse-core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse-idle"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "glimpse-core",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse-lock"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse-settings"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "gio 0.20.12",
@@ -1326,14 +1326,13 @@ dependencies = [
 
 [[package]]
 name = "glimpse-shell"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
  "gio 0.20.12",
  "glib 0.20.12",
  "glib-build-tools 0.22.0",
- "glimpse",
  "glimpse-core",
  "gtk4",
  "gtk4-layer-shell",
@@ -1350,11 +1349,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]
 name = "glimpse-sunset"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1372,7 +1372,7 @@ dependencies = [
 
 [[package]]
 name = "glimpse-wallpaper"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "css-color",
