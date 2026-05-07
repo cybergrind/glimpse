@@ -432,7 +432,11 @@ fn connector_name(monitor: &gdk::Monitor) -> String {
 
 fn monitor_target_size(monitor: &gdk::Monitor) -> (i32, i32) {
     let geometry = monitor.geometry();
-    (geometry.width(), geometry.height())
+    let scale = monitor.scale_factor().max(1);
+    (
+        geometry.width().saturating_mul(scale),
+        geometry.height().saturating_mul(scale),
+    )
 }
 
 fn backdrop_label(backdrop: &ResolvedBackdropSpec) -> &'static str {
