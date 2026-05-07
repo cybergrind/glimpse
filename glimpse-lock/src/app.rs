@@ -1724,6 +1724,9 @@ impl SimpleComponent for LockWindow {
                 self.confirm_power_action = None;
             }
             LockWindowInput::CapsLockChanged(caps_lock) => {
+                if !self.show_auth {
+                    return;
+                }
                 self.caps_lock = caps_lock;
             }
             LockWindowInput::SetPrimary(show_auth) => {
@@ -1731,6 +1734,7 @@ impl SimpleComponent for LockWindow {
                 if !show_auth {
                     self.power_menu_open = false;
                     self.confirm_power_action = None;
+                    self.caps_lock = false;
                 }
             }
             LockWindowInput::ClockTick => {
