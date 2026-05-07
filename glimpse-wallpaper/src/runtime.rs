@@ -1,11 +1,9 @@
 use std::{
     collections::HashSet,
-    path::PathBuf,
     sync::{Mutex, OnceLock},
 };
 
 use anyhow::{Context, anyhow, bail};
-use glimpse_core::ResolvedWallpaperSpec;
 use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 
 pub const APP_ID: &str = "me.aresa.GlimpseWallpaper";
@@ -14,41 +12,9 @@ pub const WALLPAPER_NAMESPACE: &str = "glimpse-wallpaper";
 pub const BACKDROP_NAMESPACE: &str = "glimpse-backdrop";
 
 #[derive(Debug, Default)]
-pub struct WallpaperRuntime {
-    next_request: u64,
-    active_request: Option<u64>,
-    active_image_path: Option<PathBuf>,
-}
+pub struct WallpaperRuntime;
 
 impl WallpaperRuntime {
-    pub fn begin_image_load(&mut self, spec: ResolvedWallpaperSpec) -> u64 {
-        self.next_request += 1;
-        let request = self.next_request;
-        self.active_request = Some(request);
-        if spec.image.is_none() {
-            self.active_image_path = None;
-        }
-        request
-    }
-
-    pub fn finish_image_load(&mut self, result: ImageLoadResult) -> bool {
-        if Some(result.request_id) != self.active_request {
-            return false;
-        }
-
-        match result.path {
-            Some(path) => {
-                self.active_image_path = Some(path);
-                true
-            }
-            None => false,
-        }
-    }
-
-    pub fn active_image_path(&self) -> Option<PathBuf> {
-        self.active_image_path.clone()
-    }
-
     pub async fn acquire_single_instance() -> anyhow::Result<InstanceGuard> {
         acquire_dbus_name(APP_ID).await
     }
@@ -63,28 +29,6 @@ impl WallpaperRuntime {
         name: &str,
     ) -> anyhow::Result<TestInstanceGuard> {
         TestInstanceGuard::acquire(name)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ImageLoadResult {
-    request_id: u64,
-    path: Option<PathBuf>,
-}
-
-impl ImageLoadResult {
-    pub fn loaded(request_id: u64, path: PathBuf) -> Self {
-        Self {
-            request_id,
-            path: Some(path),
-        }
-    }
-
-    pub fn failed(request_id: u64) -> Self {
-        Self {
-            request_id,
-            path: None,
-        }
     }
 }
 

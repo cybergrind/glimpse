@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use glimpse_core::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
 use glimpse_wallpaper::{
     app::{AppCommand, WallpaperAppModel},
-    runtime::{ImageLoadResult, WallpaperRuntime},
+    runtime::WallpaperRuntime,
     source::{StaticWallpaperSource, WallpaperFrame, WallpaperSource},
 };
 
@@ -31,44 +31,6 @@ fn static_source_produces_color_and_optional_image_frame() {
             }),
             backdrop: ResolvedBackdropSpec::Disabled,
         }
-    );
-}
-
-#[test]
-fn stale_async_image_loads_are_ignored() {
-    let mut runtime = WallpaperRuntime::default();
-    let first = runtime.begin_image_load(spec_with_image("/tmp/old.png"));
-    let second = runtime.begin_image_load(spec_with_image("/tmp/new.png"));
-
-    assert!(!runtime.finish_image_load(ImageLoadResult::loaded(
-        first,
-        PathBuf::from("/tmp/old.png")
-    )));
-    assert!(runtime.finish_image_load(ImageLoadResult::loaded(
-        second,
-        PathBuf::from("/tmp/new.png")
-    )));
-    assert_eq!(
-        runtime.active_image_path(),
-        Some(PathBuf::from("/tmp/new.png"))
-    );
-}
-
-#[test]
-fn failed_reload_keeps_previous_image() {
-    let mut runtime = WallpaperRuntime::default();
-    let initial = runtime.begin_image_load(spec_with_image("/tmp/old.png"));
-    assert!(runtime.finish_image_load(ImageLoadResult::loaded(
-        initial,
-        PathBuf::from("/tmp/old.png")
-    )));
-
-    let next = runtime.begin_image_load(spec_with_image("/tmp/missing.png"));
-    assert!(!runtime.finish_image_load(ImageLoadResult::failed(next)));
-
-    assert_eq!(
-        runtime.active_image_path(),
-        Some(PathBuf::from("/tmp/old.png"))
     );
 }
 
