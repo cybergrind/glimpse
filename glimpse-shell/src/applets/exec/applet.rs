@@ -20,6 +20,7 @@ use super::{
 };
 
 const DEFAULT_RESTART_DELAY_MS: u64 = 1000;
+const MIN_RESTART_DELAY_MS: u64 = 50;
 const OUTBOUND_EVENT_BUFFER: usize = 128;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -43,12 +44,25 @@ impl Config {
             return Self::default();
         };
 
-        match raw.settings.clone().try_into() {
+        let mut config: Self = match raw.settings.clone().try_into() {
             Ok(config) => config,
             Err(error) => {
                 tracing::warn!(?error, "invalid exec applet config, using defaults");
                 Self::default()
             }
+        };
+        config.normalize();
+        config
+    }
+
+    fn normalize(&mut self) {
+        if self.restart_delay_ms < MIN_RESTART_DELAY_MS {
+            tracing::warn!(
+                requested_ms = self.restart_delay_ms,
+                clamped_ms = MIN_RESTART_DELAY_MS,
+                "exec applet restart_delay_ms below minimum; clamping"
+            );
+            self.restart_delay_ms = MIN_RESTART_DELAY_MS;
         }
     }
 }
