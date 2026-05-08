@@ -173,6 +173,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Trust checkout directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Download binary archive
         uses: actions/download-artifact@v4
         with:
