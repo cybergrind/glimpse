@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use glimpse_core::{
-    Config, ConfigEvent, LocationConfig, NightLightConfig,
+    Config, ConfigEvent, LocationConfig, NightLightConfig, NightLightSchedule,
     services::{
         framework::Control,
         location,
@@ -68,6 +68,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     start_services(&location, &solar, &night_light, config.clone());
     running_services.push(spawn_night_light_subscription(
         night_light.clone(),
+        solar.clone(),
         cancel.clone(),
     ));
     let (sleep_tx, mut sleep_rx) = mpsc::channel(4);
@@ -213,6 +214,7 @@ fn shutdown_services(
 
 fn spawn_night_light_subscription(
     night_light: NightLightHandle,
+    solar: solar::SolarHandle,
     cancel: CancellationToken,
 ) -> AppTask {
     spawn_service(cancel.clone(), move |_| async move {
@@ -224,7 +226,7 @@ fn spawn_night_light_subscription(
                     if changed.is_err() {
                         break;
                     }
-                    log_night_light_state(&state_rx.borrow().clone());
+                    log_night_light_state(&state_rx.borrow().clone(), &solar);
                 }
             }
         }
@@ -264,12 +266,56 @@ fn spawn_logind_sleep_watcher(
     })
 }
 
-fn log_night_light_state(state: &State) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExpectedActivation {
+    source: &'static str,
+    time: String,
+}
+
+fn expected_activation_for_state(
+    state: &State,
+    solar: &solar::SolarHandle,
+) -> Option<ExpectedActivation> {
+    match state.config.schedule {
+        NightLightSchedule::Off => None,
+        NightLightSchedule::Schedule => {
+            state
+                .config
+                .start_time
+                .as_ref()
+                .map(|time| ExpectedActivation {
+                    source: "schedule",
+                    time: time.clone(),
+                })
+        }
+        NightLightSchedule::Automatic => match solar.snapshot() {
+            solar::State::Ready(snapshot) => Some(ExpectedActivation {
+                source: "sunset",
+                time: snapshot.times.sunset,
+            }),
+            solar::State::Unknown | solar::State::Degraded { .. } => None,
+        },
+    }
+}
+
+fn log_night_light_state(state: &State, solar: &solar::SolarHandle) {
+    let expected_activation = expected_activation_for_state(state, solar);
+    let expected_activation_source = expected_activation
+        .as_ref()
+        .map(|activation| activation.source)
+        .unwrap_or("unavailable");
+    let expected_activation_time = expected_activation
+        .as_ref()
+        .map(|activation| activation.time.as_str())
+        .unwrap_or("unavailable");
+
     tracing::info!(
         compositor = %state.compositor.name(),
         health = ?state.health,
         schedule = ?state.config.schedule,
         phase = ?state.phase,
+        expected_activation_source,
+        expected_activation_time,
         target_temperature_kelvin = state.target_temperature_kelvin,
         effective_temperature_kelvin = state.effective_temperature_kelvin,
         "night light state changed"
@@ -288,7 +334,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{reconfigure_services, refresh_after_resume, start_services};
+    use super::{
+        expected_activation_for_state, reconfigure_services, refresh_after_resume, start_services,
+    };
+    use chrono::NaiveDate;
     use glimpse_core::{
         Config, NightLightConfig, NightLightSchedule,
         services::{
@@ -307,6 +356,66 @@ mod tests {
         let (_state_tx, state_rx) = watch::channel(state);
         let (command_tx, command_rx) = mpsc::channel(4);
         (ServiceHandle::new(state_rx, command_tx), command_rx)
+    }
+
+    #[test]
+    fn expected_activation_uses_manual_schedule_start_time() {
+        let state = night_light::State {
+            config: NightLightConfig {
+                schedule: NightLightSchedule::Schedule,
+                start_time: Some("18:30".into()),
+                ..NightLightConfig::default()
+            },
+            ..night_light::State::default()
+        };
+        let (solar, _) = handle::<solar::State, solar::Command>(solar::State::Unknown);
+
+        let activation = expected_activation_for_state(&state, &solar).expect("activation time");
+
+        assert_eq!(activation.source, "schedule");
+        assert_eq!(activation.time, "18:30");
+    }
+
+    #[test]
+    fn expected_activation_uses_solar_sunset_for_automatic_schedule() {
+        let state = night_light::State {
+            config: NightLightConfig {
+                schedule: NightLightSchedule::Automatic,
+                ..NightLightConfig::default()
+            },
+            ..night_light::State::default()
+        };
+        let (solar, _) =
+            handle::<solar::State, solar::Command>(solar::State::Ready(solar::Snapshot {
+                coordinates: location::Coordinates {
+                    latitude: 52.2297,
+                    longitude: 21.0122,
+                },
+                date: NaiveDate::from_ymd_opt(2026, 5, 7).unwrap(),
+                times: solar::SolarTimes {
+                    sunrise: "04:52".into(),
+                    sunset: "20:12".into(),
+                },
+            }));
+
+        let activation = expected_activation_for_state(&state, &solar).expect("activation time");
+
+        assert_eq!(activation.source, "sunset");
+        assert_eq!(activation.time, "20:12");
+    }
+
+    #[test]
+    fn expected_activation_is_unavailable_when_night_light_is_off() {
+        let state = night_light::State {
+            config: NightLightConfig {
+                schedule: NightLightSchedule::Off,
+                ..NightLightConfig::default()
+            },
+            ..night_light::State::default()
+        };
+        let (solar, _) = handle::<solar::State, solar::Command>(solar::State::Unknown);
+
+        assert!(expected_activation_for_state(&state, &solar).is_none());
     }
 
     #[tokio::test]

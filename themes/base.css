@@ -1,4 +1,5 @@
-:root {
+:root,
+popover {
     /* Foundation */
     --space-1: 2px;
     --space-2: 4px;
@@ -59,8 +60,8 @@
     --overlay-disabled: rgb(255 255 255 / 0.24);
 
     /* Component aliases */
-    --panel-bg: #000000;
-    --panel-fg: #ffffff;
+    --panel-bg: #ffffff;
+    --panel-fg: #030712;
     --panel-border: rgb(255 255 255 / 0.08);
     --panel-opacity: 1;
 
@@ -207,7 +208,9 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    :root {
+
+    :root,
+    popover {
         --color-bg: #1f1f1f;
         --color-fg: #ffffff;
         --color-surface: #262626;
@@ -243,7 +246,8 @@
     }
 }
 
-.theme-light {
+/*.theme-light,
+popover.theme-light {
     --color-bg: #fafafa;
     --color-fg: #1f1f1f;
     --color-surface: #ffffff;
@@ -267,9 +271,11 @@
     --card-border: var(--color-border);
     --badge-bg: var(--overlay-selected);
     --badge-fg: var(--color-fg);
+    --panel-bg: red;
 }
 
-.theme-dark {
+.theme-dark,
+popover.theme-dark {
     --color-bg: #1f1f1f;
     --color-fg: #ffffff;
     --color-surface: #262626;
@@ -293,9 +299,10 @@
     --card-border: var(--color-border);
     --badge-bg: var(--overlay-selected);
     --badge-fg: var(--color-fg);
+    /*--panel-bg: blue;*/
 }
 
-@media (prefers-reduced-motion: reduce) {
+*/ @media (prefers-reduced-motion: reduce) {
     :root {
         --motion-fast: 1ms;
         --motion-normal: 1ms;

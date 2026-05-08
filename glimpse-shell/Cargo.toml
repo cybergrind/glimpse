@@ -4,13 +4,18 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["dev"]
+dev = []
+
 [dependencies]
-adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
+adw.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 gtk4.workspace = true
-glib = "0.20"
+glib.workspace = true
 gio.workspace = true
+gio-unix.workspace = true
 relm4.workspace = true
 glimpse-core = { path = "../glimpse-core" }
 serde = { workspace = true }
@@ -28,4 +33,4 @@ zbus.workspace = true
 zeroize = "1"
 
 [build-dependencies]
-glib-build-tools = "0.22"
+glib-build-tools.workspace = true

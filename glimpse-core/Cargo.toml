@@ -18,7 +18,7 @@ pipewire = "0.9"
 reqwest.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
-sunrise = "1.2.1"
+sunrise.workspace = true
 system-tray.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

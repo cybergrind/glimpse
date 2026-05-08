@@ -1,4 +1,5 @@
-use relm4::gtk::{gdk, gio, prelude::*};
+use gio_unix::DesktopAppInfo;
+use relm4::gtk::{gdk, prelude::*};
 
 pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Option<String> {
     let display = gdk::Display::default()?;
@@ -10,10 +11,10 @@ pub fn startup_notify_token(desktop_entry: Option<&str>, timestamp: u32) -> Opti
         .map(|token| token.to_string())
 }
 
-fn desktop_app_info(desktop_entry: &str) -> Option<gio::DesktopAppInfo> {
+fn desktop_app_info(desktop_entry: &str) -> Option<DesktopAppInfo> {
     desktop_entry_candidates(desktop_entry)
         .into_iter()
-        .find_map(|desktop_id| gio::DesktopAppInfo::new(&desktop_id))
+        .find_map(|desktop_id| DesktopAppInfo::new(&desktop_id))
 }
 
 fn desktop_entry_candidates(desktop_entry: &str) -> Vec<String> {

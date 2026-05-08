@@ -169,7 +169,7 @@ fn init_overlay_window(window: &gtk::Window, monitor: Option<&gdk::Monitor>) {
     window.set_resizable(false);
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
-    window.set_namespace(OVERLAY_NAMESPACE);
+    window.set_namespace(Some(OVERLAY_NAMESPACE));
     window.set_keyboard_mode(KeyboardMode::Exclusive);
     window.set_margin(Edge::Top, 0);
     window.set_margin(Edge::Right, 0);
@@ -181,7 +181,7 @@ fn init_overlay_window(window: &gtk::Window, monitor: Option<&gdk::Monitor>) {
     window.set_anchor(Edge::Left, true);
 
     if let Some(monitor) = monitor {
-        window.set_monitor(monitor);
+        window.set_monitor(Some(monitor));
         let geometry = monitor.geometry();
         window.set_default_size(geometry.width(), geometry.height());
         window.set_size_request(geometry.width(), geometry.height());

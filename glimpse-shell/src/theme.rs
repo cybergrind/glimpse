@@ -1,13 +1,17 @@
 use adw::gdk::{self};
-use gtk4::CssProvider;
+use gtk4::{CssProvider, InterfaceColorScheme};
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
-use std::time::Duration;
+#[cfg(feature = "dev")]
+use std::path::Path;
+use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
 
 use glimpse_core::{Config, ThemeMode, services::theme::EffectiveThemeMode};
 
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
+#[cfg(feature = "dev")]
+const DEV_THEME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../themes");
 
 pub struct ThemeState {
     base: CssProvider,
@@ -42,8 +46,7 @@ impl ThemeState {
 
     /// Replace both providers' CSS content in place. Safe to call any time.
     pub fn reload(&self, config: &Config) {
-        self.base
-            .load_from_resource(&format!("{RESOURCE_BASE}/themes/base.css"));
+        load_base_css(&self.base);
 
         let theme_file = config.theme_file();
         let shipped = format!("{RESOURCE_BASE}/themes/{}.css", config.theme);
@@ -55,6 +58,8 @@ impl ThemeState {
                 "applied user theme"
             );
             self.theme.load_from_path(&theme_file);
+        } else if load_dev_theme_css(&self.theme, &config.theme, config) {
+            return;
         } else if resource_exists(&shipped) {
             tracing::info!(
                 theme = %config.theme,
@@ -69,26 +74,35 @@ impl ThemeState {
                 mode = ?config.theme_mode,
                 "theme not found, falling back to adwaita"
             );
-            self.theme
-                .load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
+            load_fallback_theme_css(&self.theme, config);
         }
     }
 
     pub fn apply_effective_mode(&self, mode: EffectiveThemeMode) {
-        let scheme = match mode {
-            EffectiveThemeMode::Light => adw::ColorScheme::ForceLight,
-            EffectiveThemeMode::Dark => adw::ColorScheme::ForceDark,
+        let (adw_scheme, gtk_scheme) = match mode {
+            EffectiveThemeMode::Light => (
+                adw::ColorScheme::ForceLight,
+                InterfaceColorScheme::Light,
+            ),
+            EffectiveThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
         };
-        adw::StyleManager::default().set_color_scheme(scheme);
+        adw::StyleManager::default().set_color_scheme(adw_scheme);
+        self.apply_provider_color_scheme(gtk_scheme);
     }
 
     fn apply_configured_mode(&self, mode: &ThemeMode) {
-        let scheme = match mode {
-            ThemeMode::Auto => adw::ColorScheme::Default,
-            ThemeMode::Dark => adw::ColorScheme::ForceDark,
-            ThemeMode::Light => adw::ColorScheme::ForceLight,
+        let (adw_scheme, gtk_scheme) = match mode {
+            ThemeMode::Auto => (adw::ColorScheme::Default, InterfaceColorScheme::Default),
+            ThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
+            ThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
         };
-        adw::StyleManager::default().set_color_scheme(scheme);
+        adw::StyleManager::default().set_color_scheme(adw_scheme);
+        self.apply_provider_color_scheme(gtk_scheme);
+    }
+
+    fn apply_provider_color_scheme(&self, scheme: InterfaceColorScheme) {
+        self.base.set_prefers_color_scheme(scheme);
+        self.theme.set_prefers_color_scheme(scheme);
     }
 }
 
@@ -96,20 +110,78 @@ fn resource_exists(path: &str) -> bool {
     gio::resources_get_info(path, gio::ResourceLookupFlags::NONE).is_ok()
 }
 
-/// Watch the user themes directory and emit `()` on any `.css` change.
-/// Returns when `sender` is dropped / its receiver is closed.
-pub async fn watch_user_themes(sender: mpsc::Sender<()>) {
-    let themes_dir = Config::themes_dir();
-    if !themes_dir.is_dir() {
-        tracing::debug!(
-            "user theme directory does not exist: {}",
-            themes_dir.display()
+fn load_base_css(provider: &CssProvider) {
+    #[cfg(feature = "dev")]
+    {
+        let path = dev_theme_path("base.css");
+        if path.is_file() {
+            tracing::info!(source = %path.display(), "applied dev base theme");
+            provider.load_from_path(path);
+            return;
+        }
+    }
+
+    provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/base.css"));
+}
+
+#[cfg(feature = "dev")]
+fn load_dev_theme_css(provider: &CssProvider, theme: &str, config: &Config) -> bool {
+    let path = dev_theme_path(format!("{theme}.css"));
+    if path.is_file() {
+        tracing::info!(
+            theme,
+            mode = ?config.theme_mode,
+            source = %path.display(),
+            "applied dev shipped theme"
         );
-        sender.closed().await;
+        provider.load_from_path(path);
+        return true;
+    }
+
+    false
+}
+
+#[cfg(not(feature = "dev"))]
+fn load_dev_theme_css(_provider: &CssProvider, _theme: &str, _config: &Config) -> bool {
+    false
+}
+
+#[cfg(feature = "dev")]
+fn load_fallback_theme_css(provider: &CssProvider, config: &Config) {
+    let path = dev_theme_path("adwaita.css");
+    if path.is_file() {
+        tracing::info!(
+            theme = %config.theme,
+            mode = ?config.theme_mode,
+            source = %path.display(),
+            "applied dev fallback theme"
+        );
+        provider.load_from_path(path);
         return;
     }
 
-    tracing::info!("watching user theme directory: {}", themes_dir.display());
+    provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
+}
+
+#[cfg(not(feature = "dev"))]
+fn load_fallback_theme_css(provider: &CssProvider, _config: &Config) {
+    provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
+}
+
+#[cfg(feature = "dev")]
+fn dev_theme_path(path: impl AsRef<Path>) -> PathBuf {
+    Path::new(DEV_THEME_DIR).join(path)
+}
+
+/// Watch theme directories and emit `()` on any `.css` change.
+/// Returns when `sender` is dropped / its receiver is closed.
+pub async fn watch_user_themes(sender: mpsc::Sender<()>) {
+    let theme_dirs = theme_watch_dirs();
+    if theme_dirs.is_empty() {
+        tracing::debug!("no theme directories to watch");
+        sender.closed().await;
+        return;
+    }
 
     let handler_sender = sender.clone();
     let mut debouncer = match new_debouncer(
@@ -126,12 +198,47 @@ pub async fn watch_user_themes(sender: mpsc::Sender<()>) {
         }
     };
 
-    if let Err(e) = debouncer.watch(&themes_dir, notify::RecursiveMode::Recursive) {
-        tracing::error!("failed to watch theme directory: {e}");
+    let mut watched_any = false;
+    for themes_dir in theme_dirs {
+        match debouncer.watch(&themes_dir, notify::RecursiveMode::Recursive) {
+            Ok(()) => {
+                watched_any = true;
+                tracing::info!("watching theme directory: {}", themes_dir.display());
+            }
+            Err(e) => {
+                tracing::error!(
+                    path = %themes_dir.display(),
+                    "failed to watch theme directory: {e}"
+                );
+            }
+        }
+    }
+
+    if !watched_any {
         return;
     }
 
     sender.closed().await;
+}
+
+fn theme_watch_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    push_theme_watch_dir(&mut dirs, Config::themes_dir());
+
+    #[cfg(feature = "dev")]
+    push_theme_watch_dir(&mut dirs, PathBuf::from(DEV_THEME_DIR));
+
+    dirs
+}
+
+fn push_theme_watch_dir(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
+    if !dir.is_dir() {
+        tracing::debug!("theme directory does not exist: {}", dir.display());
+        return;
+    }
+    if !dirs.iter().any(|existing| existing == &dir) {
+        dirs.push(dir);
+    }
 }
 
 fn theme_change_handler(res: DebounceEventResult, sender: mpsc::Sender<()>) {

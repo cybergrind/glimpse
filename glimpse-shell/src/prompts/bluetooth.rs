@@ -295,7 +295,7 @@ impl SimpleComponent for PromptDialog {
                 let expected_prompt = prompt;
 
                 relm4::spawn_local(async move {
-                    let response = response_dialog.choose_future(&response_parent).await;
+                    let response = response_dialog.choose_future(Some(&response_parent)).await;
                     let active_prompt = response_prompt.borrow().clone();
 
                     let Some(active_prompt) = active_prompt else {

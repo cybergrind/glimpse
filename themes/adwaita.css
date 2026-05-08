@@ -1,4 +1,5 @@
-:root {
+/*:root,
+popover {
   --color-bg: @view_bg_color;
   --color-fg: @window_fg_color;
   --color-surface: @window_bg_color;
@@ -38,7 +39,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root,
+  popover {
     --color-border: alpha(currentColor, 0.18);
     --color-border-strong: alpha(currentColor, 0.3);
     --color-muted: alpha(@view_fg_color, 0.8);
@@ -54,7 +56,8 @@
   }
 }
 
-.theme-light {
+.theme-light,
+popover.theme-light {
   --color-border: alpha(currentColor, 0.14);
   --color-border-strong: alpha(currentColor, 0.22);
   --color-muted: alpha(@view_fg_color, 0.78);
@@ -69,7 +72,8 @@
   --badge-bg: alpha(var(--color-accent), 0.18);
 }
 
-.theme-dark {
+.theme-dark,
+popover.theme-dark {
   --color-border: alpha(currentColor, 0.18);
   --color-border-strong: alpha(currentColor, 0.3);
   --color-muted: alpha(@view_fg_color, 0.8);
@@ -82,4 +86,4 @@
   --popover-border: alpha(currentColor, 0.18);
   --card-border: alpha(currentColor, 0.18);
   --badge-bg: alpha(var(--color-accent), 0.24);
-}
+}*/

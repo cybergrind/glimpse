@@ -12,13 +12,13 @@ dirs.workspace = true
 futures-util.workspace = true
 gio.workspace = true
 glimpse-core = { path = "../glimpse-core" }
-gtk4 = { version = "0.9", package = "gtk4", features = ["v4_8"] }
-gtk4-session-lock = "0.1.2"
+gtk4.workspace = true
+gtk4-session-lock.workspace = true
 image = "0.25"
 notify.workspace = true
 notify-debouncer-full.workspace = true
 pam-client2 = { version = "0.5.5", default-features = false }
-relm4 = { version = "0.9", features = ["libadwaita"] }
+relm4.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -27,4 +27,4 @@ zbus.workspace = true
 zeroize = "1"
 
 [build-dependencies]
-glib-build-tools = "0.20"
+glib-build-tools.workspace = true

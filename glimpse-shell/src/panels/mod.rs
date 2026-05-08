@@ -91,7 +91,7 @@ impl Component for Panel {
         );
         init_layer_shell(&root);
         if let Some(monitor) = init.monitor.as_ref() {
-            root.set_monitor(monitor);
+            root.set_monitor(Some(monitor));
         }
         apply_panel_config(&root, &init.config);
         apply_theme_mode(&root, &init.config.theme_mode);
@@ -199,7 +199,7 @@ impl Component for Panel {
 fn init_layer_shell(window: &gtk::Window) {
     window.init_layer_shell();
     window.set_layer(gtk4_layer_shell::Layer::Top);
-    window.set_namespace("glimpse-panel");
+    window.set_namespace(Some("glimpse-panel"));
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
     window.auto_exclusive_zone_enable();
 }

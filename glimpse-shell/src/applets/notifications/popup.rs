@@ -656,7 +656,7 @@ fn configure_window(window: &gtk::Window, position: PopupPosition, margin_x: i32
     window.add_css_class("notification-popup");
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
-    window.set_namespace("glimpse-notification-popup");
+    window.set_namespace(Some("glimpse-notification-popup"));
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
     apply_position(window, position, margin_x, margin_y);
 }

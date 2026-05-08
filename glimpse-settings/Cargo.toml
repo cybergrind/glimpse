@@ -6,11 +6,11 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
+adw.workspace = true
 anyhow = "1"
-gtk4 = "0.9"
-glib = "0.20"
-gio = "0.20"
+gtk4.workspace = true
+glib.workspace = true
+gio.workspace = true
 glimpse = { path = "../glimpse" }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,4 +22,4 @@ zbus = { workspace = true }
 uuid = { workspace = true }
 
 [build-dependencies]
-glib-build-tools = "0.20"
+glib-build-tools.workspace = true

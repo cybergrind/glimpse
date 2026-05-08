@@ -10,7 +10,7 @@ css-color.workspace = true
 dirs.workspace = true
 gio.workspace = true
 glimpse-core = { path = "../glimpse-core" }
-gtk4 = { workspace = true, features = ["v4_8"] }
+gtk4.workspace = true
 gtk4-layer-shell.workspace = true
 image = "0.25"
 notify.workspace = true

@@ -69,7 +69,7 @@ impl SimpleComponent for App {
     ) -> ComponentParts<Self> {
         root.init_layer_shell();
         root.set_layer(gtk4_layer_shell::Layer::Background);
-        root.set_namespace("glimpse-shell");
+        root.set_namespace(Some("glimpse-shell"));
         root.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         root.set_default_size(-1, -1);
         root.set_opacity(0.0);

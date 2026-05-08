@@ -7,7 +7,7 @@ use std::{
 };
 
 use css_color::Srgb;
-use gio::prelude::ListModelExt;
+use gtk4::prelude::ListModelExt;
 use glimpse_core::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
     heic, watch_for_config_changes,
@@ -96,7 +96,7 @@ impl SimpleComponent for WallpaperAppModel {
     ) -> ComponentParts<Self> {
         root.init_layer_shell();
         root.set_layer(Layer::Background);
-        root.set_namespace(WALLPAPER_NAMESPACE);
+        root.set_namespace(Some(WALLPAPER_NAMESPACE));
         root.set_keyboard_mode(KeyboardMode::None);
         root.set_default_size(-1, -1);
         root.set_opacity(0.0);
@@ -648,10 +648,10 @@ fn backdrop_image_init(
 fn setup_layer_window(window: &gtk::Window, monitor: &gdk::Monitor, namespace: &str) {
     window.init_layer_shell();
     window.set_layer(Layer::Background);
-    window.set_namespace(namespace);
+    window.set_namespace(Some(namespace));
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_exclusive_zone(-1);
-    window.set_monitor(monitor);
+    window.set_monitor(Some(monitor));
     window.set_decorated(false);
     window.set_deletable(false);
     for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
