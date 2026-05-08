@@ -9,12 +9,13 @@ import {
   DropdownItem,
   Hero,
   Icon,
+  Item,
   type InitEvent,
   Label,
   RenderResult,
   Row,
   StatusItem,
-  StatusMenuItem,
+  MenuItem,
   parseCallbackEvent,
 } from "../src/index.js";
 
@@ -125,19 +126,20 @@ test("row serializes as action_row", () => {
   assert.equal(payload.type, "action_row");
 });
 
-test("status item serializes menu items", () => {
-  const payload = new StatusItem({
-    id: "github-workflows",
-    label: "CI",
+test("item serializes menu items", () => {
+  const payload = new Item({
+    id: "run",
+    label: "Run",
+    clickable: true,
     menu: [
-      new StatusMenuItem({ id: "refresh", label: "Refresh" }),
-      new StatusMenuItem({ id: "open", label: "Open Actions", enabled: false }),
+      new MenuItem({ id: "open", label: "Open" }),
+      new MenuItem({ id: "cancel", label: "Cancel", enabled: false }),
     ],
   }).toProtocol();
 
-  assert.equal((payload.menu as any[])[0].id, "refresh");
-  assert.equal((payload.menu as any[])[0].label, "Refresh");
-  assert.equal((payload.menu as any[])[1].enabled, false);
+  assert.equal(payload.type, "item");
+  assert.equal((payload.data as any).menu[0].id, "open");
+  assert.equal((payload.data as any).menu[1].enabled, false);
 });
 
 test("closed popover updates are dropped until opened", async () => {

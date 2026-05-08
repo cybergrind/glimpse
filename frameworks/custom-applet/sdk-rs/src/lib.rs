@@ -8,7 +8,7 @@ pub use events::{
     CallbackEvent, ChangeEvent, ClickEvent, InitEvent, InputEvent, PopoverEvent, ScrollEvent,
     ToggleEvent,
 };
-pub use protocol::{Icon, StatusItem, StatusMenuItem};
+pub use protocol::{Icon, MenuItem, StatusItem};
 pub use widgets::{
     Align, Badge, BoxNode, Button, Card, Checkbox, Collapsible, CollapsibleItem, Copyable,
     DetailGrid, DetailGridItem, Dropdown, DropdownItem, EmptyState, Grid, GridChild, Header, Hero,

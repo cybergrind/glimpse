@@ -296,10 +296,11 @@ func (c Collapsible) MarshalJSON() ([]byte, error) {
 
 type Item struct {
 	CommonProps
-	Left      *TreeNode `json:"left,omitempty"`
-	Label     string    `json:"label,omitempty"`
-	Right     *TreeNode `json:"right,omitempty"`
-	Clickable bool      `json:"clickable,omitempty"`
+	Left      *TreeNode  `json:"left,omitempty"`
+	Label     string     `json:"label,omitempty"`
+	Right     *TreeNode  `json:"right,omitempty"`
+	Clickable bool       `json:"clickable,omitempty"`
+	Menu      []MenuItem `json:"menu,omitempty"`
 }
 
 func NewItem(label string) TreeNode {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)
@@ -21,7 +21,7 @@ class Icon:
 
 
 @dataclass(slots=True)
-class StatusMenuItem:
+class MenuItem:
     id: str
     label: str
     visible: bool | None = None
@@ -45,7 +45,6 @@ class StatusItem:
     icon: Icon | None = None
     label: str | None = None
     tooltip: str | None = None
-    menu: list[StatusMenuItem] = field(default_factory=list)
 
     def to_protocol(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -57,6 +56,4 @@ class StatusItem:
             payload["label"] = self.label
         if self.tooltip is not None:
             payload["tooltip"] = self.tooltip
-        if self.menu:
-            payload["menu"] = [item.to_protocol() for item in self.menu]
         return payload

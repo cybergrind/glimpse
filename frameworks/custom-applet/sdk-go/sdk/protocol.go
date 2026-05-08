@@ -14,14 +14,13 @@ func IconPath(value string) *Icon {
 }
 
 type StatusItem struct {
-	ID      string           `json:"id,omitempty"`
-	Icon    *Icon            `json:"icon,omitempty"`
-	Label   string           `json:"label,omitempty"`
-	Tooltip string           `json:"tooltip,omitempty"`
-	Menu    []StatusMenuItem `json:"menu,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Icon    *Icon  `json:"icon,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Tooltip string `json:"tooltip,omitempty"`
 }
 
-type StatusMenuItem struct {
+type MenuItem struct {
 	ID      string `json:"id"`
 	Label   string `json:"label"`
 	Visible *bool  `json:"visible,omitempty"`

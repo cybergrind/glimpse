@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent, WidgetTemplate,
-    gtk::{self, prelude::*},
+    gtk::{self, gio, prelude::*},
 };
 
 use crate::components::{
@@ -207,6 +207,7 @@ impl Popover {
 
 struct ClipboardHistoryRow {
     root: HistoryRow,
+    _context_menu: gtk::PopoverMenu,
 }
 
 impl ClipboardHistoryRow {
@@ -221,7 +222,12 @@ impl ClipboardHistoryRow {
             move |_| sender.input(PopoverInput::Select(id))
         });
 
-        Self { root }
+        let context_menu = build_row_context_menu(&root, id, sender);
+
+        Self {
+            root,
+            _context_menu: context_menu,
+        }
     }
 
     fn update(&self, entry: &ClipboardEntry) {
@@ -230,6 +236,53 @@ impl ClipboardHistoryRow {
             .set_icon_name(Some(format::entry_icon(entry)));
         self.root.preview.set_label(&entry.preview);
     }
+}
+
+fn build_row_context_menu(
+    row: &HistoryRow,
+    id: u64,
+    sender: &ComponentSender<Popover>,
+) -> gtk::PopoverMenu {
+    let action_group = gio::SimpleActionGroup::new();
+
+    let remove_action = gio::SimpleAction::new("remove", None);
+    remove_action.connect_activate({
+        let sender = sender.clone();
+        move |_, _| {
+            let _ = sender.output(PopoverOutput::Command(Command::Remove(id)));
+        }
+    });
+    action_group.add_action(&remove_action);
+
+    row.as_ref()
+        .insert_action_group("clipboard-row", Some(&action_group));
+
+    let menu = gio::Menu::new();
+    menu.append(Some("Remove"), Some("clipboard-row.remove"));
+
+    let context_menu = gtk::PopoverMenu::from_model(Some(&menu));
+    context_menu.add_css_class("clipboard-row-menu");
+    context_menu.set_parent(row.as_ref());
+    context_menu.set_has_arrow(false);
+
+    let click = gtk::GestureClick::new();
+    click.set_button(3);
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    click.connect_pressed({
+        let context_menu = context_menu.clone();
+        move |gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            context_menu.popup();
+        }
+    });
+    row.as_ref().add_controller(click);
+
+    row.as_ref().connect_destroy({
+        let context_menu = context_menu.clone();
+        move |_| context_menu.unparent()
+    });
+
+    context_menu
 }
 
 fn place_row(row: &ClipboardHistoryRow, container: &gtk::Box, previous: Option<&gtk::Widget>) {

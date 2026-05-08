@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     io::Read,
@@ -85,6 +86,7 @@ impl Default for Health {
 pub enum Command {
     Refresh,
     Select(u64),
+    Remove(u64),
     ClearHistory,
     ClearClipboard,
 }
@@ -98,6 +100,7 @@ pub struct ClipboardService {
     state: State,
     next_id: u64,
     max_entries: usize,
+    suppressed_current_fingerprints: HashSet<u64>,
 }
 
 impl ClipboardService {
@@ -112,6 +115,7 @@ impl ClipboardService {
                 state: State::default(),
                 next_id: 1,
                 max_entries: DEFAULT_MAX_ENTRIES,
+                suppressed_current_fingerprints: HashSet::new(),
             },
             ServiceHandle::new(state_rx, command_tx),
         )
@@ -161,6 +165,13 @@ impl ClipboardService {
                     self.refresh().await;
                 }
             }
+            Command::Remove(id) => {
+                let removed = remove_history_entry(&mut self.state, id);
+                if let Some(fingerprint) = removed {
+                    self.suppressed_current_fingerprints.insert(fingerprint);
+                    self.publish_current();
+                }
+            }
             Command::ClearHistory => {
                 self.state.history.clear();
                 self.state.current_id = None;
@@ -170,6 +181,7 @@ impl ClipboardService {
                 if let Err(error) = self.backend.clear().await {
                     self.degrade(format!("failed to clear clipboard: {error}"));
                 } else {
+                    self.suppressed_current_fingerprints.clear();
                     self.state.current_id = None;
                     self.publish_current();
                 }
@@ -181,10 +193,18 @@ impl ClipboardService {
         match self.backend.read_current().await {
             Ok(Some(snapshot)) => {
                 let entry = entry_from_snapshot(self.next_id, snapshot, now_ms());
+                let suppressed = self
+                    .suppressed_current_fingerprints
+                    .contains(&entry.fingerprint);
                 let status_changed =
                     self.state.available != true || self.state.health != Health::Ready;
-                let history_changed =
-                    apply_clipboard_entry(&mut self.state, entry, self.max_entries);
+                let history_changed = if suppressed {
+                    self.state.current_id = None;
+                    false
+                } else {
+                    self.suppressed_current_fingerprints.clear();
+                    apply_clipboard_entry(&mut self.state, entry, self.max_entries)
+                };
                 if history_changed {
                     self.next_id += 1;
                 }
@@ -371,6 +391,15 @@ fn entry_from_snapshot(id: u64, snapshot: ClipboardSnapshot, timestamp: u64) -> 
     }
 }
 
+fn remove_history_entry(state: &mut State, id: u64) -> Option<u64> {
+    let index = state.history.iter().position(|entry| entry.id == id)?;
+    let entry = state.history.remove(index);
+    if state.current_id == Some(id) {
+        state.current_id = None;
+    }
+    Some(entry.fingerprint)
+}
+
 fn apply_clipboard_entry(state: &mut State, entry: ClipboardEntry, max_entries: usize) -> bool {
     if entry.data.is_empty() {
         return false;
@@ -503,6 +532,40 @@ mod tests {
             history.iter().map(|entry| entry.id).collect::<Vec<_>>(),
             vec![1, 2]
         );
+    }
+
+    #[test]
+    fn remove_history_entry_removes_one_item() {
+        let mut state = State {
+            history: vec![entry(1, "one"), entry(2, "two"), entry(3, "three")],
+            current_id: Some(1),
+            ..State::default()
+        };
+        let removed = state.history[1].fingerprint;
+
+        assert_eq!(remove_history_entry(&mut state, 2), Some(removed));
+        assert_eq!(
+            state
+                .history
+                .iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+        assert_eq!(state.current_id, Some(1));
+    }
+
+    #[test]
+    fn remove_history_entry_clears_current_id_when_current_is_removed() {
+        let mut state = State {
+            history: vec![entry(1, "one")],
+            current_id: Some(1),
+            ..State::default()
+        };
+
+        assert!(remove_history_entry(&mut state, 1).is_some());
+        assert!(state.history.is_empty());
+        assert_eq!(state.current_id, None);
     }
 
     fn entry(id: u64, text: &str) -> ClipboardEntry {

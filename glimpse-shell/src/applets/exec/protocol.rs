@@ -20,12 +20,10 @@ pub struct StatusItem {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub menu: Vec<StatusMenuItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StatusMenuItem {
+pub struct MenuItem {
     pub id: String,
     pub label: String,
     #[serde(default = "default_true")]
@@ -272,6 +270,8 @@ pub struct ItemNode {
     pub right: Option<Box<TreeNode>>,
     #[serde(default)]
     pub clickable: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu: Vec<MenuItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -716,43 +716,41 @@ mod tests {
                     }),
                     label: Some("12%".into()),
                     tooltip: Some("CPU usage".into()),
-                    menu: Vec::new(),
                 }]
             })
         );
     }
 
     #[test]
-    fn parse_status_item_menu() {
+    fn parse_popover_item_menu() {
         let command = parse_child_line(
-            r#"status {"items":[{"id":"net","label":"Wi-Fi","menu":[{"id":"toggle","label":"Toggle"},{"id":"settings","label":"Settings","enabled":false}]}]}"#,
+            r#"popover {"root":{"type":"item","data":{"id":"run","label":"Run","clickable":true,"menu":[{"id":"open","label":"Open"},{"id":"cancel","label":"Cancel","visible":false}]}}}"#,
         )
-        .expect("status menu line should parse");
+        .expect("popover item menu line should parse");
+
+        let ChildCommand::Popover(PopoverPayload {
+            root: Some(TreeNode::Item(item)),
+        }) = command
+        else {
+            panic!("expected popover item");
+        };
 
         assert_eq!(
-            command,
-            ChildCommand::Status(StatusPayload {
-                items: vec![StatusItem {
-                    id: Some("net".into()),
-                    icon: None,
-                    label: Some("Wi-Fi".into()),
-                    tooltip: None,
-                    menu: vec![
-                        StatusMenuItem {
-                            id: "toggle".into(),
-                            label: "Toggle".into(),
-                            visible: true,
-                            enabled: true,
-                        },
-                        StatusMenuItem {
-                            id: "settings".into(),
-                            label: "Settings".into(),
-                            visible: true,
-                            enabled: false,
-                        },
-                    ],
-                }]
-            })
+            item.menu,
+            vec![
+                MenuItem {
+                    id: "open".into(),
+                    label: "Open".into(),
+                    visible: true,
+                    enabled: true,
+                },
+                MenuItem {
+                    id: "cancel".into(),
+                    label: "Cancel".into(),
+                    visible: false,
+                    enabled: true,
+                },
+            ]
         );
     }
 

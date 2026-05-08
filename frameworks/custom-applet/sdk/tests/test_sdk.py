@@ -15,12 +15,13 @@ from glimpse_applet import (
     DropdownItem,
     Icon,
     InitEvent,
+    Item,
     Label,
     PopoverEvent,
     RenderResult,
     Row,
     StatusItem,
-    StatusMenuItem,
+    MenuItem,
     Variant,
     click,
 )
@@ -101,19 +102,20 @@ class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
         payload = Label(text="Warning", variant=Variant.WARNING).to_protocol()
         self.assertEqual(payload["data"]["variant"], "warning")
 
-    def test_status_item_serializes_menu_items(self) -> None:
-        payload = StatusItem(
-            id="github-workflows",
-            label="CI",
+    def test_item_serializes_menu_items(self) -> None:
+        payload = Item(
+            id="run",
+            label="Run",
+            clickable=True,
             menu=[
-                StatusMenuItem(id="refresh", label="Refresh"),
-                StatusMenuItem(id="open", label="Open Actions", enabled=False),
+                MenuItem(id="open", label="Open"),
+                MenuItem(id="cancel", label="Cancel", enabled=False),
             ],
         ).to_protocol()
 
-        self.assertEqual(payload["menu"][0]["id"], "refresh")
-        self.assertEqual(payload["menu"][0]["label"], "Refresh")
-        self.assertEqual(payload["menu"][1]["enabled"], False)
+        self.assertEqual(payload["type"], "item")
+        self.assertEqual(payload["data"]["menu"][0]["id"], "open")
+        self.assertEqual(payload["data"]["menu"][1]["enabled"], False)
 
     async def test_init_event_rerenders_changed_state(self) -> None:
         applet = InitApplet()

@@ -213,7 +213,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, Row, StatusItem, StatusMenuItem,
+        BoxNode, Button, CallbackEvent, ClickEvent, Icon, Item, Label, MenuItem, Row, StatusItem,
         TreeNode,
     };
 
@@ -316,18 +316,16 @@ mod tests {
     }
 
     #[test]
-    fn status_items_serialize_menu_items() {
-        let item = StatusItem::new("github-workflows")
-            .label("CI")
-            .menu(vec![
-                StatusMenuItem::new("refresh", "Refresh"),
-                StatusMenuItem::new("open", "Open Actions").enabled(false),
-            ]);
+    fn items_serialize_menu_items() {
+        let item = Item::clickable("run", "Run").menu(vec![
+            MenuItem::new("open", "Open"),
+            MenuItem::new("cancel", "Cancel").enabled(false),
+        ]);
 
-        let payload = serde_json::to_value(item).expect("status item should serialize");
-        assert_eq!(payload["menu"][0]["id"], "refresh");
-        assert_eq!(payload["menu"][0]["label"], "Refresh");
-        assert_eq!(payload["menu"][1]["enabled"], false);
+        let payload = serde_json::to_value(TreeNode::from(item)).expect("item should serialize");
+        assert_eq!(payload["type"], "item");
+        assert_eq!(payload["data"]["menu"][0]["id"], "open");
+        assert_eq!(payload["data"]["menu"][1]["enabled"], false);
     }
 
     #[test]

@@ -104,24 +104,28 @@ func TestDropdownSerializesItems(t *testing.T) {
 	}
 }
 
-func TestStatusItemSerializesMenuItems(t *testing.T) {
-	item := StatusItem{
-		ID:    "github-workflows",
-		Label: "CI",
-		Menu: []StatusMenuItem{
-			{ID: "refresh", Label: "Refresh"},
-			{ID: "open", Label: "Open Actions", Enabled: ptr(false)},
+func TestItemSerializesMenuItems(t *testing.T) {
+	node := TreeNode{
+		Type: "item",
+		Data: Item{
+			CommonProps: CommonProps{ID: "run"},
+			Label:       "Run",
+			Clickable:   true,
+			Menu: []MenuItem{
+				{ID: "open", Label: "Open"},
+				{ID: "cancel", Label: "Cancel", Enabled: ptr(false)},
+			},
 		},
 	}
 
-	payload, err := json.Marshal(item)
+	payload, err := json.Marshal(node)
 	if err != nil {
-		t.Fatalf("marshal status item: %v", err)
+		t.Fatalf("marshal item: %v", err)
 	}
 	text := string(payload)
-	for _, expected := range []string{`"menu"`, `"id":"refresh"`, `"label":"Open Actions"`, `"enabled":false`} {
+	for _, expected := range []string{`"menu"`, `"id":"open"`, `"label":"Cancel"`, `"enabled":false`} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("expected %s in status item payload: %s", expected, text)
+			t.Fatalf("expected %s in item payload: %s", expected, text)
 		}
 	}
 }

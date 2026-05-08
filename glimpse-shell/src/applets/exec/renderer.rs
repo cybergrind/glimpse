@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use relm4::{
     WidgetTemplate,
-    gtk::{self, prelude::*},
+    gtk::{self, gio, prelude::*},
 };
 
 use crate::components::{
@@ -25,7 +25,7 @@ use super::protocol::{
     ActionMenuNode, ActionRowNode, AlignValue, BadgeNode, BoxNode, ButtonNode, CardNode,
     CheckboxNode, CollapsibleItemNode, CollapsibleNode, CommonProps, CopyableNode, DetailGridNode,
     DropdownNode, EmptyStateNode, EventKind, EventPayload, EventSource, GridNode, HeaderNode,
-    HeroNode, Icon, IconNode, ImageNode, ItemNode, LabelNode, LayoutNode, MeterNode,
+    HeroNode, Icon, IconNode, ImageNode, ItemNode, LabelNode, LayoutNode, MenuItem, MeterNode,
     OrientationValue, ProgressNode, ScaleNode, ScrollNode, SectionNode, SeparatorNode, SpinnerNode,
     StatusNode, SwitchNode, ToastNode, TreeNode,
 };
@@ -278,6 +278,8 @@ impl RenderCatalog {
             button.add_css_class("item__button--static");
             button.set_focusable(false);
         }
+
+        attach_item_menu(&button, &data.menu, self.event.clone());
 
         Ok(button.upcast())
     }
@@ -852,6 +854,69 @@ fn connect_click(button: &gtk::Button, event: EventSink, id: String) {
     });
 }
 
+fn attach_item_menu(button: &gtk::Button, items: &[MenuItem], event: EventSink) {
+    if !has_visible_menu_items(items) {
+        return;
+    }
+
+    let action_group = gio::SimpleActionGroup::new();
+    let menu = gio::Menu::new();
+    for (index, item) in items.iter().enumerate() {
+        if !item.visible {
+            continue;
+        }
+
+        let action_name = format!("item{index}");
+        let action = gio::SimpleAction::new(&action_name, None);
+        action.set_enabled(item.enabled);
+        action.connect_activate({
+            let id = item.id.clone();
+            let event = event.clone();
+            move |_, _| {
+                event(EventPayload {
+                    id: id.clone(),
+                    kind: EventKind::Click,
+                    source: EventSource::Popover,
+                    button: Some(super::protocol::MouseButton::Left),
+                    active: None,
+                    value: None,
+                    delta_y: None,
+                });
+            }
+        });
+        action_group.add_action(&action);
+        menu.append(
+            Some(&item.label),
+            Some(&format!("exec-item-menu.{action_name}")),
+        );
+    }
+
+    button.insert_action_group("exec-item-menu", Some(&action_group));
+
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.add_css_class("exec-item-menu");
+    popover.set_parent(button);
+    popover.set_has_arrow(false);
+
+    let click = gtk::GestureClick::new();
+    click.set_button(3);
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    click.connect_pressed({
+        let popover = popover.clone();
+        move |gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            popover.popup();
+        }
+    });
+    button.add_controller(click);
+
+    button.connect_destroy(move |_| popover.unparent());
+}
+
+fn has_visible_menu_items(items: &[MenuItem]) -> bool {
+    items.iter().any(|item| item.visible)
+}
+
 fn require_id(widget_type: &'static str, props: &CommonProps) -> Result<String, RenderError> {
     props
         .id
@@ -941,6 +1006,7 @@ mod tests {
             label: "Open".into(),
             right: None,
             clickable: true,
+            menu: Vec::new(),
         }));
 
         assert_eq!(

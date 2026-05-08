@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::protocol::Icon;
+use crate::protocol::{Icon, MenuItem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -575,6 +575,8 @@ pub struct Item {
     pub right: Option<Box<TreeNode>>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub clickable: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu: Vec<MenuItem>,
 }
 
 impl Item {
@@ -585,6 +587,7 @@ impl Item {
             label: label.into(),
             right: None,
             clickable: false,
+            menu: Vec::new(),
         }
     }
 
@@ -598,6 +601,7 @@ impl Item {
             label: label.into(),
             right: None,
             clickable: true,
+            menu: Vec::new(),
         }
     }
 
@@ -608,6 +612,16 @@ impl Item {
 
     pub fn right(mut self, right: TreeNode) -> Self {
         self.right = Some(Box::new(right));
+        self
+    }
+
+    pub fn menu(mut self, menu: Vec<MenuItem>) -> Self {
+        self.menu = menu;
+        self
+    }
+
+    pub fn menu_item(mut self, item: MenuItem) -> Self {
+        self.menu.push(item);
         self
     }
 }

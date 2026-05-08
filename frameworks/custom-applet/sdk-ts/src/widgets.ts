@@ -1,4 +1,4 @@
-import { Icon } from "./protocol.js";
+import { Icon, MenuItem } from "./protocol.js";
 
 export type Align = "fill" | "start" | "end" | "center" | "baseline";
 export type Orientation = "horizontal" | "vertical";
@@ -419,6 +419,7 @@ export class Item extends WidgetBase {
       label?: string;
       right?: TreeNode;
       clickable?: boolean;
+      menu?: MenuItem[];
     } = {},
   ) {
     super(options);
@@ -431,6 +432,9 @@ export class Item extends WidgetBase {
     if (this.options.left !== undefined) payload.left = this.options.left.toProtocol();
     if (this.options.right !== undefined) payload.right = this.options.right.toProtocol();
     if (this.options.clickable !== undefined) payload.clickable = this.options.clickable;
+    if (this.options.menu !== undefined) {
+      payload.menu = this.options.menu.map((item) => item.toProtocol());
+    }
     return { type: "item", data: payload };
   }
 }

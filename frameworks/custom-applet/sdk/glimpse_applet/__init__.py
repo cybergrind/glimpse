@@ -10,7 +10,7 @@ from .events import (
     ScrollEvent,
     ToggleEvent,
 )
-from .protocol import Icon, StatusItem, StatusMenuItem
+from .protocol import Icon, MenuItem, StatusItem
 from .widgets import (
     Align,
     Badge,
@@ -93,7 +93,7 @@ __all__ = [
     "Section",
     "Separator",
     "StatusItem",
-    "StatusMenuItem",
+    "MenuItem",
     "StatusDot",
     "Switch",
     "Toast",

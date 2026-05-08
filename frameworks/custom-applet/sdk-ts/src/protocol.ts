@@ -26,7 +26,6 @@ export class StatusItem {
       icon?: Icon;
       label?: string;
       tooltip?: string;
-      menu?: StatusMenuItem[];
     } = {},
   ) {}
 
@@ -44,14 +43,11 @@ export class StatusItem {
     if (this.options.tooltip !== undefined) {
       payload.tooltip = this.options.tooltip;
     }
-    if (this.options.menu !== undefined && this.options.menu.length > 0) {
-      payload.menu = this.options.menu.map((item) => item.toProtocol());
-    }
     return payload;
   }
 }
 
-export class StatusMenuItem {
+export class MenuItem {
   constructor(
     public readonly options: {
       id: string;

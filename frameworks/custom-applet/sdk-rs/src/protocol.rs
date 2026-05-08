@@ -27,12 +27,10 @@ pub struct StatusItem {
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub menu: Vec<StatusMenuItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct StatusMenuItem {
+pub struct MenuItem {
     pub id: String,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,7 +39,7 @@ pub struct StatusMenuItem {
     pub enabled: Option<bool>,
 }
 
-impl StatusMenuItem {
+impl MenuItem {
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -85,13 +83,4 @@ impl StatusItem {
         self
     }
 
-    pub fn menu(mut self, menu: Vec<StatusMenuItem>) -> Self {
-        self.menu = menu;
-        self
-    }
-
-    pub fn menu_item(mut self, item: StatusMenuItem) -> Self {
-        self.menu.push(item);
-        self
-    }
 }

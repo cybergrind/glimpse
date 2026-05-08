@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TypeAlias
 
-from .protocol import Icon
+from .protocol import Icon, MenuItem
 
 
 class Align(StrEnum):
@@ -408,6 +408,7 @@ class Item(Widget):
     label: str = ""
     right: "TreeNode | None" = None
     clickable: bool = False
+    menu: list[MenuItem] = field(default_factory=list)
     widget_type: str = "item"
 
     def to_protocol(self) -> dict[str, object]:
@@ -418,6 +419,8 @@ class Item(Widget):
             payload["right"] = self.right.to_protocol()
         if self.clickable:
             payload["clickable"] = self.clickable
+        if self.menu:
+            payload["menu"] = [item.to_protocol() for item in self.menu]
         return {"type": self.widget_type, "data": payload}
 
 
