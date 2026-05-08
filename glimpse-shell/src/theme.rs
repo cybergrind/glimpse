@@ -17,6 +17,7 @@ const GNOME_COLOR_SCHEME_KEY: &str = "color-scheme";
 pub const THEME_DARK_CLASS: &str = "theme-dark";
 pub const THEME_LIGHT_CLASS: &str = "theme-light";
 pub const DIALOG_THEME_MODE: ThemeMode = ThemeMode::Dark;
+const DIALOG_ADW_COLOR_SCHEME: adw::ColorScheme = adw::ColorScheme::ForceDark;
 #[cfg(feature = "dev")]
 const DEV_THEME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../themes");
 
@@ -102,11 +103,13 @@ impl ThemeState {
 }
 
 fn schemes_for_configured_mode(mode: &ThemeMode) -> (adw::ColorScheme, InterfaceColorScheme) {
-    match mode {
-        ThemeMode::Auto => (adw::ColorScheme::Default, InterfaceColorScheme::Default),
-        ThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
-        ThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
-    }
+    let gtk_scheme = match mode {
+        ThemeMode::Auto => InterfaceColorScheme::Default,
+        ThemeMode::Dark => InterfaceColorScheme::Dark,
+        ThemeMode::Light => InterfaceColorScheme::Light,
+    };
+
+    (DIALOG_ADW_COLOR_SCHEME, gtk_scheme)
 }
 
 pub fn theme_mode_class(mode: &ThemeMode) -> Option<&'static str> {
@@ -128,10 +131,12 @@ pub fn apply_theme_mode(widget: &impl IsA<gtk4::Widget>, mode: &ThemeMode) {
 fn schemes_for_effective_mode(
     mode: EffectiveThemeMode,
 ) -> (adw::ColorScheme, InterfaceColorScheme) {
-    match mode {
-        EffectiveThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
-        EffectiveThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
-    }
+    let gtk_scheme = match mode {
+        EffectiveThemeMode::Light => InterfaceColorScheme::Light,
+        EffectiveThemeMode::Dark => InterfaceColorScheme::Dark,
+    };
+
+    (DIALOG_ADW_COLOR_SCHEME, gtk_scheme)
 }
 
 pub fn sync_system_color_scheme(mode: EffectiveThemeMode) -> Result<(), glib::BoolError> {
@@ -266,7 +271,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configured_dark_forces_adwaita_and_css_provider_dark() {
+    fn configured_dark_forces_dialogs_and_css_provider_dark() {
         assert_eq!(
             schemes_for_configured_mode(&ThemeMode::Dark),
             (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark)
@@ -274,10 +279,18 @@ mod tests {
     }
 
     #[test]
-    fn configured_auto_leaves_css_provider_on_system_default() {
+    fn configured_auto_forces_dialogs_and_leaves_css_provider_on_system_default() {
         assert_eq!(
             schemes_for_configured_mode(&ThemeMode::Auto),
-            (adw::ColorScheme::Default, InterfaceColorScheme::Default)
+            (adw::ColorScheme::ForceDark, InterfaceColorScheme::Default)
+        );
+    }
+
+    #[test]
+    fn configured_light_keeps_dialogs_dark_and_css_provider_light() {
+        assert_eq!(
+            schemes_for_configured_mode(&ThemeMode::Light),
+            (adw::ColorScheme::ForceDark, InterfaceColorScheme::Light)
         );
     }
 
@@ -289,10 +302,18 @@ mod tests {
     }
 
     #[test]
-    fn effective_dark_forces_css_provider_dark() {
+    fn effective_dark_forces_dialogs_and_css_provider_dark() {
         assert_eq!(
             schemes_for_effective_mode(EffectiveThemeMode::Dark),
             (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark)
+        );
+    }
+
+    #[test]
+    fn effective_light_keeps_dialogs_dark_and_css_provider_light() {
+        assert_eq!(
+            schemes_for_effective_mode(EffectiveThemeMode::Light),
+            (adw::ColorScheme::ForceDark, InterfaceColorScheme::Light)
         );
     }
 
