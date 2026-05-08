@@ -7,11 +7,11 @@ use std::{
 };
 
 use css_color::Srgb;
-use gtk4::prelude::ListModelExt;
 use glimpse_core::{
     Config, ConfigEvent, FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec,
     heic, watch_for_config_changes,
 };
+use gtk4::prelude::ListModelExt;
 use gtk4::{
     ContentFit,
     gdk::{self, prelude::MonitorExt},
@@ -1026,10 +1026,11 @@ fn spawn_image_load(
             let preview_path = path.clone();
             let preview_sender = sender.clone();
             tokio::spawn(async move {
-                let preview = tokio::task::spawn_blocking(move || decode_heic_preview(&preview_path))
-                    .await
-                    .map_err(|error| format!("wallpaper preview worker failed: {error}"))
-                    .and_then(|result| result.map_err(|error| error.to_string()));
+                let preview =
+                    tokio::task::spawn_blocking(move || decode_heic_preview(&preview_path))
+                        .await
+                        .map_err(|error| format!("wallpaper preview worker failed: {error}"))
+                        .and_then(|result| result.map_err(|error| error.to_string()));
                 let _ = preview_sender.send(ImageLayerInput::PreviewLoaded {
                     request_id,
                     result: preview,

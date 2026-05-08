@@ -1,6 +1,6 @@
 use adw::gdk::{self};
 use gio::prelude::SettingsExt;
-use gtk4::{CssProvider, InterfaceColorScheme};
+use gtk4::{CssProvider, InterfaceColorScheme, glib::object::IsA, prelude::WidgetExt};
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use std::cell::Cell;
@@ -14,6 +14,9 @@ use glimpse_core::{Config, ThemeMode, services::theme::EffectiveThemeMode};
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
 const GNOME_INTERFACE_SCHEMA: &str = "org.gnome.desktop.interface";
 const GNOME_COLOR_SCHEME_KEY: &str = "color-scheme";
+pub const THEME_DARK_CLASS: &str = "theme-dark";
+pub const THEME_LIGHT_CLASS: &str = "theme-light";
+pub const DIALOG_THEME_MODE: ThemeMode = ThemeMode::Dark;
 #[cfg(feature = "dev")]
 const DEV_THEME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../themes");
 
@@ -106,6 +109,22 @@ fn schemes_for_configured_mode(mode: &ThemeMode) -> (adw::ColorScheme, Interface
     }
 }
 
+pub fn theme_mode_class(mode: &ThemeMode) -> Option<&'static str> {
+    match mode {
+        ThemeMode::Auto => None,
+        ThemeMode::Dark => Some(THEME_DARK_CLASS),
+        ThemeMode::Light => Some(THEME_LIGHT_CLASS),
+    }
+}
+
+pub fn apply_theme_mode(widget: &impl IsA<gtk4::Widget>, mode: &ThemeMode) {
+    widget.remove_css_class(THEME_DARK_CLASS);
+    widget.remove_css_class(THEME_LIGHT_CLASS);
+    if let Some(class) = theme_mode_class(mode) {
+        widget.add_css_class(class);
+    }
+}
+
 fn schemes_for_effective_mode(
     mode: EffectiveThemeMode,
 ) -> (adw::ColorScheme, InterfaceColorScheme) {
@@ -117,7 +136,10 @@ fn schemes_for_effective_mode(
 
 pub fn sync_system_color_scheme(mode: EffectiveThemeMode) -> Result<(), glib::BoolError> {
     let settings = gio::Settings::new(GNOME_INTERFACE_SCHEMA);
-    settings.set_string(GNOME_COLOR_SCHEME_KEY, gsettings_color_scheme_for_effective_mode(mode))
+    settings.set_string(
+        GNOME_COLOR_SCHEME_KEY,
+        gsettings_color_scheme_for_effective_mode(mode),
+    )
 }
 
 fn gsettings_color_scheme_for_effective_mode(mode: EffectiveThemeMode) -> &'static str {
@@ -257,6 +279,13 @@ mod tests {
             schemes_for_configured_mode(&ThemeMode::Auto),
             (adw::ColorScheme::Default, InterfaceColorScheme::Default)
         );
+    }
+
+    #[test]
+    fn theme_mode_class_maps_panel_override_classes() {
+        assert_eq!(theme_mode_class(&ThemeMode::Dark), Some("theme-dark"));
+        assert_eq!(theme_mode_class(&ThemeMode::Light), Some("theme-light"));
+        assert_eq!(theme_mode_class(&ThemeMode::Auto), None);
     }
 
     #[test]

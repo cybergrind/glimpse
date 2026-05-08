@@ -151,9 +151,7 @@ fn authenticate_with_pam(
 fn account_failure_result(code: ErrorCode) -> AuthResult {
     match code {
         ErrorCode::ACCT_EXPIRED => AuthResult::AccountUnavailable("Account expired"),
-        ErrorCode::NEW_AUTHTOK_REQD
-        | ErrorCode::CRED_EXPIRED
-        | ErrorCode::AUTHTOK_EXPIRED => {
+        ErrorCode::NEW_AUTHTOK_REQD | ErrorCode::CRED_EXPIRED | ErrorCode::AUTHTOK_EXPIRED => {
             AuthResult::AccountUnavailable("Password change required to log in")
         }
         ErrorCode::PERM_DENIED => AuthResult::AccountUnavailable("Account access denied"),

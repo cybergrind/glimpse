@@ -7,9 +7,12 @@ use relm4::{Component, ComponentParts, ComponentSender, gtk};
 
 pub mod applets;
 
-use crate::panels::applets::{AppletController, AppletKey, build_applets, reconcile_applets};
+use crate::{
+    panels::applets::{AppletController, AppletKey, build_applets, reconcile_applets},
+    theme,
+};
 use glimpse_core::services::framework::Services;
-use glimpse_core::{AppletConfig, PanelConfig, Position, ThemeMode};
+use glimpse_core::{AppletConfig, PanelConfig, Position};
 
 #[derive(PartialEq, Clone, Eq, Hash)]
 pub struct PanelKey {
@@ -94,7 +97,7 @@ impl Component for Panel {
             root.set_monitor(Some(monitor));
         }
         apply_panel_config(&root, &init.config);
-        apply_theme_mode(&root, &init.config.theme_mode);
+        theme::apply_theme_mode(&root, &init.config.theme_mode);
 
         let layout_orientation = orientation_for_position(&init.config.position);
         let left_box = gtk::Box::builder()
@@ -117,6 +120,7 @@ impl Component for Panel {
             &left_box,
             &init.applet_configs,
             init.services.clone(),
+            init.config.theme_mode,
         );
         let center_applets = build_applets(
             PanelSection::Center,
@@ -124,6 +128,7 @@ impl Component for Panel {
             &center_box,
             &init.applet_configs,
             init.services.clone(),
+            init.config.theme_mode,
         );
         let right_applets = build_applets(
             PanelSection::Right,
@@ -131,6 +136,7 @@ impl Component for Panel {
             &right_box,
             &init.applet_configs,
             init.services.clone(),
+            init.config.theme_mode,
         );
         let widgets = view_output!();
         let model = Panel {
@@ -160,7 +166,7 @@ impl Component for Panel {
             Input::Reconfigure(runtime) => {
                 tracing::debug!("panel config change, updating");
                 apply_panel_config(root, &runtime.config);
-                apply_theme_mode(root, &runtime.config.theme_mode);
+                theme::apply_theme_mode(root, &runtime.config.theme_mode);
 
                 reconcile_applets(
                     PanelSection::Left,
@@ -170,6 +176,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    runtime.config.theme_mode,
                 );
                 reconcile_applets(
                     PanelSection::Center,
@@ -179,6 +186,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    runtime.config.theme_mode,
                 );
                 reconcile_applets(
                     PanelSection::Right,
@@ -188,6 +196,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    runtime.config.theme_mode,
                 );
 
                 self.applet_configs = runtime.applet_configs;
@@ -249,17 +258,6 @@ fn apply_panel_config(window: &gtk::Window, config: &PanelConfig) {
             window.set_anchor(gtk4_layer_shell::Edge::Left, true);
             window.set_anchor(gtk4_layer_shell::Edge::Bottom, true);
         }
-    }
-}
-
-fn apply_theme_mode(window: &gtk::Window, mode: &ThemeMode) {
-    window.remove_css_class("theme-dark");
-    window.remove_css_class("theme-light");
-
-    match mode {
-        ThemeMode::Auto => {}
-        ThemeMode::Dark => window.add_css_class("theme-dark"),
-        ThemeMode::Light => window.add_css_class("theme-light"),
     }
 }
 

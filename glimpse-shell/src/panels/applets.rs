@@ -17,6 +17,7 @@ use crate::{
     services::framework::Services,
 };
 
+use glimpse_core::ThemeMode;
 pub use glimpse_core::{AppletConfig, AppletType};
 
 fn applet_type_from_name(name: &str) -> Option<AppletType> {
@@ -106,7 +107,7 @@ impl AppletController {
         }
     }
 
-    pub fn reconfigure(&self, config: Option<&AppletConfig>) {
+    pub fn reconfigure(&self, config: Option<&AppletConfig>, theme_mode: ThemeMode) {
         match self {
             Self::Audio(controller) => {
                 controller.emit(audio::Input::Reconfigure(audio::Config::from_raw(
@@ -164,9 +165,10 @@ impl AppletController {
                 )));
             }
             Self::Notifications(controller) => {
-                controller.emit(notifications::Input::Reconfigure(
-                    notifications::Config::from_raw(&config.cloned()),
-                ));
+                controller.emit(notifications::Input::Reconfigure {
+                    config: notifications::Config::from_raw(&config.cloned()),
+                    theme_mode,
+                });
             }
             Self::Pager(controller) => {
                 controller.emit(pager::Input::Reconfigure(pager::Config::from_raw(
@@ -184,9 +186,10 @@ impl AppletController {
                 )));
             }
             Self::Session(controller) => {
-                controller.emit(session::Input::Reconfigure(session::Config::from_raw(
-                    &config.cloned(),
-                )));
+                controller.emit(session::Input::Reconfigure {
+                    config: session::Config::from_raw(&config.cloned()),
+                    theme_mode,
+                });
             }
             Self::Tray(controller) => {
                 controller.emit(tray::Input::Reconfigure(tray::Config::from_raw(
@@ -202,7 +205,11 @@ impl AppletController {
     }
 }
 
-pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<AppletController> {
+pub fn create_applet(
+    blueprint: AppletBlueprint,
+    services: Services,
+    theme_mode: ThemeMode,
+) -> Option<AppletController> {
     match blueprint.applet_type {
         AppletType::Audio => Some(AppletController::Audio(
             audio::Applet::builder()
@@ -315,6 +322,7 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                     service: services.notifications.clone(),
                     compositor: services.compositor.clone(),
                     config: notifications::Config::from_raw(&blueprint.config),
+                    theme_mode,
                 })
                 .detach(),
         )),
@@ -350,6 +358,7 @@ pub fn create_applet(blueprint: AppletBlueprint, services: Services) -> Option<A
                 .launch(session::Init {
                     service: services.session.clone(),
                     config: session::Config::from_raw(&blueprint.config),
+                    theme_mode,
                 })
                 .detach(),
         )),
@@ -378,13 +387,14 @@ pub fn build_applets(
     container: &gtk::Box,
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
+    theme_mode: ThemeMode,
 ) -> HashMap<AppletKey, AppletController> {
     let mut applets = HashMap::new();
     let entries = collect_applets(section, configured_applets, applet_configs);
     for entry in entries {
         tracing::debug!(name = %entry.name, applet_type = ?entry.applet_type, "create applet");
 
-        if let Some(applet) = create_applet(entry.clone(), services.clone()) {
+        if let Some(applet) = create_applet(entry.clone(), services.clone(), theme_mode) {
             let widget = applet.widget();
             container.append(&widget);
             applets.insert(entry.key, applet);
@@ -402,6 +412,7 @@ pub fn reconcile_applets(
     previous_applet_configs: &HashMap<String, AppletConfig>,
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
+    theme_mode: ThemeMode,
 ) {
     let current_types = current
         .iter()
@@ -428,7 +439,7 @@ pub fn reconcile_applets(
                 let existing = remaining
                     .remove(&entry.key)
                     .expect("existing applet missing");
-                existing.reconfigure(entry.config.as_ref());
+                existing.reconfigure(entry.config.as_ref(), theme_mode);
                 existing
             }
             PlannedAction::Replace => {
@@ -436,13 +447,15 @@ pub fn reconcile_applets(
                     .remove(&entry.key)
                     .expect("existing applet missing");
                 detach_widget(&existing.widget());
-                let Some(created) = create_applet(entry.clone(), services.clone()) else {
+                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
+                else {
                     continue;
                 };
                 created
             }
             PlannedAction::Create => {
-                let Some(created) = create_applet(entry.clone(), services.clone()) else {
+                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
+                else {
                     continue;
                 };
                 created

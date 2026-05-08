@@ -4,7 +4,7 @@ Glimpse is a Wayland desktop shell toolkit for building a personal status panel 
 
 | Component | Purpose |
 |---|---|
-| `glimpse-panel` | GTK4 layer-shell status panel with built-in and command-driven applets |
+| `glimpse-shell` | GTK4 layer-shell status panel with built-in and command-driven applets |
 | `glimpse-sunset` | Night-light daemon with automatic sunset/sunrise scheduling |
 | `glimpse-lock` | Session lock screen with configurable background, controls, and CSS |
 | `glimpse-idle` | Idle policy daemon for locking, monitor power, suspend, and custom commands |
@@ -23,7 +23,7 @@ yay -S glimpse-desktop-bin
 The package provides the panel and companion apps:
 
 ```sh
-glimpse-panel
+glimpse-shell
 glimpse-sunset
 glimpse-lock
 glimpse-idle
@@ -39,15 +39,11 @@ systemctl --user enable --now glimpse-idle.service
 systemctl --user enable --now glimpse-wallpaper.service
 ```
 
-Run the panel from your compositor startup file, for example:
-
-```sh
-glimpse-panel
-```
-
 ## Configuration
 
-Glimpse looks for the shared config in this order:
+Glimpse Shell runs without a config file. When no config file is found, it starts with one top panel, the built-in theme defaults, and the default applet layout.
+
+Glimpse looks for optional shared config in this order:
 
 | Priority | Path |
 |---|---|
@@ -56,7 +52,15 @@ Glimpse looks for the shared config in this order:
 | **3** | `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | **4** | `$HOME/.config/glimpse/config.toml` when `XDG_CONFIG_HOME` is unset |
 
-A minimal panel config:
+Default panel layout:
+
+| Section | Applets |
+|---|---|
+| **Left** | `pager`, `mpris` |
+| **Center** | `clock`, `weather`, `notifications` |
+| **Right** | `tray`, `removable`, `clipboard`, `keyboard`, `privacy`, `bluetooth`, `network`, `brightness`, `audio`, `battery`, `session` |
+
+Use `config.toml` when you want to override those defaults:
 
 ```toml
 theme = "adwaita"
@@ -184,7 +188,7 @@ $XDG_CONFIG_HOME/glimpse/themes/my-theme.css
 Override the theme file directly with `GLIMPSE_THEME`:
 
 ```sh
-GLIMPSE_THEME=/home/alex/.config/glimpse/themes/test.css glimpse-panel
+GLIMPSE_THEME=/home/alex/.config/glimpse/themes/test.css glimpse-shell
 ```
 
 Theme modes:

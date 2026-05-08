@@ -5,7 +5,7 @@ use relm4::{
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
-use glimpse_core::dbus::glimpse_lock::GlimpseLockProxy;
+use glimpse_core::{ThemeMode, dbus::glimpse_lock::GlimpseLockProxy};
 
 use crate::{
     panels::applets::AppletConfig,
@@ -87,18 +87,23 @@ pub struct Applet {
     popover: Controller<Popover>,
     popover_open: bool,
     subscription_cancel: CancellationToken,
+    theme_mode: ThemeMode,
 }
 
 #[derive(Debug)]
 pub struct Init {
     pub service: SessionHandle,
     pub config: Config,
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug)]
 pub enum Input {
     ServiceStateChanged(State),
-    Reconfigure(Config),
+    Reconfigure {
+        config: Config,
+        theme_mode: ThemeMode,
+    },
     TogglePopover,
     PopoverOutput(PopoverOutput),
     Confirmed(SessionAction),
@@ -167,6 +172,7 @@ impl SimpleComponent for Applet {
             popover,
             popover_open: false,
             subscription_cancel: CancellationToken::new(),
+            theme_mode: init.theme_mode,
         };
 
         let service = model.service.clone();
@@ -215,8 +221,9 @@ impl SimpleComponent for Applet {
                     self.popover.emit(PopoverInput::UpdateState(state));
                 }
             }
-            Input::Reconfigure(config) => {
+            Input::Reconfigure { config, theme_mode } => {
                 self.config = config.clone();
+                self.theme_mode = theme_mode;
                 let state = self.service.snapshot();
                 self.icon_name = icon_name_for_state(&state);
                 self.label = format::label(&self.config.label_format, &state);
@@ -244,7 +251,7 @@ impl SimpleComponent for Applet {
                 self.popover.emit(PopoverInput::Close);
                 if let Some(spec) = dialogs::confirmation_spec(action, &self.config) {
                     let sender = sender.clone();
-                    dialogs::show_confirmation(&self.root, spec, move || {
+                    dialogs::show_confirmation(&self.root, spec, self.theme_mode, move || {
                         sender.input(Input::Confirmed(action));
                     });
                 } else {

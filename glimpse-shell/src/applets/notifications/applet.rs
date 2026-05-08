@@ -5,6 +5,8 @@ use relm4::{
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
+use glimpse_core::ThemeMode;
+
 use crate::{
     compositors::Window,
     panels::applets::AppletConfig,
@@ -89,19 +91,24 @@ pub struct Applet {
     popover_open: bool,
     popup: Controller<Popup>,
     subscription_cancel: CancellationToken,
+    theme_mode: ThemeMode,
 }
 
 pub struct Init {
     pub service: NotificationsHandle,
     pub compositor: CompositorHandle,
     pub config: Config,
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug)]
 pub enum Input {
     ServiceStateChanged(State),
     CompositorStateChanged(CompositorState),
-    Reconfigure(Config),
+    Reconfigure {
+        config: Config,
+        theme_mode: ThemeMode,
+    },
     TogglePopover,
     PopoverOutput(PopoverOutput),
 }
@@ -180,6 +187,7 @@ impl SimpleComponent for Applet {
                 position: init.config.popup_position,
                 margin_x: init.config.popup_margin_x,
                 margin_y: init.config.popup_margin_y,
+                theme_mode: init.theme_mode,
             })
             .forward(sender.input_sender(), Input::PopoverOutput);
 
@@ -201,6 +209,7 @@ impl SimpleComponent for Applet {
             popover_open: false,
             popup,
             subscription_cancel: CancellationToken::new(),
+            theme_mode: init.theme_mode,
         };
         model.apply_state(model.state.clone());
 
@@ -214,8 +223,9 @@ impl SimpleComponent for Applet {
         match message {
             Input::ServiceStateChanged(state) => self.apply_state(state),
             Input::CompositorStateChanged(state) => self.compositor_state = state,
-            Input::Reconfigure(config) => {
+            Input::Reconfigure { config, theme_mode } => {
                 self.config = config;
+                self.theme_mode = theme_mode;
                 self.apply_state(self.service.snapshot());
                 self.popup.emit(PopupInput::Reconfigure {
                     timeout_ms: self.config.popup_timeout_ms,
@@ -223,6 +233,7 @@ impl SimpleComponent for Applet {
                     position: self.config.popup_position,
                     margin_x: self.config.popup_margin_x,
                     margin_y: self.config.popup_margin_y,
+                    theme_mode,
                 });
             }
             Input::TogglePopover => self.popover.emit(PopoverInput::Toggle),

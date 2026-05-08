@@ -104,6 +104,28 @@ func TestDropdownSerializesItems(t *testing.T) {
 	}
 }
 
+func TestStatusItemSerializesMenuItems(t *testing.T) {
+	item := StatusItem{
+		ID:    "github-workflows",
+		Label: "CI",
+		Menu: []StatusMenuItem{
+			{ID: "refresh", Label: "Refresh"},
+			{ID: "open", Label: "Open Actions", Enabled: ptr(false)},
+		},
+	}
+
+	payload, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal status item: %v", err)
+	}
+	text := string(payload)
+	for _, expected := range []string{`"menu"`, `"id":"refresh"`, `"label":"Open Actions"`, `"enabled":false`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected %s in status item payload: %s", expected, text)
+		}
+	}
+}
+
 func TestVariantSerializesAsSemanticProtocolValue(t *testing.T) {
 	node := NewLabel("Warning")
 	label, ok := node.Data.(Label)

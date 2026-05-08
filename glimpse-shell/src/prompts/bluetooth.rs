@@ -14,7 +14,8 @@ use crate::agents::bluetooth::{
     BluetoothAgentHandle, BluetoothPrompt, BluetoothPromptId, BluetoothPromptKind,
     BluetoothPromptReply,
 };
-use glimpse_core::services::bluetooth::BluetoothSnapshot;
+use crate::theme;
+use glimpse_core::{ThemeMode, services::bluetooth::BluetoothSnapshot};
 
 const RESPONSE_CANCEL: &str = "cancel";
 const RESPONSE_ACCEPT: &str = "accept";
@@ -29,11 +30,13 @@ pub struct PromptHost {
 pub struct PromptHostInit {
     pub agent: BluetoothAgentHandle,
     pub parent: gtk::Widget,
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug)]
 pub enum PromptHostInput {
     SetParent(gtk::Widget),
+    SetThemeMode(ThemeMode),
     DialogOutput(PromptDialogOutput),
 }
 
@@ -58,6 +61,7 @@ impl Component for PromptHost {
         let dialog = PromptDialog::builder()
             .launch(PromptDialogInit {
                 parent: init.parent,
+                theme_mode: init.theme_mode,
             })
             .forward(sender.input_sender(), PromptHostInput::DialogOutput);
 
@@ -97,6 +101,9 @@ impl Component for PromptHost {
             PromptHostInput::SetParent(parent) => {
                 self.dialog.emit(PromptDialogInput::SetParent(parent));
             }
+            PromptHostInput::SetThemeMode(mode) => {
+                self.dialog.emit(PromptDialogInput::SetThemeMode(mode));
+            }
             PromptHostInput::DialogOutput(PromptDialogOutput::Reply { id, reply }) => {
                 self.send_reply(id, reply);
             }
@@ -132,10 +139,12 @@ impl Drop for PromptHost {
 
 pub struct PromptDialogInit {
     pub parent: gtk::Widget,
+    pub theme_mode: ThemeMode,
 }
 
 pub struct PromptDialog {
     parent: gtk::Widget,
+    root: gtk::Box,
     dialog: adw::AlertDialog,
     current_prompt: Rc<RefCell<Option<BluetoothPrompt>>>,
     dismissed_display_prompt: Rc<Cell<Option<BluetoothPromptId>>>,
@@ -143,6 +152,7 @@ pub struct PromptDialog {
     code: String,
     entry_text: String,
     mode: PromptMode,
+    theme_mode: ThemeMode,
     entry: gtk::Entry,
 }
 
@@ -153,6 +163,7 @@ pub enum PromptDialogInput {
         snapshot: BluetoothSnapshot,
     },
     SetParent(gtk::Widget),
+    SetThemeMode(ThemeMode),
     EntryChanged(String),
 }
 
@@ -220,10 +231,13 @@ impl SimpleComponent for PromptDialog {
         let dialog = adw::AlertDialog::new(None, None);
         dialog.add_response(RESPONSE_CANCEL, "Cancel");
         dialog.set_close_response(RESPONSE_CANCEL);
+        theme::apply_theme_mode(&dialog, &theme::DIALOG_THEME_MODE);
+        theme::apply_theme_mode(&root, &theme::DIALOG_THEME_MODE);
         dialog.set_extra_child(Some(&root));
 
         let model = PromptDialog {
             parent: init.parent,
+            root: root.clone(),
             dialog,
             current_prompt: Rc::new(RefCell::new(None)),
             dismissed_display_prompt: Rc::new(Cell::new(None)),
@@ -231,6 +245,7 @@ impl SimpleComponent for PromptDialog {
             code: String::new(),
             entry_text: String::new(),
             mode: PromptMode::Display,
+            theme_mode: init.theme_mode,
             entry: gtk::Entry::new(),
         };
 
@@ -336,6 +351,11 @@ impl SimpleComponent for PromptDialog {
             }
             PromptDialogInput::SetParent(parent) => {
                 self.parent = parent;
+            }
+            PromptDialogInput::SetThemeMode(mode) => {
+                self.theme_mode = mode;
+                theme::apply_theme_mode(&self.dialog, &theme::DIALOG_THEME_MODE);
+                theme::apply_theme_mode(&self.root, &theme::DIALOG_THEME_MODE);
             }
             PromptDialogInput::EntryChanged(text) => {
                 self.entry_text = text;

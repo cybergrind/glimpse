@@ -3,9 +3,10 @@ use std::time::Duration;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use relm4::gtk::{self, gdk, glib, prelude::*};
 
-use glimpse_core::services::session::SessionAction;
+use glimpse_core::{ThemeMode, services::session::SessionAction};
 
 use super::Config;
+use crate::theme;
 
 const DIALOG_WIDTH: i32 = 420;
 const DIALOG_HORIZONTAL_MARGIN: i32 = 48;
@@ -61,8 +62,10 @@ pub fn confirmation_spec(action: SessionAction, config: &Config) -> Option<Confi
 pub fn show_confirmation(
     parent: &impl IsA<gtk::Widget>,
     spec: ConfirmationSpec,
+    _theme_mode: ThemeMode,
     on_accept: impl Fn() + 'static,
 ) {
+    let theme_mode = theme::DIALOG_THEME_MODE;
     let window = gtk::Window::new();
     let parent_window = parent.root().and_downcast::<gtk::Window>();
     if let Some(application) = parent_window
@@ -73,9 +76,11 @@ pub fn show_confirmation(
     }
     let monitor = parent_monitor(parent_window.as_ref()).or_else(first_monitor);
     init_overlay_window(&window, monitor.as_ref());
+    theme::apply_theme_mode(&window, &theme_mode);
 
     let backdrop = gtk::Overlay::new();
     backdrop.add_css_class("session-confirmation-overlay");
+    theme::apply_theme_mode(&backdrop, &theme_mode);
     backdrop.set_halign(gtk::Align::Fill);
     backdrop.set_valign(gtk::Align::Fill);
     backdrop.set_hexpand(true);
@@ -89,6 +94,7 @@ pub fn show_confirmation(
 
     let dialog = gtk::Box::new(gtk::Orientation::Vertical, 0);
     dialog.add_css_class("session-confirmation-dialog");
+    theme::apply_theme_mode(&dialog, &theme_mode);
     dialog.set_width_request(dialog_width(monitor.as_ref()));
     dialog.set_halign(gtk::Align::Center);
     dialog.set_valign(gtk::Align::Center);
@@ -333,6 +339,18 @@ mod tests {
     fn accept_button_uses_suggested_style_only() {
         assert_eq!(ACCEPT_BUTTON_CLASS, "suggested-action");
         assert_ne!(ACCEPT_BUTTON_CLASS, "destructive-action");
+    }
+
+    #[test]
+    fn dialog_theme_mode_uses_panel_override_class_contract() {
+        assert_eq!(
+            crate::theme::theme_mode_class(&glimpse_core::ThemeMode::Dark),
+            Some("theme-dark")
+        );
+        assert_eq!(
+            crate::theme::theme_mode_class(&glimpse_core::ThemeMode::Light),
+            Some("theme-light")
+        );
     }
 
     #[test]

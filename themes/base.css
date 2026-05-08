@@ -338,6 +338,11 @@ popover.theme-dark {
     --indicator-active-bg: var(--dark-indicator-active-bg);
 }
 
+.theme-light label,
+.theme-dark label {
+    color: inherit;
+}
+
 @media (prefers-reduced-motion: reduce) {
     :root {
         --motion-fast: 1ms;
@@ -599,11 +604,27 @@ popover.popover-size-xlarge {
 .session-confirmation-dialog__button {
     min-width: calc(var(--space-6) * 6 + var(--space-4));
     padding: var(--space-4) calc(var(--space-6) - var(--space-1));
+    color: var(--row-fg);
 }
 
 .session-confirmation-dialog__button,
 .session-confirmation-dialog__button label {
+    color: inherit;
     font-weight: normal;
+}
+
+.network-prompt,
+.bluetooth-prompt {
+    color: var(--popover-fg);
+}
+
+.network-prompt__entry,
+.bluetooth-prompt__entry {
+    color: var(--row-fg);
+}
+
+.bluetooth-prompt__code {
+    color: var(--row-fg);
 }
 
 .section-block,
@@ -1778,6 +1799,7 @@ popover.mpris-popover {
     --card-hover-bg: var(--notification-popup-hover-bg);
     --card-extra-shadow: var(--notification-popup-shadow);
     --card-hover-extra-shadow: var(--notification-popup-shadow);
+    color: var(--card-fg);
 }
 
 .popup-card {
@@ -1825,17 +1847,20 @@ popover.mpris-popover {
 }
 
 .popup-card-app {
+    color: var(--card-fg);
     font-size: var(--notification-app-name-size);
     font-weight: 600;
     opacity: var(--opacity-muted);
 }
 
 .popup-card-summary {
+    color: var(--card-fg);
     font-weight: 600;
     font-size: var(--notification-title-size);
 }
 
 .popup-card-body {
+    color: var(--card-fg);
     font-size: var(--notification-popup-body-size);
     opacity: var(--opacity-muted);
     margin-top: 2px;
@@ -1850,6 +1875,7 @@ popover.mpris-popover {
 }
 
 .popup-overflow {
+    color: var(--card-fg);
     font-size: var(--notification-app-name-size);
     font-weight: 600;
     opacity: var(--opacity-muted);

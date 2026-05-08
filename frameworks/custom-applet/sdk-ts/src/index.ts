@@ -11,7 +11,7 @@ export {
   parseCallbackEvent,
   parseInitEvent,
 } from "./events.js";
-export { Icon, StatusItem } from "./protocol.js";
+export { Icon, StatusItem, StatusMenuItem } from "./protocol.js";
 export {
   type Align,
   Badge,

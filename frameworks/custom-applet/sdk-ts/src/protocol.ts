@@ -26,6 +26,7 @@ export class StatusItem {
       icon?: Icon;
       label?: string;
       tooltip?: string;
+      menu?: StatusMenuItem[];
     } = {},
   ) {}
 
@@ -42,6 +43,34 @@ export class StatusItem {
     }
     if (this.options.tooltip !== undefined) {
       payload.tooltip = this.options.tooltip;
+    }
+    if (this.options.menu !== undefined && this.options.menu.length > 0) {
+      payload.menu = this.options.menu.map((item) => item.toProtocol());
+    }
+    return payload;
+  }
+}
+
+export class StatusMenuItem {
+  constructor(
+    public readonly options: {
+      id: string;
+      label: string;
+      visible?: boolean;
+      enabled?: boolean;
+    },
+  ) {}
+
+  toProtocol(): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      id: this.options.id,
+      label: this.options.label,
+    };
+    if (this.options.visible !== undefined) {
+      payload.visible = this.options.visible;
+    }
+    if (this.options.enabled !== undefined) {
+      payload.enabled = this.options.enabled;
     }
     return payload;
   }

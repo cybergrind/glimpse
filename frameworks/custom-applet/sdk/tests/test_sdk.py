@@ -20,6 +20,7 @@ from glimpse_applet import (
     RenderResult,
     Row,
     StatusItem,
+    StatusMenuItem,
     Variant,
     click,
 )
@@ -99,6 +100,20 @@ class GlimpseAppletTests(unittest.IsolatedAsyncioTestCase):
     def test_variant_serializes_as_semantic_protocol_value(self) -> None:
         payload = Label(text="Warning", variant=Variant.WARNING).to_protocol()
         self.assertEqual(payload["data"]["variant"], "warning")
+
+    def test_status_item_serializes_menu_items(self) -> None:
+        payload = StatusItem(
+            id="github-workflows",
+            label="CI",
+            menu=[
+                StatusMenuItem(id="refresh", label="Refresh"),
+                StatusMenuItem(id="open", label="Open Actions", enabled=False),
+            ],
+        ).to_protocol()
+
+        self.assertEqual(payload["menu"][0]["id"], "refresh")
+        self.assertEqual(payload["menu"][0]["label"], "Refresh")
+        self.assertEqual(payload["menu"][1]["enabled"], False)
 
     async def test_init_event_rerenders_changed_state(self) -> None:
         applet = InitApplet()

@@ -15,6 +15,8 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::network::{
     NetworkAgentHandle, NetworkPrompt, NetworkPromptId, NetworkPromptReply, Secret,
 };
+use crate::theme;
+use glimpse_core::ThemeMode;
 
 const RESPONSE_CANCEL: &str = "cancel";
 const RESPONSE_ACCEPT: &str = "accept";
@@ -28,11 +30,13 @@ pub struct PromptHost {
 pub struct PromptHostInit {
     pub agent: NetworkAgentHandle,
     pub parent: gtk::Widget,
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug)]
 pub enum PromptHostInput {
     SetParent(gtk::Widget),
+    SetThemeMode(ThemeMode),
     DialogOutput(PromptDialogOutput),
 }
 
@@ -57,6 +61,7 @@ impl Component for PromptHost {
         let dialog = PromptDialog::builder()
             .launch(PromptDialogInit {
                 parent: init.parent,
+                theme_mode: init.theme_mode,
             })
             .forward(sender.input_sender(), PromptHostInput::DialogOutput);
 
@@ -96,6 +101,9 @@ impl Component for PromptHost {
             PromptHostInput::SetParent(parent) => {
                 self.dialog.emit(PromptDialogInput::SetParent(parent));
             }
+            PromptHostInput::SetThemeMode(mode) => {
+                self.dialog.emit(PromptDialogInput::SetThemeMode(mode));
+            }
             PromptHostInput::DialogOutput(PromptDialogOutput::Reply { id, reply }) => {
                 self.send_reply(id, reply);
             }
@@ -129,14 +137,17 @@ impl Drop for PromptHost {
 
 pub struct PromptDialogInit {
     pub parent: gtk::Widget,
+    pub theme_mode: ThemeMode,
 }
 
 pub struct PromptDialog {
     parent: gtk::Widget,
+    root: gtk::Box,
     dialog: adw::AlertDialog,
     current_prompt: Rc<RefCell<Option<NetworkPrompt>>>,
     generation: Rc<Cell<u64>>,
     entry_text: String,
+    theme_mode: ThemeMode,
     entry: gtk::Entry,
 }
 
@@ -144,6 +155,7 @@ pub struct PromptDialog {
 pub enum PromptDialogInput {
     Update { prompt: Option<NetworkPrompt> },
     SetParent(gtk::Widget),
+    SetThemeMode(ThemeMode),
     EntryChanged(String),
 }
 
@@ -193,14 +205,18 @@ impl SimpleComponent for PromptDialog {
         dialog.set_default_response(Some(RESPONSE_ACCEPT));
         dialog.set_response_appearance(RESPONSE_ACCEPT, adw::ResponseAppearance::Suggested);
         dialog.set_response_enabled(RESPONSE_ACCEPT, false);
+        theme::apply_theme_mode(&dialog, &theme::DIALOG_THEME_MODE);
+        theme::apply_theme_mode(&root, &theme::DIALOG_THEME_MODE);
         dialog.set_extra_child(Some(&root));
 
         let model = PromptDialog {
             parent: init.parent,
+            root: root.clone(),
             dialog,
             current_prompt: Rc::new(RefCell::new(None)),
             generation: Rc::new(Cell::new(0)),
             entry_text: String::new(),
+            theme_mode: init.theme_mode,
             entry: gtk::Entry::new(),
         };
 
@@ -284,6 +300,11 @@ impl SimpleComponent for PromptDialog {
             }
             PromptDialogInput::SetParent(parent) => {
                 self.parent = parent;
+            }
+            PromptDialogInput::SetThemeMode(mode) => {
+                self.theme_mode = mode;
+                theme::apply_theme_mode(&self.dialog, &theme::DIALOG_THEME_MODE);
+                theme::apply_theme_mode(&self.root, &theme::DIALOG_THEME_MODE);
             }
             PromptDialogInput::EntryChanged(text) => {
                 self.entry_text = text;

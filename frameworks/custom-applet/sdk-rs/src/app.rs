@@ -212,7 +212,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, Row, StatusItem, TreeNode};
+    use crate::{
+        BoxNode, Button, CallbackEvent, ClickEvent, Icon, Label, Row, StatusItem, StatusMenuItem,
+        TreeNode,
+    };
 
     struct DemoApplet {
         store: StateStore<DemoState>,
@@ -310,6 +313,21 @@ mod tests {
         let payload = serde_json::to_value(TreeNode::from(node)).expect("tree should serialize");
         assert_eq!(payload["type"], "dropdown");
         assert_eq!(payload["data"]["items"][0]["id"], "prod");
+    }
+
+    #[test]
+    fn status_items_serialize_menu_items() {
+        let item = StatusItem::new("github-workflows")
+            .label("CI")
+            .menu(vec![
+                StatusMenuItem::new("refresh", "Refresh"),
+                StatusMenuItem::new("open", "Open Actions").enabled(false),
+            ]);
+
+        let payload = serde_json::to_value(item).expect("status item should serialize");
+        assert_eq!(payload["menu"][0]["id"], "refresh");
+        assert_eq!(payload["menu"][0]["label"], "Refresh");
+        assert_eq!(payload["menu"][1]["enabled"], false);
     }
 
     #[test]

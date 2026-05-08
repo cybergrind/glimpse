@@ -73,6 +73,7 @@ impl SimpleComponent for App {
         root.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         root.set_default_size(-1, -1);
         root.set_opacity(0.0);
+        theme::apply_theme_mode(&root, &theme::DIALOG_THEME_MODE);
 
         let (config_tx, mut config_rx) = mpsc::channel(1);
         relm4::spawn(async move {
@@ -148,6 +149,7 @@ impl SimpleComponent for App {
             .launch(network_prompts::PromptHostInit {
                 agent: network_agent,
                 parent: prompt_fallback_parent.clone(),
+                theme_mode: theme::DIALOG_THEME_MODE,
             })
             .detach();
 
@@ -155,6 +157,7 @@ impl SimpleComponent for App {
             .launch(bluetooth_prompts::PromptHostInit {
                 agent: bluetooth_agent,
                 parent: prompt_fallback_parent.clone(),
+                theme_mode: theme::DIALOG_THEME_MODE,
             })
             .detach();
 
@@ -308,7 +311,7 @@ impl App {
             }
         }
         self.panels = new_panels;
-        self.update_prompt_parent();
+        self.update_prompt_parent(new_config);
 
         for (key, state) in existing.drain() {
             state.controller.widget().destroy();
@@ -321,17 +324,24 @@ impl App {
         }
     }
 
-    fn update_prompt_parent(&self) {
+    fn update_prompt_parent(&self, config: &Config) {
         let parent = self
             .panels
             .first()
             .map(|panel| panel.controller.widget().clone().upcast())
             .unwrap_or_else(|| self.prompt_fallback_parent.clone());
 
+        let _ = config;
+        let theme_mode = theme::DIALOG_THEME_MODE;
+        theme::apply_theme_mode(&self.prompt_fallback_parent, &theme_mode);
         self.network_prompt_host
             .emit(network_prompts::PromptHostInput::SetParent(parent.clone()));
+        self.network_prompt_host
+            .emit(network_prompts::PromptHostInput::SetThemeMode(theme_mode));
         self.bluetooth_prompt_host
             .emit(bluetooth_prompts::PromptHostInput::SetParent(parent));
+        self.bluetooth_prompt_host
+            .emit(bluetooth_prompts::PromptHostInput::SetThemeMode(theme_mode));
     }
 }
 

@@ -14,7 +14,7 @@ use relm4::{
 };
 use serde::Deserialize;
 
-use glimpse_core::services::notifications::model::NotificationEntry;
+use glimpse_core::{ThemeMode, services::notifications::model::NotificationEntry};
 
 use super::{
     components::{
@@ -22,6 +22,7 @@ use super::{
     },
     format, popover,
 };
+use crate::theme;
 
 const MAX_TRACKED_POPUPS: usize = 20;
 const POPUP_LEAVE_ANIMATION_MS: u64 = 180;
@@ -32,6 +33,7 @@ pub struct Popup {
     overflow: gtk::Label,
     timeout_ms: u32,
     visible_limit: usize,
+    theme_mode: ThemeMode,
     started_at: u64,
     surfaced: HashMap<u32, u64>,
     cards: Rc<RefCell<HashMap<u32, PopupCard>>>,
@@ -58,6 +60,7 @@ pub struct PopupInit {
     pub position: PopupPosition,
     pub margin_x: i32,
     pub margin_y: i32,
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -95,6 +98,7 @@ pub enum PopupInput {
         position: PopupPosition,
         margin_x: i32,
         margin_y: i32,
+        theme_mode: ThemeMode,
     },
     TimeoutElapsed(u32),
     Cancel(u32),
@@ -137,13 +141,21 @@ impl SimpleComponent for Popup {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let widgets = view_output!();
-        configure_window(&widgets.root, init.position, init.margin_x, init.margin_y);
+        configure_window(
+            &widgets.root,
+            init.position,
+            init.margin_x,
+            init.margin_y,
+            &init.theme_mode,
+        );
+        theme::apply_theme_mode(&widgets.card_box, &theme::DIALOG_THEME_MODE);
         let model = Popup {
             window: widgets.root.clone(),
             card_box: widgets.card_box.clone(),
             overflow: widgets.overflow.clone(),
             timeout_ms: init.timeout_ms,
             visible_limit: normalize_visible_limit(init.visible_limit),
+            theme_mode: init.theme_mode,
             started_at: now_ms(),
             surfaced: HashMap::new(),
             cards: Rc::new(RefCell::new(HashMap::new())),
@@ -184,10 +196,14 @@ impl SimpleComponent for Popup {
                 position,
                 margin_x,
                 margin_y,
+                theme_mode,
             } => {
                 self.timeout_ms = timeout_ms;
                 self.visible_limit = normalize_visible_limit(visible_limit);
+                self.theme_mode = theme_mode;
                 apply_position(&self.window, position, margin_x, margin_y);
+                theme::apply_theme_mode(&self.window, &theme::DIALOG_THEME_MODE);
+                theme::apply_theme_mode(&self.card_box, &theme::DIALOG_THEME_MODE);
             }
             PopupInput::TimeoutElapsed(id) => self.remove_card(id, &sender),
             PopupInput::Cancel(id) => self.remove_card(id, &sender),
@@ -649,11 +665,19 @@ fn point_inside_widget(
         .unwrap_or(false)
 }
 
-fn configure_window(window: &gtk::Window, position: PopupPosition, margin_x: i32, margin_y: i32) {
+fn configure_window(
+    window: &gtk::Window,
+    position: PopupPosition,
+    margin_x: i32,
+    margin_y: i32,
+    theme_mode: &ThemeMode,
+) {
     window.set_decorated(false);
     window.set_resizable(false);
     window.set_default_size(380, -1);
     window.add_css_class("notification-popup");
+    let _ = theme_mode;
+    theme::apply_theme_mode(window, &theme::DIALOG_THEME_MODE);
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
     window.set_namespace(Some("glimpse-notification-popup"));
@@ -779,5 +803,19 @@ mod tests {
             popup_origin_class(PopupPosition::BottomRight),
             "popup-from-bottom"
         );
+    }
+
+    #[test]
+    fn popup_init_carries_panel_theme_mode() {
+        let init = PopupInit {
+            timeout_ms: 5000,
+            visible_limit: 3,
+            position: PopupPosition::TopCenter,
+            margin_x: 12,
+            margin_y: 32,
+            theme_mode: glimpse_core::ThemeMode::Dark,
+        };
+
+        assert_eq!(init.theme_mode, glimpse_core::ThemeMode::Dark);
     }
 }
