@@ -21,7 +21,6 @@ pkgroot="dist/pkgroot"
 rm -rf "$pkgroot"
 mkdir -p "$pkgroot/usr/bin" "$pkgroot/usr/lib/systemd/user" "$pkgroot/etc/pam.d" dist
 
-cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
 cargo build --release --locked \
     -p glimpse-lock \
     -p glimpse-shell \
@@ -35,7 +34,6 @@ test "$(target/release/glimpse-idle --version)" = "glimpse-idle $version"
 test "$(target/release/glimpse-sunset --version)" = "glimpse-sunset $version"
 test "$(target/release/glimpse-wallpaper --version)" = "glimpse-wallpaper $version"
 
-install -Dm755 target/release/glimpse-panel "$pkgroot/usr/bin/glimpse-panel"
 install -Dm755 target/release/glimpse-lock "$pkgroot/usr/bin/glimpse-lock"
 install -Dm755 target/release/glimpse-shell "$pkgroot/usr/bin/glimpse-shell"
 install -Dm755 target/release/glimpse-idle "$pkgroot/usr/bin/glimpse-idle"

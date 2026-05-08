@@ -73,7 +73,6 @@ jobs:
 
       - name: Build release binaries
         run: |
-          cargo build --release --locked -p glimpse --bin glimpse-panel --no-default-features
           cargo build --release --locked \
             -p glimpse-lock \
             -p glimpse-shell \

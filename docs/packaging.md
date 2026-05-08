@@ -4,7 +4,6 @@
 
 | Binary | Description | Install to |
 |--------|-------------|------------|
-| `glimpse-panel` | Wayland status panel | `/usr/bin/glimpse-panel` |
 | `glimpse-shell` | Wayland shell | `/usr/bin/glimpse-shell` |
 | `glimpse-idle` | Wayland idle daemon | `/usr/bin/glimpse-idle` |
 | `glimpse-lock` | Wayland session lock screen and logind lock listener | `/usr/bin/glimpse-lock` |
@@ -200,7 +199,7 @@ For security, `glimpse-lock` ignores logind `Unlock` requests; unlocking require
 | Shell, wallpaper, sunset, idle, and lock config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
 | Lock screen CSS | `$XDG_CONFIG_HOME/glimpse/themes/lock.css` |
-| Built-in structure/theme layers | embedded in `glimpse-panel` binary |
+| Built-in structure/theme layers | embedded in `glimpse-shell` binary |
 
 `glimpse-wallpaper` enables the optional backdrop by default. If `[backdrop]` is omitted, the daemon uses `wallpaper.path` for the backdrop image and applies the default `blur_radius = 24`.
 
@@ -280,7 +279,6 @@ Each archive contains the final `/usr` tree and the default PAM service file:
 
 ```text
 etc/pam.d/glimpse-lock
-usr/bin/glimpse-panel
 usr/bin/glimpse-lock
 usr/bin/glimpse-shell
 usr/bin/glimpse-idle
@@ -310,7 +308,6 @@ The source repository `PKGBUILD` keeps `b2sums_x86_64=('SKIP')` as a template. T
 
 ```bash
 # Build
-cargo build --release -p glimpse --bin glimpse-panel --no-default-features
 cargo build --release -p glimpse-lock
 cargo build --release -p glimpse-shell
 cargo build --release -p glimpse-idle
@@ -318,7 +315,6 @@ cargo build --release -p glimpse-sunset
 cargo build --release -p glimpse-wallpaper
 
 # Install binary
-install -Dm755 target/release/glimpse-panel "$pkgdir/usr/bin/glimpse-panel"
 install -Dm755 target/release/glimpse-lock "$pkgdir/usr/bin/glimpse-lock"
 install -Dm755 target/release/glimpse-shell "$pkgdir/usr/bin/glimpse-shell"
 install -Dm755 target/release/glimpse-idle "$pkgdir/usr/bin/glimpse-idle"
