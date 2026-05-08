@@ -5,16 +5,25 @@ use anyhow::{Context, anyhow, bail};
 use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 
 pub const APP_ID: &str = "me.aresa.GlimpseSunset";
+const APP_ID_ENV: &str = "GLIMPSE_SUNSET_APP_ID";
 
 pub struct InstanceGuard {
     _connection: zbus::Connection,
 }
 
 pub async fn acquire_single_instance() -> anyhow::Result<InstanceGuard> {
-    acquire_dbus_name(APP_ID).await
+    acquire_dbus_name(app_id()).await
 }
 
-async fn acquire_dbus_name(name: &'static str) -> anyhow::Result<InstanceGuard> {
+fn app_id() -> String {
+    app_id_from_env(std::env::var(APP_ID_ENV).ok())
+}
+
+fn app_id_from_env(value: Option<String>) -> String {
+    value.unwrap_or_else(|| APP_ID.into())
+}
+
+async fn acquire_dbus_name(name: String) -> anyhow::Result<InstanceGuard> {
     tracing::debug!(name, "connecting to session D-Bus");
     let connection = zbus::Connection::session()
         .await
@@ -22,7 +31,7 @@ async fn acquire_dbus_name(name: &'static str) -> anyhow::Result<InstanceGuard> 
     let proxy = DBusProxy::new(&connection)
         .await
         .context("create session D-Bus proxy")?;
-    let well_known_name = zbus::names::WellKnownName::try_from(name)
+    let well_known_name = zbus::names::WellKnownName::try_from(name.as_str())
         .with_context(|| format!("validate D-Bus name {name}"))?;
     let reply = proxy
         .request_name(well_known_name, RequestNameFlags::DoNotQueue.into())
@@ -75,11 +84,24 @@ fn test_names() -> &'static Mutex<HashSet<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{APP_ID, TestInstanceGuard};
+    use super::{APP_ID, TestInstanceGuard, app_id_from_env};
 
     #[test]
     fn app_id_is_stable() {
         assert_eq!(APP_ID, "me.aresa.GlimpseSunset");
+    }
+
+    #[test]
+    fn app_id_defaults_to_runtime_constant() {
+        assert_eq!(app_id_from_env(None), APP_ID);
+    }
+
+    #[test]
+    fn app_id_can_be_overridden_from_env() {
+        assert_eq!(
+            app_id_from_env(Some("me.aresa.GlimpseSunset.TestApp".into())),
+            "me.aresa.GlimpseSunset.TestApp"
+        );
     }
 
     #[test]
