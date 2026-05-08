@@ -1,6 +1,6 @@
 use glimpse_core::services::weather::model::{CurrentWeather, Location, State};
 
-pub const DEFAULT_LABEL_FORMAT: &str = "{temp}°";
+pub const DEFAULT_LABEL_FORMAT: &str = "{temp}";
 pub const DEFAULT_TOOLTIP_FORMAT: &str =
     "{condition} · {temp} · feels like {feels_like} · {location}";
 
