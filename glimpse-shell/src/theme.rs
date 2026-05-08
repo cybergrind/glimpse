@@ -1,7 +1,9 @@
 use adw::gdk::{self};
+use gio::prelude::SettingsExt;
 use gtk4::{CssProvider, InterfaceColorScheme};
 use notify::EventKind;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
+use std::cell::Cell;
 #[cfg(feature = "dev")]
 use std::path::Path;
 use std::{path::PathBuf, time::Duration};
@@ -10,12 +12,15 @@ use tokio::sync::mpsc;
 use glimpse_core::{Config, ThemeMode, services::theme::EffectiveThemeMode};
 
 const RESOURCE_BASE: &str = "/me/aresa/GlimpseShell";
+const GNOME_INTERFACE_SCHEMA: &str = "org.gnome.desktop.interface";
+const GNOME_COLOR_SCHEME_KEY: &str = "color-scheme";
 #[cfg(feature = "dev")]
 const DEV_THEME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../themes");
 
 pub struct ThemeState {
     base: CssProvider,
     theme: CssProvider,
+    provider_scheme: Cell<InterfaceColorScheme>,
 }
 
 impl ThemeState {
@@ -38,7 +43,11 @@ impl ThemeState {
             gtk4::STYLE_PROVIDER_PRIORITY_USER,
         );
 
-        let state = Self { base, theme };
+        let state = Self {
+            base,
+            theme,
+            provider_scheme: Cell::new(InterfaceColorScheme::Default),
+        };
         state.reload(config);
         state.apply_configured_mode(&config.theme_mode);
         state
@@ -76,33 +85,55 @@ impl ThemeState {
             );
             load_fallback_theme_css(&self.theme, config);
         }
+
+        self.apply_provider_color_scheme(self.provider_scheme.get());
     }
 
     pub fn apply_effective_mode(&self, mode: EffectiveThemeMode) {
-        let (adw_scheme, gtk_scheme) = match mode {
-            EffectiveThemeMode::Light => (
-                adw::ColorScheme::ForceLight,
-                InterfaceColorScheme::Light,
-            ),
-            EffectiveThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
-        };
+        let (adw_scheme, gtk_scheme) = schemes_for_effective_mode(mode);
         adw::StyleManager::default().set_color_scheme(adw_scheme);
         self.apply_provider_color_scheme(gtk_scheme);
     }
 
-    fn apply_configured_mode(&self, mode: &ThemeMode) {
-        let (adw_scheme, gtk_scheme) = match mode {
-            ThemeMode::Auto => (adw::ColorScheme::Default, InterfaceColorScheme::Default),
-            ThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
-            ThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
-        };
+    pub fn apply_configured_mode(&self, mode: &ThemeMode) {
+        let (adw_scheme, gtk_scheme) = schemes_for_configured_mode(mode);
         adw::StyleManager::default().set_color_scheme(adw_scheme);
         self.apply_provider_color_scheme(gtk_scheme);
     }
 
     fn apply_provider_color_scheme(&self, scheme: InterfaceColorScheme) {
+        self.provider_scheme.set(scheme);
         self.base.set_prefers_color_scheme(scheme);
         self.theme.set_prefers_color_scheme(scheme);
+    }
+}
+
+fn schemes_for_configured_mode(mode: &ThemeMode) -> (adw::ColorScheme, InterfaceColorScheme) {
+    match mode {
+        ThemeMode::Auto => (adw::ColorScheme::Default, InterfaceColorScheme::Default),
+        ThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
+        ThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
+    }
+}
+
+fn schemes_for_effective_mode(
+    mode: EffectiveThemeMode,
+) -> (adw::ColorScheme, InterfaceColorScheme) {
+    match mode {
+        EffectiveThemeMode::Light => (adw::ColorScheme::ForceLight, InterfaceColorScheme::Light),
+        EffectiveThemeMode::Dark => (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark),
+    }
+}
+
+pub fn sync_system_color_scheme(mode: EffectiveThemeMode) -> Result<(), glib::BoolError> {
+    let settings = gio::Settings::new(GNOME_INTERFACE_SCHEMA);
+    settings.set_string(GNOME_COLOR_SCHEME_KEY, gsettings_color_scheme_for_effective_mode(mode))
+}
+
+fn gsettings_color_scheme_for_effective_mode(mode: EffectiveThemeMode) -> &'static str {
+    match mode {
+        EffectiveThemeMode::Light => "prefer-light",
+        EffectiveThemeMode::Dark => "prefer-dark",
     }
 }
 
@@ -263,5 +294,46 @@ fn theme_change_handler(res: DebounceEventResult, sender: mpsc::Sender<()>) {
             }
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_dark_forces_adwaita_and_css_provider_dark() {
+        assert_eq!(
+            schemes_for_configured_mode(&ThemeMode::Dark),
+            (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark)
+        );
+    }
+
+    #[test]
+    fn configured_auto_leaves_css_provider_on_system_default() {
+        assert_eq!(
+            schemes_for_configured_mode(&ThemeMode::Auto),
+            (adw::ColorScheme::Default, InterfaceColorScheme::Default)
+        );
+    }
+
+    #[test]
+    fn effective_dark_forces_css_provider_dark() {
+        assert_eq!(
+            schemes_for_effective_mode(EffectiveThemeMode::Dark),
+            (adw::ColorScheme::ForceDark, InterfaceColorScheme::Dark)
+        );
+    }
+
+    #[test]
+    fn effective_mode_maps_to_gnome_color_scheme() {
+        assert_eq!(
+            gsettings_color_scheme_for_effective_mode(EffectiveThemeMode::Light),
+            "prefer-light"
+        );
+        assert_eq!(
+            gsettings_color_scheme_for_effective_mode(EffectiveThemeMode::Dark),
+            "prefer-dark"
+        );
     }
 }

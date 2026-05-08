@@ -185,6 +185,7 @@ impl SimpleComponent for App {
                 self.services
                     .broadcast(Control::Reconfigure(config.clone()));
                 self.theme.reload(&config);
+                self.theme.apply_configured_mode(&config.theme_mode);
                 self.reconcile_panels(&config);
                 self.config = config;
             }
@@ -209,6 +210,13 @@ impl SimpleComponent for App {
                     "applying theme service state"
                 );
                 self.theme.apply_effective_mode(state.effective_mode);
+                if let Err(error) = theme::sync_system_color_scheme(state.effective_mode) {
+                    tracing::warn!(
+                        ?error,
+                        effective_mode = ?state.effective_mode,
+                        "failed to sync system color scheme"
+                    );
+                }
             }
             Input::MonitorsChanged => {
                 tracing::info!("monitors changed, reconciling panels");
