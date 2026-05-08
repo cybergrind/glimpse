@@ -52,6 +52,36 @@ popover {
     --color-danger: #c01c28;
     --color-danger-fg: #ffffff;
 
+    /* Dark palette */
+    --dark-color-bg: #1f1f1f;
+    --dark-color-fg: #ffffff;
+    --dark-color-surface: #262626;
+    --dark-color-surface-raised: #303030;
+    --dark-color-border: rgb(255 255 255 / 0.12);
+    --dark-color-border-strong: rgb(255 255 255 / 0.24);
+    --dark-color-muted: #9f9f9f;
+    --dark-color-muted-fg: #a7a7a7;
+    --dark-overlay-hover: rgb(255 255 255 / 0.08);
+    --dark-overlay-active: rgb(255 255 255 / 0.14);
+    --dark-overlay-selected: rgb(120 174 255 / 0.24);
+    --dark-overlay-focus: rgb(120 174 255 / 0.28);
+    --dark-overlay-disabled: rgb(0 0 0 / 0.18);
+    --dark-panel-bg: #000000;
+    --dark-panel-fg: #ffffff;
+    --dark-panel-border: rgb(255 255 255 / 0.08);
+    --dark-indicator-hover-bg: rgb(255 255 255 / 0.08);
+    --dark-indicator-active-bg: rgb(255 255 255 / 0.16);
+    --dark-popover-bg: #262626;
+    --dark-popover-fg: #ffffff;
+    --dark-popover-border: var(--dark-color-border);
+    --dark-row-fg: var(--dark-color-fg);
+    --dark-row-muted-fg: var(--dark-color-muted-fg);
+    --dark-card-bg: var(--dark-color-surface-raised);
+    --dark-card-fg: var(--dark-color-fg);
+    --dark-card-border: var(--dark-color-border);
+    --dark-badge-bg: var(--dark-overlay-selected);
+    --dark-badge-fg: var(--dark-color-fg);
+
     /* Overlay/state colors */
     --overlay-hover: rgb(0 0 0 / 0.06);
     --overlay-active: rgb(0 0 0 / 0.12);
@@ -211,38 +241,38 @@ popover {
 
     :root,
     popover {
-        --color-bg: #1f1f1f;
-        --color-fg: #ffffff;
-        --color-surface: #262626;
-        --color-surface-raised: #303030;
-        --color-border: rgb(255 255 255 / 0.12);
-        --color-border-strong: rgb(255 255 255 / 0.24);
-        --color-muted: #9f9f9f;
-        --color-muted-fg: #a7a7a7;
+        --color-bg: var(--dark-color-bg);
+        --color-fg: var(--dark-color-fg);
+        --color-surface: var(--dark-color-surface);
+        --color-surface-raised: var(--dark-color-surface-raised);
+        --color-border: var(--dark-color-border);
+        --color-border-strong: var(--dark-color-border-strong);
+        --color-muted: var(--dark-color-muted);
+        --color-muted-fg: var(--dark-color-muted-fg);
 
-        --overlay-hover: rgb(255 255 255 / 0.08);
-        --overlay-active: rgb(255 255 255 / 0.14);
-        --overlay-selected: rgb(120 174 255 / 0.24);
-        --overlay-focus: rgb(120 174 255 / 0.28);
-        --overlay-disabled: rgb(0 0 0 / 0.18);
+        --overlay-hover: var(--dark-overlay-hover);
+        --overlay-active: var(--dark-overlay-active);
+        --overlay-selected: var(--dark-overlay-selected);
+        --overlay-focus: var(--dark-overlay-focus);
+        --overlay-disabled: var(--dark-overlay-disabled);
 
-        --panel-bg: #000000;
-        --panel-fg: #ffffff;
-        --panel-border: rgb(255 255 255 / 0.08);
-        --indicator-hover-bg: rgb(255 255 255 / 0.08);
-        --indicator-active-bg: rgb(255 255 255 / 0.16);
+        --panel-bg: var(--dark-panel-bg);
+        --panel-fg: var(--dark-panel-fg);
+        --panel-border: var(--dark-panel-border);
+        --indicator-hover-bg: var(--dark-indicator-hover-bg);
+        --indicator-active-bg: var(--dark-indicator-active-bg);
 
-        --popover-bg: #262626;
-        --popover-fg: #ffffff;
-        --popover-border: var(--color-border);
+        --popover-bg: var(--dark-popover-bg);
+        --popover-fg: var(--dark-popover-fg);
+        --popover-border: var(--dark-popover-border);
 
-        --row-fg: var(--color-fg);
-        --row-muted-fg: var(--color-muted-fg);
-        --card-bg: var(--color-surface-raised);
-        --card-fg: var(--color-fg);
-        --card-border: var(--color-border);
-        --badge-bg: var(--overlay-selected);
-        --badge-fg: var(--color-fg);
+        --row-fg: var(--dark-row-fg);
+        --row-muted-fg: var(--dark-row-muted-fg);
+        --card-bg: var(--dark-card-bg);
+        --card-fg: var(--dark-card-fg);
+        --card-border: var(--dark-card-border);
+        --badge-bg: var(--dark-badge-bg);
+        --badge-fg: var(--dark-badge-fg);
     }
 }
 
@@ -278,31 +308,34 @@ popover.theme-light {
 .theme-dark,
 .theme-dark popover,
 popover.theme-dark {
-    --color-bg: #1f1f1f;
-    --color-fg: #ffffff;
-    --color-surface: #262626;
-    --color-surface-raised: #303030;
-    --color-border: rgb(255 255 255 / 0.12);
-    --color-border-strong: rgb(255 255 255 / 0.24);
-    --color-muted: #9f9f9f;
-    --color-muted-fg: #a7a7a7;
-    --overlay-hover: rgb(255 255 255 / 0.08);
-    --overlay-active: rgb(255 255 255 / 0.14);
-    --overlay-selected: rgb(120 174 255 / 0.24);
-    --overlay-focus: rgb(120 174 255 / 0.28);
-    --overlay-disabled: rgb(0 0 0 / 0.18);
-    --popover-bg: #262626;
-    --popover-fg: #ffffff;
-    --popover-border: var(--color-border);
-    --row-fg: var(--color-fg);
-    --row-muted-fg: var(--color-muted-fg);
-    --card-bg: var(--color-surface-raised);
-    --card-fg: var(--color-fg);
-    --card-border: var(--color-border);
-    --badge-bg: var(--overlay-selected);
-    --badge-fg: var(--color-fg);
-    --panel-bg: #000000;
-    --panel-fg: #ffffff;
+    --color-bg: var(--dark-color-bg);
+    --color-fg: var(--dark-color-fg);
+    --color-surface: var(--dark-color-surface);
+    --color-surface-raised: var(--dark-color-surface-raised);
+    --color-border: var(--dark-color-border);
+    --color-border-strong: var(--dark-color-border-strong);
+    --color-muted: var(--dark-color-muted);
+    --color-muted-fg: var(--dark-color-muted-fg);
+    --overlay-hover: var(--dark-overlay-hover);
+    --overlay-active: var(--dark-overlay-active);
+    --overlay-selected: var(--dark-overlay-selected);
+    --overlay-focus: var(--dark-overlay-focus);
+    --overlay-disabled: var(--dark-overlay-disabled);
+    --popover-bg: var(--dark-popover-bg);
+    --popover-fg: var(--dark-popover-fg);
+    --popover-border: var(--dark-popover-border);
+    --row-fg: var(--dark-row-fg);
+    --row-muted-fg: var(--dark-row-muted-fg);
+    --card-bg: var(--dark-card-bg);
+    --card-fg: var(--dark-card-fg);
+    --card-border: var(--dark-card-border);
+    --badge-bg: var(--dark-badge-bg);
+    --badge-fg: var(--dark-badge-fg);
+    --panel-bg: var(--dark-panel-bg);
+    --panel-fg: var(--dark-panel-fg);
+    --panel-border: var(--dark-panel-border);
+    --indicator-hover-bg: var(--dark-indicator-hover-bg);
+    --indicator-active-bg: var(--dark-indicator-active-bg);
 }
 
 @media (prefers-reduced-motion: reduce) {

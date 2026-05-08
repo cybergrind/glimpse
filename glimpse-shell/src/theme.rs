@@ -58,7 +58,6 @@ impl ThemeState {
         load_base_css(&self.base);
 
         let theme_file = config.theme_file();
-        let shipped = format!("{RESOURCE_BASE}/themes/{}.css", config.theme);
         if theme_file.exists() && theme_file.is_file() {
             tracing::info!(
                 theme = %config.theme,
@@ -67,23 +66,14 @@ impl ThemeState {
                 "applied user theme"
             );
             self.theme.load_from_path(&theme_file);
-        } else if load_dev_theme_css(&self.theme, &config.theme, config) {
-            return;
-        } else if resource_exists(&shipped) {
-            tracing::info!(
-                theme = %config.theme,
-                mode = ?config.theme_mode,
-                source = %shipped,
-                "applied shipped theme"
-            );
-            self.theme.load_from_resource(&shipped);
         } else {
-            tracing::warn!(
+            tracing::debug!(
                 theme = %config.theme,
                 mode = ?config.theme_mode,
-                "theme not found, falling back to adwaita"
+                source = %theme_file.display(),
+                "user theme not found; using base theme only"
             );
-            load_fallback_theme_css(&self.theme, config);
+            self.theme.load_from_string("");
         }
 
         self.apply_provider_color_scheme(self.provider_scheme.get());
@@ -137,10 +127,6 @@ fn gsettings_color_scheme_for_effective_mode(mode: EffectiveThemeMode) -> &'stat
     }
 }
 
-fn resource_exists(path: &str) -> bool {
-    gio::resources_get_info(path, gio::ResourceLookupFlags::NONE).is_ok()
-}
-
 fn load_base_css(provider: &CssProvider) {
     #[cfg(feature = "dev")]
     {
@@ -153,50 +139,6 @@ fn load_base_css(provider: &CssProvider) {
     }
 
     provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/base.css"));
-}
-
-#[cfg(feature = "dev")]
-fn load_dev_theme_css(provider: &CssProvider, theme: &str, config: &Config) -> bool {
-    let path = dev_theme_path(format!("{theme}.css"));
-    if path.is_file() {
-        tracing::info!(
-            theme,
-            mode = ?config.theme_mode,
-            source = %path.display(),
-            "applied dev shipped theme"
-        );
-        provider.load_from_path(path);
-        return true;
-    }
-
-    false
-}
-
-#[cfg(not(feature = "dev"))]
-fn load_dev_theme_css(_provider: &CssProvider, _theme: &str, _config: &Config) -> bool {
-    false
-}
-
-#[cfg(feature = "dev")]
-fn load_fallback_theme_css(provider: &CssProvider, config: &Config) {
-    let path = dev_theme_path("adwaita.css");
-    if path.is_file() {
-        tracing::info!(
-            theme = %config.theme,
-            mode = ?config.theme_mode,
-            source = %path.display(),
-            "applied dev fallback theme"
-        );
-        provider.load_from_path(path);
-        return;
-    }
-
-    provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
-}
-
-#[cfg(not(feature = "dev"))]
-fn load_fallback_theme_css(provider: &CssProvider, _config: &Config) {
-    provider.load_from_resource(&format!("{RESOURCE_BASE}/themes/adwaita.css"));
 }
 
 #[cfg(feature = "dev")]
