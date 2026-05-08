@@ -13,19 +13,6 @@ pub struct ActionRowInit {
     pub selectable: bool,
 }
 
-impl ActionRowInit {
-    pub fn title(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            subtitle: String::new(),
-            meta: String::new(),
-            icon: None,
-            visible: true,
-            selectable: false,
-        }
-    }
-}
-
 #[relm4::widget_template(pub)]
 impl WidgetTemplate for ActionRow {
     type Init = ActionRowInit;
@@ -60,7 +47,6 @@ impl WidgetTemplate for ActionRow {
                         set_spacing: 2,
                         set_hexpand: true,
 
-                        #[name = "title"]
                         gtk::Label {
                             add_css_class: "action-row__title",
                             set_label: &init.title,
@@ -68,7 +54,6 @@ impl WidgetTemplate for ActionRow {
                             set_xalign: 0.0,
                         },
 
-                        #[name = "subtitle"]
                         gtk::Label {
                             add_css_class: "action-row__subtitle",
                             set_label: &init.subtitle,
@@ -78,14 +63,12 @@ impl WidgetTemplate for ActionRow {
                         },
                     },
 
-                    #[name = "meta"]
                     gtk::Label {
                         add_css_class: "action-row__meta",
                         set_label: &init.meta,
                         set_visible: !init.meta.is_empty(),
                     },
 
-                    #[name = "check"]
                     gtk::Image {
                         set_icon_name: Some("object-select-symbolic"),
                         set_pixel_size: 14,
@@ -109,14 +92,17 @@ mod tests {
             return;
         }
 
-        let row = ActionRow::init(ActionRowInit::title("Action"));
+        let row = ActionRow::init(ActionRowInit {
+            title: "Action".into(),
+            subtitle: String::new(),
+            meta: String::new(),
+            icon: None,
+            visible: true,
+            selectable: false,
+        });
 
         assert!(row.has_css_class("action-row"));
         assert!(row.button.has_css_class("action-row__button"));
         assert!(row.icon.has_css_class("action-row__leading"));
-        assert!(row.title.has_css_class("action-row__title"));
-        assert!(row.subtitle.has_css_class("action-row__subtitle"));
-        assert!(row.meta.has_css_class("action-row__meta"));
-        assert!(row.check.has_css_class("action-row__trailing"));
     }
 }

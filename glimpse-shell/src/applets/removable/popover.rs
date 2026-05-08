@@ -197,7 +197,7 @@ fn primary_device_command(device: &StorageDevice) -> Option<Command> {
     }
 }
 
-fn device_actions(device: &StorageDevice) -> Vec<DeviceListAction<Command>> {
+pub(super) fn device_actions(device: &StorageDevice) -> Vec<DeviceListAction<Command>> {
     if device.busy {
         return Vec::new();
     }

@@ -2081,12 +2081,12 @@ fn load_custom_css(provider: &CssProvider, path: &Path) {
                     "lock CSS has parse errors; keeping previous valid CSS"
                 );
             } else {
-                provider.load_from_data(&css);
+                provider.load_from_string(&css);
                 tracing::info!(path = %path.display(), "loaded lock CSS");
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            provider.load_from_data("");
+            provider.load_from_string("");
             tracing::debug!(path = %path.display(), "lock CSS not found, using defaults");
         }
         Err(error) => tracing::warn!(path = %path.display(), %error, "failed to read lock CSS"),
@@ -2101,7 +2101,7 @@ fn css_has_parse_errors(css: &str) -> bool {
         error_marker.set(true);
         tracing::warn!(section = ?section, %error, "lock CSS parse error");
     });
-    provider.load_from_data(css);
+    provider.load_from_string(css);
     has_error.get()
 }
 
@@ -2305,8 +2305,8 @@ fn content_fit(image: Option<&ResolvedImageSpec>) -> ContentFit {
 }
 
 fn target_texture_size(widget: &gtk::Picture) -> TextureTargetSize {
-    let width = widget.allocated_width();
-    let height = widget.allocated_height();
+    let width = widget.width();
+    let height = widget.height();
     if width > 0 && height > 0 {
         return TextureTargetSize {
             width: width as u32,

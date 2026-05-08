@@ -1,6 +1,6 @@
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
-    gtk::{self, prelude::*},
+    gtk::{self, gio, prelude::*},
 };
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     format,
-    popover::{Popover, PopoverInit, PopoverInput, PopoverOutput},
+    popover::{self, Popover, PopoverInit, PopoverInput, PopoverOutput},
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -61,6 +61,8 @@ pub struct Applet {
     state: State,
     service: StorageHandle,
     popover: Controller<Popover>,
+    action_popover: gtk::PopoverMenu,
+    action_group: gio::SimpleActionGroup,
     popover_open: bool,
     subscription_cancel: CancellationToken,
 }
@@ -76,6 +78,8 @@ pub enum Input {
     ServiceStateChanged(State),
     Reconfigure(Config),
     TogglePopover,
+    OpenActions,
+    MenuCommand(Command),
     PopoverOutput(PopoverOutput),
 }
 
@@ -100,6 +104,13 @@ impl SimpleComponent for Applet {
                 set_button: 1,
                 connect_pressed[sender] => move |_, _, _, _| {
                     sender.input(Input::TogglePopover);
+                },
+            },
+            add_controller = gtk::GestureClick {
+                set_button: 3,
+                connect_pressed[sender] => move |gesture, _, _, _| {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    sender.input(Input::OpenActions);
                 },
             },
 
@@ -132,6 +143,16 @@ impl SimpleComponent for Applet {
             .forward(sender.input_sender(), Input::PopoverOutput);
 
         let state = init.service.snapshot();
+        let action_group = gio::SimpleActionGroup::new();
+        root.insert_action_group("removable", Some(&action_group));
+        let action_popover = gtk::PopoverMenu::from_model(Some(&gio::Menu::new()));
+        action_popover.set_parent(&root);
+        action_popover.set_has_arrow(false);
+        root.connect_destroy({
+            let action_popover = action_popover.clone();
+            move |_| action_popover.unparent()
+        });
+
         let config = init.config;
         let model = Applet {
             visible: applet_visible(&config, &state),
@@ -142,6 +163,8 @@ impl SimpleComponent for Applet {
             state,
             service: init.service,
             popover,
+            action_popover,
+            action_group,
             popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
@@ -181,7 +204,7 @@ impl SimpleComponent for Applet {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             Input::ServiceStateChanged(state) => {
                 self.apply_state(state);
@@ -192,6 +215,14 @@ impl SimpleComponent for Applet {
             }
             Input::TogglePopover => {
                 self.popover.emit(PopoverInput::Toggle);
+            }
+            Input::OpenActions => {
+                self.sync_action_menu(&sender);
+                self.action_popover.popup();
+            }
+            Input::MenuCommand(command) => {
+                self.action_popover.popdown();
+                self.send_command(command);
             }
             Input::PopoverOutput(PopoverOutput::Opened) => {
                 self.popover_open = true;
@@ -233,6 +264,69 @@ impl Applet {
             }
         });
     }
+
+    fn sync_action_menu(&self, sender: &ComponentSender<Self>) {
+        for action in self.action_group.list_actions() {
+            self.action_group.remove_action(action.as_str());
+        }
+
+        let menu = removable_context_menu(&self.state);
+        for (index, command) in removable_context_commands(&self.state)
+            .into_iter()
+            .enumerate()
+        {
+            let action = gio::SimpleAction::new(&format!("action{index}"), None);
+            action.connect_activate({
+                let sender = sender.input_sender().clone();
+                move |_, _| sender.emit(Input::MenuCommand(command.clone()))
+            });
+            self.action_group.add_action(&action);
+        }
+        self.action_popover.set_menu_model(Some(&menu));
+    }
+}
+
+fn removable_context_commands(state: &State) -> Vec<Command> {
+    let mut commands = vec![Command::Refresh];
+    for device in &state.devices {
+        commands.extend(
+            popover::device_actions(device)
+                .into_iter()
+                .filter(|action| action.visible)
+                .map(|action| action.command),
+        );
+    }
+    commands
+}
+
+fn removable_context_menu(state: &State) -> gio::Menu {
+    let menu = gio::Menu::new();
+    for (index, item) in removable_context_items(state).iter().enumerate() {
+        menu.append(Some(&item.label), Some(&format!("removable.action{index}")));
+    }
+    menu
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemovableContextItem {
+    label: String,
+}
+
+fn removable_context_items(state: &State) -> Vec<RemovableContextItem> {
+    let mut items = vec![RemovableContextItem {
+        label: "Refresh".into(),
+    }];
+    for device in &state.devices {
+        for action in popover::device_actions(device)
+            .into_iter()
+            .filter(|action| action.visible)
+        {
+            items.push(RemovableContextItem {
+                label: format!("{}: {}", device.name, action.label),
+            });
+        }
+    }
+    items
 }
 
 impl Drop for Applet {
@@ -293,5 +387,53 @@ mod tests {
         };
 
         assert_eq!(icon_name_for_state(&state), "media-flash-sd-mmc-symbolic");
+    }
+
+    #[test]
+    fn context_menu_includes_refresh_and_device_actions() {
+        let state = State {
+            devices: vec![StorageDevice {
+                id: "device".into(),
+                name: "USB Drive".into(),
+                can_mount: true,
+                can_eject: true,
+                can_power_off: true,
+                ..StorageDevice::default()
+            }],
+            ..State::default()
+        };
+
+        assert_eq!(
+            removable_context_items(&state),
+            vec![
+                RemovableContextItem {
+                    label: "Refresh".into(),
+                },
+                RemovableContextItem {
+                    label: "USB Drive: Mount".into(),
+                },
+                RemovableContextItem {
+                    label: "USB Drive: Eject".into(),
+                },
+                RemovableContextItem {
+                    label: "USB Drive: Power Off".into(),
+                },
+            ]
+        );
+        assert_eq!(
+            removable_context_commands(&state),
+            vec![
+                Command::Refresh,
+                Command::Mount {
+                    id: "device".into(),
+                },
+                Command::Eject {
+                    id: "device".into(),
+                },
+                Command::PowerOff {
+                    id: "device".into(),
+                },
+            ]
+        );
     }
 }

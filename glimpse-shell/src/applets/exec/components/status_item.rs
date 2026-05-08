@@ -2,11 +2,14 @@
 
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent,
-    gtk::{self, glib, prelude::*},
+    gtk::{self, gio, glib, prelude::*},
 };
 
 use crate::applets::exec::{
-    protocol::{EventKind, EventPayload, EventSource, MouseButton, StatusItem as StatusItemModel},
+    protocol::{
+        EventKind, EventPayload, EventSource, MouseButton, StatusItem as StatusItemModel,
+        StatusMenuItem,
+    },
     renderer::apply_icon_to_image,
 };
 
@@ -14,6 +17,8 @@ pub struct StatusItem {
     item: StatusItemModel,
     has_popover: bool,
     image: gtk::Image,
+    context_menu: gtk::PopoverMenu,
+    action_group: gio::SimpleActionGroup,
 }
 
 #[derive(Debug, Clone)]
@@ -94,18 +99,31 @@ impl SimpleComponent for StatusItem {
 
     fn init(
         init: Self::Init,
-        _root: Self::Root,
+        root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let action_group = gio::SimpleActionGroup::new();
+        root.insert_action_group("exec-status", Some(&action_group));
+        let context_menu = gtk::PopoverMenu::from_model(Some(&gio::Menu::new()));
+        context_menu.set_parent(&root);
+        context_menu.set_has_arrow(false);
+        root.connect_destroy({
+            let context_menu = context_menu.clone();
+            move |_| context_menu.unparent()
+        });
+
         let model = StatusItem {
             item: init.item,
             has_popover: init.has_popover,
             image: gtk::Image::new(),
+            context_menu,
+            action_group,
         };
         let widgets = view_output!();
         let mut model = model;
         model.image = widgets.image.clone();
         model.apply_icon();
+        model.sync_context_menu(&sender);
         ComponentParts { model, widgets }
     }
 
@@ -113,7 +131,11 @@ impl SimpleComponent for StatusItem {
         match message {
             Input::Click(button) => {
                 if button == 3 {
-                    let _ = sender.output(Output::ContextMenu);
+                    if has_visible_menu_items(&self.item.menu) {
+                        self.context_menu.popup();
+                    } else {
+                        let _ = sender.output(Output::ContextMenu);
+                    }
                     return;
                 }
 
@@ -157,6 +179,7 @@ impl SimpleComponent for StatusItem {
                 self.item = item;
                 self.has_popover = has_popover;
                 self.apply_icon();
+                self.sync_context_menu(&sender);
             }
         }
     }
@@ -168,5 +191,88 @@ impl StatusItem {
             Some(icon) => apply_icon_to_image(&self.image, icon),
             None => self.image.clear(),
         }
+    }
+
+    fn sync_context_menu(&self, sender: &ComponentSender<Self>) {
+        for action in self.action_group.list_actions() {
+            self.action_group.remove_action(action.as_str());
+        }
+
+        let menu = gio::Menu::new();
+        for (index, item) in self.item.menu.iter().enumerate() {
+            if !item.visible {
+                continue;
+            }
+
+            let action_name = format!("item{index}");
+            let action = gio::SimpleAction::new(&action_name, None);
+            action.set_enabled(item.enabled);
+            action.connect_activate({
+                let id = item.id.clone();
+                let sender = sender.clone();
+                move |_, _| {
+                    let _ = sender.output(Output::Event(status_menu_event(id.clone())));
+                }
+            });
+            self.action_group.add_action(&action);
+            menu.append(
+                Some(&item.label),
+                Some(&format!("exec-status.{action_name}")),
+            );
+        }
+
+        self.context_menu.set_menu_model(Some(&menu));
+        if !has_visible_menu_items(&self.item.menu) {
+            self.context_menu.popdown();
+        }
+    }
+}
+
+fn has_visible_menu_items(items: &[StatusMenuItem]) -> bool {
+    items.iter().any(|item| item.visible)
+}
+
+fn status_menu_event(id: String) -> EventPayload {
+    EventPayload {
+        id,
+        kind: EventKind::Click,
+        source: EventSource::Status,
+        button: Some(MouseButton::Left),
+        active: None,
+        value: None,
+        delta_y: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_menu_items_ignore_hidden_entries() {
+        let items = vec![StatusMenuItem {
+            id: "hidden".into(),
+            label: "Hidden".into(),
+            visible: false,
+            enabled: true,
+        }];
+
+        assert!(!has_visible_menu_items(&items));
+    }
+
+    #[test]
+    fn status_menu_events_are_status_clicks() {
+        assert_eq!(
+            status_menu_event("settings".into()),
+            EventPayload {
+                id: "settings".into(),
+                kind: EventKind::Click,
+                source: EventSource::Status,
+                button: Some(MouseButton::Left),
+                active: None,
+                value: None,
+                delta_y: None,
+            }
+        );
     }
 }

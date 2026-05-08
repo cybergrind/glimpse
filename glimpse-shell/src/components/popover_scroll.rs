@@ -34,7 +34,7 @@ fn apply_half_monitor_limit(
     };
 
     let chrome_height = popover
-        .map(|popover| popover.allocated_height() - scroller.allocated_height())
+        .map(|popover| popover.height() - scroller.height())
         .filter(|height| *height > 0);
     scroller.set_max_content_height(content_height_limit(height, chrome_height));
 }

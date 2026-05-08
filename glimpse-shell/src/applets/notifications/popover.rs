@@ -725,8 +725,8 @@ fn point_inside_widget(
     y: f64,
 ) -> bool {
     source
-        .translate_coordinates(target, x, y)
-        .map(|(x, y)| target.contains(x, y))
+        .compute_point(target, &gtk::graphene::Point::new(x as f32, y as f32))
+        .map(|point| target.contains(point.x() as f64, point.y() as f64))
         .unwrap_or(false)
 }
 

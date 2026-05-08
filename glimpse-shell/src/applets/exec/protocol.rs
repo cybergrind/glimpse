@@ -20,6 +20,18 @@ pub struct StatusItem {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu: Vec<StatusMenuItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusMenuItem {
+    pub id: String,
+    pub label: String,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -704,6 +716,41 @@ mod tests {
                     }),
                     label: Some("12%".into()),
                     tooltip: Some("CPU usage".into()),
+                    menu: Vec::new(),
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn parse_status_item_menu() {
+        let command = parse_child_line(
+            r#"status {"items":[{"id":"net","label":"Wi-Fi","menu":[{"id":"toggle","label":"Toggle"},{"id":"settings","label":"Settings","enabled":false}]}]}"#,
+        )
+        .expect("status menu line should parse");
+
+        assert_eq!(
+            command,
+            ChildCommand::Status(StatusPayload {
+                items: vec![StatusItem {
+                    id: Some("net".into()),
+                    icon: None,
+                    label: Some("Wi-Fi".into()),
+                    tooltip: None,
+                    menu: vec![
+                        StatusMenuItem {
+                            id: "toggle".into(),
+                            label: "Toggle".into(),
+                            visible: true,
+                            enabled: true,
+                        },
+                        StatusMenuItem {
+                            id: "settings".into(),
+                            label: "Settings".into(),
+                            visible: true,
+                            enabled: false,
+                        },
+                    ],
                 }]
             })
         );

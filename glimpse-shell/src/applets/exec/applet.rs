@@ -440,6 +440,7 @@ mod tests {
             icon: None,
             label: Some("10%".into()),
             tooltip: None,
+            menu: Vec::new(),
         };
 
         assert_eq!(status_item_key(3, &item), "id:cpu");
@@ -452,6 +453,7 @@ mod tests {
             icon: None,
             label: Some("10%".into()),
             tooltip: None,
+            menu: Vec::new(),
         };
 
         assert_eq!(status_item_key(3, &item), "index:3");

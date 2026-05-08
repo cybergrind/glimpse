@@ -1,13 +1,11 @@
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent,
-    WidgetTemplate,
-    gtk::{self, prelude::*},
+    gtk::{self, gio, prelude::*},
 };
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    components::action_row::{ActionRow, ActionRowInit},
     panels::applets::AppletConfig,
     services::{
         clipboard::{ClipboardHandle, Command, State},
@@ -64,8 +62,10 @@ pub struct Applet {
     tooltip: String,
     service: ClipboardHandle,
     popover: Controller<Popover>,
-    action_popover: gtk::Popover,
-    clear_button: gtk::Button,
+    action_popover: gtk::PopoverMenu,
+    refresh_action: gio::SimpleAction,
+    clear_history_action: gio::SimpleAction,
+    clear_clipboard_action: gio::SimpleAction,
     popover_open: bool,
     subscription_cancel: CancellationToken,
 }
@@ -82,7 +82,9 @@ pub enum Input {
     Reconfigure(Config),
     TogglePopover,
     OpenActions,
-    Clear,
+    Refresh,
+    ClearHistory,
+    ClearClipboard,
     PopoverOutput(PopoverOutput),
 }
 
@@ -147,32 +149,14 @@ impl SimpleComponent for Applet {
             .forward(sender.input_sender(), Input::PopoverOutput);
 
         let state = init.service.snapshot();
-        let action_popover = gtk::Popover::new();
-        action_popover.add_css_class("clipboard-app-menu");
-        action_popover.add_css_class("popover-size-small");
-        action_popover.set_has_arrow(false);
-        action_popover.set_autohide(true);
-
-        let action_list = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        action_list.add_css_class("action-menu");
-        let clear_row = ActionRow::init(ActionRowInit {
-            title: "Clear".into(),
-            subtitle: String::new(),
-            meta: String::new(),
-            icon: None,
-            visible: true,
-            selectable: false,
-        });
-        clear_row.as_ref().add_css_class("is-danger");
-        clear_row.button.connect_clicked({
-            let sender = sender.clone();
-            move |_| sender.input(Input::Clear)
-        });
-        action_list.append(clear_row.as_ref());
-        action_popover.set_child(Some(&action_list));
-
-        let clear_button = clear_row.button.clone();
-        clear_button.set_sensitive(clear_action_available(&state));
+        let (action_popover, refresh_action, clear_history_action, clear_clipboard_action) =
+            build_context_menu(&root, &sender);
+        sync_action_sensitivity(
+            &state,
+            &refresh_action,
+            &clear_history_action,
+            &clear_clipboard_action,
+        );
         let model = Applet {
             icon_name: format::icon_name(&state).into(),
             label: format::label(&init.config.label_format, &state),
@@ -182,7 +166,9 @@ impl SimpleComponent for Applet {
             service: init.service,
             popover,
             action_popover,
-            clear_button,
+            refresh_action,
+            clear_history_action,
+            clear_clipboard_action,
             popover_open: false,
             subscription_cancel: CancellationToken::new(),
         };
@@ -218,7 +204,6 @@ impl SimpleComponent for Applet {
         });
 
         let widgets = view_output!();
-        model.action_popover.set_parent(&widgets.root);
         ComponentParts { model, widgets }
     }
 
@@ -239,9 +224,17 @@ impl SimpleComponent for Applet {
                 self.sync_action_menu();
                 self.action_popover.popup();
             }
-            Input::Clear => {
+            Input::Refresh => {
+                self.action_popover.popdown();
+                self.send_command(Command::Refresh);
+            }
+            Input::ClearHistory => {
                 self.action_popover.popdown();
                 self.send_command(Command::ClearHistory);
+            }
+            Input::ClearClipboard => {
+                self.action_popover.popdown();
+                self.send_command(Command::ClearClipboard);
             }
             Input::PopoverOutput(PopoverOutput::Opened) => {
                 self.popover_open = true;
@@ -285,13 +278,87 @@ impl Applet {
     }
 
     fn sync_action_menu(&self) {
-        self.clear_button
-            .set_sensitive(clear_action_available(&self.state));
+        sync_action_sensitivity(
+            &self.state,
+            &self.refresh_action,
+            &self.clear_history_action,
+            &self.clear_clipboard_action,
+        );
     }
 }
 
-fn clear_action_available(state: &State) -> bool {
+fn clear_history_action_available(state: &State) -> bool {
     state.available && !state.history.is_empty()
+}
+
+fn clear_clipboard_action_available(state: &State) -> bool {
+    state.available && state.current_id.is_some()
+}
+
+fn sync_action_sensitivity(
+    state: &State,
+    refresh_action: &gio::SimpleAction,
+    clear_history_action: &gio::SimpleAction,
+    clear_clipboard_action: &gio::SimpleAction,
+) {
+    refresh_action.set_enabled(true);
+    clear_history_action.set_enabled(clear_history_action_available(state));
+    clear_clipboard_action.set_enabled(clear_clipboard_action_available(state));
+}
+
+fn build_context_menu(
+    root: &gtk::Box,
+    sender: &ComponentSender<Applet>,
+) -> (
+    gtk::PopoverMenu,
+    gio::SimpleAction,
+    gio::SimpleAction,
+    gio::SimpleAction,
+) {
+    let action_group = gio::SimpleActionGroup::new();
+
+    let refresh_action = gio::SimpleAction::new("refresh", None);
+    refresh_action.connect_activate({
+        let sender = sender.input_sender().clone();
+        move |_, _| sender.emit(Input::Refresh)
+    });
+    action_group.add_action(&refresh_action);
+
+    let clear_history_action = gio::SimpleAction::new("clear-history", None);
+    clear_history_action.connect_activate({
+        let sender = sender.input_sender().clone();
+        move |_, _| sender.emit(Input::ClearHistory)
+    });
+    action_group.add_action(&clear_history_action);
+
+    let clear_clipboard_action = gio::SimpleAction::new("clear-clipboard", None);
+    clear_clipboard_action.connect_activate({
+        let sender = sender.input_sender().clone();
+        move |_, _| sender.emit(Input::ClearClipboard)
+    });
+    action_group.add_action(&clear_clipboard_action);
+
+    root.insert_action_group("clipboard", Some(&action_group));
+
+    let menu = gio::Menu::new();
+    menu.append(Some("Refresh"), Some("clipboard.refresh"));
+    menu.append(Some("Clear History"), Some("clipboard.clear-history"));
+    menu.append(Some("Clear Clipboard"), Some("clipboard.clear-clipboard"));
+
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(root);
+    popover.set_has_arrow(false);
+    root.connect_destroy({
+        let popover = popover.clone();
+        move |_| popover.unparent()
+    });
+
+    (
+        popover,
+        refresh_action,
+        clear_history_action,
+        clear_clipboard_action,
+    )
 }
 
 impl Drop for Applet {
@@ -315,9 +382,19 @@ mod tests {
     #[test]
     fn clear_action_requires_available_history() {
         let mut state = State::default();
-        assert!(!clear_action_available(&state));
+        assert!(!clear_history_action_available(&state));
 
         state.available = true;
-        assert!(!clear_action_available(&state));
+        assert!(!clear_history_action_available(&state));
+    }
+
+    #[test]
+    fn clear_clipboard_action_requires_current_entry() {
+        let mut state = State::default();
+        assert!(!clear_clipboard_action_available(&state));
+
+        state.available = true;
+        state.current_id = Some(7);
+        assert!(clear_clipboard_action_available(&state));
     }
 }
