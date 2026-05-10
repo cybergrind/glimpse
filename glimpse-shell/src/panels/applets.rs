@@ -208,6 +208,7 @@ impl AppletController {
 pub fn create_applet(
     blueprint: AppletBlueprint,
     services: Services,
+    monitor_connector: Option<&str>,
     theme_mode: ThemeMode,
 ) -> Option<AppletController> {
     match blueprint.applet_type {
@@ -331,6 +332,7 @@ pub fn create_applet(
                 .launch(pager::Init {
                     service: services.compositor.clone(),
                     config: pager::Config::from_raw(&blueprint.config),
+                    panel_monitor: monitor_connector.map(str::to_owned),
                 })
                 .detach(),
         )),
@@ -387,6 +389,7 @@ pub fn build_applets(
     container: &gtk::Box,
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
+    monitor_connector: Option<&str>,
     theme_mode: ThemeMode,
 ) -> HashMap<AppletKey, AppletController> {
     let mut applets = HashMap::new();
@@ -394,7 +397,9 @@ pub fn build_applets(
     for entry in entries {
         tracing::debug!(name = %entry.name, applet_type = ?entry.applet_type, "create applet");
 
-        if let Some(applet) = create_applet(entry.clone(), services.clone(), theme_mode) {
+        if let Some(applet) =
+            create_applet(entry.clone(), services.clone(), monitor_connector, theme_mode)
+        {
             let widget = applet.widget();
             container.append(&widget);
             applets.insert(entry.key, applet);
@@ -412,6 +417,7 @@ pub fn reconcile_applets(
     previous_applet_configs: &HashMap<String, AppletConfig>,
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
+    monitor_connector: Option<&str>,
     theme_mode: ThemeMode,
 ) {
     let current_types = current
@@ -447,14 +453,16 @@ pub fn reconcile_applets(
                     .remove(&entry.key)
                     .expect("existing applet missing");
                 detach_widget(&existing.widget());
-                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
+                let Some(created) =
+                    create_applet(entry.clone(), services.clone(), monitor_connector, theme_mode)
                 else {
                     continue;
                 };
                 created
             }
             PlannedAction::Create => {
-                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
+                let Some(created) =
+                    create_applet(entry.clone(), services.clone(), monitor_connector, theme_mode)
                 else {
                     continue;
                 };

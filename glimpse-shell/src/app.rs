@@ -376,11 +376,13 @@ fn build_panel(
         monitor: monitor_connector(&monitor).unwrap_or_default(),
         position: config.position.clone(),
     };
+    let monitor_connector = monitor_connector(&monitor);
     let controller = panels::Panel::builder()
         .launch(panels::Init {
             config,
             services: services.clone(),
             monitor: Some(monitor),
+            monitor_connector,
             applet_configs: app_config.applets.clone(),
         })
         .detach();

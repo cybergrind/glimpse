@@ -25,6 +25,7 @@ pub struct Init {
     pub config: PanelConfig,
     pub services: Services,
     pub monitor: Option<gdk::Monitor>,
+    pub monitor_connector: Option<String>,
     pub applet_configs: HashMap<String, AppletConfig>,
 }
 
@@ -48,6 +49,7 @@ pub enum PanelSection {
 
 pub struct Panel {
     services: Services,
+    monitor_connector: Option<String>,
     applet_configs: HashMap<String, AppletConfig>,
     left: SectionState,
     center: SectionState,
@@ -120,6 +122,7 @@ impl Component for Panel {
             &left_box,
             &init.applet_configs,
             init.services.clone(),
+            init.monitor_connector.as_deref(),
             init.config.theme_mode,
         );
         let center_applets = build_applets(
@@ -128,6 +131,7 @@ impl Component for Panel {
             &center_box,
             &init.applet_configs,
             init.services.clone(),
+            init.monitor_connector.as_deref(),
             init.config.theme_mode,
         );
         let right_applets = build_applets(
@@ -136,11 +140,13 @@ impl Component for Panel {
             &right_box,
             &init.applet_configs,
             init.services.clone(),
+            init.monitor_connector.as_deref(),
             init.config.theme_mode,
         );
         let widgets = view_output!();
         let model = Panel {
             services: init.services,
+            monitor_connector: init.monitor_connector,
             applet_configs: init.applet_configs,
             left: SectionState {
                 container: left_box,
@@ -176,6 +182,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    self.monitor_connector.as_deref(),
                     runtime.config.theme_mode,
                 );
                 reconcile_applets(
@@ -186,6 +193,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    self.monitor_connector.as_deref(),
                     runtime.config.theme_mode,
                 );
                 reconcile_applets(
@@ -196,6 +204,7 @@ impl Component for Panel {
                     &self.applet_configs,
                     &runtime.applet_configs,
                     self.services.clone(),
+                    self.monitor_connector.as_deref(),
                     runtime.config.theme_mode,
                 );
 

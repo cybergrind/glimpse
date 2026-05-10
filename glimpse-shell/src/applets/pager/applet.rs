@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    compositors::{CompositorType, Window, Workspace},
+    compositors::{CompositorType, Monitor, Window, Workspace},
     panels::applets::AppletConfig,
     services::{
         compositor::{Command, CompositorHandle, State},
@@ -71,12 +71,14 @@ pub struct Applet {
     service: CompositorHandle,
     strip: Controller<Strip>,
     subscription_cancel: CancellationToken,
+    panel_monitor: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct Init {
     pub service: CompositorHandle,
     pub config: Config,
+    pub panel_monitor: Option<String>,
 }
 
 #[derive(Debug)]
@@ -110,7 +112,8 @@ impl SimpleComponent for Applet {
             .launch(())
             .forward(sender.input_sender(), Input::StripOutput);
         let strip_widget = strip.widget().clone();
-        let state = PagerState::from(&init.service.snapshot());
+        let mut state = PagerState::from(&init.service.snapshot());
+        state.panel_monitor = init.panel_monitor.clone();
         let view = view_from_state(&init.config, &state);
 
         let model = Applet {
@@ -120,6 +123,7 @@ impl SimpleComponent for Applet {
             service: init.service,
             strip,
             subscription_cancel: CancellationToken::new(),
+            panel_monitor: init.panel_monitor,
         };
 
         let service = model.service.clone();
@@ -162,7 +166,8 @@ impl SimpleComponent for Applet {
     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
         match message {
             Input::ServiceStateChanged(state) => {
-                let state = PagerState::from(&state);
+                let mut state = PagerState::from(&state);
+                state.panel_monitor = self.panel_monitor.clone();
                 if self.state != state {
                     self.state = state;
                     self.sync_view();
@@ -227,6 +232,8 @@ struct PagerState {
     focused_window: Option<usize>,
     workspaces: Vec<Workspace>,
     windows: Vec<PagerWindow>,
+    monitors: Vec<Monitor>,
+    panel_monitor: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,7 +256,25 @@ impl From<&State> for PagerState {
             focused_window: state.focused_window,
             workspaces: state.workspaces.clone(),
             windows: state.windows.iter().map(PagerWindow::from).collect(),
+            monitors: state.monitors.clone(),
+            panel_monitor: None,
         }
+    }
+}
+
+impl PagerState {
+    fn effective_current_workspace(&self) -> Option<usize> {
+        if let Some(name) = self.panel_monitor.as_deref() {
+            if let Some(active) = self
+                .monitors
+                .iter()
+                .find(|monitor| monitor.name == name)
+                .and_then(|monitor| monitor.active_workspace)
+            {
+                return Some(active);
+            }
+        }
+        self.current_workspace
     }
 }
 
@@ -276,11 +301,15 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
         };
     }
 
+    let panel_monitor = state.panel_monitor.as_deref();
+    let current_workspace = state.effective_current_workspace();
+
     let (items, tooltip, placeholder) = match config.display {
         DisplayMode::Workspaces => (
             workspace_items(
                 state.compositor,
-                state.current_workspace,
+                current_workspace,
+                panel_monitor,
                 &state.workspaces,
                 &state.windows,
                 config.appearance,
@@ -290,8 +319,11 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
         ),
         DisplayMode::Windows => {
             let items = window_items(
-                state.current_workspace,
+                state.compositor,
+                current_workspace,
+                panel_monitor,
                 state.focused_window,
+                &state.workspaces,
                 &state.windows,
                 config.appearance,
             );
@@ -320,13 +352,15 @@ fn settings_without_legacy_style(raw: &AppletConfig) -> toml::Value {
 fn workspace_items(
     compositor: CompositorType,
     current_workspace: Option<usize>,
+    panel_monitor: Option<&str>,
     workspaces: &[Workspace],
     windows: &[PagerWindow],
     appearance: PagerAppearance,
 ) -> Vec<PagerItem> {
     let occupied = occupied_workspaces(windows);
     let urgent = urgent_workspaces(windows);
-    let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
+    let scoped_workspaces =
+        scoped_workspaces(compositor, panel_monitor, current_workspace, workspaces);
     let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
     let highest_window_workspace = match compositor {
         CompositorType::Niri => 0,
@@ -353,9 +387,8 @@ fn workspace_items(
                 target: PagerTarget::Workspace(target),
                 appearance,
                 label: slot.to_string(),
-                focused: workspace
-                    .map(|workspace| workspace.focused)
-                    .unwrap_or(current_slot == Some(slot)),
+                focused: current_slot == Some(slot)
+                    || workspace.map(|workspace| workspace.focused).unwrap_or(false),
                 occupied: workspace
                     .and_then(|workspace| workspace.active_window)
                     .is_some()
@@ -372,14 +405,21 @@ fn workspace_items(
 }
 
 fn window_items(
+    compositor: CompositorType,
     current_workspace: Option<usize>,
+    panel_monitor: Option<&str>,
     focused_window: Option<usize>,
+    workspaces: &[Workspace],
     windows: &[PagerWindow],
     appearance: PagerAppearance,
 ) -> Vec<PagerItem> {
     let Some(current_workspace) = current_workspace else {
         return vec![window_placeholder_item(appearance)];
     };
+
+    if !workspace_belongs_to_panel(compositor, panel_monitor, current_workspace, workspaces) {
+        return vec![window_placeholder_item(appearance)];
+    }
 
     let mut windows = windows
         .iter()
@@ -458,7 +498,7 @@ fn workspace_indicator_count(
     workspaces: &[Workspace],
     windows: &[PagerWindow],
 ) -> usize {
-    let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
+    let scoped_workspaces = scoped_workspaces(compositor, None, current_workspace, workspaces);
     let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
     let highest_window_workspace = match compositor {
         CompositorType::Niri => 0,
@@ -515,9 +555,17 @@ fn current_workspace_slot(
 
 fn scoped_workspaces<'a>(
     compositor: CompositorType,
+    panel_monitor: Option<&str>,
     current_workspace: Option<usize>,
     workspaces: &'a [Workspace],
 ) -> Vec<&'a Workspace> {
+    if let Some(monitor) = panel_monitor {
+        return workspaces
+            .iter()
+            .filter(|workspace| workspace.monitor.as_deref() == Some(monitor))
+            .collect();
+    }
+
     let all = || workspaces.iter().collect::<Vec<_>>();
     match compositor {
         CompositorType::Niri => {
@@ -537,8 +585,30 @@ fn scoped_workspaces<'a>(
     }
 }
 
+fn workspace_belongs_to_panel(
+    compositor: CompositorType,
+    panel_monitor: Option<&str>,
+    workspace_id: usize,
+    workspaces: &[Workspace],
+) -> bool {
+    let Some(monitor) = panel_monitor else {
+        return true;
+    };
+
+    if matches!(compositor, CompositorType::Unsupported) {
+        return true;
+    }
+
+    workspaces
+        .iter()
+        .find(|workspace| workspace.id == workspace_id)
+        .and_then(|workspace| workspace.monitor.as_deref())
+        .map(|workspace_monitor| workspace_monitor == monitor)
+        .unwrap_or(false)
+}
+
 fn current_workspace_tooltip(state: &PagerState) -> String {
-    let Some(current) = state.current_workspace else {
+    let Some(current) = state.effective_current_workspace() else {
         return "Workspaces".into();
     };
 
@@ -553,7 +623,12 @@ fn current_workspace_tooltip(state: &PagerState) -> String {
         return format!("Workspace {name}");
     }
 
-    let scoped_workspaces = scoped_workspaces(state.compositor, Some(current), &state.workspaces);
+    let scoped_workspaces = scoped_workspaces(
+        state.compositor,
+        state.panel_monitor.as_deref(),
+        Some(current),
+        &state.workspaces,
+    );
     let label = current_workspace_slot(state.compositor, Some(current), &scoped_workspaces)
         .unwrap_or(current);
     format!("Workspace {label}")
@@ -562,7 +637,7 @@ fn current_workspace_tooltip(state: &PagerState) -> String {
 fn current_workspace_window_tooltip(state: &PagerState) -> String {
     let workspace = current_workspace_tooltip(state);
     let windows = state
-        .current_workspace
+        .effective_current_workspace()
         .map(|current| {
             state
                 .windows
@@ -760,6 +835,7 @@ mod tests {
         let items = workspace_items(
             state.compositor,
             state.current_workspace,
+            None,
             &state.workspaces,
             &windows,
             PagerAppearance::Dots,
@@ -966,6 +1042,7 @@ mod tests {
         let items = workspace_items(
             state.compositor,
             state.current_workspace,
+            None,
             &state.workspaces,
             &windows,
             PagerAppearance::Dots,
@@ -1008,15 +1085,9 @@ mod tests {
         let mut state = state_with_workspaces(vec![workspace(2)]);
         state.windows = vec![window(7, Some(2), false)];
         let mut unrelated = state.clone();
-        unrelated.monitors = vec![glimpse_core::compositors::Monitor {
-            id: Some(1),
-            name: "eDP-1".into(),
-            description: None,
-            active_workspace: Some(2),
-            focused: true,
-        }];
         unrelated.capabilities.monitors = true;
         unrelated.capabilities.night_light = true;
+        unrelated.current_keyboard_layout = Some(1);
         unrelated.windows[0].title = Some("renamed".into());
         unrelated.windows[0].app_id = Some("app".into());
         unrelated.windows[0].pid = Some(42);
@@ -1114,5 +1185,194 @@ mod tests {
             fullscreen: false,
             floating: None,
         }
+    }
+
+    fn niri_two_monitor_state() -> State {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 1,
+                index: Some(1),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: Some(101),
+            },
+            Workspace {
+                id: 2,
+                index: Some(2),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: false,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 3,
+                index: Some(1),
+                name: None,
+                monitor: Some("HDMI-A-1".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: Some(202),
+            },
+        ]);
+        state.compositor = CompositorType::Niri;
+        state.capabilities.windows = true;
+        state.capabilities.focused_window = true;
+        state.capabilities.monitors = true;
+        state.current_workspace = Some(3);
+        state.focused_window = Some(202);
+        state.windows = vec![
+            window(101, Some(1), false),
+            window(202, Some(3), false),
+        ];
+        state.monitors = vec![
+            glimpse_core::compositors::Monitor {
+                id: Some(1),
+                name: "eDP-1".into(),
+                description: None,
+                active_workspace: Some(1),
+                focused: false,
+            },
+            glimpse_core::compositors::Monitor {
+                id: Some(2),
+                name: "HDMI-A-1".into(),
+                description: None,
+                active_workspace: Some(3),
+                focused: true,
+            },
+        ];
+        state
+    }
+
+    #[test]
+    fn niri_workspaces_view_shows_only_panels_monitor_when_focus_is_elsewhere() {
+        let state = niri_two_monitor_state();
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("eDP-1".into());
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 2);
+        assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+        assert_eq!(view.items[1].target, PagerTarget::Workspace(2));
+        assert!(view.items[0].focused);
+        assert!(!view.items[1].focused);
+    }
+
+    #[test]
+    fn niri_windows_view_lists_only_panels_monitor_active_workspace_windows() {
+        let state = niri_two_monitor_state();
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("eDP-1".into());
+        let config = Config {
+            display: DisplayMode::Windows,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Window(101));
+    }
+
+    #[test]
+    fn niri_windows_view_falls_back_to_placeholder_when_panel_monitor_has_no_active_workspace() {
+        let mut state = niri_two_monitor_state();
+        state.monitors[0].active_workspace = None;
+        state.workspaces.retain(|workspace| workspace.id != 1);
+        state.windows.retain(|window| window.workspace != Some(1));
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("eDP-1".into());
+        let config = Config {
+            display: DisplayMode::Windows,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Placeholder);
+    }
+
+    #[test]
+    fn unset_panel_monitor_preserves_focused_monitor_scoping() {
+        let state = niri_two_monitor_state();
+        let pager_state = PagerState::from(&state);
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+    }
+
+    #[test]
+    fn hyprland_workspaces_view_filters_by_panel_monitor() {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 1,
+                index: Some(1),
+                name: None,
+                monitor: Some("DP-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 2,
+                index: Some(2),
+                name: None,
+                monitor: Some("DP-2".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: None,
+            },
+        ]);
+        state.compositor = CompositorType::Hyprland;
+        state.current_workspace = Some(2);
+        state.monitors = vec![
+            glimpse_core::compositors::Monitor {
+                id: None,
+                name: "DP-1".into(),
+                description: None,
+                active_workspace: Some(1),
+                focused: false,
+            },
+            glimpse_core::compositors::Monitor {
+                id: None,
+                name: "DP-2".into(),
+                description: None,
+                active_workspace: Some(2),
+                focused: true,
+            },
+        ];
+        state.capabilities.monitors = true;
+
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("DP-1".into());
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+        assert!(view.items[0].focused);
     }
 }
