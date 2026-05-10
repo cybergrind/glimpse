@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use gtk4::gdk;
-use gtk4::prelude::{GtkWindowExt, OrientableExt, WidgetExt};
+use gtk4::prelude::{GtkWindowExt, MonitorExt, OrientableExt, WidgetExt};
 use gtk4_layer_shell::LayerShell;
 use relm4::{Component, ComponentParts, ComponentSender, gtk};
 
@@ -48,10 +48,15 @@ pub enum PanelSection {
 
 pub struct Panel {
     services: Services,
+    monitor: Option<gdk::Monitor>,
     applet_configs: HashMap<String, AppletConfig>,
     left: SectionState,
     center: SectionState,
     right: SectionState,
+}
+
+fn monitor_connector(monitor: Option<&gdk::Monitor>) -> Option<String> {
+    monitor.and_then(|monitor| monitor.connector().map(|c| c.to_string()))
 }
 
 struct SectionState {
@@ -96,6 +101,7 @@ impl Component for Panel {
         if let Some(monitor) = init.monitor.as_ref() {
             root.set_monitor(Some(monitor));
         }
+        let connector = monitor_connector(init.monitor.as_ref());
         apply_panel_config(&root, &init.config);
         theme::apply_theme_mode(&root, &init.config.theme_mode);
 
@@ -121,6 +127,7 @@ impl Component for Panel {
             &init.applet_configs,
             init.services.clone(),
             init.config.theme_mode,
+            connector.clone(),
         );
         let center_applets = build_applets(
             PanelSection::Center,
@@ -129,6 +136,7 @@ impl Component for Panel {
             &init.applet_configs,
             init.services.clone(),
             init.config.theme_mode,
+            connector.clone(),
         );
         let right_applets = build_applets(
             PanelSection::Right,
@@ -137,10 +145,12 @@ impl Component for Panel {
             &init.applet_configs,
             init.services.clone(),
             init.config.theme_mode,
+            connector.clone(),
         );
         let widgets = view_output!();
         let model = Panel {
             services: init.services,
+            monitor: init.monitor,
             applet_configs: init.applet_configs,
             left: SectionState {
                 container: left_box,
@@ -177,6 +187,7 @@ impl Component for Panel {
                     &runtime.applet_configs,
                     self.services.clone(),
                     runtime.config.theme_mode,
+                    monitor_connector(self.monitor.as_ref()),
                 );
                 reconcile_applets(
                     PanelSection::Center,
@@ -187,6 +198,7 @@ impl Component for Panel {
                     &runtime.applet_configs,
                     self.services.clone(),
                     runtime.config.theme_mode,
+                    monitor_connector(self.monitor.as_ref()),
                 );
                 reconcile_applets(
                     PanelSection::Right,
@@ -197,6 +209,7 @@ impl Component for Panel {
                     &runtime.applet_configs,
                     self.services.clone(),
                     runtime.config.theme_mode,
+                    monitor_connector(self.monitor.as_ref()),
                 );
 
                 self.applet_configs = runtime.applet_configs;

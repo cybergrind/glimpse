@@ -11,6 +11,7 @@ pub struct Item {
 
 pub struct Widgets {
     root: gtk::Box,
+    label: gtk::Label,
 }
 
 #[derive(Debug, Clone)]
@@ -29,10 +30,20 @@ impl Item {
         self.view.id
     }
 
-    fn apply_view(&self, root: &gtk::Box) {
-        set_class(root, "active", self.view.focused);
-        set_class(root, "occupied", self.view.occupied && !self.view.focused);
-        set_class(root, "urgent", self.view.urgent);
+    fn apply_view(&self, widgets: &Widgets) {
+        set_class(&widgets.root, "focused", self.view.focused);
+        set_class(
+            &widgets.root,
+            "active",
+            self.view.active && !self.view.focused,
+        );
+        set_class(
+            &widgets.root,
+            "occupied",
+            self.view.occupied && !self.view.active && !self.view.focused,
+        );
+        set_class(&widgets.root, "urgent", self.view.urgent);
+        widgets.label.set_text(&self.view.label);
     }
 }
 
@@ -71,9 +82,16 @@ impl FactoryComponent for Item {
         });
         root.add_controller(click);
 
-        let widgets = Widgets { root: root.clone() };
+        let label = gtk::Label::new(None);
+        label.add_css_class("pager-label");
+        root.append(&label);
+
+        let widgets = Widgets {
+            root: root.clone(),
+            label,
+        };
         widgets.root.add_css_class("pager-dot");
-        self.apply_view(&widgets.root);
+        self.apply_view(&widgets);
         widgets
     }
 
@@ -87,7 +105,7 @@ impl FactoryComponent for Item {
     }
 
     fn update_view(&self, widgets: &mut Self::Widgets, _sender: FactorySender<Self>) {
-        self.apply_view(&widgets.root);
+        self.apply_view(widgets);
     }
 }
 

@@ -420,17 +420,44 @@ button.applet:active,
         opacity var(--motion-fast) var(--ease-standard);
 }
 
-.pager-dot.active {
+.pager-classic .pager-dot.occupied {
+    background: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.pager-classic .pager-dot.focused {
     min-width: calc(var(--space-6) + var(--space-3));
     background: color-mix(in srgb, currentColor 90%, transparent);
 }
 
-.pager-dot.occupied {
-    background: color-mix(in srgb, currentColor 55%, transparent);
+/* Workspaces pager: dots grow to fit a name label. */
+.pager-workspaces .pager-dot {
+    padding: 0 var(--space-1);
+    margin: 0 var(--space-2);
+    background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.pager-workspaces .pager-dot.focused {
+    background: color-mix(in srgb, currentColor 90%, transparent);
+}
+
+.pager-workspaces .pager-dot.focused .pager-label {
+    color: var(--panel-bg, var(--color-bg));
+    opacity: 1;
+}
+
+.pager-dot .pager-label {
+    color: var(--color-fg);
+    font-size: var(--text-sm, 0.8rem);
+    opacity: 0.75;
 }
 
 .pager-dot.urgent {
     background: var(--color-accent);
+}
+
+.pager-dot.urgent .pager-label {
+    color: var(--color-accent-fg, var(--color-fg));
+    opacity: 1;
 }
 
 popover {

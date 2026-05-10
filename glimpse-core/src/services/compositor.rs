@@ -233,7 +233,36 @@ impl CompositorService {
                             set_if_changed(&mut workspace.focused, workspace.id == id && focused);
                         if workspace.id == id {
                             changed |= set_if_changed(&mut workspace.active, true);
+                            if focused {
+                                changed |= set_if_changed(&mut workspace.urgent, false);
+                            }
                         }
+                    }
+                    if focused {
+                        for window in &mut state.windows {
+                            if window.workspace == Some(id) {
+                                changed |= set_if_changed(&mut window.urgent, false);
+                            }
+                        }
+                    }
+                }
+                CompositorEvent::WorkspaceUrgencyChanged { id, urgent } => {
+                    if let Some(workspace) =
+                        state.workspaces.iter_mut().find(|item| item.id == id)
+                    {
+                        changed |= set_if_changed(&mut workspace.urgent, urgent);
+                    }
+                    if !urgent {
+                        for window in &mut state.windows {
+                            if window.workspace == Some(id) {
+                                changed |= set_if_changed(&mut window.urgent, false);
+                            }
+                        }
+                    }
+                }
+                CompositorEvent::WindowUrgencyChanged { id, urgent } => {
+                    if let Some(window) = state.windows.iter_mut().find(|item| item.id == id) {
+                        changed |= set_if_changed(&mut window.urgent, urgent);
                     }
                 }
                 CompositorEvent::WorkspaceActiveWindowChanged { workspace, window } => {

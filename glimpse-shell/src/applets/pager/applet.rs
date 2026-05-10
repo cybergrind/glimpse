@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::components::strip::{
-    Input as StripInput, Output as StripOutput, PagerItem, PagerTarget, Strip, View,
+    Input as StripInput, Kind, Output as StripOutput, PagerItem, PagerTarget, Strip, View,
 };
 
 const DEFAULT_COUNT: usize = 10;
@@ -29,6 +29,14 @@ const DEFAULT_COUNT: usize = 10;
 pub enum ScrollAction {
     Workspaces,
     Windows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Original auto-detect: windows-of-focused-workspace on niri, workspaces elsewhere.
+    Auto,
+    /// Per-monitor workspaces with names (workspaces-pager).
+    Workspaces,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -66,6 +74,8 @@ impl Default for Config {
 
 pub struct Applet {
     config: Config,
+    mode: Mode,
+    monitor: Option<String>,
     state: PagerState,
     view: View,
     service: CompositorHandle,
@@ -77,6 +87,8 @@ pub struct Applet {
 pub struct Init {
     pub service: CompositorHandle,
     pub config: Config,
+    pub mode: Mode,
+    pub monitor: Option<String>,
 }
 
 #[derive(Debug)]
@@ -107,14 +119,16 @@ impl SimpleComponent for Applet {
         install_scroll_controller(&root, &sender);
 
         let strip = Strip::builder()
-            .launch(())
+            .launch(strip_kind(init.mode))
             .forward(sender.input_sender(), Input::StripOutput);
         let strip_widget = strip.widget().clone();
         let state = PagerState::from(&init.service.snapshot());
-        let view = view_from_state(&init.config, &state);
+        let view = view_from_state(&init.config, init.mode, init.monitor.as_deref(), &state);
 
         let model = Applet {
             config: init.config,
+            mode: init.mode,
+            monitor: init.monitor,
             state,
             view,
             service: init.service,
@@ -188,7 +202,7 @@ impl Applet {
     }
 
     fn sync_view(&mut self) {
-        let view = view_from_state(&self.config, &self.state);
+        let view = view_from_state(&self.config, self.mode, self.monitor.as_deref(), &self.state);
         if self.view != view {
             self.view = view;
             self.render();
@@ -263,7 +277,26 @@ impl From<&Window> for PagerWindow {
     }
 }
 
-fn view_from_state(config: &Config, state: &PagerState) -> View {
+fn strip_kind(mode: Mode) -> Kind {
+    match mode {
+        Mode::Auto => Kind::Classic,
+        Mode::Workspaces => Kind::Workspaces,
+    }
+}
+
+fn view_from_state(
+    config: &Config,
+    mode: Mode,
+    panel_monitor: Option<&str>,
+    state: &PagerState,
+) -> View {
+    match mode {
+        Mode::Workspaces => desktops_view_from_state(config, panel_monitor, state),
+        Mode::Auto => legacy_view_from_state(config, state),
+    }
+}
+
+fn legacy_view_from_state(config: &Config, state: &PagerState) -> View {
     if !state.workspaces_available {
         return View {
             visible: false,
@@ -273,26 +306,28 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
         };
     }
 
-    let (items, tooltip, placeholder) = match pager_mode(state) {
-        PagerMode::Workspaces => (
-            workspace_items(
+    let (items, tooltip, placeholder) = match legacy_pager_mode(state) {
+        LegacyPagerMode::Workspaces => (
+            legacy_workspace_items(
                 config.count,
                 state.compositor,
                 state.current_workspace,
                 &state.workspaces,
                 &state.windows,
             ),
-            current_workspace_tooltip(state),
+            current_workspace_tooltip(None, state),
             false,
         ),
-        PagerMode::Windows => {
-            let items = window_items(
-                state.current_workspace,
-                state.focused_window,
-                &state.windows,
-            );
+        LegacyPagerMode::Windows => {
+            let items =
+                legacy_window_items(state.current_workspace, state.focused_window, &state.windows);
+            let count = items.len();
             let placeholder = items.is_empty();
-            (items, current_workspace_window_tooltip(state), placeholder)
+            (
+                items,
+                current_workspace_window_tooltip(None, state, count),
+                placeholder,
+            )
         }
     };
 
@@ -304,29 +339,21 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
     }
 }
 
-fn settings_without_legacy_style(raw: &AppletConfig) -> toml::Value {
-    let mut settings = raw.settings.clone();
-    if let toml::Value::Table(table) = &mut settings {
-        table.remove("style");
-    }
-    settings
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PagerMode {
+enum LegacyPagerMode {
     Workspaces,
     Windows,
 }
 
-fn pager_mode(state: &PagerState) -> PagerMode {
+fn legacy_pager_mode(state: &PagerState) -> LegacyPagerMode {
     if state.compositor == CompositorType::Niri && state.windows_available {
-        PagerMode::Windows
+        LegacyPagerMode::Windows
     } else {
-        PagerMode::Workspaces
+        LegacyPagerMode::Workspaces
     }
 }
 
-fn workspace_items(
+fn legacy_workspace_items(
     configured_count: usize,
     compositor: CompositorType,
     current_workspace: Option<usize>,
@@ -335,8 +362,9 @@ fn workspace_items(
 ) -> Vec<PagerItem> {
     let occupied = occupied_workspaces(windows);
     let urgent = urgent_workspaces(windows);
-    let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
-    let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
+    let scoped_workspaces = scoped_workspaces(compositor, None, current_workspace, workspaces);
+    let current_slot =
+        active_workspace_slot(compositor, None, current_workspace, &scoped_workspaces);
     let count = workspace_indicator_count_for_scope(
         configured_count,
         compositor,
@@ -348,12 +376,15 @@ fn workspace_items(
         .map(|slot| {
             let workspace = workspace_for_slot(compositor, slot, &scoped_workspaces);
             let target = workspace_command_target(compositor, slot, workspace);
+            let focused = workspace
+                .map(|workspace| workspace.focused)
+                .unwrap_or(current_slot == Some(slot));
             PagerItem {
                 id: target,
                 target: PagerTarget::Workspace(target),
-                focused: workspace
-                    .map(|workspace| workspace.focused)
-                    .unwrap_or(current_slot == Some(slot)),
+                label: String::new(),
+                active: false,
+                focused,
                 occupied: workspace
                     .and_then(|workspace| workspace.active_window)
                     .is_some()
@@ -369,7 +400,7 @@ fn workspace_items(
         .collect()
 }
 
-fn window_items(
+fn legacy_window_items(
     current_workspace: Option<usize>,
     focused_window: Option<usize>,
     windows: &[PagerWindow],
@@ -389,11 +420,125 @@ fn window_items(
         .map(|window| PagerItem {
             id: window.id,
             target: PagerTarget::Window(window.id),
+            label: String::new(),
+            active: false,
             focused: window.focused || focused_window == Some(window.id),
             occupied: true,
             urgent: window.urgent,
         })
         .collect()
+}
+
+fn desktops_view_from_state(
+    config: &Config,
+    panel_monitor: Option<&str>,
+    state: &PagerState,
+) -> View {
+    if !state.workspaces_available {
+        return View {
+            visible: false,
+            tooltip: "Workspaces unavailable".into(),
+            items: Vec::new(),
+            placeholder: false,
+        };
+    }
+
+    let items = workspace_items(
+        config.count,
+        state.compositor,
+        panel_monitor,
+        state.current_workspace,
+        &state.workspaces,
+        &state.windows,
+    );
+    let tooltip = current_workspace_tooltip(panel_monitor, state);
+
+    View {
+        visible: true,
+        tooltip,
+        items,
+        placeholder: false,
+    }
+}
+
+fn current_workspace_window_tooltip(
+    panel_monitor: Option<&str>,
+    state: &PagerState,
+    window_count: usize,
+) -> String {
+    let workspace = current_workspace_tooltip(panel_monitor, state);
+    format!("{workspace}, {window_count} windows")
+}
+
+fn settings_without_legacy_style(raw: &AppletConfig) -> toml::Value {
+    let mut settings = raw.settings.clone();
+    if let toml::Value::Table(table) = &mut settings {
+        table.remove("style");
+    }
+    settings
+}
+
+fn workspace_items(
+    configured_count: usize,
+    compositor: CompositorType,
+    panel_monitor: Option<&str>,
+    current_workspace: Option<usize>,
+    workspaces: &[Workspace],
+    windows: &[PagerWindow],
+) -> Vec<PagerItem> {
+    let occupied = occupied_workspaces(windows);
+    let urgent = urgent_workspaces(windows);
+    let scoped_workspaces =
+        scoped_workspaces(compositor, panel_monitor, current_workspace, workspaces);
+    let current_slot =
+        active_workspace_slot(compositor, panel_monitor, current_workspace, &scoped_workspaces);
+    let count = workspace_indicator_count_for_scope(
+        configured_count,
+        compositor,
+        current_slot,
+        &scoped_workspaces,
+    );
+
+    (1..=count)
+        .map(|slot| {
+            let workspace = workspace_for_slot(compositor, slot, &scoped_workspaces);
+            let target = workspace_command_target(compositor, slot, workspace);
+            let active = match compositor {
+                CompositorType::Niri => workspace.map(|workspace| workspace.active).unwrap_or(false),
+                CompositorType::Hyprland | CompositorType::Unsupported => workspace
+                    .map(|workspace| workspace.focused)
+                    .unwrap_or(current_slot == Some(slot)),
+            };
+            let focused = workspace
+                .map(|workspace| workspace.focused)
+                .unwrap_or_else(|| panel_monitor.is_none() && current_slot == Some(slot));
+            PagerItem {
+                id: target,
+                target: PagerTarget::Workspace(target),
+                label: workspace_item_label(slot, workspace),
+                active,
+                focused,
+                occupied: workspace
+                    .and_then(|workspace| workspace.active_window)
+                    .is_some()
+                    || workspace
+                        .map(|workspace| occupied.contains(&workspace.id))
+                        .unwrap_or_else(|| occupied.contains(&slot)),
+                urgent: workspace.map(|workspace| workspace.urgent).unwrap_or(false)
+                    || workspace
+                        .map(|workspace| urgent.contains(&workspace.id))
+                        .unwrap_or_else(|| urgent.contains(&slot)),
+            }
+        })
+        .collect()
+}
+
+fn workspace_item_label(slot: usize, workspace: Option<&Workspace>) -> String {
+    workspace
+        .and_then(|workspace| workspace.name.as_deref())
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| slot.to_string())
 }
 
 fn workspace_for_slot<'a>(
@@ -435,8 +580,9 @@ fn workspace_indicator_count(
     current_workspace: Option<usize>,
     workspaces: &[Workspace],
 ) -> usize {
-    let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
-    let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
+    let scoped_workspaces = scoped_workspaces(compositor, None, current_workspace, workspaces);
+    let current_slot =
+        active_workspace_slot(compositor, None, current_workspace, &scoped_workspaces);
     workspace_indicator_count_for_scope(
         configured_count,
         compositor,
@@ -460,87 +606,118 @@ fn workspace_indicator_count_for_scope(
         .max()
         .unwrap_or(0);
 
-    highest_reported
-        .max(current_slot.unwrap_or(0))
-        .max(configured_count)
-        .max(1)
+    match compositor {
+        CompositorType::Niri => highest_reported.max(current_slot.unwrap_or(0)).max(1),
+        CompositorType::Hyprland | CompositorType::Unsupported => highest_reported
+            .max(current_slot.unwrap_or(0))
+            .max(configured_count)
+            .max(1),
+    }
 }
 
-fn current_workspace_slot(
+fn active_workspace_slot(
     compositor: CompositorType,
+    panel_monitor: Option<&str>,
     current_workspace: Option<usize>,
     workspaces: &[&Workspace],
 ) -> Option<usize> {
     match compositor {
-        CompositorType::Niri => current_workspace.and_then(|id| {
-            workspaces
-                .iter()
-                .find(|workspace| workspace.id == id)
-                .and_then(|workspace| workspace.index)
-        }),
+        CompositorType::Niri => {
+            if panel_monitor.is_some() {
+                workspaces
+                    .iter()
+                    .find(|workspace| workspace.active)
+                    .and_then(|workspace| workspace.index)
+            } else {
+                current_workspace.and_then(|id| {
+                    workspaces
+                        .iter()
+                        .find(|workspace| workspace.id == id)
+                        .and_then(|workspace| workspace.index)
+                })
+            }
+        }
         CompositorType::Hyprland | CompositorType::Unsupported => current_workspace,
     }
 }
 
 fn scoped_workspaces<'a>(
     compositor: CompositorType,
+    panel_monitor: Option<&str>,
     current_workspace: Option<usize>,
     workspaces: &'a [Workspace],
 ) -> Vec<&'a Workspace> {
     let all = || workspaces.iter().collect::<Vec<_>>();
     match compositor {
         CompositorType::Niri => {
-            let Some(current_monitor) = current_workspace
-                .and_then(|id| workspaces.iter().find(|workspace| workspace.id == id))
-                .and_then(|workspace| workspace.monitor.as_deref())
-            else {
+            let monitor = panel_monitor.or_else(|| {
+                current_workspace
+                    .and_then(|id| workspaces.iter().find(|workspace| workspace.id == id))
+                    .and_then(|workspace| workspace.monitor.as_deref())
+            });
+            let Some(monitor) = monitor else {
                 return all();
             };
 
             workspaces
                 .iter()
-                .filter(|workspace| workspace.monitor.as_deref() == Some(current_monitor))
+                .filter(|workspace| workspace.monitor.as_deref() == Some(monitor))
                 .collect()
         }
         CompositorType::Hyprland | CompositorType::Unsupported => all(),
     }
 }
 
-fn current_workspace_tooltip(state: &PagerState) -> String {
-    let Some(current) = state.current_workspace else {
+fn current_workspace_tooltip(panel_monitor: Option<&str>, state: &PagerState) -> String {
+    let scoped_workspaces = scoped_workspaces(
+        state.compositor,
+        panel_monitor,
+        state.current_workspace,
+        &state.workspaces,
+    );
+
+    let active_workspace = if panel_monitor.is_some() {
+        scoped_workspaces
+            .iter()
+            .copied()
+            .find(|workspace| workspace.active)
+            .or_else(|| {
+                state.current_workspace.and_then(|id| {
+                    scoped_workspaces
+                        .iter()
+                        .copied()
+                        .find(|workspace| workspace.id == id)
+                })
+            })
+    } else {
+        state.current_workspace.and_then(|id| {
+            state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == id)
+        })
+    };
+
+    let Some(active) = active_workspace else {
         return "Workspaces".into();
     };
 
-    let workspace = state
-        .workspaces
-        .iter()
-        .find(|workspace| workspace.id == current);
-    if let Some(name) = workspace
-        .and_then(|workspace| workspace.name.as_deref())
+    if let Some(name) = active
+        .name
+        .as_deref()
         .filter(|name| !name.is_empty())
     {
         return format!("Workspace {name}");
     }
 
-    let scoped_workspaces = scoped_workspaces(state.compositor, Some(current), &state.workspaces);
-    let label = current_workspace_slot(state.compositor, Some(current), &scoped_workspaces)
-        .unwrap_or(current);
+    let label = active_workspace_slot(
+        state.compositor,
+        panel_monitor,
+        state.current_workspace,
+        &scoped_workspaces,
+    )
+    .unwrap_or(active.id);
     format!("Workspace {label}")
-}
-
-fn current_workspace_window_tooltip(state: &PagerState) -> String {
-    let workspace = current_workspace_tooltip(state);
-    let windows = state
-        .current_workspace
-        .map(|current| {
-            state
-                .windows
-                .iter()
-                .filter(|window| window.workspace == Some(current))
-                .count()
-        })
-        .unwrap_or(0);
-    format!("{workspace}, {windows} windows")
 }
 
 fn occupied_workspaces(windows: &[PagerWindow]) -> HashSet<usize> {
@@ -730,6 +907,7 @@ mod tests {
         let items = workspace_items(
             3,
             state.compositor,
+            None,
             state.current_workspace,
             &state.workspaces,
             &windows,
@@ -739,15 +917,17 @@ mod tests {
         assert!(items[1].focused);
         assert!(items[1].occupied);
         assert!(items[2].urgent);
+        assert_eq!(items[1].label, "web");
+        assert_eq!(items[0].label, "1");
     }
 
     #[test]
-    fn niri_view_renders_current_workspace_windows_as_focus_targets() {
+    fn niri_view_scopes_workspaces_to_panel_monitor() {
         let mut state = state_with_workspaces(vec![
             Workspace {
                 id: 7,
-                index: Some(2),
-                name: None,
+                index: Some(1),
+                name: Some("code".into()),
                 monitor: Some("eDP-1".into()),
                 active: true,
                 focused: true,
@@ -756,9 +936,19 @@ mod tests {
             },
             Workspace {
                 id: 8,
-                index: Some(3),
-                name: None,
+                index: Some(2),
+                name: Some("web".into()),
                 monitor: Some("eDP-1".into()),
+                active: false,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 9,
+                index: Some(1),
+                name: Some("chat".into()),
+                monitor: Some("HDMI-A-1".into()),
                 active: true,
                 focused: false,
                 urgent: false,
@@ -767,50 +957,115 @@ mod tests {
         ]);
         state.compositor = CompositorType::Niri;
         state.current_workspace = Some(7);
-        state.focused_window = Some(33);
-        state.capabilities.windows = true;
-        state.capabilities.focused_window = true;
-        state.windows = vec![
-            window_with_position(11, Some(7), false, 20),
-            window(44, Some(8), true),
-            window_with_position(33, Some(7), false, 10),
-        ];
 
-        let view = view_from_state(&Config::default(), &PagerState::from(&state));
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            Some("HDMI-A-1"),
+            &PagerState::from(&state),
+        );
 
-        assert_eq!(view.items.len(), 2);
-        assert_eq!(view.items[0].id, 33);
-        assert_eq!(view.items[0].target, PagerTarget::Window(33));
-        assert_eq!(view.items[1].id, 11);
-        assert_eq!(view.items[1].target, PagerTarget::Window(11));
-        assert!(view.items[0].focused);
-        assert!(view.items.iter().all(|item| item.occupied));
-        assert!(!view.items.iter().any(|item| item.urgent));
-        assert!(!view.placeholder);
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].label, "chat");
+        assert!(view.items[0].active);
+        assert!(!view.items[0].focused);
     }
 
     #[test]
-    fn niri_view_uses_placeholder_for_empty_current_workspace() {
-        let mut state = state_with_workspaces(vec![Workspace {
-            id: 7,
-            index: Some(2),
-            name: None,
-            monitor: Some("eDP-1".into()),
-            active: true,
-            focused: true,
-            urgent: false,
-            active_window: None,
-        }]);
+    fn niri_view_marks_active_workspace_focused_for_unfocused_monitor() {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 7,
+                index: Some(1),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 9,
+                index: Some(1),
+                name: None,
+                monitor: Some("HDMI-A-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 10,
+                index: Some(2),
+                name: None,
+                monitor: Some("HDMI-A-1".into()),
+                active: false,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+        ]);
         state.compositor = CompositorType::Niri;
         state.current_workspace = Some(7);
-        state.capabilities.windows = true;
-        state.capabilities.focused_window = true;
-        state.windows = vec![window(44, Some(8), true)];
 
-        let view = view_from_state(&Config::default(), &PagerState::from(&state));
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            Some("HDMI-A-1"),
+            &PagerState::from(&state),
+        );
 
-        assert!(view.items.is_empty());
-        assert!(view.placeholder);
+        assert_eq!(view.items.len(), 2);
+        assert!(view.items[0].active);
+        assert!(!view.items[0].focused);
+        assert!(!view.items[1].active);
+        assert!(!view.items[1].focused);
+    }
+
+    #[test]
+    fn niri_view_marks_focused_workspace_when_panel_on_focused_monitor() {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 7,
+                index: Some(1),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: None,
+            },
+            Workspace {
+                id: 9,
+                index: Some(1),
+                name: None,
+                monitor: Some("HDMI-A-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: None,
+            },
+        ]);
+        state.compositor = CompositorType::Niri;
+        state.current_workspace = Some(7);
+
+        let view_focused = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            Some("eDP-1"),
+            &PagerState::from(&state),
+        );
+        let view_other = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            Some("HDMI-A-1"),
+            &PagerState::from(&state),
+        );
+
+        assert!(view_focused.items[0].focused);
+        assert!(view_focused.items[0].active);
+        assert!(!view_other.items[0].focused);
+        assert!(view_other.items[0].active);
     }
 
     #[test]
@@ -818,7 +1073,7 @@ mod tests {
         let mut state = state_with_workspaces(vec![
             Workspace {
                 id: 77,
-                index: Some(2),
+                index: Some(1),
                 name: Some("web".into()),
                 monitor: Some("eDP-1".into()),
                 active: true,
@@ -828,7 +1083,7 @@ mod tests {
             },
             Workspace {
                 id: 88,
-                index: Some(2),
+                index: Some(1),
                 name: Some("chat".into()),
                 monitor: Some("HDMI-A-1".into()),
                 active: true,
@@ -848,14 +1103,18 @@ mod tests {
         let items = workspace_items(
             2,
             state.compositor,
+            Some("eDP-1"),
             state.current_workspace,
             &state.workspaces,
             &windows,
         );
 
-        assert_eq!(items[1].id, 2);
-        assert!(items[1].focused);
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, 1);
+        assert_eq!(items[0].target, PagerTarget::Workspace(1));
+        assert!(items[0].focused);
+        assert!(items[0].active);
+        assert_eq!(items[0].label, "web");
     }
 
     #[test]
@@ -863,7 +1122,12 @@ mod tests {
         let mut state = State::default();
         state.capabilities.workspaces = false;
 
-        let view = view_from_state(&Config::default(), &PagerState::from(&state));
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            None,
+            &PagerState::from(&state),
+        );
 
         assert!(!view.visible);
         assert!(view.items.is_empty());
@@ -877,10 +1141,14 @@ mod tests {
         state.capabilities.windows = true;
         state.capabilities.focused_window = true;
 
-        let view = view_from_state(&Config::default(), &PagerState::from(&state));
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Workspaces,
+            None,
+            &PagerState::from(&state),
+        );
 
         assert!(view.visible);
-        assert!(view.placeholder);
     }
 
     #[test]
@@ -904,6 +1172,112 @@ mod tests {
         unrelated.windows[0].floating = Some(true);
 
         assert_eq!(PagerState::from(&state), PagerState::from(&unrelated));
+    }
+
+    #[test]
+    fn auto_mode_on_niri_renders_windows_of_globally_focused_workspace() {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 7,
+                index: Some(1),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: Some(33),
+            },
+            Workspace {
+                id: 9,
+                index: Some(1),
+                name: None,
+                monitor: Some("HDMI-A-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: Some(44),
+            },
+        ]);
+        state.compositor = CompositorType::Niri;
+        state.current_workspace = Some(7);
+        state.focused_window = Some(33);
+        state.capabilities.windows = true;
+        state.capabilities.focused_window = true;
+        state.windows = vec![
+            window_with_position(11, Some(7), false, 20),
+            window(44, Some(9), false),
+            window_with_position(33, Some(7), false, 10),
+        ];
+
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Auto,
+            Some("HDMI-A-1"),
+            &PagerState::from(&state),
+        );
+
+        assert_eq!(view.items.len(), 2);
+        assert_eq!(view.items[0].id, 33);
+        assert_eq!(view.items[0].target, PagerTarget::Window(33));
+        assert_eq!(view.items[1].id, 11);
+        assert!(view.items[0].focused);
+        assert!(view.items.iter().all(|item| item.occupied));
+        assert!(!view.placeholder);
+    }
+
+    #[test]
+    fn auto_mode_renders_placeholder_when_focused_workspace_has_no_windows() {
+        let mut state = state_with_workspaces(vec![Workspace {
+            id: 7,
+            index: Some(1),
+            name: None,
+            monitor: Some("eDP-1".into()),
+            active: true,
+            focused: true,
+            urgent: false,
+            active_window: None,
+        }]);
+        state.compositor = CompositorType::Niri;
+        state.current_workspace = Some(7);
+        state.capabilities.windows = true;
+        state.capabilities.focused_window = true;
+
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Auto,
+            None,
+            &PagerState::from(&state),
+        );
+
+        assert!(view.items.is_empty());
+        assert!(view.placeholder);
+    }
+
+    #[test]
+    fn auto_mode_on_hyprland_renders_workspaces() {
+        let mut state = state_with_workspaces(vec![Workspace {
+            id: 1,
+            index: None,
+            name: None,
+            monitor: None,
+            active: false,
+            focused: true,
+            urgent: false,
+            active_window: None,
+        }]);
+        state.compositor = CompositorType::Hyprland;
+        state.current_workspace = Some(1);
+
+        let view = view_from_state(
+            &Config::default(),
+            Mode::Auto,
+            None,
+            &PagerState::from(&state),
+        );
+
+        assert_eq!(view.items.len(), 10);
+        assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+        assert!(view.items[0].focused);
     }
 
     #[test]

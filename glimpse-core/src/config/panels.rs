@@ -87,6 +87,8 @@ pub enum AppletType {
     Session,
     Tray,
     Weather,
+    #[serde(rename = "workspaces-pager")]
+    WorkspacesPager,
 }
 
 impl AppletType {
@@ -105,6 +107,7 @@ impl AppletType {
             "network" => Some(Self::Network),
             "notifications" => Some(Self::Notifications),
             "pager" => Some(Self::Pager),
+            "workspaces-pager" => Some(Self::WorkspacesPager),
             "privacy" => Some(Self::Privacy),
             "removable" => Some(Self::Removable),
             "session" => Some(Self::Session),
@@ -182,5 +185,13 @@ mod tests {
     #[test]
     fn removable_applet_type_is_available_from_config_name() {
         assert!(AppletType::from_config_name("removable").is_some());
+    }
+
+    #[test]
+    fn workspaces_pager_applet_type_is_available_from_config_name() {
+        assert_eq!(
+            AppletType::from_config_name("workspaces-pager"),
+            Some(AppletType::WorkspacesPager),
+        );
     }
 }

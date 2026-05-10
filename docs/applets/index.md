@@ -52,7 +52,8 @@ An empty label means the applet shows only its icon.
 | [`mpris`](#mpris) | Media players and playback controls. |
 | [`network`](#network) | Wi-Fi, wired network, and VPN status. |
 | [`notifications`](#notifications) | Notification center and popups. |
-| [`pager`](#pager) | Workspaces and windows. |
+| [`pager`](#pager) | Windows of the focused workspace (or workspace dots on Hyprland). |
+| [`workspaces-pager`](#workspaces-pager) | Per-monitor workspaces with names. |
 | [`privacy`](#privacy) | Camera, microphone, screen sharing, and location indicators. |
 | [`removable`](#removable) | USB drives and removable storage. |
 | [`session`](#session) | Lock, logout, suspend, restart, and shutdown. |
@@ -329,7 +330,10 @@ Placeholders: `{count}`, `{state}`.
 
 ## Pager
 
-Shows workspaces and windows.
+Auto-detects what to show based on the compositor:
+
+- **niri**: dots for the windows on the globally focused workspace; the focused window is highlighted, others use a medium tint, and an empty workspace renders a single placeholder dot.
+- **Hyprland / unsupported**: workspace dots, with the focused workspace highlighted.
 
 ```toml
 [applets.pager]
@@ -339,8 +343,31 @@ scroll_action = "workspaces"
 
 | Option | Default | Meaning |
 |---|---|---|
-| `count` | `10` | Number of workspace slots to show. |
+| `count` | `10` | Number of workspace slots to show (Hyprland workspace mode only). |
 | `scroll_action` | unset | What scrolling does: `"workspaces"` or `"windows"`. |
+
+## Workspaces Pager
+
+Shows the workspaces of the panel's own monitor as named dots. On niri each monitor's panel renders only its own workspaces, and only the workspace that holds keyboard focus globally gets the strong highlight — workspaces that are merely visible on an unfocused monitor stay dim. Workspace names (when set) replace the slot number inside the dot.
+
+```toml
+[applets.workspaces-pager]
+count = 10
+scroll_action = "workspaces"
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `count` | `10` | Minimum number of workspace slots to show on Hyprland. niri uses the live workspace count for the panel's monitor and ignores this. |
+| `scroll_action` | unset | What scrolling does: `"workspaces"` or `"windows"`. |
+
+You can place both pagers in the same panel — for example a windows pager on the left and a workspaces pager on the right:
+
+```toml
+[panels.center]
+left = ["workspaces-pager"]
+right = ["pager"]
+```
 
 ## Privacy
 

@@ -117,6 +117,7 @@ removable
 session
 tray
 weather
+workspaces-pager
 ```
 
 Configure an applet with `[applets.<name>]`. When `<name>` is a built-in applet, the config applies to that built-in instance:

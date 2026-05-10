@@ -53,6 +53,14 @@ pub enum CompositorEvent {
         workspace: usize,
         window: Option<usize>,
     },
+    WorkspaceUrgencyChanged {
+        id: usize,
+        urgent: bool,
+    },
+    WindowUrgencyChanged {
+        id: usize,
+        urgent: bool,
+    },
     MonitorsChanged(Vec<Monitor>),
     MonitorChanged {
         name: String,
@@ -87,6 +95,8 @@ impl CompositorEvent {
             Self::WorkspacesChanged(_) => "workspaces-changed",
             Self::WorkspaceChanged { .. } => "workspace-changed",
             Self::WorkspaceActiveWindowChanged { .. } => "workspace-active-window-changed",
+            Self::WorkspaceUrgencyChanged { .. } => "workspace-urgency-changed",
+            Self::WindowUrgencyChanged { .. } => "window-urgency-changed",
             Self::MonitorsChanged(_) => "monitors-changed",
             Self::MonitorChanged { .. } => "monitor-changed",
             Self::KeyboardLayoutsChanged { .. } => "keyboard-layouts-changed",

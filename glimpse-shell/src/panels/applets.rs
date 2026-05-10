@@ -209,6 +209,7 @@ pub fn create_applet(
     blueprint: AppletBlueprint,
     services: Services,
     theme_mode: ThemeMode,
+    monitor_connector: Option<String>,
 ) -> Option<AppletController> {
     match blueprint.applet_type {
         AppletType::Audio => Some(AppletController::Audio(
@@ -331,6 +332,18 @@ pub fn create_applet(
                 .launch(pager::Init {
                     service: services.compositor.clone(),
                     config: pager::Config::from_raw(&blueprint.config),
+                    mode: pager::Mode::Auto,
+                    monitor: monitor_connector.clone(),
+                })
+                .detach(),
+        )),
+        AppletType::WorkspacesPager => Some(AppletController::Pager(
+            pager::Applet::builder()
+                .launch(pager::Init {
+                    service: services.compositor.clone(),
+                    config: pager::Config::from_raw(&blueprint.config),
+                    mode: pager::Mode::Workspaces,
+                    monitor: monitor_connector.clone(),
                 })
                 .detach(),
         )),
@@ -388,13 +401,19 @@ pub fn build_applets(
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
     theme_mode: ThemeMode,
+    monitor_connector: Option<String>,
 ) -> HashMap<AppletKey, AppletController> {
     let mut applets = HashMap::new();
     let entries = collect_applets(section, configured_applets, applet_configs);
     for entry in entries {
         tracing::debug!(name = %entry.name, applet_type = ?entry.applet_type, "create applet");
 
-        if let Some(applet) = create_applet(entry.clone(), services.clone(), theme_mode) {
+        if let Some(applet) = create_applet(
+            entry.clone(),
+            services.clone(),
+            theme_mode,
+            monitor_connector.clone(),
+        ) {
             let widget = applet.widget();
             container.append(&widget);
             applets.insert(entry.key, applet);
@@ -413,6 +432,7 @@ pub fn reconcile_applets(
     applet_configs: &HashMap<String, AppletConfig>,
     services: Services,
     theme_mode: ThemeMode,
+    monitor_connector: Option<String>,
 ) {
     let current_types = current
         .iter()
@@ -447,15 +467,23 @@ pub fn reconcile_applets(
                     .remove(&entry.key)
                     .expect("existing applet missing");
                 detach_widget(&existing.widget());
-                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
-                else {
+                let Some(created) = create_applet(
+                    entry.clone(),
+                    services.clone(),
+                    theme_mode,
+                    monitor_connector.clone(),
+                ) else {
                     continue;
                 };
                 created
             }
             PlannedAction::Create => {
-                let Some(created) = create_applet(entry.clone(), services.clone(), theme_mode)
-                else {
+                let Some(created) = create_applet(
+                    entry.clone(),
+                    services.clone(),
+                    theme_mode,
+                    monitor_connector.clone(),
+                ) else {
                     continue;
                 };
                 created

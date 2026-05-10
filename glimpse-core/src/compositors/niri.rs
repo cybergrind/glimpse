@@ -316,6 +316,26 @@ fn parse_niri_event(line: &str, state: &mut NiriEventState) -> Vec<CompositorEve
         return parse_window_focus_changed(event, state);
     }
 
+    if let Some(event) = event.get("WindowUrgencyChanged") {
+        if let Some(id) = field_usize(event, "id") {
+            let urgent = event
+                .get("urgent")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            return vec![CompositorEvent::WindowUrgencyChanged { id, urgent }];
+        }
+    }
+
+    if let Some(event) = event.get("WorkspaceUrgencyChanged") {
+        if let Some(id) = field_usize(event, "id") {
+            let urgent = event
+                .get("urgent")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            return vec![CompositorEvent::WorkspaceUrgencyChanged { id, urgent }];
+        }
+    }
+
     if let Some(event) = event.get("WindowClosed") {
         if let Some(window) = field_usize(event, "id") {
             state.window_workspaces.remove(&window);

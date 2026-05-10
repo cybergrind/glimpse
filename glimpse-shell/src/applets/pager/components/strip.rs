@@ -12,6 +12,8 @@ use super::item::{Init as ItemInit, Input as ItemInput, Item};
 pub struct PagerItem {
     pub id: usize,
     pub target: PagerTarget,
+    pub label: String,
+    pub active: bool,
     pub focused: bool,
     pub occupied: bool,
     pub urgent: bool,
@@ -29,6 +31,12 @@ pub struct View {
     pub tooltip: String,
     pub items: Vec<PagerItem>,
     pub placeholder: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Classic,
+    Workspaces,
 }
 
 pub struct Strip {
@@ -58,7 +66,7 @@ enum RowSyncOp {
 
 #[relm4::component(pub)]
 impl SimpleComponent for Strip {
-    type Init = ();
+    type Init = Kind;
     type Input = Input;
     type Output = Output;
 
@@ -66,6 +74,7 @@ impl SimpleComponent for Strip {
         root = gtk::Box {
             add_css_class: "applet",
             add_css_class: "pager",
+            add_css_class: kind_css_class(init),
             set_orientation: gtk::Orientation::Horizontal,
             set_valign: gtk::Align::Center,
             #[watch]
@@ -85,7 +94,7 @@ impl SimpleComponent for Strip {
     }
 
     fn init(
-        _init: Self::Init,
+        init: Self::Init,
         _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -94,7 +103,7 @@ impl SimpleComponent for Strip {
         let placeholder_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         placeholder_box.set_valign(gtk::Align::Center);
         placeholder_box.add_css_class("pager-dot");
-        placeholder_box.add_css_class("active");
+        placeholder_box.add_css_class("focused");
         let rows = FactoryVecDeque::builder()
             .launch(rows_box.clone())
             .forward(sender.output_sender(), |output| output);
@@ -120,6 +129,13 @@ impl SimpleComponent for Strip {
                 self.sync_rows(view.items);
             }
         }
+    }
+}
+
+fn kind_css_class(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Classic => "pager-classic",
+        Kind::Workspaces => "pager-workspaces",
     }
 }
 
