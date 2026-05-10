@@ -5,13 +5,24 @@ use relm4::{
     factory::FactoryVecDeque,
     gtk::{self, prelude::*},
 };
+use serde::Deserialize;
 
 use super::item::{Init as ItemInit, Input as ItemInput, Item};
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PagerAppearance {
+    #[default]
+    Dots,
+    Numbers,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PagerItem {
     pub id: usize,
     pub target: PagerTarget,
+    pub appearance: PagerAppearance,
+    pub label: String,
     pub focused: bool,
     pub occupied: bool,
     pub urgent: bool,
@@ -21,12 +32,14 @@ pub struct PagerItem {
 pub enum PagerTarget {
     Workspace(usize),
     Window(usize),
+    Placeholder,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct View {
     pub visible: bool,
     pub tooltip: String,
+    pub appearance: PagerAppearance,
     pub items: Vec<PagerItem>,
     pub placeholder: bool,
 }

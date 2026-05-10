@@ -19,23 +19,23 @@ use crate::{
 };
 
 use super::components::strip::{
-    Input as StripInput, Output as StripOutput, PagerItem, PagerTarget, Strip, View,
+    Input as StripInput, Output as StripOutput, PagerAppearance, PagerItem, PagerTarget, Strip,
+    View,
 };
 
-const DEFAULT_COUNT: usize = 10;
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum ScrollAction {
+pub enum DisplayMode {
     Workspaces,
+    #[default]
     Windows,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Config {
-    count: usize,
-    scroll_action: Option<ScrollAction>,
+    display: DisplayMode,
+    appearance: PagerAppearance,
 }
 
 impl Config {
@@ -58,8 +58,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            count: DEFAULT_COUNT,
-            scroll_action: None,
+            display: DisplayMode::Windows,
+            appearance: PagerAppearance::Dots,
         }
     }
 }
@@ -173,7 +173,9 @@ impl SimpleComponent for Applet {
                 self.sync_view();
             }
             Input::StripOutput(StripOutput::Activate(target)) => {
-                self.send_command(command_for_target(target));
+                if let Some(command) = command_for_target(target) {
+                    self.send_command(command);
+                }
             }
             Input::Scroll { next, horizontal } => {
                 self.send_command(self.scroll_command(next, horizontal));
@@ -268,28 +270,30 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
         return View {
             visible: false,
             tooltip: "Workspaces unavailable".into(),
+            appearance: config.appearance,
             items: Vec::new(),
             placeholder: false,
         };
     }
 
-    let (items, tooltip, placeholder) = match pager_mode(state) {
-        PagerMode::Workspaces => (
+    let (items, tooltip, placeholder) = match config.display {
+        DisplayMode::Workspaces => (
             workspace_items(
-                config.count,
                 state.compositor,
                 state.current_workspace,
                 &state.workspaces,
                 &state.windows,
+                config.appearance,
             ),
             current_workspace_tooltip(state),
             false,
         ),
-        PagerMode::Windows => {
+        DisplayMode::Windows => {
             let items = window_items(
                 state.current_workspace,
                 state.focused_window,
                 &state.windows,
+                config.appearance,
             );
             let placeholder = items.is_empty();
             (items, current_workspace_window_tooltip(state), placeholder)
@@ -299,6 +303,7 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
     View {
         visible: true,
         tooltip,
+        appearance: config.appearance,
         items,
         placeholder,
     }
@@ -312,36 +317,31 @@ fn settings_without_legacy_style(raw: &AppletConfig) -> toml::Value {
     settings
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PagerMode {
-    Workspaces,
-    Windows,
-}
-
-fn pager_mode(state: &PagerState) -> PagerMode {
-    if state.compositor == CompositorType::Niri && state.windows_available {
-        PagerMode::Windows
-    } else {
-        PagerMode::Workspaces
-    }
-}
-
 fn workspace_items(
-    configured_count: usize,
     compositor: CompositorType,
     current_workspace: Option<usize>,
     workspaces: &[Workspace],
     windows: &[PagerWindow],
+    appearance: PagerAppearance,
 ) -> Vec<PagerItem> {
     let occupied = occupied_workspaces(windows);
     let urgent = urgent_workspaces(windows);
     let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
     let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
+    let highest_window_workspace = match compositor {
+        CompositorType::Niri => 0,
+        CompositorType::Hyprland | CompositorType::Unsupported => occupied
+            .iter()
+            .chain(urgent.iter())
+            .copied()
+            .max()
+            .unwrap_or(0),
+    };
     let count = workspace_indicator_count_for_scope(
-        configured_count,
         compositor,
         current_slot,
         &scoped_workspaces,
+        highest_window_workspace,
     );
 
     (1..=count)
@@ -351,6 +351,8 @@ fn workspace_items(
             PagerItem {
                 id: target,
                 target: PagerTarget::Workspace(target),
+                appearance,
+                label: slot.to_string(),
                 focused: workspace
                     .map(|workspace| workspace.focused)
                     .unwrap_or(current_slot == Some(slot)),
@@ -373,9 +375,10 @@ fn window_items(
     current_workspace: Option<usize>,
     focused_window: Option<usize>,
     windows: &[PagerWindow],
+    appearance: PagerAppearance,
 ) -> Vec<PagerItem> {
     let Some(current_workspace) = current_workspace else {
-        return Vec::new();
+        return vec![window_placeholder_item(appearance)];
     };
 
     let mut windows = windows
@@ -384,16 +387,36 @@ fn window_items(
         .collect::<Vec<_>>();
     windows.sort_by_key(|window| (window.layout_order.unwrap_or(usize::MAX), window.id));
 
-    windows
+    let items = windows
         .into_iter()
-        .map(|window| PagerItem {
+        .enumerate()
+        .map(|(index, window)| PagerItem {
             id: window.id,
             target: PagerTarget::Window(window.id),
+            appearance,
+            label: (index + 1).to_string(),
             focused: window.focused || focused_window == Some(window.id),
             occupied: true,
             urgent: window.urgent,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        vec![window_placeholder_item(appearance)]
+    } else {
+        items
+    }
+}
+
+fn window_placeholder_item(appearance: PagerAppearance) -> PagerItem {
+    PagerItem {
+        id: 0,
+        target: PagerTarget::Placeholder,
+        appearance,
+        label: "1".into(),
+        focused: true,
+        occupied: false,
+        urgent: false,
+    }
 }
 
 fn workspace_for_slot<'a>(
@@ -430,26 +453,34 @@ fn workspace_command_target(
 
 #[cfg(test)]
 fn workspace_indicator_count(
-    configured_count: usize,
     compositor: CompositorType,
     current_workspace: Option<usize>,
     workspaces: &[Workspace],
+    windows: &[PagerWindow],
 ) -> usize {
     let scoped_workspaces = scoped_workspaces(compositor, current_workspace, workspaces);
     let current_slot = current_workspace_slot(compositor, current_workspace, &scoped_workspaces);
+    let highest_window_workspace = match compositor {
+        CompositorType::Niri => 0,
+        CompositorType::Hyprland | CompositorType::Unsupported => windows
+            .iter()
+            .filter_map(|window| window.workspace)
+            .max()
+            .unwrap_or(0),
+    };
     workspace_indicator_count_for_scope(
-        configured_count,
         compositor,
         current_slot,
         &scoped_workspaces,
+        highest_window_workspace,
     )
 }
 
 fn workspace_indicator_count_for_scope(
-    configured_count: usize,
     compositor: CompositorType,
     current_slot: Option<usize>,
     workspaces: &[&Workspace],
+    highest_window_workspace: usize,
 ) -> usize {
     let highest_reported = workspaces
         .iter()
@@ -462,7 +493,7 @@ fn workspace_indicator_count_for_scope(
 
     highest_reported
         .max(current_slot.unwrap_or(0))
-        .max(configured_count)
+        .max(highest_window_workspace)
         .max(1)
 }
 
@@ -558,24 +589,16 @@ fn urgent_workspaces(windows: &[PagerWindow]) -> HashSet<usize> {
         .collect()
 }
 
-fn scroll_command(config: &Config, state: &PagerState, next: bool, horizontal: bool) -> Command {
-    let action = config.scroll_action.unwrap_or_else(|| {
-        if !horizontal && state.windows_available && state.focused_window_available {
-            ScrollAction::Windows
-        } else {
-            ScrollAction::Workspaces
-        }
-    });
-
-    match action {
-        ScrollAction::Windows => {
+fn scroll_command(config: &Config, _state: &PagerState, next: bool, _horizontal: bool) -> Command {
+    match config.display {
+        DisplayMode::Windows => {
             if next {
                 Command::FocusNextWindow
             } else {
                 Command::FocusPreviousWindow
             }
         }
-        ScrollAction::Workspaces => {
+        DisplayMode::Workspaces => {
             if next {
                 Command::FocusNextWorkspace
             } else {
@@ -585,10 +608,11 @@ fn scroll_command(config: &Config, state: &PagerState, next: bool, horizontal: b
     }
 }
 
-fn command_for_target(target: PagerTarget) -> Command {
+fn command_for_target(target: PagerTarget) -> Option<Command> {
     match target {
-        PagerTarget::Workspace(workspace) => Command::SetWorkspace(workspace),
-        PagerTarget::Window(window) => Command::FocusWindow(window),
+        PagerTarget::Workspace(workspace) => Some(Command::SetWorkspace(workspace)),
+        PagerTarget::Window(window) => Some(Command::FocusWindow(window)),
+        PagerTarget::Placeholder => None,
     }
 }
 
@@ -631,8 +655,8 @@ mod tests {
     fn default_config_matches_pager_defaults() {
         let config = Config::default();
 
-        assert_eq!(config.count, DEFAULT_COUNT);
-        assert_eq!(config.scroll_action, None);
+        assert_eq!(config.display, DisplayMode::Windows);
+        assert_eq!(config.appearance, PagerAppearance::Dots);
     }
 
     #[test]
@@ -649,16 +673,13 @@ mod tests {
         let config = Config::from_raw(&Some(AppletConfig {
             extends: None,
             settings: toml::Value::Table(Map::from_iter([
-                ("count".into(), toml::Value::Integer(4)),
-                (
-                    "scroll_action".into(),
-                    toml::Value::String("workspaces".into()),
-                ),
+                ("display".into(), toml::Value::String("workspaces".into())),
+                ("appearance".into(), toml::Value::String("numbers".into())),
             ])),
         }));
 
-        assert_eq!(config.count, 4);
-        assert_eq!(config.scroll_action, Some(ScrollAction::Workspaces));
+        assert_eq!(config.display, DisplayMode::Workspaces);
+        assert_eq!(config.appearance, PagerAppearance::Numbers);
     }
 
     #[test]
@@ -667,11 +688,11 @@ mod tests {
             extends: None,
             settings: toml::Value::Table(Map::from_iter([
                 ("style".into(), toml::Value::String("numbered".into())),
-                ("count".into(), toml::Value::Integer(4)),
+                ("display".into(), toml::Value::String("workspaces".into())),
             ])),
         }));
 
-        assert_eq!(config.count, 4);
+        assert_eq!(config.display, DisplayMode::Workspaces);
     }
 
     #[test]
@@ -688,17 +709,26 @@ mod tests {
     }
 
     #[test]
-    fn indicator_count_expands_to_include_current_and_reported_workspaces() {
+    fn indicator_count_comes_from_current_and_reported_workspaces() {
         assert_eq!(
-            workspace_indicator_count(10, CompositorType::Hyprland, Some(11), &[]),
+            workspace_indicator_count(CompositorType::Hyprland, Some(11), &[], &[]),
             11
         );
         assert_eq!(
-            workspace_indicator_count(10, CompositorType::Hyprland, None, &[workspace(12)]),
+            workspace_indicator_count(CompositorType::Hyprland, None, &[workspace(12)], &[]),
             12
         );
         assert_eq!(
-            workspace_indicator_count(0, CompositorType::Hyprland, None, &[]),
+            workspace_indicator_count(
+                CompositorType::Hyprland,
+                None,
+                &[],
+                &[PagerWindow::from(&window(3, Some(3), false))]
+            ),
+            3
+        );
+        assert_eq!(
+            workspace_indicator_count(CompositorType::Hyprland, None, &[], &[]),
             1
         );
     }
@@ -728,17 +758,45 @@ mod tests {
             .collect::<Vec<_>>();
 
         let items = workspace_items(
-            3,
             state.compositor,
             state.current_workspace,
             &state.workspaces,
             &windows,
+            PagerAppearance::Dots,
         );
 
         assert_eq!(items.len(), 3);
         assert!(items[1].focused);
         assert!(items[1].occupied);
         assert!(items[2].urgent);
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "3"]
+        );
+    }
+
+    #[test]
+    fn view_uses_configured_pager_appearance() {
+        let state = state_with_workspaces(vec![workspace(1), workspace(2), workspace(3)]);
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            appearance: PagerAppearance::Numbers,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &PagerState::from(&state));
+
+        assert_eq!(view.appearance, PagerAppearance::Numbers);
+        assert_eq!(
+            view.items
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "3"]
+        );
     }
 
     #[test]
@@ -807,10 +865,70 @@ mod tests {
         state.capabilities.focused_window = true;
         state.windows = vec![window(44, Some(8), true)];
 
-        let view = view_from_state(&Config::default(), &PagerState::from(&state));
+        let config = Config {
+            appearance: PagerAppearance::Numbers,
+            ..Config::default()
+        };
+        let view = view_from_state(&config, &PagerState::from(&state));
 
-        assert!(view.items.is_empty());
-        assert!(view.placeholder);
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Placeholder);
+        assert_eq!(view.items[0].appearance, PagerAppearance::Numbers);
+        assert_eq!(view.items[0].label, "1");
+        assert!(view.items[0].focused);
+        assert!(!view.placeholder);
+    }
+
+    #[test]
+    fn niri_view_uses_workspace_items_when_display_is_workspaces() {
+        let mut state = state_with_workspaces(vec![
+            Workspace {
+                id: 7,
+                index: Some(2),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: true,
+                urgent: false,
+                active_window: Some(33),
+            },
+            Workspace {
+                id: 8,
+                index: Some(3),
+                name: None,
+                monitor: Some("eDP-1".into()),
+                active: true,
+                focused: false,
+                urgent: false,
+                active_window: Some(44),
+            },
+        ]);
+        state.compositor = CompositorType::Niri;
+        state.current_workspace = Some(7);
+        state.capabilities.windows = true;
+        state.capabilities.focused_window = true;
+        state.windows = vec![window(33, Some(7), false), window(44, Some(8), false)];
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &PagerState::from(&state));
+
+        assert_eq!(view.items.len(), 3);
+        assert_eq!(
+            view.items
+                .iter()
+                .map(|item| item.target)
+                .collect::<Vec<_>>(),
+            vec![
+                PagerTarget::Workspace(1),
+                PagerTarget::Workspace(2),
+                PagerTarget::Workspace(3)
+            ]
+        );
+        assert!(view.items[1].focused);
+        assert!(!view.placeholder);
     }
 
     #[test]
@@ -846,11 +964,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         let items = workspace_items(
-            2,
             state.compositor,
             state.current_workspace,
             &state.workspaces,
             &windows,
+            PagerAppearance::Dots,
         );
 
         assert_eq!(items[1].id, 2);
@@ -880,7 +998,9 @@ mod tests {
         let view = view_from_state(&Config::default(), &PagerState::from(&state));
 
         assert!(view.visible);
-        assert!(view.placeholder);
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Placeholder);
+        assert!(!view.placeholder);
     }
 
     #[test]
@@ -907,14 +1027,14 @@ mod tests {
     }
 
     #[test]
-    fn scroll_commands_honor_configured_axis_and_explicit_action() {
+    fn scroll_commands_honor_display() {
         let mut state = State::default();
         state.capabilities.windows = true;
         state.capabilities.focused_window = true;
 
         assert!(matches!(
             scroll_command(&Config::default(), &PagerState::from(&state), true, true),
-            Command::FocusNextWorkspace
+            Command::FocusNextWindow
         ));
         assert!(matches!(
             scroll_command(&Config::default(), &PagerState::from(&state), true, false),
@@ -922,7 +1042,7 @@ mod tests {
         ));
 
         let config = Config {
-            scroll_action: Some(ScrollAction::Workspaces),
+            display: DisplayMode::Workspaces,
             ..Config::default()
         };
         assert!(matches!(
@@ -931,7 +1051,7 @@ mod tests {
         ));
 
         let config = Config {
-            scroll_action: Some(ScrollAction::Windows),
+            display: DisplayMode::Windows,
             ..Config::default()
         };
         assert!(matches!(

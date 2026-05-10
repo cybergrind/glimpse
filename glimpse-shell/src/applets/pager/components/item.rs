@@ -3,7 +3,7 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use super::strip::{Output, PagerItem};
+use super::strip::{Output, PagerAppearance, PagerItem};
 
 pub struct Item {
     view: PagerItem,
@@ -11,6 +11,7 @@ pub struct Item {
 
 pub struct Widgets {
     root: gtk::Box,
+    label: gtk::Label,
 }
 
 #[derive(Debug, Clone)]
@@ -29,10 +30,22 @@ impl Item {
         self.view.id
     }
 
-    fn apply_view(&self, root: &gtk::Box) {
+    fn apply_view(&self, root: &gtk::Box, label: &gtk::Label) {
+        set_class(
+            root,
+            "pager-dot",
+            self.view.appearance == PagerAppearance::Dots,
+        );
+        set_class(
+            root,
+            "pager-num",
+            self.view.appearance == PagerAppearance::Numbers,
+        );
         set_class(root, "active", self.view.focused);
         set_class(root, "occupied", self.view.occupied && !self.view.focused);
         set_class(root, "urgent", self.view.urgent);
+        label.set_visible(self.view.appearance == PagerAppearance::Numbers);
+        label.set_label(&self.view.label);
     }
 }
 
@@ -71,9 +84,20 @@ impl FactoryComponent for Item {
         });
         root.add_controller(click);
 
-        let widgets = Widgets { root: root.clone() };
-        widgets.root.add_css_class("pager-dot");
-        self.apply_view(&widgets.root);
+        let label = gtk::Label::new(None);
+        label.set_valign(gtk::Align::Center);
+        label.set_halign(gtk::Align::Center);
+        label.set_hexpand(true);
+        label.set_vexpand(true);
+        label.set_xalign(0.5);
+        label.set_yalign(0.5);
+        root.append(&label);
+
+        let widgets = Widgets {
+            root: root.clone(),
+            label,
+        };
+        self.apply_view(&widgets.root, &widgets.label);
         widgets
     }
 
@@ -87,7 +111,7 @@ impl FactoryComponent for Item {
     }
 
     fn update_view(&self, widgets: &mut Self::Widgets, _sender: FactorySender<Self>) {
-        self.apply_view(&widgets.root);
+        self.apply_view(&widgets.root, &widgets.label);
     }
 }
 

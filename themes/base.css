@@ -433,6 +433,44 @@ button.applet:active,
     background: var(--color-accent);
 }
 
+.pager-num {
+    min-width: 22px;
+    min-height: 22px;
+    margin: 0 var(--space-1);
+    padding: 0;
+    text-align: center;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: var(--panel-fg);
+    transition:
+        background-color var(--motion-fast) var(--ease-standard),
+        color var(--motion-fast) var(--ease-standard),
+        opacity var(--motion-fast) var(--ease-standard);
+}
+
+.pager-num label {
+    min-width: 22px;
+    min-height: 22px;
+    font-weight: 500;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.pager-num.active {
+    background: var(--accent-bg);
+    color: var(--color-accent-fg);
+}
+
+.pager-num.occupied {
+    background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.pager-num.urgent {
+    background: var(--color-accent);
+    color: var(--color-accent-fg);
+}
+
 popover {
     padding: 0;
 }
