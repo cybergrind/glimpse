@@ -17,7 +17,7 @@ use gtk4::{
     gdk::{self, prelude::MonitorExt},
     glib::{
         self,
-        object::{Cast, ObjectType},
+        object::{Cast, ObjectExt, ObjectType},
     },
     prelude::{DisplayExt, DrawingAreaExtManual, GtkWindowExt, WidgetExt},
 };
@@ -45,6 +45,7 @@ pub struct WallpaperAppModel {
     active_spec: Option<ResolvedWallpaperSpec>,
     wallpaper_windows: HashMap<MonitorKey, Controller<WallpaperWindow>>,
     backdrop_windows: HashMap<MonitorKey, Controller<BackdropWindow>>,
+    subscribed_monitors: HashSet<MonitorKey>,
     asset_watch_cancel: Option<CancellationToken>,
     ready_logged: bool,
 }
@@ -166,7 +167,7 @@ impl SimpleComponent for WallpaperAppModel {
             AppCommand::MonitorsChanged => {
                 if let Some(spec) = self.active_spec.clone() {
                     tracing::debug!("reconciling wallpaper surfaces after monitor change");
-                    self.reconcile_windows(&spec, false);
+                    self.reconcile_windows(&spec, false, sender);
                 }
             }
         }
@@ -193,21 +194,56 @@ impl WallpaperAppModel {
             "applying wallpaper spec"
         );
         self.active_spec = Some(spec.clone());
-        self.reconcile_windows(&spec, force_image_reload);
+        self.reconcile_windows(&spec, force_image_reload, sender.clone());
         self.watch_active_paths(spec, sender);
     }
 
-    fn reconcile_windows(&mut self, spec: &ResolvedWallpaperSpec, force_image_reload: bool) {
+    fn reconcile_windows(
+        &mut self,
+        spec: &ResolvedWallpaperSpec,
+        force_image_reload: bool,
+        sender: ComponentSender<Self>,
+    ) {
         let Some(display) = gdk::Display::default() else {
             tracing::warn!("no default GDK display while reconciling wallpaper surfaces");
             return;
         };
-        let monitors = list_monitors(&display);
+        let all_monitors = list_monitors(&display);
+        let (monitors, pending): (Vec<_>, Vec<_>) = all_monitors
+            .into_iter()
+            .partition(|monitor| monitor_target_size(monitor) != (0, 0));
+
+        for monitor in &pending {
+            let key = MonitorKey::for_monitor(monitor);
+            if self.subscribed_monitors.insert(key) {
+                let label = connector_name(monitor);
+                tracing::info!(
+                    monitor = %label,
+                    "monitor announced with zero geometry; deferring surface until geometry arrives"
+                );
+                let notify_sender = sender.clone();
+                monitor.connect_notify_local(Some("geometry"), move |_, _| {
+                    let _ = notify_sender.input(AppCommand::MonitorsChanged);
+                });
+            }
+        }
+
+        let live_keys: HashSet<MonitorKey> = monitors
+            .iter()
+            .chain(pending.iter())
+            .map(MonitorKey::for_monitor)
+            .collect();
+        self.subscribed_monitors.retain(|key| live_keys.contains(key));
+
         if monitors.is_empty() {
-            tracing::warn!("no monitors reported by GDK; no wallpaper surfaces created");
+            tracing::warn!(
+                pending_count = pending.len(),
+                "no monitors with non-zero geometry; no wallpaper surfaces created"
+            );
         } else {
             tracing::info!(
                 monitor_count = monitors.len(),
+                pending_count = pending.len(),
                 force_image_reload,
                 "reconciling wallpaper surfaces"
             );
