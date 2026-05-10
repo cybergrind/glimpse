@@ -43,7 +43,7 @@ The special name `"..."` means “keep the default applets for this section here
 | `mpris` | Media player status. |
 | `network` | Wi-Fi and wired network status. |
 | `notifications` | Notification center. |
-| `pager` | Windows of the focused workspace (or workspace dots on Hyprland). |
+| `pager` | Windows of the panel monitor's active workspace (or workspace dots on Hyprland). |
 | `workspaces-pager` | Per-monitor workspaces with names. |
 | `privacy` | Camera, microphone, and screen sharing indicators. |
 | `removable` | USB and removable drives. |

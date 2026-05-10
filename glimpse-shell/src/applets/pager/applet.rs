@@ -292,11 +292,15 @@ fn view_from_state(
 ) -> View {
     match mode {
         Mode::Workspaces => desktops_view_from_state(config, panel_monitor, state),
-        Mode::Auto => legacy_view_from_state(config, state),
+        Mode::Auto => legacy_view_from_state(config, panel_monitor, state),
     }
 }
 
-fn legacy_view_from_state(config: &Config, state: &PagerState) -> View {
+fn legacy_view_from_state(
+    config: &Config,
+    panel_monitor: Option<&str>,
+    state: &PagerState,
+) -> View {
     if !state.workspaces_available {
         return View {
             visible: false,
@@ -319,13 +323,15 @@ fn legacy_view_from_state(config: &Config, state: &PagerState) -> View {
             false,
         ),
         LegacyPagerMode::Windows => {
+            let target_workspace = panel_active_workspace(panel_monitor, state)
+                .or(state.current_workspace);
             let items =
-                legacy_window_items(state.current_workspace, state.focused_window, &state.windows);
+                legacy_window_items(target_workspace, state.focused_window, &state.windows);
             let count = items.len();
             let placeholder = items.is_empty();
             (
                 items,
-                current_workspace_window_tooltip(None, state, count),
+                current_workspace_window_tooltip(panel_monitor, state, count),
                 placeholder,
             )
         }
@@ -343,6 +349,15 @@ fn legacy_view_from_state(config: &Config, state: &PagerState) -> View {
 enum LegacyPagerMode {
     Workspaces,
     Windows,
+}
+
+fn panel_active_workspace(panel_monitor: Option<&str>, state: &PagerState) -> Option<usize> {
+    let monitor = panel_monitor?;
+    state
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.active && workspace.monitor.as_deref() == Some(monitor))
+        .map(|workspace| workspace.id)
 }
 
 fn legacy_pager_mode(state: &PagerState) -> LegacyPagerMode {
@@ -1175,7 +1190,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_mode_on_niri_renders_windows_of_globally_focused_workspace() {
+    fn auto_mode_on_niri_scopes_windows_to_panel_monitor_active_workspace() {
         let mut state = state_with_workspaces(vec![
             Workspace {
                 id: 7,
@@ -1209,20 +1224,29 @@ mod tests {
             window_with_position(33, Some(7), false, 10),
         ];
 
-        let view = view_from_state(
+        let view_focused = view_from_state(
+            &Config::default(),
+            Mode::Auto,
+            Some("eDP-1"),
+            &PagerState::from(&state),
+        );
+        assert_eq!(view_focused.items.len(), 2);
+        assert_eq!(view_focused.items[0].id, 33);
+        assert_eq!(view_focused.items[0].target, PagerTarget::Window(33));
+        assert_eq!(view_focused.items[1].id, 11);
+        assert!(view_focused.items[0].focused);
+        assert!(view_focused.items.iter().all(|item| item.occupied));
+
+        let view_other = view_from_state(
             &Config::default(),
             Mode::Auto,
             Some("HDMI-A-1"),
             &PagerState::from(&state),
         );
-
-        assert_eq!(view.items.len(), 2);
-        assert_eq!(view.items[0].id, 33);
-        assert_eq!(view.items[0].target, PagerTarget::Window(33));
-        assert_eq!(view.items[1].id, 11);
-        assert!(view.items[0].focused);
-        assert!(view.items.iter().all(|item| item.occupied));
-        assert!(!view.placeholder);
+        assert_eq!(view_other.items.len(), 1);
+        assert_eq!(view_other.items[0].id, 44);
+        assert_eq!(view_other.items[0].target, PagerTarget::Window(44));
+        assert!(!view_other.placeholder);
     }
 
     #[test]

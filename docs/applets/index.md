@@ -52,7 +52,7 @@ An empty label means the applet shows only its icon.
 | [`mpris`](#mpris) | Media players and playback controls. |
 | [`network`](#network) | Wi-Fi, wired network, and VPN status. |
 | [`notifications`](#notifications) | Notification center and popups. |
-| [`pager`](#pager) | Windows of the focused workspace (or workspace dots on Hyprland). |
+| [`pager`](#pager) | Windows of the panel monitor's active workspace (or workspace dots on Hyprland). |
 | [`workspaces-pager`](#workspaces-pager) | Per-monitor workspaces with names. |
 | [`privacy`](#privacy) | Camera, microphone, screen sharing, and location indicators. |
 | [`removable`](#removable) | USB drives and removable storage. |
@@ -332,7 +332,7 @@ Placeholders: `{count}`, `{state}`.
 
 Auto-detects what to show based on the compositor:
 
-- **niri**: dots for the windows on the globally focused workspace; the focused window is highlighted, others use a medium tint, and an empty workspace renders a single placeholder dot.
+- **niri**: dots for the windows on the panel monitor's active workspace (so each monitor's panel shows its own windows, even when keyboard focus is on a different monitor); the focused window is highlighted, others use a medium tint, and an empty workspace renders a single placeholder dot.
 - **Hyprland / unsupported**: workspace dots, with the focused workspace highlighted.
 
 ```toml

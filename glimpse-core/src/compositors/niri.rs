@@ -482,13 +482,11 @@ fn parse_workspace_activated(event: &Value, state: &mut NiriEventState) -> Vec<C
 
     if focused {
         state.current_workspace = Some(workspace);
-        vec![CompositorEvent::WorkspaceChanged {
-            id: workspace,
-            focused,
-        }]
-    } else {
-        Vec::new()
     }
+    vec![CompositorEvent::WorkspaceChanged {
+        id: workspace,
+        focused,
+    }]
 }
 
 fn parse_workspace_active_window_changed(

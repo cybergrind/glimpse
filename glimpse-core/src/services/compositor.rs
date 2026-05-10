@@ -228,14 +228,26 @@ impl CompositorService {
                     if focused {
                         changed |= set_if_changed(&mut state.current_workspace, Some(id));
                     }
+                    let monitor = state
+                        .workspaces
+                        .iter()
+                        .find(|workspace| workspace.id == id)
+                        .and_then(|workspace| workspace.monitor.clone());
                     for workspace in &mut state.workspaces {
-                        changed |=
-                            set_if_changed(&mut workspace.focused, workspace.id == id && focused);
-                        if workspace.id == id {
-                            changed |= set_if_changed(&mut workspace.active, true);
-                            if focused {
-                                changed |= set_if_changed(&mut workspace.urgent, false);
+                        if focused {
+                            changed |=
+                                set_if_changed(&mut workspace.focused, workspace.id == id);
+                        }
+                        if let Some(monitor) = monitor.as_deref() {
+                            if workspace.monitor.as_deref() == Some(monitor) {
+                                changed |=
+                                    set_if_changed(&mut workspace.active, workspace.id == id);
                             }
+                        } else if workspace.id == id {
+                            changed |= set_if_changed(&mut workspace.active, true);
+                        }
+                        if workspace.id == id && focused {
+                            changed |= set_if_changed(&mut workspace.urgent, false);
                         }
                     }
                     if focused {
