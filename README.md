@@ -19,7 +19,6 @@ defaults, and lets you replace the parts that should reflect your setup.
 - [Night Light](#night-light)
 - [Idle Policy](#idle-policy)
 - [Theming](#theming)
-- [Documentation](#documentation)
 
 ## Why Glimpse Exists
 
@@ -487,43 +486,3 @@ path is:
 ```text
 ~/.config/glimpse/themes/lock.css
 ```
-
-## Documentation
-
-The documentation site is built with VitePress and deployed to GitHub Pages:
-
-```text
-https://alex-oleshkevich.github.io/glimpse/
-```
-
-Run the docs locally:
-
-```sh
-cd docs
-npm ci
-npm run docs:dev
-```
-
-Build the production docs:
-
-```sh
-cd docs
-npm run docs:build
-```
-
-The GitHub Pages workflow is `.github/workflows/docs.yml`.
-
-## More Docs
-
-| Topic | Link |
-|---|---|
-| Motivation | [docs/motivation.md](docs/motivation.md) |
-| Installation | [docs/installation.md](docs/installation.md) |
-| Configuration | [docs/configuration.md](docs/configuration.md) |
-| Applets | [docs/applets/index.md](docs/applets/index.md) |
-| Custom applets | [docs/custom-applets/index.md](docs/custom-applets/index.md) |
-| Theming | [docs/theming.md](docs/theming.md) |
-| Lock screen | [docs/lock.md](docs/lock.md) |
-| Wallpaper | [docs/wallpaper.md](docs/wallpaper.md) |
-| Idle policy | [docs/idle.md](docs/idle.md) |
-| Night light | [docs/sunset.md](docs/sunset.md) |
