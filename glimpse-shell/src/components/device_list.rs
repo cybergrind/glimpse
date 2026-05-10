@@ -1,5 +1,6 @@
 #![allow(unused_assignments)]
 
+use std::collections::HashSet;
 use std::fmt::Debug;
 
 use relm4::{
@@ -396,7 +397,10 @@ impl<Command> DeviceList<Command>
 where
     Command: Clone + Debug + Send + 'static,
 {
-    fn sync_rows(&mut self, items: Vec<DeviceListItem<Command>>) {
+    fn sync_rows(&mut self, mut items: Vec<DeviceListItem<Command>>) {
+        let mut seen = HashSet::new();
+        items.retain(|item| seen.insert(item.id.clone()));
+
         let next_keys = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
         let current_keys = {
             let guard = self.rows.guard();

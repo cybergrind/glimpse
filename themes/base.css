@@ -440,7 +440,7 @@ button.applet:active,
     padding: 0;
     text-align: center;
     border-radius: var(--radius-pill);
-    background: color-mix(in srgb, currentColor 10%, transparent);
+    background: color-mix(in srgb, currentColor 1%, transparent);
     color: var(--panel-fg);
     transition:
         background-color var(--motion-fast) var(--ease-standard),
@@ -458,16 +458,16 @@ button.applet:active,
 }
 
 .pager-num.active {
-    background: var(--accent-bg);
+    background: color-mix(in srgb, currentColor 30%, transparent);
     color: var(--color-accent-fg);
 }
 
 .pager-num.occupied {
-    background: color-mix(in srgb, currentColor 18%, transparent);
+    background: color-mix(in srgb, currentColor 5%, transparent);
 }
 
 .pager-num.urgent {
-    background: var(--color-accent);
+    background: var(--color-warning);
     color: var(--color-accent-fg);
 }
 

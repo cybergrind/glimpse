@@ -1,6 +1,7 @@
 #![allow(unused_assignments)]
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use relm4::{
@@ -349,6 +350,8 @@ fn visible_devices(snapshot: &BluetoothSnapshot) -> Vec<&BluetoothDevice> {
             )
             .then(left.name.cmp(&right.name))
     });
+    let mut seen: HashSet<&str> = HashSet::new();
+    devices.retain(|device| seen.insert(device.address.as_str()));
     devices
 }
 

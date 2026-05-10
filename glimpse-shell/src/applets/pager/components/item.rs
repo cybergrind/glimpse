@@ -87,8 +87,6 @@ impl FactoryComponent for Item {
         let label = gtk::Label::new(None);
         label.set_valign(gtk::Align::Center);
         label.set_halign(gtk::Align::Center);
-        label.set_hexpand(true);
-        label.set_vexpand(true);
         label.set_xalign(0.5);
         label.set_yalign(0.5);
         root.append(&label);
