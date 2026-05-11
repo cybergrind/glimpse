@@ -22,7 +22,7 @@ theme_mode = "auto"
 
 | Option | Default | Values | Meaning |
 |---|---|---|---|
-| `theme` | `"adwaita"` | theme name or CSS path | Selects the shell theme. |
+| `theme` | `"adwaita"` | theme name | Selects the shell theme. |
 | `theme_mode` | `"auto"` | `auto`, `dark`, `light` | Chooses light/dark styling. |
 
 If `theme = "mytheme"`, Glimpse looks for:
@@ -31,7 +31,7 @@ If `theme = "mytheme"`, Glimpse looks for:
 ~/.config/glimpse/themes/mytheme.css
 ```
 
-If that file does not exist, Glimpse falls back to the shipped theme with the same name, then to `adwaita`.
+If that file does not exist, Glimpse keeps the embedded base theme and logs that the user theme was not found.
 
 ## Per-Panel Mode
 
@@ -122,6 +122,7 @@ This writes:
 Lock config defaults to that path:
 
 ```toml
+[lock]
 css_path = "themes/lock.css"
 ```
 

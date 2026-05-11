@@ -2,6 +2,8 @@
 
 The lock screen protects your session and gives your desktop a finished first impression. It can use your wallpaper, show the clock, display status buttons, and load your custom CSS.
 
+`glimpse-lock` reads `[lock]` from `~/.config/glimpse/config.toml`.
+
 ## Enable Locking
 
 ```sh
@@ -16,13 +18,7 @@ loginctl lock-session
 
 Use `loginctl lock-session` from keybindings and idle rules. Keep the service running so locking happens immediately.
 
-## Export Starter Files
-
-Create a starter config:
-
-```sh
-glimpse-lock --export-config
-```
+## Starter CSS
 
 Create starter CSS:
 
@@ -30,31 +26,32 @@ Create starter CSS:
 glimpse-lock --export-css
 ```
 
-The usual files are:
+This writes:
 
-| File | Purpose |
-|---|---|
-| `~/.config/glimpse/lock.toml` | Lock screen behavior and visible controls. |
-| `~/.config/glimpse/themes/lock.css` | Your lock screen styling. |
+```txt
+~/.config/glimpse/themes/lock.css
+```
 
 ## Example Config
 
 ```toml
+[lock]
 pam_service = "glimpse-lock"
 css_path = "themes/lock.css"
 
-[background]
+[lock.background]
 path = "/home/alex/Pictures/wallpapers/night-city.jpg"
 fit = "cover"
 blur_radius = 24
+dim = 0.35
 
-[clock]
+[lock.clock]
 enabled = true
 time_format = "%H:%M"
 date_format = "%A, %B %-d"
 
-[controls]
-order = ["wifi", "language", "weather", "battery", "power"]
+[lock.controls]
+buttons = ["wifi", "input", "weather", "battery", "power"]
 ```
 
 If you do not set a lock background, Glimpse uses your wallpaper.
@@ -64,16 +61,16 @@ If you do not set a lock background, Glimpse uses your wallpaper.
 | Button | What it shows |
 |---|---|
 | `wifi` | Network status. |
-| `language` | Current keyboard layout. |
+| `input` | Current keyboard layout. |
 | `weather` | Weather icon and temperature. |
 | `battery` | Battery status. Percent is shown when running on battery. |
 | `power` | Suspend, restart, and shutdown menu. |
 
-Change the order or remove buttons:
+Change the buttons or remove entries:
 
 ```toml
-[controls]
-order = ["wifi", "battery", "power"]
+[lock.controls]
+buttons = ["wifi", "battery", "power"]
 ```
 
 ## Theme Preview
@@ -96,8 +93,6 @@ In preview mode:
 Start with the exported CSS, then adjust spacing, fonts, and placement.
 
 ```css
-@import "lock.css";
-
 .lock-entry {
   background: rgba(255, 255, 255, 0.20);
 }
@@ -109,7 +104,7 @@ Keep custom CSS in `~/.config/glimpse/themes/lock.css`. The running preview relo
 
 | Goal | Tip |
 |---|---|
-| Match wallpaper and lock screen | Leave `[background]` unset in `lock.toml`. |
+| Match wallpaper and lock screen | Leave `[lock.background]` unset in `config.toml`. |
 | Build a glassy look | Use a blurred background and translucent entry styling. |
 | Avoid accidental shutdown | Restart and shutdown ask for confirmation. |
 | Test safely | Use `--preview`; it does not run real power actions. |

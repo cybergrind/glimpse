@@ -195,7 +195,6 @@ For security, `glimpse-lock` ignores logind `Unlock` requests; unlocking require
 
 | File | Location |
 |------|----------|
-| Panel config | `$XDG_CONFIG_HOME/glimpse/panel.toml` or `./panel.toml` |
 | Shell, wallpaper, sunset, idle, and lock config | `GLIMPSE_CONFIG`, `./config.toml`, or `$XDG_CONFIG_HOME/glimpse/config.toml` |
 | User theme CSS | `$XDG_CONFIG_HOME/glimpse/themes/<name>.css` |
 | Lock screen CSS | `$XDG_CONFIG_HOME/glimpse/themes/lock.css` |

@@ -2,17 +2,7 @@
 
 Wallpaper sets the desktop background. It can show a solid color, an image, and a blurred backdrop that helps panels and lock screens feel softer.
 
-## Export Starter Config
-
-```sh
-glimpse-wallpaper --export-config
-```
-
-The usual file is:
-
-```txt
-~/.config/glimpse/wallpaper.toml
-```
+`glimpse-wallpaper` reads `[wallpaper]` and `[backdrop]` from `~/.config/glimpse/config.toml`.
 
 ## Solid Color
 
@@ -68,7 +58,7 @@ Use a separate backdrop if you want the lock screen and shell effects to feel ca
 
 ## Reloading
 
-Glimpse watches the wallpaper config and image files. When you change the file, the wallpaper updates without restarting the service.
+Glimpse watches the shared config and image files. When you change the file, the wallpaper updates without restarting the service.
 
 If a new image cannot be loaded, the previous image stays visible when possible. If no image is available, Glimpse falls back to the configured color.
 

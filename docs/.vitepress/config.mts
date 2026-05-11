@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Glimpse',
-  description: 'A Wayland shell for Niri, built from small focused services.',
+  description: 'A polished desktop shell toolkit for Niri.',
   base: '/glimpse/',
   cleanUrls: true,
   srcExclude: ['packaging.md', 'superpowers/**'],
@@ -12,7 +12,10 @@ export default defineConfig({
       { text: 'Installation', link: '/installation' },
       { text: 'Configuration', link: '/configuration' },
       { text: 'Applets', link: '/applets/' },
-      { text: 'Theming', link: '/theming' }
+      { text: 'Theming', link: '/theming' },
+      { text: 'Wallpaper', link: '/wallpaper' },
+      { text: 'Lock', link: '/lock' },
+      { text: 'GitHub', link: 'https://github.com/alex-oleshkevich/glimpse' }
     ],
     sidebar: [
       {
@@ -21,13 +24,16 @@ export default defineConfig({
           { text: 'Introduction', link: '/' },
           { text: 'Motivation', link: '/motivation' },
           { text: 'Installation', link: '/installation' },
+          { text: 'Configuration', link: '/configuration' },
           { text: 'Theming', link: '/theming' }
         ]
       },
       {
         text: 'Configuration',
         items: [
-          { text: 'Panels', link: '/configuration' }
+          { text: 'Panels and Applets', link: '/configuration' },
+          { text: 'Wallpaper', link: '/wallpaper' },
+          { text: 'Lock Screen', link: '/lock' }
         ]
       },
       {
@@ -43,9 +49,7 @@ export default defineConfig({
         text: 'Services',
         items: [
           { text: 'Idle', link: '/idle' },
-          { text: 'Sunset', link: '/sunset' },
-          { text: 'Lock', link: '/lock' },
-          { text: 'Wallpaper', link: '/wallpaper' }
+          { text: 'Sunset', link: '/sunset' }
         ]
       }
     ],

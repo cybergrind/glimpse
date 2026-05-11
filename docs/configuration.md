@@ -1,30 +1,31 @@
 # Configuration
 
-The main config file is `~/.config/glimpse/config.toml`. It controls the panel, applets, location, night light, and idle behavior.
+The main config file is `~/.config/glimpse/config.toml`. It controls the panel, applets, wallpaper, lock screen, location, night light, and idle behavior.
 
 ## Start With A Panel
 
-This is a small, useful panel:
+This is a compact panel:
 
 ```toml
 [[panels]]
-output = "eDP-1"
+monitor = "eDP-1"
 position = "top"
-height = 36
+size = 36
 left = ["pager", "..."]
 center = ["clock"]
 right = ["network", "battery", "weather", "session"]
 ```
 
-The special name `"..."` means “keep the default applets for this section here.” It lets you add your own items without copying the whole default layout.
+The special name `"..."` means "keep the default applets for this section here." It lets you add your own items without copying the whole default layout.
 
 ## Panel Options
 
 | Option | What it does |
 |---|---|
-| `output` | Monitor name. Leave it out if one panel should appear on the default output. |
-| `position` | `top` or `bottom`. |
-| `height` | Panel height in pixels. |
+| `monitor` | Output name. Leave it out if one panel should appear on the default output. |
+| `position` | `top`, `bottom`, `left`, or `right`. |
+| `size` | Panel thickness in pixels. |
+| `theme_mode` | Per-panel mode: `auto`, `dark`, or `light`. |
 | `left` | Applets on the left side. |
 | `center` | Applets in the center. |
 | `right` | Applets on the right side. |
@@ -58,7 +59,7 @@ Applet settings live under `[applets.name]`.
 
 ```toml
 [applets.weather]
-location = "Warsaw"
+city_name = "Warsaw, PL"
 
 [applets.terminal]
 extends = "command"
@@ -100,8 +101,12 @@ Static location is useful on desktops, privacy-focused setups, or systems withou
 Use one section per topic:
 
 ```toml
+theme = "adwaita"
+theme_mode = "auto"
+
 [[panels]]
 position = "top"
+size = 36
 left = ["pager"]
 center = ["clock"]
 right = ["network", "battery", "session"]
@@ -113,6 +118,13 @@ longitude = 21.0122
 
 [applets.clock]
 format = "%H:%M"
+
+[wallpaper]
+path = "/home/alex/Pictures/wallpapers/coast.jpg"
+fit = "cover"
+
+[lock]
+css_path = "themes/lock.css"
 ```
 
-Put wallpaper options in [Wallpaper](./wallpaper.md) and lock screen options in [Lock](./lock.md). That keeps your main file readable.
+Read [Applets](./applets/) for per-applet options, [Wallpaper](./wallpaper.md) for background settings, and [Lock](./lock.md) for lock screen settings.

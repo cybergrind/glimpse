@@ -1,6 +1,6 @@
 # Installation
 
-Glimpse is packaged for Arch-based systems as a prebuilt package. You install it once, then enable the pieces you want in your user session.
+Glimpse is packaged for Arch-based systems as a prebuilt package. Install it once, then enable the pieces you want in your user session.
 
 ## Install From AUR
 
@@ -9,6 +9,18 @@ yay -S glimpse-desktop-bin
 ```
 
 Use your preferred AUR helper if you do not use `yay`.
+
+The package installs:
+
+| Command | Purpose |
+|---|---|
+| `glimpse-shell` | Panel and shell surfaces. |
+| `glimpse-wallpaper` | Wallpaper and blurred backdrop daemon. |
+| `glimpse-lock` | Session lock screen and logind lock listener. |
+| `glimpse-sunset` | Night-light daemon. |
+| `glimpse-idle` | Idle policy daemon. |
+
+The package also installs systemd user services and the default PAM service file for `glimpse-lock`.
 
 ## Enable Glimpse
 
@@ -21,7 +33,7 @@ systemctl --user enable --now glimpse-sunset.service
 systemctl --user enable --now glimpse-idle.service
 ```
 
-The wallpaper starts with the shell, so most users do not need to enable it separately.
+`glimpse-shell.service` wants `glimpse-wallpaper.service`, so starting the shell also starts the wallpaper daemon. Enable `glimpse-wallpaper.service` directly only if you want wallpaper without the shell.
 
 ## Check That It Is Running
 
@@ -42,16 +54,22 @@ Replace `glimpse-shell.service` with the service you are checking.
 
 ## First Config Files
 
-Glimpse reads config from:
+Glimpse reads shared config from:
 
-| File | Purpose |
+| Priority | Path |
 |---|---|
-| `~/.config/glimpse/config.toml` | Panel, applets, idle, location, and night light. |
-| `~/.config/glimpse/wallpaper.toml` | Wallpaper and backdrop. |
-| `~/.config/glimpse/lock.toml` | Lock screen layout, controls, background, and clock. |
-| `~/.config/glimpse/themes/lock.css` | Lock screen styling. |
+| **1** | `GLIMPSE_CONFIG` environment variable |
+| **2** | `./config.toml` in the current directory |
+| **3** | `$XDG_CONFIG_HOME/glimpse/config.toml` |
+| **4** | `$HOME/.config/glimpse/config.toml` when `XDG_CONFIG_HOME` is unset |
 
-You can start without writing every file. Glimpse has defaults, and each feature page shows a copyable example.
+Most users create:
+
+```txt
+~/.config/glimpse/config.toml
+```
+
+Use that file for panel layout, applets, wallpaper, lock screen, idle rules, location, and night light. Use `~/.config/glimpse/themes/` for shell and lock CSS.
 
 ## Version Check
 
