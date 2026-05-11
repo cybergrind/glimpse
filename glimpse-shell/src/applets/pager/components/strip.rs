@@ -24,6 +24,7 @@ pub struct PagerItem {
     pub appearance: PagerAppearance,
     pub label: String,
     pub focused: bool,
+    pub monitor_focused: bool,
     pub occupied: bool,
     pub urgent: bool,
 }

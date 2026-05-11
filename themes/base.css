@@ -425,6 +425,11 @@ button.applet:active,
     background: color-mix(in srgb, currentColor 90%, transparent);
 }
 
+.pager-dot.inactive {
+    min-width: calc(var(--space-6) + var(--space-3));
+    background: color-mix(in srgb, currentColor 50%, transparent);
+}
+
 .pager-dot.occupied {
     background: color-mix(in srgb, currentColor 55%, transparent);
 }
@@ -462,8 +467,13 @@ button.applet:active,
     color: var(--color-accent-fg);
 }
 
+.pager-num.inactive {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    color: var(--panel-fg);
+}
+
 .pager-num.occupied {
-    background: color-mix(in srgb, currentColor 5%, transparent);
+    background: color-mix(in srgb, currentColor 2%, transparent);
 }
 
 .pager-num.urgent {

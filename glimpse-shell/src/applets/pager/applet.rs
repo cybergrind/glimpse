@@ -276,6 +276,20 @@ impl PagerState {
         }
         self.current_workspace
     }
+
+    fn is_panel_monitor_focused(&self) -> bool {
+        let Some(name) = self.panel_monitor.as_deref() else {
+            return true;
+        };
+        match self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.name == name)
+        {
+            Some(monitor) => monitor.focused,
+            None => true,
+        }
+    }
 }
 
 impl From<&Window> for PagerWindow {
@@ -303,6 +317,7 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
 
     let panel_monitor = state.panel_monitor.as_deref();
     let current_workspace = state.effective_current_workspace();
+    let monitor_focused = state.is_panel_monitor_focused();
 
     let (items, tooltip, placeholder) = match config.display {
         DisplayMode::Workspaces => (
@@ -310,6 +325,7 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
                 state.compositor,
                 current_workspace,
                 panel_monitor,
+                monitor_focused,
                 &state.workspaces,
                 &state.windows,
                 config.appearance,
@@ -322,6 +338,7 @@ fn view_from_state(config: &Config, state: &PagerState) -> View {
                 state.compositor,
                 current_workspace,
                 panel_monitor,
+                monitor_focused,
                 state.focused_window,
                 &state.workspaces,
                 &state.windows,
@@ -353,6 +370,7 @@ fn workspace_items(
     compositor: CompositorType,
     current_workspace: Option<usize>,
     panel_monitor: Option<&str>,
+    monitor_focused: bool,
     workspaces: &[Workspace],
     windows: &[PagerWindow],
     appearance: PagerAppearance,
@@ -387,8 +405,8 @@ fn workspace_items(
                 target: PagerTarget::Workspace(target),
                 appearance,
                 label: slot.to_string(),
-                focused: current_slot == Some(slot)
-                    || workspace.map(|workspace| workspace.focused).unwrap_or(false),
+                focused: current_slot == Some(slot),
+                monitor_focused,
                 occupied: workspace
                     .and_then(|workspace| workspace.active_window)
                     .is_some()
@@ -408,17 +426,18 @@ fn window_items(
     compositor: CompositorType,
     current_workspace: Option<usize>,
     panel_monitor: Option<&str>,
+    monitor_focused: bool,
     focused_window: Option<usize>,
     workspaces: &[Workspace],
     windows: &[PagerWindow],
     appearance: PagerAppearance,
 ) -> Vec<PagerItem> {
     let Some(current_workspace) = current_workspace else {
-        return vec![window_placeholder_item(appearance)];
+        return vec![window_placeholder_item(appearance, monitor_focused)];
     };
 
     if !workspace_belongs_to_panel(compositor, panel_monitor, current_workspace, workspaces) {
-        return vec![window_placeholder_item(appearance)];
+        return vec![window_placeholder_item(appearance, monitor_focused)];
     }
 
     let mut windows = windows
@@ -436,24 +455,26 @@ fn window_items(
             appearance,
             label: (index + 1).to_string(),
             focused: window.focused || focused_window == Some(window.id),
+            monitor_focused,
             occupied: true,
             urgent: window.urgent,
         })
         .collect::<Vec<_>>();
     if items.is_empty() {
-        vec![window_placeholder_item(appearance)]
+        vec![window_placeholder_item(appearance, monitor_focused)]
     } else {
         items
     }
 }
 
-fn window_placeholder_item(appearance: PagerAppearance) -> PagerItem {
+fn window_placeholder_item(appearance: PagerAppearance, monitor_focused: bool) -> PagerItem {
     PagerItem {
         id: 0,
         target: PagerTarget::Placeholder,
         appearance,
         label: "1".into(),
         focused: true,
+        monitor_focused,
         occupied: false,
         urgent: false,
     }
@@ -836,6 +857,7 @@ mod tests {
             state.compositor,
             state.current_workspace,
             None,
+            true,
             &state.workspaces,
             &windows,
             PagerAppearance::Dots,
@@ -1043,6 +1065,7 @@ mod tests {
             state.compositor,
             state.current_workspace,
             None,
+            true,
             &state.workspaces,
             &windows,
             PagerAppearance::Dots,
@@ -1316,6 +1339,45 @@ mod tests {
 
         assert_eq!(view.items.len(), 1);
         assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+    }
+
+    #[test]
+    fn workspace_items_mark_active_slot_focused_on_focused_monitor() {
+        let state = niri_two_monitor_state();
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("HDMI-A-1".into());
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].target, PagerTarget::Workspace(1));
+        assert!(view.items[0].focused);
+        assert!(view.items[0].monitor_focused);
+    }
+
+    #[test]
+    fn workspace_items_mark_active_slot_inactive_when_panel_monitor_is_not_focused() {
+        let state = niri_two_monitor_state();
+        let mut pager_state = PagerState::from(&state);
+        pager_state.panel_monitor = Some("eDP-1".into());
+        let config = Config {
+            display: DisplayMode::Workspaces,
+            ..Config::default()
+        };
+
+        let view = view_from_state(&config, &pager_state);
+
+        assert_eq!(view.items.len(), 2);
+        assert!(view.items[0].focused);
+        assert!(
+            !view.items[0].monitor_focused,
+            "monitor_focused must be false when global focus is on another output"
+        );
+        assert!(!view.items[1].focused);
     }
 
     #[test]

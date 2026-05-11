@@ -41,7 +41,10 @@ impl Item {
             "pager-num",
             self.view.appearance == PagerAppearance::Numbers,
         );
-        set_class(root, "active", self.view.focused);
+        let active = self.view.focused && self.view.monitor_focused;
+        let inactive = self.view.focused && !self.view.monitor_focused;
+        set_class(root, "active", active);
+        set_class(root, "inactive", inactive);
         set_class(root, "occupied", self.view.occupied && !self.view.focused);
         set_class(root, "urgent", self.view.urgent);
         label.set_visible(self.view.appearance == PagerAppearance::Numbers);
