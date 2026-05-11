@@ -462,13 +462,11 @@ fn parse_workspace_activated(event: &Value, state: &mut NiriEventState) -> Vec<C
 
     if focused {
         state.current_workspace = Some(workspace);
-        vec![CompositorEvent::WorkspaceChanged {
-            id: workspace,
-            focused,
-        }]
-    } else {
-        Vec::new()
     }
+    vec![CompositorEvent::WorkspaceChanged {
+        id: workspace,
+        focused,
+    }]
 }
 
 fn parse_workspace_active_window_changed(
@@ -747,6 +745,41 @@ mod tests {
                 active_window: Some(9),
             }])]
         );
+    }
+
+    #[test]
+    fn workspace_activated_emits_change_event_even_when_not_globally_focused() {
+        let mut state = NiriEventState::default();
+
+        let events = parse_niri_event(
+            r#"{"WorkspaceActivated":{"id":7,"focused":false}}"#,
+            &mut state,
+        );
+
+        assert_eq!(
+            events,
+            vec![CompositorEvent::WorkspaceChanged {
+                id: 7,
+                focused: false,
+            }]
+        );
+        assert_eq!(
+            state.current_workspace, None,
+            "current_workspace must not move when activation is on a non-focused output",
+        );
+
+        let events = parse_niri_event(
+            r#"{"WorkspaceActivated":{"id":9,"focused":true}}"#,
+            &mut state,
+        );
+        assert_eq!(
+            events,
+            vec![CompositorEvent::WorkspaceChanged {
+                id: 9,
+                focused: true,
+            }]
+        );
+        assert_eq!(state.current_workspace, Some(9));
     }
 
     #[test]

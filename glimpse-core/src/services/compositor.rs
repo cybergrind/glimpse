@@ -225,16 +225,7 @@ impl CompositorService {
                     changed |= set_if_changed(&mut state.current_workspace, current_workspace);
                 }
                 CompositorEvent::WorkspaceChanged { id, focused } => {
-                    if focused {
-                        changed |= set_if_changed(&mut state.current_workspace, Some(id));
-                    }
-                    for workspace in &mut state.workspaces {
-                        changed |=
-                            set_if_changed(&mut workspace.focused, workspace.id == id && focused);
-                        if workspace.id == id {
-                            changed |= set_if_changed(&mut workspace.active, true);
-                        }
-                    }
+                    changed |= apply_workspace_changed(state, id, focused);
                 }
                 CompositorEvent::WorkspaceActiveWindowChanged { workspace, window } => {
                     if let Some(item) = state
@@ -574,6 +565,39 @@ fn sync_focused_window_from_windows(state: &mut State) -> bool {
     set_if_changed(&mut state.focused_window, focused_window)
 }
 
+fn apply_workspace_changed(state: &mut State, id: usize, focused: bool) -> bool {
+    let mut changed = false;
+    if focused {
+        changed |= set_if_changed(&mut state.current_workspace, Some(id));
+    }
+    let activated_monitor = state
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.id == id)
+        .and_then(|workspace| workspace.monitor.clone());
+    for workspace in &mut state.workspaces {
+        if focused {
+            changed |= set_if_changed(&mut workspace.focused, workspace.id == id);
+        }
+        if workspace.id == id {
+            changed |= set_if_changed(&mut workspace.active, true);
+        } else if activated_monitor.is_some() && workspace.monitor == activated_monitor {
+            changed |= set_if_changed(&mut workspace.active, false);
+        }
+    }
+    if let Some(monitor_name) = activated_monitor.as_deref() {
+        for monitor in &mut state.monitors {
+            if monitor.name == monitor_name {
+                changed |= set_if_changed(&mut monitor.active_workspace, Some(id));
+            }
+            if focused {
+                changed |= set_if_changed(&mut monitor.focused, monitor.name == monitor_name);
+            }
+        }
+    }
+    changed
+}
+
 fn sync_current_workspace_from_focus_or_workspace(state: &mut State) -> bool {
     let current_workspace = state
         .focused_window
@@ -685,6 +709,147 @@ mod tests {
         assert!(!set_if_changed(&mut value, Some(1)));
         assert!(set_if_changed(&mut value, Some(2)));
         assert_eq!(value, Some(2));
+    }
+
+    #[test]
+    fn workspace_changed_clears_sibling_active_and_syncs_monitor_active_workspace() {
+        let mut state = State {
+            workspaces: vec![
+                Workspace {
+                    id: 1,
+                    monitor: Some("eDP-1".into()),
+                    active: true,
+                    focused: true,
+                    ..workspace(1, false)
+                },
+                Workspace {
+                    id: 2,
+                    monitor: Some("eDP-1".into()),
+                    active: false,
+                    focused: false,
+                    ..workspace(2, false)
+                },
+                Workspace {
+                    id: 3,
+                    monitor: Some("HDMI-A-1".into()),
+                    active: true,
+                    focused: false,
+                    ..workspace(3, false)
+                },
+            ],
+            monitors: vec![
+                monitor("eDP-1", Some(1), true),
+                monitor("HDMI-A-1", Some(3), false),
+            ],
+            current_workspace: Some(1),
+            ..State::default()
+        };
+
+        assert!(apply_workspace_changed(&mut state, 2, true));
+
+        assert_eq!(state.current_workspace, Some(2));
+        assert!(!state.workspaces[0].active, "previous active sibling cleared");
+        assert!(state.workspaces[1].active, "newly activated marked active");
+        assert!(state.workspaces[2].active, "other monitor's active untouched");
+        assert!(!state.workspaces[0].focused);
+        assert!(state.workspaces[1].focused);
+        assert_eq!(state.monitors[0].active_workspace, Some(2));
+        assert_eq!(state.monitors[1].active_workspace, Some(3));
+        assert!(
+            state.monitors[0].focused,
+            "monitor owning the focused workspace stays focused"
+        );
+    }
+
+    #[test]
+    fn workspace_changed_moves_monitor_focus_when_focus_crosses_outputs() {
+        let mut state = State {
+            workspaces: vec![
+                Workspace {
+                    id: 1,
+                    monitor: Some("eDP-1".into()),
+                    active: true,
+                    focused: true,
+                    ..workspace(1, true)
+                },
+                Workspace {
+                    id: 3,
+                    monitor: Some("HDMI-A-1".into()),
+                    active: true,
+                    focused: false,
+                    ..workspace(3, false)
+                },
+            ],
+            monitors: vec![
+                monitor("eDP-1", Some(1), true),
+                monitor("HDMI-A-1", Some(3), false),
+            ],
+            current_workspace: Some(1),
+            ..State::default()
+        };
+
+        assert!(apply_workspace_changed(&mut state, 3, true));
+
+        assert_eq!(state.current_workspace, Some(3));
+        assert!(state.workspaces[1].focused);
+        assert!(!state.workspaces[0].focused);
+        assert!(
+            !state.monitors[0].focused,
+            "previous focused monitor must lose its focused flag"
+        );
+        assert!(
+            state.monitors[1].focused,
+            "monitor owning the newly focused workspace must become focused"
+        );
+    }
+
+    #[test]
+    fn workspace_changed_unfocused_preserves_global_focus_and_updates_per_monitor_active() {
+        let mut state = State {
+            workspaces: vec![
+                Workspace {
+                    id: 1,
+                    monitor: Some("eDP-1".into()),
+                    active: true,
+                    focused: false,
+                    ..workspace(1, false)
+                },
+                Workspace {
+                    id: 2,
+                    monitor: Some("eDP-1".into()),
+                    active: false,
+                    focused: false,
+                    ..workspace(2, false)
+                },
+                Workspace {
+                    id: 3,
+                    monitor: Some("HDMI-A-1".into()),
+                    active: true,
+                    focused: true,
+                    ..workspace(3, true)
+                },
+            ],
+            monitors: vec![
+                monitor("eDP-1", Some(1), false),
+                monitor("HDMI-A-1", Some(3), true),
+            ],
+            current_workspace: Some(3),
+            ..State::default()
+        };
+
+        assert!(apply_workspace_changed(&mut state, 2, false));
+
+        assert_eq!(
+            state.current_workspace,
+            Some(3),
+            "global focus must not move when activation is on a non-focused output"
+        );
+        assert!(state.workspaces[2].focused, "global focus marker preserved");
+        assert!(!state.workspaces[0].active);
+        assert!(state.workspaces[1].active);
+        assert!(state.workspaces[2].active);
+        assert_eq!(state.monitors[0].active_workspace, Some(2));
+        assert_eq!(state.monitors[1].active_workspace, Some(3));
     }
 
     #[test]
