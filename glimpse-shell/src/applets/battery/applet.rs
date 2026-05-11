@@ -126,7 +126,6 @@ impl SimpleComponent for Applet {
 
     view! {
         root = gtk::Box {
-            add_css_class: "applet",
             add_css_class: "battery",
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 4,

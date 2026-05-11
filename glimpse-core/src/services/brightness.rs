@@ -768,6 +768,31 @@ fn ignored_led(device: &str) -> bool {
         || value.contains("numlock")
         || value.contains("scrolllock")
         || value.contains("compose")
+        || network_led(&value)
+}
+
+fn network_led(device: &str) -> bool {
+    let compact = device.replace([':', '_', '-'], "");
+    device.starts_with("phy")
+        || device.contains("::phy")
+        || compact.starts_with("enp")
+        || compact.starts_with("ens")
+        || compact.starts_with("eno")
+        || compact.starts_with("eth")
+        || compact.starts_with("wl")
+        || device.contains("wlan")
+        || device.contains("wifi")
+        || device.contains("iwlwifi")
+        || device.contains("ath9k")
+        || device.contains("ath10k")
+        || device.contains("mt76")
+        || device.contains("r8169")
+        || device.contains("realtek")
+        || device.contains("ethernet")
+        || device.contains("lan")
+        || device.contains("link")
+        || device.contains("rx")
+        || device.contains("tx")
 }
 
 fn is_keyboard_led(device: &str) -> bool {
@@ -1048,6 +1073,12 @@ mod tests {
         write_source(&root.join("platform::kbd_backlight"), 1, 3);
         write_source(&root.join("tpacpi::thinklight"), 2, 4);
         write_source(&root.join("input3::capslock"), 1, 1);
+        write_source(&root.join("phy0-led"), 128, 255);
+        write_source(&root.join("iwlwifi_1::rx"), 128, 255);
+        write_source(&root.join("r8169-0-300::link"), 128, 255);
+        write_source(&root.join("enp4s0::link"), 128, 255);
+        write_source(&root.join("enp4s0::rx"), 128, 255);
+        write_source(&root.join("enp4s0::tx"), 128, 255);
 
         let sources = scan_led_sources(&root);
 
