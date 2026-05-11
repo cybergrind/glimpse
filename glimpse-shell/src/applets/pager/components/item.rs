@@ -39,7 +39,10 @@ impl Item {
         set_class(
             root,
             "pager-num",
-            self.view.appearance == PagerAppearance::Numbers,
+            matches!(
+                self.view.appearance,
+                PagerAppearance::Numbers | PagerAppearance::Labels
+            ),
         );
         let active = self.view.focused && self.view.monitor_focused;
         let inactive = self.view.focused && !self.view.monitor_focused;
@@ -47,7 +50,10 @@ impl Item {
         set_class(root, "inactive", inactive);
         set_class(root, "occupied", self.view.occupied && !self.view.focused);
         set_class(root, "urgent", self.view.urgent);
-        label.set_visible(self.view.appearance == PagerAppearance::Numbers);
+        label.set_visible(matches!(
+            self.view.appearance,
+            PagerAppearance::Numbers | PagerAppearance::Labels
+        ));
         label.set_label(&self.view.label);
     }
 }

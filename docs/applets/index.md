@@ -355,13 +355,13 @@ Shows workspaces and windows.
 ```toml
 [applets.pager]
 display = "workspaces"
-appearance = "numbers"
+appearance = "labels"
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `display` | `"windows"` | Indicator and scroll target: `"workspaces"` or `"windows"`. |
-| `appearance` | `"dots"` | Indicator style: `"dots"` or `"numbers"`. |
+| `appearance` | `"dots"` | Indicator style: `"dots"` (indicator only), `"numbers"` (slot index), or `"labels"` (WM workspace name / window `app_id`, falling back to the slot index when unavailable). |
 
 ## Privacy
 

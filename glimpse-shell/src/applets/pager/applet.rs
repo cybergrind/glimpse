@@ -239,6 +239,7 @@ struct PagerState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PagerWindow {
     id: usize,
+    app_id: Option<String>,
     layout_order: Option<usize>,
     workspace: Option<usize>,
     focused: bool,
@@ -296,6 +297,7 @@ impl From<&Window> for PagerWindow {
     fn from(window: &Window) -> Self {
         Self {
             id: window.id,
+            app_id: window.app_id.clone(),
             layout_order: window.layout_order,
             workspace: window.workspace,
             focused: window.focused,
@@ -404,7 +406,10 @@ fn workspace_items(
                 id: target,
                 target: PagerTarget::Workspace(target),
                 appearance,
-                label: slot.to_string(),
+                label: match appearance {
+                    PagerAppearance::Labels => workspace_label(slot, workspace),
+                    _ => slot.to_string(),
+                },
                 focused: current_slot == Some(slot),
                 monitor_focused,
                 occupied: workspace
@@ -453,7 +458,10 @@ fn window_items(
             id: window.id,
             target: PagerTarget::Window(window.id),
             appearance,
-            label: (index + 1).to_string(),
+            label: match appearance {
+                PagerAppearance::Labels => window_label(index + 1, window),
+                _ => (index + 1).to_string(),
+            },
             focused: window.focused || focused_window == Some(window.id),
             monitor_focused,
             occupied: true,
@@ -626,6 +634,26 @@ fn workspace_belongs_to_panel(
         .and_then(|workspace| workspace.monitor.as_deref())
         .map(|workspace_monitor| workspace_monitor == monitor)
         .unwrap_or(false)
+}
+
+fn workspace_label(slot: usize, workspace: Option<&Workspace>) -> String {
+    let slot_string = slot.to_string();
+    workspace
+        .and_then(|workspace| workspace.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && *name != slot_string)
+        .map(ToOwned::to_owned)
+        .unwrap_or(slot_string)
+}
+
+fn window_label(slot: usize, window: &PagerWindow) -> String {
+    window
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|app_id| !app_id.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| slot.to_string())
 }
 
 fn current_workspace_tooltip(state: &PagerState) -> String {
@@ -1077,6 +1105,142 @@ mod tests {
     }
 
     #[test]
+    fn workspace_label_prefers_wm_name_over_slot() {
+        let workspace = Workspace {
+            id: 7,
+            index: Some(1),
+            name: Some("web".into()),
+            monitor: Some("eDP-1".into()),
+            active: true,
+            focused: true,
+            urgent: false,
+            active_window: None,
+        };
+        assert_eq!(workspace_label(1, Some(&workspace)), "web");
+    }
+
+    #[test]
+    fn workspace_label_falls_back_to_slot_when_name_missing_or_redundant() {
+        let unnamed = Workspace {
+            id: 7,
+            index: Some(1),
+            name: None,
+            monitor: Some("eDP-1".into()),
+            active: true,
+            focused: true,
+            urgent: false,
+            active_window: None,
+        };
+        assert_eq!(workspace_label(1, Some(&unnamed)), "1");
+
+        let numeric_name = Workspace {
+            name: Some("1".into()),
+            ..unnamed.clone()
+        };
+        assert_eq!(workspace_label(1, Some(&numeric_name)), "1");
+
+        let blank_name = Workspace {
+            name: Some("   ".into()),
+            ..unnamed
+        };
+        assert_eq!(workspace_label(1, Some(&blank_name)), "1");
+
+        assert_eq!(workspace_label(3, None), "3");
+    }
+
+    #[test]
+    fn window_label_uses_app_id_when_present() {
+        let mut window = PagerWindow::from(&window(11, Some(1), false));
+        window.app_id = Some("firefox".into());
+        assert_eq!(window_label(1, &window), "firefox");
+    }
+
+    #[test]
+    fn window_label_falls_back_to_slot_when_app_id_missing_or_blank() {
+        let mut window = PagerWindow::from(&window(11, Some(1), false));
+        window.app_id = None;
+        assert_eq!(window_label(2, &window), "2");
+        window.app_id = Some("   ".into());
+        assert_eq!(window_label(2, &window), "2");
+    }
+
+    #[test]
+    fn workspace_items_render_wm_names_under_labels_appearance() {
+        let mut state = state_with_workspaces(vec![Workspace {
+            id: 2,
+            index: Some(2),
+            name: Some("web".into()),
+            monitor: None,
+            active: true,
+            focused: true,
+            urgent: false,
+            active_window: None,
+        }]);
+        state.current_workspace = Some(2);
+        let windows = state
+            .windows
+            .iter()
+            .map(PagerWindow::from)
+            .collect::<Vec<_>>();
+
+        let items = workspace_items(
+            state.compositor,
+            state.current_workspace,
+            None,
+            true,
+            &state.workspaces,
+            &windows,
+            PagerAppearance::Labels,
+        );
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "web"]
+        );
+    }
+
+    #[test]
+    fn window_items_render_app_id_under_labels_but_index_under_numbers() {
+        let mut state = state_with_workspaces(vec![workspace(1)]);
+        state.current_workspace = Some(1);
+        state.capabilities.windows = true;
+        let mut win = window(10, Some(1), false);
+        win.app_id = Some("firefox".into());
+        state.windows = vec![win];
+        let windows = state
+            .windows
+            .iter()
+            .map(PagerWindow::from)
+            .collect::<Vec<_>>();
+
+        let labels_items = window_items(
+            state.compositor,
+            state.current_workspace,
+            None,
+            true,
+            None,
+            &state.workspaces,
+            &windows,
+            PagerAppearance::Labels,
+        );
+        assert_eq!(labels_items[0].label, "firefox");
+
+        let number_items = window_items(
+            state.compositor,
+            state.current_workspace,
+            None,
+            true,
+            None,
+            &state.workspaces,
+            &windows,
+            PagerAppearance::Numbers,
+        );
+        assert_eq!(number_items[0].label, "1");
+    }
+
+    #[test]
     fn view_hides_when_compositor_has_no_workspace_support() {
         let mut state = State::default();
         state.capabilities.workspaces = false;
@@ -1112,7 +1276,6 @@ mod tests {
         unrelated.capabilities.night_light = true;
         unrelated.current_keyboard_layout = Some(1);
         unrelated.windows[0].title = Some("renamed".into());
-        unrelated.windows[0].app_id = Some("app".into());
         unrelated.windows[0].pid = Some(42);
         unrelated.windows[0].fullscreen = true;
         unrelated.windows[0].floating = Some(true);

@@ -15,6 +15,7 @@ pub enum PagerAppearance {
     #[default]
     Dots,
     Numbers,
+    Labels,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
