@@ -1176,8 +1176,12 @@ fn decode_image(
             );
             return Ok(cached);
         }
-        if let Some(migrated) = load_legacy_unprocessed_cache(path, fit, target_size, cache_key)? {
-            return Ok(migrated);
+        if blur_radius.unwrap_or_default() == 0 {
+            if let Some(migrated) =
+                load_legacy_unprocessed_cache(path, fit, target_size, cache_key)?
+            {
+                return Ok(migrated);
+            }
         }
     }
 
@@ -1402,7 +1406,7 @@ impl ImageCacheKey {
         };
         let signature = source_signature(source_path)?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        "glimpse-wallpaper-rgba-v2".hash(&mut hasher);
+        "glimpse-wallpaper-rgba-v3".hash(&mut hasher);
         source_path.hash(&mut hasher);
         signature.hash(&mut hasher);
         fit.hash(&mut hasher);
@@ -1573,7 +1577,7 @@ fn image_color_label(color: image::ColorType) -> &'static str {
 mod tests {
     use super::{
         DecodedImage, ImageCacheKey, ImageLayerInit, active_paths, backdrop_texture_dimensions,
-        blur_processing_dimensions, load_cached_image, load_legacy_unprocessed_cache,
+        blur_processing_dimensions, decode_image, load_cached_image, load_legacy_unprocessed_cache,
         resize_rgba_for_fit, should_start_image_load, write_cached_image,
     };
     use glimpse_core::{FitMode, ResolvedBackdropSpec, ResolvedImageSpec, ResolvedWallpaperSpec};
@@ -1725,6 +1729,43 @@ mod tests {
         let _ = fs::remove_file(source);
         let _ = fs::remove_file(current_key.path);
         let _ = fs::remove_file(legacy_key.path);
+    }
+
+    #[test]
+    fn decode_image_with_blur_does_not_migrate_unblurred_legacy_cache() {
+        let source = temp_path("source-blur.heic");
+        fs::write(&source, b"fake image bytes").unwrap();
+
+        let legacy_key = ImageCacheKey::new_legacy(&source, None, None)
+            .unwrap()
+            .unwrap();
+        let legacy = DecodedImage {
+            width: 400,
+            height: 200,
+            stride: 1600,
+            pixels: vec![255; 400 * 200 * 4],
+        };
+        write_cached_image(&legacy_key, &legacy).unwrap();
+
+        let blurred_key = ImageCacheKey::new(&source, FitMode::Cover, Some(24), Some((100, 100)))
+            .unwrap()
+            .unwrap();
+
+        let result = decode_image(&source, FitMode::Cover, Some(24), Some((100, 100)));
+
+        assert!(
+            result.is_err(),
+            "decode_image should fall through to a fresh decode (which fails on fake bytes) \
+             rather than seeding the blurred-output slot from the unblurred legacy cache"
+        );
+        assert!(
+            !blurred_key.path.exists(),
+            "blurred-output cache slot must not be populated from the unblurred legacy cache"
+        );
+
+        let _ = fs::remove_file(source);
+        let _ = fs::remove_file(legacy_key.path);
+        let _ = fs::remove_file(blurred_key.path);
     }
 
     #[test]
