@@ -33,6 +33,7 @@ pub struct Popup {
     overflow: gtk::Label,
     timeout_ms: u32,
     visible_limit: usize,
+    popup_monitor: Option<String>,
     theme_mode: ThemeMode,
     started_at: u64,
     surfaced: HashMap<u32, u64>,
@@ -60,6 +61,7 @@ pub struct PopupInit {
     pub position: PopupPosition,
     pub margin_x: i32,
     pub margin_y: i32,
+    pub popup_monitor: Option<String>,
     pub theme_mode: ThemeMode,
 }
 
@@ -98,6 +100,7 @@ pub enum PopupInput {
         position: PopupPosition,
         margin_x: i32,
         margin_y: i32,
+        popup_monitor: Option<String>,
         theme_mode: ThemeMode,
     },
     TimeoutElapsed(u32),
@@ -146,6 +149,7 @@ impl SimpleComponent for Popup {
             init.position,
             init.margin_x,
             init.margin_y,
+            init.popup_monitor.as_deref(),
             &init.theme_mode,
         );
         theme::apply_theme_mode(&widgets.card_box, &theme::DIALOG_THEME_MODE);
@@ -155,11 +159,20 @@ impl SimpleComponent for Popup {
             overflow: widgets.overflow.clone(),
             timeout_ms: init.timeout_ms,
             visible_limit: normalize_visible_limit(init.visible_limit),
+            popup_monitor: init.popup_monitor,
             theme_mode: init.theme_mode,
             started_at: now_ms(),
             surfaced: HashMap::new(),
             cards: Rc::new(RefCell::new(HashMap::new())),
         };
+
+        let window = widgets.root.clone();
+        let popup_monitor = model.popup_monitor.clone();
+        if let Some(display) = gtk::gdk::Display::default() {
+            display.monitors().connect_items_changed(move |_, _, _, _| {
+                apply_popup_monitor(&window, popup_monitor.as_deref());
+            });
+        }
 
         ComponentParts { model, widgets }
     }
@@ -196,12 +209,15 @@ impl SimpleComponent for Popup {
                 position,
                 margin_x,
                 margin_y,
+                popup_monitor,
                 theme_mode,
             } => {
                 self.timeout_ms = timeout_ms;
                 self.visible_limit = normalize_visible_limit(visible_limit);
+                self.popup_monitor = popup_monitor;
                 self.theme_mode = theme_mode;
                 apply_position(&self.window, position, margin_x, margin_y);
+                apply_popup_monitor(&self.window, self.popup_monitor.as_deref());
                 theme::apply_theme_mode(&self.window, &theme::DIALOG_THEME_MODE);
                 theme::apply_theme_mode(&self.card_box, &theme::DIALOG_THEME_MODE);
             }
@@ -549,6 +565,7 @@ fn build_card(notification: &NotificationEntry, sender: &ComponentSender<Popup>)
         if point_inside_widget(&card_widget, &dismiss, x, y)
             || point_inside_widget(&card_widget, &actions_box, x, y)
         {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         }
         gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -596,6 +613,7 @@ fn build_card(notification: &NotificationEntry, sender: &ComponentSender<Popup>)
         if point_inside_widget(&card_widget, &dismiss, x, y)
             || point_inside_widget(&card_widget, &actions_box, x, y)
         {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         }
         gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -670,6 +688,7 @@ fn configure_window(
     position: PopupPosition,
     margin_x: i32,
     margin_y: i32,
+    popup_monitor: Option<&str>,
     theme_mode: &ThemeMode,
 ) {
     window.set_decorated(false);
@@ -683,6 +702,41 @@ fn configure_window(
     window.set_namespace(Some("glimpse-notification-popup"));
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
     apply_position(window, position, margin_x, margin_y);
+    apply_popup_monitor(window, popup_monitor);
+}
+
+/// Pin the popup window to the connector named by `popup_monitor`, if any.
+///
+/// When `popup_monitor` is `None` or the named connector isn't currently connected, we leave
+/// `set_monitor` unset so the compositor picks the placement (current behavior).
+fn apply_popup_monitor(window: &gtk::Window, popup_monitor: Option<&str>) {
+    let Some(name) = popup_monitor else {
+        window.set_monitor(None::<&gtk::gdk::Monitor>);
+        return;
+    };
+    match find_monitor_by_connector(name) {
+        Some(monitor) => window.set_monitor(Some(&monitor)),
+        None => {
+            tracing::debug!(
+                connector = name,
+                "popup_monitor not currently connected, deferring placement to compositor"
+            );
+            window.set_monitor(None::<&gtk::gdk::Monitor>);
+        }
+    }
+}
+
+fn find_monitor_by_connector(name: &str) -> Option<gtk::gdk::Monitor> {
+    let display = gtk::gdk::Display::default()?;
+    let monitors = display.monitors();
+    for index in 0..monitors.n_items() {
+        let object = monitors.item(index)?;
+        let monitor = object.downcast::<gtk::gdk::Monitor>().ok()?;
+        if monitor.connector().map(|s| s.to_string()).as_deref() == Some(name) {
+            return Some(monitor);
+        }
+    }
+    None
 }
 
 fn apply_position(window: &gtk::Window, position: PopupPosition, margin_x: i32, margin_y: i32) {
@@ -813,6 +867,7 @@ mod tests {
             position: PopupPosition::TopCenter,
             margin_x: 12,
             margin_y: 32,
+            popup_monitor: None,
             theme_mode: glimpse_core::ThemeMode::Dark,
         };
 

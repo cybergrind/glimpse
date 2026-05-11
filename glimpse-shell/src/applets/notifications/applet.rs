@@ -39,6 +39,7 @@ pub struct Config {
     pub popup_position: PopupPosition,
     pub popup_margin_x: i32,
     pub popup_margin_y: i32,
+    pub popup_monitor: Option<String>,
 }
 
 impl Config {
@@ -71,6 +72,7 @@ impl Default for Config {
             popup_position: PopupPosition::TopCenter,
             popup_margin_x: 12,
             popup_margin_y: 32,
+            popup_monitor: None,
         }
     }
 }
@@ -89,7 +91,7 @@ pub struct Applet {
     badge_classes: Vec<&'static str>,
     popover: Controller<Popover>,
     popover_open: bool,
-    popup: Controller<Popup>,
+    popup: Option<Controller<Popup>>,
     subscription_cancel: CancellationToken,
     theme_mode: ThemeMode,
 }
@@ -98,6 +100,7 @@ pub struct Init {
     pub service: NotificationsHandle,
     pub compositor: CompositorHandle,
     pub config: Config,
+    pub panel_monitor: Option<String>,
     pub theme_mode: ThemeMode,
 }
 
@@ -180,16 +183,37 @@ impl SimpleComponent for Applet {
                 parent: root.clone(),
             })
             .forward(sender.input_sender(), Input::PopoverOutput);
-        let popup = Popup::builder()
-            .launch(PopupInit {
-                timeout_ms: init.config.popup_timeout_ms,
-                visible_limit: init.config.popup_visible_limit,
-                position: init.config.popup_position,
-                margin_x: init.config.popup_margin_x,
-                margin_y: init.config.popup_margin_y,
-                theme_mode: init.theme_mode,
-            })
-            .forward(sender.input_sender(), Input::PopoverOutput);
+        let owns_popup = applet_owns_popup(
+            init.config.popup_monitor.as_deref(),
+            init.panel_monitor.as_deref(),
+        );
+        let popup = if owns_popup {
+            tracing::debug!(
+                panel_monitor = ?init.panel_monitor,
+                popup_monitor = ?init.config.popup_monitor,
+                "creating notifications popup window"
+            );
+            Some(
+                Popup::builder()
+                    .launch(PopupInit {
+                        timeout_ms: init.config.popup_timeout_ms,
+                        visible_limit: init.config.popup_visible_limit,
+                        position: init.config.popup_position,
+                        margin_x: init.config.popup_margin_x,
+                        margin_y: init.config.popup_margin_y,
+                        popup_monitor: init.config.popup_monitor.clone(),
+                        theme_mode: init.theme_mode,
+                    })
+                    .forward(sender.input_sender(), Input::PopoverOutput),
+            )
+        } else {
+            tracing::debug!(
+                panel_monitor = ?init.panel_monitor,
+                popup_monitor = ?init.config.popup_monitor,
+                "skipping notifications popup window (another panel owns it)"
+            );
+            None
+        };
 
         let state = init.service.snapshot();
         let compositor_state = init.compositor.snapshot();
@@ -227,14 +251,17 @@ impl SimpleComponent for Applet {
                 self.config = config;
                 self.theme_mode = theme_mode;
                 self.apply_state(self.service.snapshot());
-                self.popup.emit(PopupInput::Reconfigure {
-                    timeout_ms: self.config.popup_timeout_ms,
-                    visible_limit: self.config.popup_visible_limit,
-                    position: self.config.popup_position,
-                    margin_x: self.config.popup_margin_x,
-                    margin_y: self.config.popup_margin_y,
-                    theme_mode,
-                });
+                if let Some(popup) = &self.popup {
+                    popup.emit(PopupInput::Reconfigure {
+                        timeout_ms: self.config.popup_timeout_ms,
+                        visible_limit: self.config.popup_visible_limit,
+                        position: self.config.popup_position,
+                        margin_x: self.config.popup_margin_x,
+                        margin_y: self.config.popup_margin_y,
+                        popup_monitor: self.config.popup_monitor.clone(),
+                        theme_mode,
+                    });
+                }
             }
             Input::TogglePopover => self.popover.emit(PopoverInput::Toggle),
             Input::PopoverOutput(output) => self.handle_output(output),
@@ -251,10 +278,12 @@ impl Applet {
         if self.popover_open {
             self.sync_popover(&state);
         }
-        self.popup.emit(PopupInput::Update {
-            notifications: state.notifications.clone(),
-            dnd: state.dnd,
-        });
+        if let Some(popup) = &self.popup {
+            popup.emit(PopupInput::Update {
+                notifications: state.notifications.clone(),
+                dnd: state.dnd,
+            });
+        }
         self.state = state;
     }
 
@@ -384,6 +413,40 @@ impl Drop for Applet {
     fn drop(&mut self) {
         self.subscription_cancel.cancel();
     }
+}
+
+/// Decide whether this applet instance should own the singleton popup window.
+///
+/// With multiple panels (one per monitor), every notifications applet would otherwise spin up its
+/// own popup window — they all stack at the same anchor and you end up needing one click per
+/// monitor to dismiss what looks like a single popup. Restrict popup ownership to a single
+/// connector to avoid that.
+///
+/// - `popup_monitor = Some(name)`: own iff this applet's panel sits on `name`. Falls back to no
+///   popup at all if the configured monitor is not currently connected (matches the "fall back to
+///   compositor placement when missing" UX decision — except in this case, with no applet on that
+///   connector, there is no popup until the monitor returns and panels reconcile).
+/// - `popup_monitor = None`: own iff this applet's panel sits on the alphabetically-first
+///   currently-connected connector. Deterministic single-popup default, no extra config required.
+fn applet_owns_popup(popup_monitor: Option<&str>, panel_monitor: Option<&str>) -> bool {
+    match (popup_monitor, panel_monitor) {
+        (Some(target), Some(panel)) => target == panel,
+        (Some(_), None) => false,
+        (None, Some(panel)) => primary_connector().as_deref() == Some(panel),
+        (None, None) => true,
+    }
+}
+
+fn primary_connector() -> Option<String> {
+    let display = gtk::gdk::Display::default()?;
+    let monitors = display.monitors();
+    let mut connectors = (0..monitors.n_items())
+        .filter_map(|index| monitors.item(index))
+        .filter_map(|object| object.downcast::<gtk::gdk::Monitor>().ok())
+        .filter_map(|monitor| monitor.connector().map(|s| s.to_string()))
+        .collect::<Vec<_>>();
+    connectors.sort();
+    connectors.into_iter().next()
 }
 
 fn subscribe_services(model: &Applet, sender: ComponentSender<Applet>) {
@@ -573,5 +636,48 @@ mod tests {
     #[test]
     fn config_defaults_popup_visible_limit_to_eight() {
         assert_eq!(Config::default().popup_visible_limit, 8);
+    }
+
+    #[test]
+    fn config_defaults_popup_monitor_to_none() {
+        assert_eq!(Config::default().popup_monitor, None);
+    }
+
+    #[test]
+    fn config_accepts_popup_monitor_connector() {
+        let raw = AppletConfig {
+            extends: None,
+            settings: toml::toml! {
+                popup_monitor = "DP-2"
+            }
+            .into(),
+        };
+
+        let config = Config::from_raw(&Some(raw));
+
+        assert_eq!(config.popup_monitor.as_deref(), Some("DP-2"));
+    }
+
+    #[test]
+    fn applet_owns_popup_pinned_to_matching_panel() {
+        assert!(applet_owns_popup(Some("eDP-1"), Some("eDP-1")));
+    }
+
+    #[test]
+    fn applet_owns_popup_rejects_panel_on_other_monitor_when_pinned() {
+        assert!(!applet_owns_popup(Some("eDP-1"), Some("DP-2")));
+    }
+
+    #[test]
+    fn applet_owns_popup_rejects_unbound_panel_when_pinned() {
+        // With popup_monitor explicitly set, panels with no monitor binding can never own
+        // the popup — otherwise a stray applet would steal it from the configured target.
+        assert!(!applet_owns_popup(Some("eDP-1"), None));
+    }
+
+    #[test]
+    fn applet_owns_popup_falls_through_when_no_pin_and_no_panel_binding() {
+        // Single-monitor / unconfigured panels keep the legacy "compositor places it" behavior.
+        assert!(applet_owns_popup(None, None));
     }
 }

@@ -323,6 +323,7 @@ pub fn create_applet(
                     service: services.notifications.clone(),
                     compositor: services.compositor.clone(),
                     config: notifications::Config::from_raw(&blueprint.config),
+                    panel_monitor: monitor_connector.map(str::to_owned),
                     theme_mode,
                 })
                 .detach(),

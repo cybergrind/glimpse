@@ -551,11 +551,13 @@ impl NotificationRow {
             let card_actions_enabled = card_actions_enabled.clone();
             move |gesture, _, x, y| {
                 if !card_actions_enabled.get() {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
                 if point_inside_widget(&root_widget, &dismiss, x, y)
                     || point_inside_widget(&root_widget, &actions_box, x, y)
                 {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
                 gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -576,11 +578,13 @@ impl NotificationRow {
             let card_actions_enabled = card_actions_enabled.clone();
             move |gesture, _, x, y| {
                 if !card_actions_enabled.get() {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
                 if point_inside_widget(&root_widget, &dismiss, x, y)
                     || point_inside_widget(&root_widget, &actions_box, x, y)
                 {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
                     return;
                 }
                 gesture.set_state(gtk::EventSequenceState::Claimed);

@@ -312,6 +312,7 @@ popup_visible_limit = 8
 popup_position = "top_center"
 popup_margin_x = 12
 popup_margin_y = 32
+popup_monitor = "DP-2"   # optional
 ```
 
 | Option | Default | Meaning |
@@ -324,8 +325,28 @@ popup_margin_y = 32
 | `popup_position` | `"top_center"` | Popup position. |
 | `popup_margin_x` | `12` | Horizontal popup margin. |
 | `popup_margin_y` | `32` | Vertical popup margin. |
+| `popup_monitor` | unset | Pin popups to a specific output by connector name (e.g. `"eDP-1"`, `"DP-2"`). When unset, popups appear on the alphabetically-first connected output. |
 
 Placeholders: `{count}`, `{state}`.
+
+### Popups on multi-monitor setups
+
+By default Glimpse runs one panel per connected monitor, and the `notifications` applet on each of those panels would otherwise create its own popup window. To keep popups single, only one applet across the shell actually owns the popup window:
+
+- If `popup_monitor` is set, only the applet whose panel sits on that connector owns the popup. Popups always appear on that monitor regardless of which monitor currently has focus.
+- If `popup_monitor` is unset, the alphabetically-first connected connector wins. Deterministic across restarts; no extra config needed for typical single-monitor setups.
+- If the configured `popup_monitor` connector is not currently connected, no popup window exists until that connector returns. Notifications still arrive in the notification center popover.
+
+The `notifications` applet should be configured on at most one `[[panels]]` block — duplicates on the same connector are silently dropped (first one to initialize wins), but it's clearer to leave it in one place.
+
+### Popup interactions
+
+| Gesture | Behavior |
+|---|---|
+| Left-click on the card body | Focus the source application and dismiss the notification. |
+| Right-click on the card body | Hide the popup card only; the notification stays in the notification center. |
+| Close button (×) | Dismiss the notification fully. |
+| Action button | Invoke that action and dismiss the notification. |
 
 ## Pager
 
@@ -333,14 +354,14 @@ Shows workspaces and windows.
 
 ```toml
 [applets.pager]
-count = 10
-scroll_action = "workspaces"
+display = "workspaces"
+appearance = "numbers"
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
-| `count` | `10` | Number of workspace slots to show. |
-| `scroll_action` | unset | What scrolling does: `"workspaces"` or `"windows"`. |
+| `display` | `"windows"` | Indicator and scroll target: `"workspaces"` or `"windows"`. |
+| `appearance` | `"dots"` | Indicator style: `"dots"` or `"numbers"`. |
 
 ## Privacy
 
